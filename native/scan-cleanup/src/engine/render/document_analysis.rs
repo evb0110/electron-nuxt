@@ -472,7 +472,7 @@ fn prepare_layout_picture_evidence(
         continuous_tone_mask,
         detected_picture_mask,
         automatic_picture_mask,
-        picture_mask,
+        picture_mask: picture_mask.clone(),
         trusted_mrc_tone_mask,
         content_evidence_complete,
         content_picture_mask,
@@ -907,6 +907,291 @@ fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput 
     }
 }
 
+struct ModePreservationInput<'a> {
+    rotated: &'a GrayImage,
+    layout_normalized: &'a GrayImage,
+    analysis_rgb: Option<&'a RgbImage>,
+    picture_mask: Option<Arc<BinaryImage>>,
+    outside_tone: OutsideTonalEvidence,
+    picture_tone_evidence: bool,
+    text_line_count: usize,
+    protected_text_blocks: Vec<ContentBlockEvidence>,
+    independent_picture_evidence: bool,
+    calibration: PageCalibration,
+    options: &'a CleanupOptions,
+    render_policy: PageRenderPolicy,
+    tonal_protection_mask: Option<Arc<BinaryImage>>,
+    tone_semantic_preservation_alpha: Option<Arc<GrayImage>>,
+    semantic_preservation_alpha: Option<Arc<GrayImage>>,
+    text_soft_edge_ratio: Option<f64>,
+}
+
+struct ModePreservationOutput {
+    output_mode_recommendation: Option<OutputModeRecommendation>,
+    resolved_output_mode: OutputMode,
+    chroma_picture_mask: Option<Arc<BinaryImage>>,
+    significant_picture: bool,
+    refine_picture_ownership: bool,
+    output_picture_mask: Option<Arc<BinaryImage>>,
+    photographic_picture_mask: Option<Arc<BinaryImage>>,
+    coherent_photo_mask: Option<Arc<BinaryImage>>,
+    photo_preservation_alpha: Option<Arc<GrayImage>>,
+    tone_preservation_alpha: Option<Arc<GrayImage>>,
+    preserve_confirmed_photo_tones: bool,
+    use_soft_alpha_foreground: bool,
+    protect_tonal_text_vicinity: bool,
+}
+
+fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreservationOutput {
+    let ModePreservationInput {
+        rotated,
+        layout_normalized,
+        analysis_rgb,
+        picture_mask,
+        outside_tone,
+        picture_tone_evidence,
+        text_line_count,
+        protected_text_blocks,
+        independent_picture_evidence,
+        calibration,
+        options,
+        render_policy,
+        tonal_protection_mask,
+        tone_semantic_preservation_alpha,
+        semantic_preservation_alpha,
+        text_soft_edge_ratio,
+    } = input;
+    let mut output_mode_recommendation = picture_mask
+        .as_deref()
+        .filter(|_| render_policy.recommend_output_mode)
+        .map(|picture_mask| {
+            let recommendation = recommend_output_mode_with_tone(
+                PreparedModeEvidence {
+                    analysis: rotated,
+                    analysis_rgb,
+                    picture_mask,
+                    picture_tone_evidence,
+                    text_line_count,
+                },
+                outside_tone,
+            );
+            let recommendation = veto_contradictory_mixed_ownership(
+                recommendation,
+                options.output_mode == OutputMode::Auto,
+                &protected_text_blocks,
+                independent_picture_evidence,
+            );
+            protect_bilevel_text_fidelity(
+                recommendation,
+                calibration,
+                options.source_dpi(),
+                text_line_count,
+                text_soft_edge_ratio,
+            )
+        });
+    // Maps and dense line art often satisfy the generous picture detector
+    // over almost the whole page. Restoring that full rectangle also
+    // restores its gray paper. Use pixel-refined preservation when the
+    // page-global evidence says "large, bimodal, low-midtone line art";
+    // genuine continuous photographs keep their full mask so highlights
+    // and smooth gradients cannot become contrast stencils.
+    let picture_ownership_diagnostics = output_mode_recommendation
+        .map(|recommendation| recommendation.diagnostics)
+        .or_else(|| {
+            picture_mask.as_deref().map(|picture_mask| {
+                protect_bilevel_text_fidelity(
+                    recommend_output_mode_with_tone(
+                        PreparedModeEvidence {
+                            analysis: rotated,
+                            analysis_rgb,
+                            picture_mask,
+                            picture_tone_evidence,
+                            text_line_count,
+                        },
+                        outside_tone,
+                    ),
+                    calibration,
+                    options.source_dpi(),
+                    text_line_count,
+                    text_soft_edge_ratio,
+                )
+                .diagnostics
+            })
+        });
+    let resolved_output_mode = if options.output_mode == OutputMode::Auto {
+        output_mode_recommendation
+            .map(|recommendation| recommendation.mode)
+            .unwrap_or(options.output_mode)
+    } else {
+        options.output_mode
+    };
+    let chroma_picture_mask = (resolved_output_mode == OutputMode::Mixed)
+        .then(|| independent_chroma_mask(rotated, analysis_rgb, text_line_count).map(Arc::new))
+        .flatten();
+    let significant_picture =
+        picture_ownership_diagnostics.is_some_and(|diagnostics| diagnostics.significant_picture);
+    let refine_picture_ownership = picture_ownership_diagnostics
+        .is_some_and(|diagnostics| should_refine_line_art_picture_ownership(&diagnostics));
+    // Stencil legality is a property of the newly encoded foreground, not
+    // of the semantic reason that selected Mixed. Spatial-tone pages can
+    // have no detector-owned picture at all, so restricting this check to
+    // photo-dominant Mixed output lets undersampled glyphs and map lines
+    // bypass the same source-sampling boundary enforced for B&W.
+    let mixed_foreground_fidelity_veto = resolved_output_mode == OutputMode::Mixed
+        && picture_ownership_diagnostics.is_some_and(|diagnostics| {
+            !should_refine_line_art_picture_ownership(&diagnostics)
+                && should_veto_bilevel_fidelity(
+                    calibration.valid,
+                    diagnostics.calibrated_source_stroke_width_px,
+                    diagnostics.calibrated_source_x_height_px,
+                    diagnostics.source_dpi,
+                    diagnostics.soft_edge_to_ink_ratio,
+                    text_line_count,
+                )
+        });
+    let computed_soft_alpha_foreground = resolved_output_mode == OutputMode::Mixed
+        && text_line_count > 0
+        && picture_ownership_diagnostics.is_some_and(|diagnostics| {
+            mixed_foreground_fidelity_veto
+                || diagnostics.bilevel_fidelity_veto
+                || diagnostics.significant_color
+                || (diagnostics.significant_picture && !refine_picture_ownership)
+        });
+    let use_soft_alpha_foreground = resolved_output_mode == OutputMode::Mixed
+            && options
+                .prefer_soft_alpha_foreground
+                .unwrap_or(computed_soft_alpha_foreground)
+            // The final layered handoff is a fresh MRC composition. Its
+            // high-resolution stencil owns ink, while the calibrated plate
+            // owns continuous tone. Keeping the preview/library composite
+            // soft preserves antialiasing there; publishing an 8-bit alpha
+            // plane for final pages defeats the compact JBIG2 foreground
+            // representation and carries no additional source ownership.
+            && !render_policy.create_mixed_layers;
+    if let Some(recommendation) = output_mode_recommendation.as_mut() {
+        recommendation.prefer_soft_alpha_foreground = use_soft_alpha_foreground;
+        recommendation.diagnostics.bilevel_fidelity_veto |= mixed_foreground_fidelity_veto;
+    }
+    let protect_tonal_text_vicinity = significant_picture && !refine_picture_ownership;
+    // Exact preservation is a direct view of the sole vetted owner. Size
+    // heuristics and line-art diagnostics may choose representation
+    // details, but cannot revoke ownership once this mask is nonempty.
+    let preserve_confirmed_photo_tones =
+        confirmed_photo_preservation_policy(picture_mask.as_deref());
+    let mut output_picture_mask = if resolved_output_mode == OutputMode::Mixed {
+        // Only the vetted owner may enter the Mixed partition. The
+        // continuous-tone mask remains corroborating/protection evidence;
+        // OR-ing it here recreated the non-monotonic ownership bug after
+        // mode selection and let paper/show-through become "Text+pics".
+        union_optional_masks(picture_mask.as_ref(), chroma_picture_mask.as_ref())
+    } else {
+        picture_mask.clone()
+    };
+    // Layer ownership and illumination ownership are deliberately
+    // different. A coherent line-art/map field must stay out of the
+    // bilevel foreground, but treating that entire field as a photograph
+    // also restores its gray paper after normalization. A page with direct
+    // significant-picture evidence extends that photographic treatment to
+    // the coherent tone mask so detector fragments cannot create seams
+    // through a real photo. Without that evidence, only detector-owned
+    // pictures and independent chroma bypass the paper model.
+    let mut photographic_picture_mask =
+        if resolved_output_mode == OutputMode::Mixed && significant_picture {
+            output_picture_mask.clone()
+        } else if resolved_output_mode == OutputMode::Mixed {
+            union_optional_masks(picture_mask.as_ref(), chroma_picture_mask.as_ref())
+        } else {
+            picture_mask.clone()
+        };
+    // A confirmed owner gets an exact, immutable source-preservation
+    // alpha. Line-art refinement is still useful for the rest of a map or
+    // diagram, but it is computed on geometry outside that owner so its
+    // paper-model estimate cannot whiten an approved photo lobe.
+    let detected_photo_preservation_alpha = picture_and_line_art_preservation_alpha(
+        layout_normalized,
+        rotated,
+        tonal_protection_mask.as_deref(),
+        photographic_picture_mask.as_deref(),
+        refine_picture_ownership,
+    );
+    // On a genuine photograph the semantic tone detector can complete
+    // smooth highlights that the texture-based picture mask omits. That
+    // evidence must select the source-preservation branch, not merely the
+    // semantic contrast curve; otherwise the two branches meet as a hard
+    // horizontal seam through the image. Line-art pages keep semantic and
+    // photo alphas separate so gray paper is still driven to white.
+    let expanded_photo_preservation_alpha = if significant_picture && !refine_picture_ownership {
+        union_optional_gray_fields(
+            detected_photo_preservation_alpha.as_ref(),
+            tone_semantic_preservation_alpha.as_ref(),
+        )
+    } else {
+        detected_photo_preservation_alpha
+    };
+    let coherent_photo_mask = picture_mask
+        .as_ref()
+        .filter(|owner| owner.count_black() > 0 && !refine_picture_ownership)
+        .map(Arc::clone)
+        .or_else(|| {
+            (matches!(
+                resolved_output_mode,
+                OutputMode::Mixed | OutputMode::Grayscale
+            ) && significant_picture
+                && !refine_picture_ownership)
+                .then(|| {
+                    expanded_photo_preservation_alpha
+                        .as_deref()
+                        .and_then(|alpha| coherent_photo_field(alpha, rotated))
+                })
+                .flatten()
+        });
+    let photo_preservation_alpha = if let Some(field) = coherent_photo_mask.as_ref() {
+        // The high-confidence continuous field is the representation
+        // boundary. Detector fragments attached to a scanner shadow or a
+        // page rule remain outside it, so they can be whitened as paper;
+        // the whole photographic enclosure stays on one source-preserved
+        // low-DPI layer.
+        if resolved_output_mode == OutputMode::Mixed {
+            let field_and_chroma = union_optional_masks(Some(field), chroma_picture_mask.as_ref());
+            // A coherent-field replacement must not discard the exact
+            // classifier zone that selected the layered owner. Keep the
+            // zone in the normalization/photo owner as well as carrying
+            // it separately into the final Mixed partition.
+            output_picture_mask = field_and_chroma;
+            photographic_picture_mask = output_picture_mask.clone();
+        } else {
+            photographic_picture_mask = Some(Arc::clone(field));
+        }
+        photo_tone_preservation_alpha(field).map(Arc::new)
+    } else {
+        expanded_photo_preservation_alpha
+    };
+    let tone_preservation_alpha = if protect_tonal_text_vicinity {
+        photo_preservation_alpha.clone()
+    } else {
+        union_optional_gray_fields(
+            semantic_preservation_alpha.as_ref(),
+            photo_preservation_alpha.as_ref(),
+        )
+    };
+
+    ModePreservationOutput {
+        output_mode_recommendation,
+        resolved_output_mode,
+        chroma_picture_mask,
+        significant_picture,
+        refine_picture_ownership,
+        output_picture_mask,
+        photographic_picture_mask,
+        coherent_photo_mask,
+        photo_preservation_alpha,
+        tone_preservation_alpha,
+        preserve_confirmed_photo_tones,
+        use_soft_alpha_foreground,
+        protect_tonal_text_vicinity,
+    }
+}
+
 fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
     let ArtifactInput {
         analysis_key,
@@ -1042,221 +1327,38 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         content_evidence_complete,
         content_picture_mask,
     });
-    let mut output_mode_recommendation = picture_mask
-        .as_deref()
-        .filter(|_| render_policy.recommend_output_mode)
-        .map(|picture_mask| {
-            let recommendation = recommend_output_mode_with_tone(
-                PreparedModeEvidence {
-                    analysis: &rotated,
-                    analysis_rgb: analysis_rgb.as_ref(),
-                    picture_mask,
-                    picture_tone_evidence,
-                    text_line_count,
-                },
-                outside_tone,
-            );
-            let recommendation = veto_contradictory_mixed_ownership(
-                recommendation,
-                options.output_mode == OutputMode::Auto,
-                &protected_text_blocks,
-                independent_picture_evidence,
-            );
-            protect_bilevel_text_fidelity(
-                recommendation,
-                calibration,
-                options.source_dpi(),
-                text_line_count,
-                text_soft_edge_ratio,
-            )
-        });
-    // Maps and dense line art often satisfy the generous picture detector
-    // over almost the whole page. Restoring that full rectangle also
-    // restores its gray paper. Use pixel-refined preservation when the
-    // page-global evidence says "large, bimodal, low-midtone line art";
-    // genuine continuous photographs keep their full mask so highlights
-    // and smooth gradients cannot become contrast stencils.
-    let picture_ownership_diagnostics = output_mode_recommendation
-        .map(|recommendation| recommendation.diagnostics)
-        .or_else(|| {
-            picture_mask.as_deref().map(|picture_mask| {
-                protect_bilevel_text_fidelity(
-                    recommend_output_mode_with_tone(
-                        PreparedModeEvidence {
-                            analysis: &rotated,
-                            analysis_rgb: analysis_rgb.as_ref(),
-                            picture_mask,
-                            picture_tone_evidence,
-                            text_line_count,
-                        },
-                        outside_tone,
-                    ),
-                    calibration,
-                    options.source_dpi(),
-                    text_line_count,
-                    text_soft_edge_ratio,
-                )
-                .diagnostics
-            })
-        });
-    let resolved_output_mode = if options.output_mode == OutputMode::Auto {
-        output_mode_recommendation
-            .map(|recommendation| recommendation.mode)
-            .unwrap_or(options.output_mode)
-    } else {
-        options.output_mode
-    };
-    let chroma_picture_mask = (resolved_output_mode == OutputMode::Mixed)
-        .then(|| {
-            independent_chroma_mask(&rotated, analysis_rgb.as_ref(), text_line_count).map(Arc::new)
-        })
-        .flatten();
-    let significant_picture =
-        picture_ownership_diagnostics.is_some_and(|diagnostics| diagnostics.significant_picture);
-    let refine_picture_ownership = picture_ownership_diagnostics
-        .is_some_and(|diagnostics| should_refine_line_art_picture_ownership(&diagnostics));
-    // Stencil legality is a property of the newly encoded foreground, not
-    // of the semantic reason that selected Mixed. Spatial-tone pages can
-    // have no detector-owned picture at all, so restricting this check to
-    // photo-dominant Mixed output lets undersampled glyphs and map lines
-    // bypass the same source-sampling boundary enforced for B&W.
-    let mixed_foreground_fidelity_veto = resolved_output_mode == OutputMode::Mixed
-        && picture_ownership_diagnostics.is_some_and(|diagnostics| {
-            !should_refine_line_art_picture_ownership(&diagnostics)
-                && should_veto_bilevel_fidelity(
-                    calibration.valid,
-                    diagnostics.calibrated_source_stroke_width_px,
-                    diagnostics.calibrated_source_x_height_px,
-                    diagnostics.source_dpi,
-                    diagnostics.soft_edge_to_ink_ratio,
-                    text_line_count,
-                )
-        });
-    let computed_soft_alpha_foreground = resolved_output_mode == OutputMode::Mixed
-        && text_line_count > 0
-        && picture_ownership_diagnostics.is_some_and(|diagnostics| {
-            mixed_foreground_fidelity_veto
-                || diagnostics.bilevel_fidelity_veto
-                || diagnostics.significant_color
-                || (diagnostics.significant_picture && !refine_picture_ownership)
-        });
-    let use_soft_alpha_foreground = resolved_output_mode == OutputMode::Mixed
-            && options
-                .prefer_soft_alpha_foreground
-                .unwrap_or(computed_soft_alpha_foreground)
-            // The final layered handoff is a fresh MRC composition. Its
-            // high-resolution stencil owns ink, while the calibrated plate
-            // owns continuous tone. Keeping the preview/library composite
-            // soft preserves antialiasing there; publishing an 8-bit alpha
-            // plane for final pages defeats the compact JBIG2 foreground
-            // representation and carries no additional source ownership.
-            && !render_policy.create_mixed_layers;
-    if let Some(recommendation) = output_mode_recommendation.as_mut() {
-        recommendation.prefer_soft_alpha_foreground = use_soft_alpha_foreground;
-        recommendation.diagnostics.bilevel_fidelity_veto |= mixed_foreground_fidelity_veto;
-    }
-    let protect_tonal_text_vicinity = significant_picture && !refine_picture_ownership;
-    // Exact preservation is a direct view of the sole vetted owner. Size
-    // heuristics and line-art diagnostics may choose representation
-    // details, but cannot revoke ownership once this mask is nonempty.
-    let preserve_confirmed_photo_tones =
-        confirmed_photo_preservation_policy(picture_mask.as_deref());
-    let mut output_picture_mask = if resolved_output_mode == OutputMode::Mixed {
-        // Only the vetted owner may enter the Mixed partition. The
-        // continuous-tone mask remains corroborating/protection evidence;
-        // OR-ing it here recreated the non-monotonic ownership bug after
-        // mode selection and let paper/show-through become "Text+pics".
-        union_optional_masks(picture_mask.as_ref(), chroma_picture_mask.as_ref())
-    } else {
-        picture_mask.clone()
-    };
-    // Layer ownership and illumination ownership are deliberately
-    // different. A coherent line-art/map field must stay out of the
-    // bilevel foreground, but treating that entire field as a photograph
-    // also restores its gray paper after normalization. A page with direct
-    // significant-picture evidence extends that photographic treatment to
-    // the coherent tone mask so detector fragments cannot create seams
-    // through a real photo. Without that evidence, only detector-owned
-    // pictures and independent chroma bypass the paper model.
-    let mut photographic_picture_mask =
-        if resolved_output_mode == OutputMode::Mixed && significant_picture {
-            output_picture_mask.clone()
-        } else if resolved_output_mode == OutputMode::Mixed {
-            union_optional_masks(picture_mask.as_ref(), chroma_picture_mask.as_ref())
-        } else {
-            picture_mask.clone()
-        };
-    // A confirmed owner gets an exact, immutable source-preservation
-    // alpha. Line-art refinement is still useful for the rest of a map or
-    // diagram, but it is computed on geometry outside that owner so its
-    // paper-model estimate cannot whiten an approved photo lobe.
-    let detected_photo_preservation_alpha = picture_and_line_art_preservation_alpha(
-        &layout_normalized,
-        &rotated,
-        tonal_protection_mask.as_deref(),
-        photographic_picture_mask.as_deref(),
-        refine_picture_ownership,
-    );
-    // On a genuine photograph the semantic tone detector can complete
-    // smooth highlights that the texture-based picture mask omits. That
-    // evidence must select the source-preservation branch, not merely the
-    // semantic contrast curve; otherwise the two branches meet as a hard
-    // horizontal seam through the image. Line-art pages keep semantic and
-    // photo alphas separate so gray paper is still driven to white.
-    let expanded_photo_preservation_alpha = if significant_picture && !refine_picture_ownership {
-        union_optional_gray_fields(
-            detected_photo_preservation_alpha.as_ref(),
-            tone_semantic_preservation_alpha.as_ref(),
-        )
-    } else {
-        detected_photo_preservation_alpha
-    };
-    let coherent_photo_mask = picture_mask
-        .as_ref()
-        .filter(|owner| owner.count_black() > 0 && !refine_picture_ownership)
-        .map(Arc::clone)
-        .or_else(|| {
-            (matches!(
-                resolved_output_mode,
-                OutputMode::Mixed | OutputMode::Grayscale
-            ) && significant_picture
-                && !refine_picture_ownership)
-                .then(|| {
-                    expanded_photo_preservation_alpha
-                        .as_deref()
-                        .and_then(|alpha| coherent_photo_field(alpha, &rotated))
-                })
-                .flatten()
-        });
-    let photo_preservation_alpha = if let Some(field) = coherent_photo_mask.as_ref() {
-        // The high-confidence continuous field is the representation
-        // boundary. Detector fragments attached to a scanner shadow or a
-        // page rule remain outside it, so they can be whitened as paper;
-        // the whole photographic enclosure stays on one source-preserved
-        // low-DPI layer.
-        if resolved_output_mode == OutputMode::Mixed {
-            let field_and_chroma = union_optional_masks(Some(field), chroma_picture_mask.as_ref());
-            // A coherent-field replacement must not discard the exact
-            // classifier zone that selected the layered owner. Keep the
-            // zone in the normalization/photo owner as well as carrying
-            // it separately into the final Mixed partition.
-            output_picture_mask = field_and_chroma;
-            photographic_picture_mask = output_picture_mask.clone();
-        } else {
-            photographic_picture_mask = Some(Arc::clone(field));
-        }
-        photo_tone_preservation_alpha(field).map(Arc::new)
-    } else {
-        expanded_photo_preservation_alpha
-    };
-    let tone_preservation_alpha = if protect_tonal_text_vicinity {
-        photo_preservation_alpha.clone()
-    } else {
-        union_optional_gray_fields(
-            semantic_preservation_alpha.as_ref(),
-            photo_preservation_alpha.as_ref(),
-        )
-    };
+    let ModePreservationOutput {
+        output_mode_recommendation,
+        resolved_output_mode,
+        chroma_picture_mask,
+        significant_picture,
+        refine_picture_ownership: _refine_picture_ownership,
+        output_picture_mask,
+        photographic_picture_mask,
+        coherent_photo_mask,
+        photo_preservation_alpha,
+        tone_preservation_alpha,
+        preserve_confirmed_photo_tones,
+        use_soft_alpha_foreground,
+        protect_tonal_text_vicinity,
+    } = resolve_mode_and_preservation(ModePreservationInput {
+        rotated: &rotated,
+        layout_normalized: &layout_normalized,
+        analysis_rgb: analysis_rgb.as_ref(),
+        picture_mask: picture_mask.clone(),
+        outside_tone,
+        picture_tone_evidence,
+        text_line_count,
+        protected_text_blocks,
+        independent_picture_evidence,
+        calibration,
+        options,
+        render_policy,
+        tonal_protection_mask: tonal_protection_mask.clone(),
+        tone_semantic_preservation_alpha,
+        semantic_preservation_alpha: semantic_preservation_alpha.clone(),
+        text_soft_edge_ratio,
+    });
     timings.mode_recommendation_ms += mode_recommendation_started.elapsed().as_secs_f64() * 1_000.0;
     let quality_normalization_started = Instant::now();
     let canonical_routing_source = Arc::new(rotate_orthogonal(source, options.rotation));

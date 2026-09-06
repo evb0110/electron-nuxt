@@ -114,3 +114,70 @@ fn tonal_evidence_fallback_keeps_tone_separate_without_text_vicinity() {
     assert!(output.semantic_preservation_alpha.is_none());
     assert!(output.text_soft_edge_ratio.is_none());
 }
+
+#[test]
+fn mode_stage_pins_mixed_line_art_soft_foreground_override() {
+    let image = GrayImage::new(128, 128, 255);
+    let owner = Arc::new(BinaryImage::from_fn_parallel(128, 128, |x, y| {
+        (32..96).contains(&x) && (32..96).contains(&y)
+    }));
+    let options = CleanupOptions {
+        output_mode: crate::OutputMode::Mixed,
+        prefer_soft_alpha_foreground: Some(true),
+        ..CleanupOptions::default()
+    };
+    let output = resolve_mode_and_preservation(ModePreservationInput {
+        rotated: &image,
+        layout_normalized: &image,
+        analysis_rgb: None,
+        picture_mask: Some(Arc::clone(&owner)),
+        outside_tone: OutsideTonalEvidence::default(),
+        picture_tone_evidence: true,
+        text_line_count: 2,
+        protected_text_blocks: vec![],
+        independent_picture_evidence: false,
+        calibration: PageCalibration::estimate(&image, 300.0, CalibrationConfig::default()),
+        options: &options,
+        render_policy: PageRenderPolicy::DETAIL_TILE,
+        tonal_protection_mask: None,
+        tone_semantic_preservation_alpha: None,
+        semantic_preservation_alpha: None,
+        text_soft_edge_ratio: None,
+    });
+    assert_eq!(output.resolved_output_mode, crate::OutputMode::Mixed);
+    assert!(output.use_soft_alpha_foreground);
+    assert_eq!(output.output_picture_mask, Some(owner));
+}
+
+#[test]
+fn mode_stage_pins_coherent_photo_preservation_and_mask_replacement() {
+    let image = GrayImage::new(128, 128, 160);
+    let owner = Arc::new(BinaryImage::from_fn_parallel(128, 128, |x, y| {
+        (16..112).contains(&x) && (16..112).contains(&y)
+    }));
+    let options = CleanupOptions {
+        output_mode: crate::OutputMode::Mixed,
+        ..CleanupOptions::default()
+    };
+    let output = resolve_mode_and_preservation(ModePreservationInput {
+        rotated: &image,
+        layout_normalized: &image,
+        analysis_rgb: None,
+        picture_mask: Some(Arc::clone(&owner)),
+        outside_tone: OutsideTonalEvidence::default(),
+        picture_tone_evidence: true,
+        text_line_count: 0,
+        protected_text_blocks: vec![],
+        independent_picture_evidence: true,
+        calibration: PageCalibration::estimate(&image, 300.0, CalibrationConfig::default()),
+        options: &options,
+        render_policy: PageRenderPolicy::COMPLETE,
+        tonal_protection_mask: Some(Arc::clone(&owner)),
+        tone_semantic_preservation_alpha: None,
+        semantic_preservation_alpha: None,
+        text_soft_edge_ratio: None,
+    });
+    assert!(output.preserve_confirmed_photo_tones);
+    assert!(output.photographic_picture_mask.is_some());
+    assert!(output.output_picture_mask.is_some());
+}
