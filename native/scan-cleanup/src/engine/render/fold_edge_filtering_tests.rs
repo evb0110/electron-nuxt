@@ -13,7 +13,7 @@ fn leaves_non_spread_input_unchanged() {
         8,
         Rect::new(0.0, 0.0, 8.0, 8.0),
     );
-    let (kept, removed) = run(Input {
+    let Output { kept, removed } = run(Input {
         binary: &binary,
         picture_mask: None,
         text_mask: None,

@@ -1,105 +1,59 @@
 use super::*;
+use crate::auto_dewarp::AutoDewarpResult;
+use crate::DewarpOptions;
 
-pub(crate) struct Input<'a> {
-    pub source: &'a GrayImage,
-    pub routing_source: &'a GrayImage,
-    pub normalized: &'a GrayImage,
-    pub analysis_normalized: &'a GrayImage,
-    pub analysis_scale_x: f64,
-    pub analysis_scale_y: f64,
-    pub canonical_routing_sample: &'a GrayImage,
-    pub canonical_leaf_source: &'a GrayImage,
-    pub canonical_routing_dpi: f64,
-    pub calibration: PageCalibration,
-    pub color_source: Option<&'a RgbImage>,
-    pub analysis_picture_mask: Option<&'a BinaryImage>,
-    pub source_picture_mask: Option<&'a BinaryImage>,
-    pub halftone_zone_mask: Option<&'a BinaryImage>,
-    pub spatial_tone_mask: Option<&'a BinaryImage>,
-    pub chroma_picture_mask: Option<&'a BinaryImage>,
-    pub tone_picture_mask: Option<&'a BinaryImage>,
-    pub preserve_confirmed_photo_tones: bool,
-    pub use_soft_alpha_foreground: bool,
-    pub tone_preservation_alpha: Option<&'a GrayImage>,
-    pub text_mask: Option<&'a BinaryImage>,
-    pub text_vicinity_mask: Option<&'a BinaryImage>,
-    pub trusted_foreground_mask: Option<&'a BinaryImage>,
+pub(crate) struct TransformPreparationInput<'a> {
+    pub analysis_working: GrayImage,
+    pub analysis_picture_working: Option<BinaryImage>,
+    pub manual_picture_crop_authority: Option<BinaryImage>,
     pub options: &'a CleanupOptions,
-    pub source_page_index: usize,
-    pub split: &'a SplitResult,
-    pub spread_plan: Option<&'a SpreadBinarizationPlan>,
-    pub region: Rect,
     pub half: PageHalf,
+    pub region: Rect,
+    pub working_width: usize,
+    pub working_height: usize,
+    pub local_scale_x: f64,
+    pub local_scale_y: f64,
+    pub calibration: PageCalibration,
     pub cache: Option<&'a PageCache>,
     pub split_cache_key: Option<&'a StageCacheKey>,
-    pub source_effectively_blank: bool,
-    pub create_mixed_layers: bool,
-    pub create_mixed_composite: bool,
     pub timings: &'a mut PageStageTimings,
 }
 
-pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
-    let Input {
-        source,
-        routing_source,
-        normalized,
-        analysis_normalized,
-        analysis_scale_x,
-        analysis_scale_y,
-        canonical_routing_sample,
-        canonical_leaf_source,
-        canonical_routing_dpi,
-        calibration,
-        color_source,
-        analysis_picture_mask,
-        source_picture_mask,
-        halftone_zone_mask,
-        spatial_tone_mask,
-        chroma_picture_mask,
-        tone_picture_mask,
-        preserve_confirmed_photo_tones,
-        use_soft_alpha_foreground,
-        tone_preservation_alpha,
-        text_mask,
-        text_vicinity_mask,
-        trusted_foreground_mask,
-        options,
-        source_page_index,
-        split,
-        spread_plan,
-        region,
-        half,
-        cache,
-        split_cache_key,
-        source_effectively_blank,
-        create_mixed_layers,
-        create_mixed_composite,
-        timings,
-    } = input;
-    let working_width = region.width.round().max(1.0) as usize;
-    let working_height = region.height.round().max(1.0) as usize;
-    let region_preparation = region_preparation::prepare(region_preparation::Input {
-        analysis_normalized,
-        analysis_scale_x,
-        analysis_scale_y,
-        analysis_picture_mask,
-        tone_picture_mask,
-        text_mask,
-        text_vicinity_mask,
+pub(crate) struct TransformPreparationOutput {
+    pub deskew_key: Option<StageCacheKey>,
+    pub deskew: DeskewResult,
+    pub local_deskew_forward: Affine,
+    pub local_deskew_inverse: Affine,
+    pub automatic_dewarp: Option<AutoDewarpResult>,
+    pub deskewed_analysis: GrayImage,
+    pub deskewed_picture_mask: Option<BinaryImage>,
+    pub deskewed_manual_picture_crop_authority: Option<BinaryImage>,
+    pub dewarp_model: Option<DewarpModel>,
+    pub effective_dewarp: Option<DewarpOptions>,
+    pub dewarped_analysis: Option<GrayImage>,
+    pub dewarped_picture_mask: Option<BinaryImage>,
+    pub dewarped_manual_picture_crop_authority: Option<BinaryImage>,
+}
+
+fn prepare_region_transforms(
+    input: TransformPreparationInput<'_>,
+) -> Result<TransformPreparationOutput, String> {
+    let TransformPreparationInput {
+        analysis_working,
+        analysis_picture_working,
+        manual_picture_crop_authority,
         options,
         half,
         region,
         working_width,
         working_height,
-    });
-    let region_preparation::Output {
-        analysis_working,
-        analysis_picture_working,
-        manual_picture_crop_authority,
-        text_tone_diagnostics,
         local_scale_x,
         local_scale_y,
-    } = region_preparation;
+        calibration,
+        cache,
+        split_cache_key,
+        timings,
+    } = input;
     let deskew_key = cache
         .zip(split_cache_key)
         .map(|(cache, split_key)| StageCacheKey::deskew(&cache.source, options, split_key, region));
@@ -250,13 +204,74 @@ pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
             })
         })
     });
-    let content_analysis = dewarped_analysis.as_ref().unwrap_or(&deskewed_analysis);
-    let content_picture_mask = dewarped_picture_mask
-        .as_ref()
-        .or(deskewed_picture_mask.as_ref());
-    let manual_picture_crop_authority = dewarped_manual_picture_crop_authority
-        .as_ref()
-        .or(deskewed_manual_picture_crop_authority.as_ref());
+
+    Ok(TransformPreparationOutput {
+        deskew_key,
+        deskew,
+        local_deskew_forward,
+        local_deskew_inverse,
+        automatic_dewarp,
+        deskewed_analysis,
+        deskewed_picture_mask,
+        deskewed_manual_picture_crop_authority,
+        dewarp_model,
+        effective_dewarp,
+        dewarped_analysis,
+        dewarped_picture_mask,
+        dewarped_manual_picture_crop_authority,
+    })
+}
+
+struct ContentDetectionInput<'a> {
+    content_analysis: &'a GrayImage,
+    content_picture_mask: Option<&'a BinaryImage>,
+    manual_picture_crop_authority: Option<&'a BinaryImage>,
+    normalized: &'a GrayImage,
+    options: &'a CleanupOptions,
+    source_effectively_blank: bool,
+    cache: Option<&'a PageCache>,
+    deskew_key: Option<&'a StageCacheKey>,
+    source_page_index: usize,
+    calibration: PageCalibration,
+    local_scale_x: f64,
+    local_scale_y: f64,
+    working_width: usize,
+    working_height: usize,
+    routing_source: &'a GrayImage,
+    region: Rect,
+    local_deskew_forward: Affine,
+    local_deskew_inverse: Affine,
+    dewarp_model: Option<&'a DewarpModel>,
+    half: PageHalf,
+    timings: &'a mut PageStageTimings,
+}
+
+fn detect_region_content(
+    input: ContentDetectionInput<'_>,
+) -> Result<CachedContentDetection, String> {
+    let ContentDetectionInput {
+        content_analysis,
+        content_picture_mask,
+        manual_picture_crop_authority,
+        normalized,
+        options,
+        source_effectively_blank,
+        cache,
+        deskew_key,
+        source_page_index,
+        calibration,
+        local_scale_x,
+        local_scale_y,
+        working_width,
+        working_height,
+        routing_source,
+        region,
+        local_deskew_forward,
+        local_deskew_inverse,
+        dewarp_model,
+        half,
+        timings,
+    } = input;
     let content_key = cache.zip(deskew_key.as_ref()).map(|(cache, deskew_key)| {
         StageCacheKey::content(&cache.source, options, deskew_key, half)
     });
@@ -390,6 +405,171 @@ pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
         detected
     };
     timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
+
+    Ok(detected)
+}
+
+pub(crate) struct Input<'a> {
+    pub source: &'a GrayImage,
+    pub routing_source: &'a GrayImage,
+    pub normalized: &'a GrayImage,
+    pub analysis_normalized: &'a GrayImage,
+    pub analysis_scale_x: f64,
+    pub analysis_scale_y: f64,
+    pub canonical_routing_sample: &'a GrayImage,
+    pub canonical_leaf_source: &'a GrayImage,
+    pub canonical_routing_dpi: f64,
+    pub calibration: PageCalibration,
+    pub color_source: Option<&'a RgbImage>,
+    pub analysis_picture_mask: Option<&'a BinaryImage>,
+    pub source_picture_mask: Option<&'a BinaryImage>,
+    pub halftone_zone_mask: Option<&'a BinaryImage>,
+    pub spatial_tone_mask: Option<&'a BinaryImage>,
+    pub chroma_picture_mask: Option<&'a BinaryImage>,
+    pub tone_picture_mask: Option<&'a BinaryImage>,
+    pub preserve_confirmed_photo_tones: bool,
+    pub use_soft_alpha_foreground: bool,
+    pub tone_preservation_alpha: Option<&'a GrayImage>,
+    pub text_mask: Option<&'a BinaryImage>,
+    pub text_vicinity_mask: Option<&'a BinaryImage>,
+    pub trusted_foreground_mask: Option<&'a BinaryImage>,
+    pub options: &'a CleanupOptions,
+    pub source_page_index: usize,
+    pub split: &'a SplitResult,
+    pub spread_plan: Option<&'a SpreadBinarizationPlan>,
+    pub region: Rect,
+    pub half: PageHalf,
+    pub cache: Option<&'a PageCache>,
+    pub split_cache_key: Option<&'a StageCacheKey>,
+    pub source_effectively_blank: bool,
+    pub create_mixed_layers: bool,
+    pub create_mixed_composite: bool,
+    pub timings: &'a mut PageStageTimings,
+}
+
+pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
+    let Input {
+        source,
+        routing_source,
+        normalized,
+        analysis_normalized,
+        analysis_scale_x,
+        analysis_scale_y,
+        canonical_routing_sample,
+        canonical_leaf_source,
+        canonical_routing_dpi,
+        calibration,
+        color_source,
+        analysis_picture_mask,
+        source_picture_mask,
+        halftone_zone_mask,
+        spatial_tone_mask,
+        chroma_picture_mask,
+        tone_picture_mask,
+        preserve_confirmed_photo_tones,
+        use_soft_alpha_foreground,
+        tone_preservation_alpha,
+        text_mask,
+        text_vicinity_mask,
+        trusted_foreground_mask,
+        options,
+        source_page_index,
+        split,
+        spread_plan,
+        region,
+        half,
+        cache,
+        split_cache_key,
+        source_effectively_blank,
+        create_mixed_layers,
+        create_mixed_composite,
+        timings,
+    } = input;
+    let working_width = region.width.round().max(1.0) as usize;
+    let working_height = region.height.round().max(1.0) as usize;
+    let region_preparation = region_preparation::prepare(region_preparation::Input {
+        analysis_normalized,
+        analysis_scale_x,
+        analysis_scale_y,
+        analysis_picture_mask,
+        tone_picture_mask,
+        text_mask,
+        text_vicinity_mask,
+        options,
+        half,
+        region,
+        working_width,
+        working_height,
+    });
+    let region_preparation::Output {
+        analysis_working,
+        analysis_picture_working,
+        manual_picture_crop_authority,
+        text_tone_diagnostics,
+        local_scale_x,
+        local_scale_y,
+    } = region_preparation;
+    let TransformPreparationOutput {
+        deskew_key,
+        deskew,
+        local_deskew_forward,
+        local_deskew_inverse,
+        automatic_dewarp,
+        deskewed_analysis,
+        deskewed_picture_mask,
+        deskewed_manual_picture_crop_authority,
+        dewarp_model,
+        effective_dewarp,
+        dewarped_analysis,
+        dewarped_picture_mask,
+        dewarped_manual_picture_crop_authority,
+    } = prepare_region_transforms(TransformPreparationInput {
+        analysis_working,
+        analysis_picture_working,
+        manual_picture_crop_authority,
+        options,
+        half,
+        region,
+        working_width,
+        working_height,
+        local_scale_x,
+        local_scale_y,
+        calibration,
+        cache,
+        split_cache_key,
+        timings,
+    })?;
+    let content_analysis = dewarped_analysis.as_ref().unwrap_or(&deskewed_analysis);
+    let content_picture_mask = dewarped_picture_mask
+        .as_ref()
+        .or(deskewed_picture_mask.as_ref());
+    let manual_picture_crop_authority = dewarped_manual_picture_crop_authority
+        .as_ref()
+        .or(deskewed_manual_picture_crop_authority.as_ref());
+    let detected = detect_region_content(ContentDetectionInput {
+        content_analysis,
+        content_picture_mask,
+        manual_picture_crop_authority,
+        normalized,
+        options,
+        source_effectively_blank,
+        cache,
+        deskew_key: deskew_key.as_ref(),
+        source_page_index,
+        calibration,
+        local_scale_x,
+        local_scale_y,
+        working_width,
+        working_height,
+        routing_source,
+        region,
+        local_deskew_forward,
+        local_deskew_inverse,
+        dewarp_model: dewarp_model.as_ref(),
+        half,
+        timings,
+    })?;
+    let force_clean_blank = source_effectively_blank;
     if options.match_page_size {
         // See the analysis path above: placement owns matched margins, while
         // the renderer still rejects arithmetic that could not be represented.

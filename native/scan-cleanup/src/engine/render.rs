@@ -1620,7 +1620,7 @@ fn filter_fold_edge_fragments_with_removed(
     blank_leaf: bool,
     dpi: f64,
 ) -> (BinaryImage, BinaryImage) {
-    fold_edge_filtering::run(fold_edge_filtering::Input {
+    let output = fold_edge_filtering::run(fold_edge_filtering::Input {
         binary,
         picture_mask,
         text_mask,
@@ -1632,7 +1632,8 @@ fn filter_fold_edge_fragments_with_removed(
         source_content_box,
         blank_leaf,
         dpi,
-    })
+    });
+    (output.kept, output.removed)
 }
 fn manual_picture_crop_authority(
     options: &CleanupOptions,
@@ -2654,6 +2655,181 @@ fn clean_page_with_color_and_calibration_config(
 }
 
 #[allow(clippy::too_many_arguments)]
+struct PreparedRenderPlanes<'a> {
+    rotated_source: Option<Cow<'a, GrayImage>>,
+    normalized: Arc<GrayImage>,
+    analysis_normalized: Option<Arc<GrayImage>>,
+    rotated_color: Option<RgbImage>,
+    picture_mask: Option<Arc<BinaryImage>>,
+    trusted_foreground_mask: Option<BinaryImage>,
+}
+
+struct PreparedRenderPlanesInput<'a, 'b> {
+    color_source: Option<&'b RgbImage>,
+    analysis_normalized: Arc<GrayImage>,
+    analysis_is_full: bool,
+    analysis_picture_mask: Option<Arc<BinaryImage>>,
+    analysis_tonal_protection_mask: Option<Arc<BinaryImage>>,
+    analysis_semantic_preservation_alpha: Option<Arc<GrayImage>>,
+    analysis_photo_preservation_alpha: Option<Arc<GrayImage>>,
+    output_mode_recommendation: Option<&'b OutputModeRecommendation>,
+    options: &'b CleanupOptions,
+    rotated_source: Cow<'a, GrayImage>,
+    trusted_foreground_mask: Option<&'b BinaryImage>,
+    timings: &'b mut PageStageTimings,
+}
+
+fn prepare_render_planes<'a, 'b>(
+    input: PreparedRenderPlanesInput<'a, 'b>,
+) -> PreparedRenderPlanes<'a> {
+    let PreparedRenderPlanesInput {
+        color_source,
+        analysis_normalized,
+        analysis_is_full,
+        analysis_picture_mask,
+        analysis_tonal_protection_mask,
+        analysis_semantic_preservation_alpha,
+        analysis_photo_preservation_alpha,
+        output_mode_recommendation,
+        options,
+        rotated_source,
+        trusted_foreground_mask,
+        timings,
+    } = input;
+    let quality_normalization_started = Instant::now();
+    // Picture segmentation is scale-stable evidence. Keep it at the bounded
+    // analysis resolution and map it directly into the final render below;
+    // rebuilding the same mask over a 15–35 MP source dominated mixed-page
+    // cleanup and only created an intermediate mask that was immediately
+    // resampled again.
+    let mut picture_mask = if options.output_mode != OutputMode::Bw {
+        analysis_picture_mask.clone()
+    } else {
+        None
+    };
+    let normalization_model_exclusion = union_optional_masks(
+        analysis_picture_mask.as_ref(),
+        analysis_tonal_protection_mask.as_ref(),
+    );
+    let normalization_model_exclusion = match options.output_mode {
+        OutputMode::Grayscale => normalization_model_exclusion.as_deref(),
+        OutputMode::Mixed => picture_mask.as_deref(),
+        OutputMode::Color
+            if output_mode_recommendation
+                .is_some_and(|recommendation| recommendation.diagnostics.significant_picture) =>
+        {
+            normalization_model_exclusion.as_deref()
+        }
+        // A Color page without an embedded picture is commonly a full-bleed
+        // cover. Supplying any mask makes RGB normalization assume that an
+        // external paper field exists and can turn the cover into pale noise.
+        // The unmasked color path already selects conservative levels when no
+        // plausible paper background exists.
+        OutputMode::Color => None,
+        OutputMode::Bw | OutputMode::Auto => None,
+    };
+    // Semantic tone is reconstructed from the illumination-corrected raster;
+    // only true photo regions may restore the raw scan. Their union remains
+    // the render-space suppression field for text enhancement.
+    let semantic_preservation_alpha = match options.output_mode {
+        OutputMode::Grayscale => analysis_semantic_preservation_alpha.as_deref(),
+        OutputMode::Mixed => analysis_semantic_preservation_alpha.as_deref(),
+        OutputMode::Color
+            if output_mode_recommendation
+                .is_some_and(|recommendation| recommendation.diagnostics.significant_picture) =>
+        {
+            analysis_semantic_preservation_alpha.as_deref()
+        }
+        OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
+    };
+    let photo_preservation_alpha = match options.output_mode {
+        OutputMode::Grayscale => analysis_photo_preservation_alpha.as_deref(),
+        OutputMode::Mixed => analysis_photo_preservation_alpha.as_deref(),
+        OutputMode::Color
+            if output_mode_recommendation
+                .is_some_and(|recommendation| recommendation.diagnostics.significant_picture) =>
+        {
+            analysis_photo_preservation_alpha.as_deref()
+        }
+        OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
+    };
+    let rotated_color_source = color_source.map(|image| match options.rotation {
+        OrthogonalRotation::None => Cow::Borrowed(image),
+        rotation => Cow::Owned(rotate_rgb_orthogonal(image, rotation)),
+    });
+    let trusted_foreground_mask =
+        trusted_foreground_mask.map(|mask| rotate_binary_orthogonal(mask, options.rotation));
+    let paired_normalized = if !analysis_is_full
+        && options.normalize_illumination
+        && matches!(options.output_mode, OutputMode::Mixed | OutputMode::Color)
+    {
+        rotated_color_source.as_ref().map(|rotated_color| {
+            normalize_illumination_pair_with_masks(
+                &rotated_source,
+                rotated_color,
+                normalization_model_exclusion,
+                semantic_preservation_alpha,
+                photo_preservation_alpha,
+            )
+        })
+    } else {
+        None
+    };
+    let rotated_color = rotated_color_source.map(|rotated| {
+        if let Some((_, normalized_color)) = paired_normalized.as_ref() {
+            normalized_color.clone()
+        } else if options.normalize_illumination {
+            normalize_illumination_rgb_with_masks(
+                &rotated_source,
+                &rotated,
+                normalization_model_exclusion,
+                semantic_preservation_alpha,
+                photo_preservation_alpha,
+            )
+        } else {
+            rotated.into_owned()
+        }
+    });
+    let (rotated_source, normalized, analysis_normalized) = if analysis_is_full {
+        (Some(rotated_source), analysis_normalized, None)
+    } else if options.normalize_illumination {
+        let normalized = if let Some((normalized, _)) = paired_normalized {
+            normalized
+        } else {
+            normalize_illumination_with_masks(
+                &rotated_source,
+                options.dpi,
+                normalization_model_exclusion,
+                semantic_preservation_alpha,
+                photo_preservation_alpha,
+            )
+        };
+        (
+            Some(rotated_source),
+            Arc::new(normalized),
+            Some(analysis_normalized),
+        )
+    } else {
+        (
+            None,
+            Arc::new(rotated_source.into_owned()),
+            Some(analysis_normalized),
+        )
+    };
+    timings.quality_normalization_ms +=
+        quality_normalization_started.elapsed().as_secs_f64() * 1_000.0;
+
+    PreparedRenderPlanes {
+        rotated_source,
+        normalized,
+        analysis_normalized,
+        rotated_color,
+        picture_mask: picture_mask.take(),
+        trusted_foreground_mask,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn prepare_page<'a>(
     source: &'a GrayImage,
     color_source: Option<&RgbImage>,
@@ -2807,128 +2983,27 @@ fn prepare_page<'a>(
         && analysis_normalized.height() == full_height
         && scale_x == 1.0
         && scale_y == 1.0;
-    let quality_normalization_started = Instant::now();
-    // Picture segmentation is scale-stable evidence. Keep it at the bounded
-    // analysis resolution and map it directly into the final render below;
-    // rebuilding the same mask over a 15–35 MP source dominated mixed-page
-    // cleanup and only created an intermediate mask that was immediately
-    // resampled again.
-    let mut picture_mask = if options.output_mode != OutputMode::Bw {
-        analysis_picture_mask.clone()
-    } else {
-        None
-    };
-    let normalization_model_exclusion = union_optional_masks(
-        analysis_picture_mask.as_ref(),
-        analysis_tonal_protection_mask.as_ref(),
-    );
-    let normalization_model_exclusion = match options.output_mode {
-        OutputMode::Grayscale => normalization_model_exclusion.as_deref(),
-        OutputMode::Mixed => picture_mask.as_deref(),
-        OutputMode::Color
-            if output_mode_recommendation
-                .is_some_and(|recommendation| recommendation.diagnostics.significant_picture) =>
-        {
-            normalization_model_exclusion.as_deref()
-        }
-        // A Color page without an embedded picture is commonly a full-bleed
-        // cover. Supplying any mask makes RGB normalization assume that an
-        // external paper field exists and can turn the cover into pale noise.
-        // The unmasked color path already selects conservative levels when no
-        // plausible paper background exists.
-        OutputMode::Color => None,
-        OutputMode::Bw | OutputMode::Auto => None,
-    };
-    // Semantic tone is reconstructed from the illumination-corrected raster;
-    // only true photo regions may restore the raw scan. Their union remains
-    // the render-space suppression field for text enhancement.
-    let semantic_preservation_alpha = match options.output_mode {
-        OutputMode::Grayscale => analysis_semantic_preservation_alpha.as_deref(),
-        OutputMode::Mixed => analysis_semantic_preservation_alpha.as_deref(),
-        OutputMode::Color
-            if output_mode_recommendation
-                .is_some_and(|recommendation| recommendation.diagnostics.significant_picture) =>
-        {
-            analysis_semantic_preservation_alpha.as_deref()
-        }
-        OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
-    };
-    let photo_preservation_alpha = match options.output_mode {
-        OutputMode::Grayscale => analysis_photo_preservation_alpha.as_deref(),
-        OutputMode::Mixed => analysis_photo_preservation_alpha.as_deref(),
-        OutputMode::Color
-            if output_mode_recommendation
-                .is_some_and(|recommendation| recommendation.diagnostics.significant_picture) =>
-        {
-            analysis_photo_preservation_alpha.as_deref()
-        }
-        OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
-    };
-    let rotated_color_source = color_source.map(|image| match options.rotation {
-        OrthogonalRotation::None => Cow::Borrowed(image),
-        rotation => Cow::Owned(rotate_rgb_orthogonal(image, rotation)),
+    let PreparedRenderPlanes {
+        rotated_source,
+        normalized,
+        analysis_normalized,
+        rotated_color,
+        mut picture_mask,
+        trusted_foreground_mask,
+    } = prepare_render_planes(PreparedRenderPlanesInput {
+        color_source,
+        analysis_normalized,
+        analysis_is_full,
+        analysis_picture_mask,
+        analysis_tonal_protection_mask: analysis_tonal_protection_mask.clone(),
+        analysis_semantic_preservation_alpha,
+        analysis_photo_preservation_alpha,
+        output_mode_recommendation: output_mode_recommendation.as_ref(),
+        options,
+        rotated_source,
+        trusted_foreground_mask,
+        timings,
     });
-    let trusted_foreground_mask =
-        trusted_foreground_mask.map(|mask| rotate_binary_orthogonal(mask, options.rotation));
-    let paired_normalized = if !analysis_is_full
-        && options.normalize_illumination
-        && matches!(options.output_mode, OutputMode::Mixed | OutputMode::Color)
-    {
-        rotated_color_source.as_ref().map(|rotated_color| {
-            normalize_illumination_pair_with_masks(
-                &rotated_source,
-                rotated_color,
-                normalization_model_exclusion,
-                semantic_preservation_alpha,
-                photo_preservation_alpha,
-            )
-        })
-    } else {
-        None
-    };
-    let rotated_color = rotated_color_source.map(|rotated| {
-        if let Some((_, normalized_color)) = paired_normalized.as_ref() {
-            normalized_color.clone()
-        } else if options.normalize_illumination {
-            normalize_illumination_rgb_with_masks(
-                &rotated_source,
-                &rotated,
-                normalization_model_exclusion,
-                semantic_preservation_alpha,
-                photo_preservation_alpha,
-            )
-        } else {
-            rotated.into_owned()
-        }
-    });
-    let (rotated_source, normalized, analysis_normalized) = if analysis_is_full {
-        (Some(rotated_source), analysis_normalized, None)
-    } else if options.normalize_illumination {
-        let normalized = if let Some((normalized, _)) = paired_normalized {
-            normalized
-        } else {
-            normalize_illumination_with_masks(
-                &rotated_source,
-                options.dpi,
-                normalization_model_exclusion,
-                semantic_preservation_alpha,
-                photo_preservation_alpha,
-            )
-        };
-        (
-            Some(rotated_source),
-            Arc::new(normalized),
-            Some(analysis_normalized),
-        )
-    } else {
-        (
-            None,
-            Arc::new(rotated_source.into_owned()),
-            Some(analysis_normalized),
-        )
-    };
-    timings.quality_normalization_ms +=
-        quality_normalization_started.elapsed().as_secs_f64() * 1_000.0;
     PreparedPage {
         rotated_source,
         normalized,
