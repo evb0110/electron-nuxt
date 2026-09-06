@@ -1,0 +1,19 @@
+tests/unit/electron/claudeAgentSdkAssistant.test.ts
+  s_4bc3578643284e::t_6d512b51e19bc3 10-12,17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "06b10f6db7e3c8535f192fef53084d0e2775bf7b",
+  "prompts": {},
+  "sessions": {
+    "s_4bc3578643284e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077e6-eb15-77a0-a18d-00dc2fd0c65a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
