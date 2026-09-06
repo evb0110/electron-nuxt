@@ -1,5 +1,6 @@
 use crate::adapters::manifest_publication::run_manifest_transaction;
 use crate::adapters::single_ocr_cli::{invalid, parse_options};
+use crate::bw::paper_reference;
 use crate::cache::{PageCache, StageCacheKey};
 use crate::engine::batch_reconciliation::{
     reconcile_classification_batch, ReconciliationAction, ReconciliationCandidate,
@@ -7,21 +8,24 @@ use crate::engine::batch_reconciliation::{
 };
 use crate::engine::output_geometry::{
     align_deferred_spread_vertical_placements, align_spread_vertical_placements,
-    apply_canvas_metadata, background_canvas_dimensions, background_dimensions_to_publish,
-    canvas_fit_for, fold_side_near_paper_run_for_output, horizontal_overflow_requires_fold_scan,
-    layered_background_dpi, match_layers_in_memory, match_picture_mask_in_memory,
-    match_primary_raster_in_memory, match_tone_preservation_alpha_in_memory,
-    matched_output_paper_dimensions, optical_content_bounds_x_for_output,
-    outer_near_paper_edge_runs_for_output, placement_near_paper_edge_runs_for_output,
-    plan_canvas_placement, plan_canvas_placement_with_shared_fit,
-    restore_mixed_composite_from_layers, shared_spread_overflow_fit_for_outputs,
-    shared_spread_overflow_fits_for_written_outputs, spread_content_top_for_output,
-    validate_canvas_for_options, CanvasPlacementRequest, DeferredSpreadVerticalPlacement,
-    NearPaperEdgeRuns, WrittenOutput, PLACEMENT_CENTERING_BOUNDS_X,
+    background_canvas_dimensions, background_dimensions_to_publish, canvas_fit_for,
+    canvas_placement_warning_events, edge_column_order, gray_content_bounds_y,
+    horizontal_overflow_requires_fold_scan, layered_background_dpi, mapped_column_range,
+    matched_output_paper_dimensions_for, materialize_gray_primary_on_canvas,
+    near_paper_edge_runs_with_fold_side, optical_binary_bounds_x,
+    place_on_gray_canvas_with_source_window, place_on_white_canvas_with_source_window,
+    place_rgb_on_white_canvas_with_source_window, plan_canvas_placement,
+    plan_canvas_placement_with_shared_fit, resample_bilevel, resample_gray_if_needed,
+    resample_rgb_if_needed, shared_spread_overflow_fit_for_outputs,
+    shared_spread_overflow_fits_for_geometry_outputs, validate_canvas_for_options, CanvasPlacement,
+    CanvasPlacementRequest, DeferredSpreadVerticalPlacement, GeometryCanvas, GeometryOutput,
+    HorizontalEdge, NearPaperEdgeRuns, FOLD_TAIL_NEAR_PAPER_FLOOR, PLACEMENT_CENTERING_BOUNDS_X,
 };
 use crate::engine::page_statistics::{
     derive_page_ink_contexts, derive_page_ink_sample, page_needs_ink_sample,
 };
+use crate::engine::render::{CleanupRaster, CleanupResult};
+use crate::engine::render::{CleanupWarningEvent, WarningExtentUnit};
 use crate::engine::resource_planning::{manifest_cache, page_cache_for, run_page_jobs};
 use crate::engine::resource_planning::{
     CleanupOptionsView, PageDescriptor, PlanningManifest, PlanningOperation,
@@ -39,6 +43,7 @@ use crate::{
         analyze_page_with_color_and_document_prior_cached, clean_detail_page_with_color,
         clean_page_with_color_and_document_prior_cached, downscale_rgb_to_dimensions,
         CanonicalAnalysisPlane, CleanupMetadata, DetailRenderSources, LayeredForegroundKind,
+        MatchedCanvasPolicy,
     },
     protocol::{
         manifest_v3::{
@@ -54,6 +59,7 @@ use crate::{
 use evb_native_support::{
     bounded_io::deserialize_json_file_bounded, NativeError, NativeErrorCode, NativeErrorEnvelope,
 };
+use rayon::prelude::*;
 use scan_primitives::{BinaryImage, GrayImage, RgbImage};
 use serde::Serialize;
 use std::{
@@ -119,15 +125,663 @@ pub(crate) struct PageResultMetadata {
 }
 
 pub(crate) struct PageRunResult {
-    pub(crate) outputs: Vec<crate::engine::output_geometry::WrittenOutput>,
+    pub(crate) outputs: Vec<WrittenOutput>,
     pub(crate) metadata: PageResultMetadata,
     pub(crate) page_metadata_path: PathBuf,
     pub(crate) timings: PageStageTimings,
 }
 
+pub(crate) struct WrittenOutput {
+    output_path: PathBuf,
+    metadata_path: PathBuf,
+    bilevel_output_path: Option<PathBuf>,
+    background_output_path: Option<PathBuf>,
+    foreground_mask_output_path: Option<PathBuf>,
+    foreground_alpha_output_path: Option<PathBuf>,
+    picture_mask_output_path: Option<PathBuf>,
+    tone_preservation_alpha_output_path: Option<PathBuf>,
+    options: CleanupOptions,
+    source_page_index: usize,
+    half: crate::pipeline::PageHalf,
+    width: usize,
+    height: usize,
+    paper_width: f64,
+    paper_height: f64,
+    content_detected: bool,
+    spread_content_top: Option<f64>,
+    optical_content_bounds_x: Option<(f64, f64)>,
+    fold_side_near_paper_run: usize,
+    outer_near_paper_edge_runs: NearPaperEdgeRuns,
+    matched_in_memory: bool,
+}
+
+fn geometry_output(output: &WrittenOutput) -> GeometryOutput {
+    GeometryOutput {
+        options: output.options.clone(),
+        source_page_index: output.source_page_index,
+        half: output.half,
+        width: output.width,
+        height: output.height,
+        paper_width: output.paper_width,
+        paper_height: output.paper_height,
+        content_detected: output.content_detected,
+        spread_content_top: output.spread_content_top,
+        optical_content_bounds_x: output.optical_content_bounds_x,
+        fold_side_near_paper_run: output.fold_side_near_paper_run,
+        outer_near_paper_edge_runs: output.outer_near_paper_edge_runs,
+    }
+}
+
+fn geometry_output_from_cleanup_result(
+    output: &CleanupResult,
+    options: &CleanupOptions,
+) -> GeometryOutput {
+    let (paper_width, paper_height) = matched_output_paper_dimensions_for(
+        output.metadata.input_width,
+        output.metadata.input_height,
+        output.metadata.rotation,
+        output.metadata.half,
+    );
+    GeometryOutput {
+        options: options.clone(),
+        source_page_index: output.metadata.source_page_index,
+        half: output.metadata.half,
+        width: output.image.width(),
+        height: output.image.height(),
+        paper_width,
+        paper_height,
+        content_detected: output.metadata.content_box.is_some(),
+        spread_content_top: spread_content_top_for_output(output),
+        optical_content_bounds_x: optical_content_bounds_x_for_output(output),
+        fold_side_near_paper_run: fold_side_near_paper_run_for_output(output),
+        outer_near_paper_edge_runs: outer_near_paper_edge_runs_for_output(output),
+    }
+}
+
 const MAX_DETAIL_METADATA_BYTES: usize = 16 * 1024 * 1024;
 const SOFT_FOREGROUND_MAX_DPI: f64 = 300.0;
 type DecodedPageInputs = (Option<Arc<raster::DecodedRaster>>, Option<Arc<GrayImage>>);
+
+pub(crate) fn match_primary_raster_in_memory(
+    output: &mut CleanupResult,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    output.metadata.intrinsic_raster_width = Some(output.image.width());
+    output.metadata.intrinsic_raster_height = Some(output.image.height());
+    output.metadata.output_width = placement.content_width;
+    output.metadata.output_height = placement.content_height;
+    output.image = match &output.image {
+        CleanupRaster::Gray(image) => {
+            CleanupRaster::Gray(materialize_gray_primary_on_canvas(image, placement, canvas))
+        }
+        CleanupRaster::Bilevel(image) => {
+            let gray = CleanupRaster::Bilevel(image.clone()).into_gray();
+            let canvas_image = place_on_white_canvas_with_source_window(
+                &resample_bilevel(&gray, placement.content_width, placement.content_height),
+                canvas.width_px,
+                canvas.height_px,
+                placement.materialization_left,
+                placement.top,
+                placement.materialization_source_offset_left,
+                placement.materialization_source_offset_right,
+                placement.intrinsic_overflow_top,
+            );
+            CleanupRaster::Bilevel(BinaryImage::from_fn_parallel(
+                canvas.width_px,
+                canvas.height_px,
+                |x, y| canvas_image.get(x, y) < 128,
+            ))
+        }
+    };
+    if let Some(color) = output.color_image.take() {
+        output.color_image = Some(place_rgb_on_white_canvas_with_source_window(
+            &resample_rgb_if_needed(&color, placement.content_width, placement.content_height),
+            canvas.width_px,
+            canvas.height_px,
+            placement.materialization_left,
+            placement.top,
+            placement.materialization_source_offset_left,
+            placement.materialization_source_offset_right,
+            placement.intrinsic_overflow_top,
+        ));
+    }
+    // The native owner has materialized every primary continuous-tone raster
+    // onto the target canvas. Keeping a placement record here would make the
+    // PDF assembler apply the inset a second time.
+    output.metadata.pdf_image_placement = None;
+}
+
+pub(crate) fn match_picture_mask_in_memory(
+    output: &mut CleanupResult,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    let Some(picture_mask) = output.picture_mask.as_ref() else {
+        return;
+    };
+    let gray = CleanupRaster::Bilevel(picture_mask.clone()).into_gray();
+    let placed = place_on_white_canvas_with_source_window(
+        &resample_bilevel(&gray, placement.content_width, placement.content_height),
+        canvas.width_px,
+        canvas.height_px,
+        placement.materialization_left,
+        placement.top,
+        placement.materialization_source_offset_left,
+        placement.materialization_source_offset_right,
+        placement.intrinsic_overflow_top,
+    );
+    output.picture_mask = Some(BinaryImage::from_fn_parallel(
+        canvas.width_px,
+        canvas.height_px,
+        |x, y| placed.get(x, y) < 128,
+    ));
+}
+
+pub(crate) fn match_tone_preservation_alpha_in_memory(
+    output: &mut CleanupResult,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    let Some(tone_preservation_alpha) = output.tone_preservation_alpha.as_ref() else {
+        return;
+    };
+    let placed = place_on_gray_canvas_with_source_window(
+        &resample_gray_if_needed(
+            tone_preservation_alpha,
+            placement.content_width,
+            placement.content_height,
+        ),
+        canvas.width_px,
+        canvas.height_px,
+        placement.materialization_left,
+        placement.top,
+        0,
+        placement.materialization_source_offset_left,
+        placement.intrinsic_overflow_top,
+        placement.materialization_source_offset_right,
+    );
+    output.tone_preservation_alpha = Some(placed);
+}
+
+pub(crate) fn restore_mixed_composite_from_layers(output: &mut CleanupResult) {
+    let Some(layers) = output.mixed_layers.as_ref() else {
+        return;
+    };
+    let mask = &layers.foreground_mask;
+    let mut image = resample_gray_if_needed(&layers.background, mask.width(), mask.height());
+    let alpha = layers
+        .foreground_alpha
+        .as_ref()
+        .map(|alpha| resample_gray_if_needed(alpha, mask.width(), mask.height()));
+    let width = image.width();
+    image
+        .data_mut()
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                if let Some(alpha) = alpha.as_ref() {
+                    let opacity = alpha.get(x, y);
+                    if opacity > 0 {
+                        *target =
+                            ((u16::from(*target) * u16::from(255 - opacity) + 127) / 255) as u8;
+                    }
+                } else if mask.get(x, y) {
+                    *target = 0;
+                }
+            }
+        });
+    output.image = CleanupRaster::Gray(image);
+    output.color_image = layers.color_background.as_ref().map(|background| {
+        let mut color = resample_rgb_if_needed(background, mask.width(), mask.height());
+        let row_bytes = color.width() * 3;
+        color
+            .data_mut()
+            .par_chunks_mut(row_bytes)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                    if let Some(alpha) = alpha.as_ref() {
+                        let opacity = alpha.get(x, y);
+                        if opacity > 0 {
+                            for channel in target {
+                                *channel = ((u16::from(*channel) * u16::from(255 - opacity) + 127)
+                                    / 255) as u8;
+                            }
+                        }
+                    } else if mask.get(x, y) {
+                        target.fill(0);
+                    }
+                }
+            });
+        color
+    });
+}
+
+pub(crate) fn match_layers_in_memory(
+    output: &mut CleanupResult,
+    options: &CleanupOptions,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    let confirmed_picture = output
+        .picture_mask
+        .as_ref()
+        .is_some_and(|mask| mask.count_black() > 0)
+        && !output
+            .mixed_layers
+            .as_ref()
+            .is_some_and(|layers| layers.source_mrc);
+    let Some(layers) = output.mixed_layers.as_mut() else {
+        return;
+    };
+    let foreground_gray = CleanupRaster::Bilevel(layers.foreground_mask.clone()).into_gray();
+    let foreground = place_on_white_canvas_with_source_window(
+        &resample_bilevel(
+            &foreground_gray,
+            placement.content_width,
+            placement.content_height,
+        ),
+        canvas.width_px,
+        canvas.height_px,
+        placement.materialization_left,
+        placement.top,
+        placement.materialization_source_offset_left,
+        placement.materialization_source_offset_right,
+        placement.intrinsic_overflow_top,
+    );
+    layers.foreground_mask =
+        BinaryImage::from_fn_parallel(canvas.width_px, canvas.height_px, |x, y| {
+            foreground.get(x, y) < 128
+        });
+    if let Some(alpha) = layers.foreground_alpha.as_ref() {
+        layers.foreground_alpha = Some(place_on_gray_canvas_with_source_window(
+            &resample_gray_if_needed(alpha, placement.content_width, placement.content_height),
+            canvas.width_px,
+            canvas.height_px,
+            placement.materialization_left,
+            placement.top,
+            0,
+            placement.materialization_source_offset_left,
+            placement.intrinsic_overflow_top,
+            placement.materialization_source_offset_right,
+        ));
+    }
+    let background_dpi = layered_background_dpi(options, confirmed_picture);
+    // The matched canvas is intentionally the high-resolution bilevel grid.
+    // Deriving the JPEG plate from `background_dpi / options.dpi` therefore
+    // upscaled it whenever the document canvas used a finer B&W DPI than the
+    // source page. Derive the plate from physical PDF points and map placement
+    // proportionally between the two grids instead.
+    let (background_width, background_height) =
+        background_canvas_dimensions(canvas, background_dpi);
+    let scale_x = background_width as f64 / canvas.width_px.max(1) as f64;
+    let scale_y = background_height as f64 / canvas.height_px.max(1) as f64;
+    let content_width = ((placement.content_width as f64 * scale_x).round() as usize).max(1);
+    let content_height = ((placement.content_height as f64 * scale_y).round() as usize)
+        .max(1)
+        .min(background_height);
+    let left = (placement.materialization_left as f64 * scale_x).round() as usize;
+    let source_offset_left = ((placement.materialization_source_offset_left as f64 * scale_x)
+        .round() as usize)
+        .min(content_width);
+    let source_offset_right = ((placement.materialization_source_offset_right as f64 * scale_x)
+        .round() as usize)
+        .min(content_width.saturating_sub(source_offset_left));
+    let top =
+        ((placement.top as f64 * scale_y).round() as usize).min(background_height - content_height);
+    layers.background = place_on_white_canvas_with_source_window(
+        &resample_gray_if_needed(&layers.background, content_width, content_height),
+        background_width,
+        background_height,
+        left,
+        top,
+        source_offset_left,
+        source_offset_right,
+        (placement.intrinsic_overflow_top as f64 * scale_y).round() as usize,
+    );
+    if let Some(color) = layers.color_background.as_ref() {
+        layers.color_background = Some(place_rgb_on_white_canvas_with_source_window(
+            &resample_rgb_if_needed(color, content_width, content_height),
+            background_width,
+            background_height,
+            left,
+            top,
+            source_offset_left,
+            source_offset_right,
+            (placement.intrinsic_overflow_top as f64 * scale_y).round() as usize,
+        ));
+    }
+}
+
+pub(crate) fn edge_near_paper_run_for_output(
+    output: &CleanupResult,
+    edge: HorizontalEdge,
+) -> usize {
+    let gray = output.image.to_gray();
+    let width = gray.width();
+    let near_paper_threshold = paper_reference(&gray).min(FOLD_TAIL_NEAR_PAPER_FLOOR);
+    edge_column_order(width, edge)
+        .take_while(|&x| {
+            if !(0..gray.height()).all(|y| gray.get(x, y) >= near_paper_threshold) {
+                return false;
+            }
+            // BW materializes only the primary stencil. Its analysis-only
+            // tone alpha must neither widen optical ownership nor veto a
+            // paper proof for columns that never enter the published page.
+            if output.metadata.output_mode == OutputMode::Bw {
+                return true;
+            }
+            if let Some(color) = output.color_image.as_ref() {
+                let (start, end) = mapped_column_range(x, width, color.width());
+                if (0..color.height()).any(|y| {
+                    (start..end).any(|plane_x| {
+                        color
+                            .get(plane_x, y)
+                            .iter()
+                            .any(|&sample| sample < near_paper_threshold)
+                    })
+                }) {
+                    return false;
+                }
+            }
+            if let Some(layers) = output.mixed_layers.as_ref() {
+                let (start, end) = mapped_column_range(x, width, layers.foreground_mask.width());
+                if (0..layers.foreground_mask.height())
+                    .any(|y| (start..end).any(|plane_x| layers.foreground_mask.get(plane_x, y)))
+                {
+                    return false;
+                }
+                if let Some(alpha) = layers.foreground_alpha.as_ref() {
+                    let (start, end) = mapped_column_range(x, width, alpha.width());
+                    if (0..alpha.height())
+                        .any(|y| (start..end).any(|plane_x| alpha.get(plane_x, y) > 0))
+                    {
+                        return false;
+                    }
+                }
+                let (start, end) = mapped_column_range(x, width, layers.background.width());
+                if (0..layers.background.height()).any(|y| {
+                    (start..end)
+                        .any(|plane_x| layers.background.get(plane_x, y) < near_paper_threshold)
+                }) {
+                    return false;
+                }
+                if let Some(color) = layers.color_background.as_ref() {
+                    let (start, end) = mapped_column_range(x, width, color.width());
+                    if (0..color.height()).any(|y| {
+                        (start..end).any(|plane_x| {
+                            color
+                                .get(plane_x, y)
+                                .iter()
+                                .any(|&sample| sample < near_paper_threshold)
+                        })
+                    }) {
+                        return false;
+                    }
+                }
+            }
+            if let Some(mask) = output.picture_mask.as_ref() {
+                let (start, end) = mapped_column_range(x, width, mask.width());
+                if (0..mask.height()).any(|y| (start..end).any(|plane_x| mask.get(plane_x, y))) {
+                    return false;
+                }
+            }
+            if let Some(alpha) = output.tone_preservation_alpha.as_ref() {
+                let (start, end) = mapped_column_range(x, width, alpha.width());
+                if (0..alpha.height())
+                    .any(|y| (start..end).any(|plane_x| alpha.get(plane_x, y) > 0))
+                {
+                    return false;
+                }
+            }
+            true
+        })
+        .count()
+}
+
+pub(crate) fn fold_side_near_paper_run_for_output(output: &CleanupResult) -> usize {
+    match output.metadata.half {
+        crate::pipeline::PageHalf::Left => {
+            edge_near_paper_run_for_output(output, HorizontalEdge::Right)
+        }
+        crate::pipeline::PageHalf::Right => {
+            edge_near_paper_run_for_output(output, HorizontalEdge::Left)
+        }
+        crate::pipeline::PageHalf::Full => 0,
+    }
+}
+
+pub(crate) fn outer_near_paper_edge_runs_for_output(output: &CleanupResult) -> NearPaperEdgeRuns {
+    match output.metadata.half {
+        crate::pipeline::PageHalf::Left => NearPaperEdgeRuns {
+            left: edge_near_paper_run_for_output(output, HorizontalEdge::Left),
+            right: 0,
+        },
+        crate::pipeline::PageHalf::Right => NearPaperEdgeRuns {
+            left: 0,
+            right: edge_near_paper_run_for_output(output, HorizontalEdge::Right),
+        },
+        crate::pipeline::PageHalf::Full => NearPaperEdgeRuns {
+            left: edge_near_paper_run_for_output(output, HorizontalEdge::Left),
+            right: edge_near_paper_run_for_output(output, HorizontalEdge::Right),
+        },
+    }
+}
+
+pub(crate) fn placement_near_paper_edge_runs_for_output(
+    output: &CleanupResult,
+) -> NearPaperEdgeRuns {
+    near_paper_edge_runs_with_fold_side(
+        outer_near_paper_edge_runs_for_output(output),
+        output.metadata.half,
+        fold_side_near_paper_run_for_output(output),
+    )
+}
+
+pub(crate) fn output_content_ownership(output: &CleanupResult) -> Option<BinaryImage> {
+    let mut ownership = output.image.bilevel().cloned();
+    // BW publishes only the primary stencil. Analysis-only tone alpha can be
+    // much wider on sparse title leaves; treating it as visible ownership
+    // shifts the actual text away from center even though that alpha never
+    // reaches the PDF.
+    if output.metadata.output_mode == OutputMode::Bw {
+        return ownership;
+    }
+    if let Some(picture_mask) = output.picture_mask.as_ref() {
+        ownership = Some(match ownership {
+            Some(existing) => existing.or(picture_mask),
+            None => picture_mask.clone(),
+        });
+    }
+    if let Some(foreground_mask) = output
+        .mixed_layers
+        .as_ref()
+        .map(|layers| &layers.foreground_mask)
+    {
+        ownership = Some(match ownership {
+            Some(existing) => existing.or(foreground_mask),
+            None => foreground_mask.clone(),
+        });
+    }
+    if let Some(tone_alpha) = output.tone_preservation_alpha.as_ref() {
+        let tone_owner =
+            BinaryImage::from_fn_parallel(tone_alpha.width(), tone_alpha.height(), |x, y| {
+                tone_alpha.get(x, y) > 0
+            });
+        ownership = Some(match ownership {
+            Some(existing) => existing.or(&tone_owner),
+            None => tone_owner,
+        });
+    }
+    ownership
+}
+
+pub(crate) fn optical_content_bounds_x_for_output(output: &CleanupResult) -> Option<(f64, f64)> {
+    output_content_ownership(output)
+        .as_ref()
+        .and_then(optical_binary_bounds_x)
+}
+
+pub(crate) fn spread_content_top_for_output(output: &CleanupResult) -> Option<f64> {
+    // Measure the post-cleanup raster in the same content space that is
+    // materialized. A Mixed leaf carries its tonal content in the layered
+    // background rather than the published stencil, so the anchor must take
+    // the earliest content row across every plane the viewer will composite;
+    // measuring the stencil alone aligned a facing photo against the other
+    // leaf's running head. The detector geometry remains a fallback for a
+    // raster with no measurable ownership.
+    let raster_top = gray_content_bounds_y(&output.image.to_gray()).map(|(top, _)| top);
+    let layered_top = output
+        .mixed_layers
+        .as_ref()
+        .and_then(|layers| gray_content_bounds_y(&layers.background).map(|(top, _)| top));
+    let visible_top = [raster_top, layered_top]
+        .into_iter()
+        .flatten()
+        .min_by(f64::total_cmp);
+    let geometric_top = output
+        .metadata
+        .content_box
+        .map(|content| content.y - output.metadata.crop_rect.y)
+        .filter(|top| top.is_finite() && *top >= 0.0);
+    visible_top.or(geometric_top)
+}
+
+fn geometry_canvas(canvas: &DocumentCanvas) -> GeometryCanvas {
+    GeometryCanvas {
+        width_points: canvas.width_points,
+        height_points: canvas.height_points,
+        width_px: canvas.width_px,
+        height_px: canvas.height_px,
+    }
+}
+
+fn apply_canvas_metadata(
+    metadata: &mut CleanupMetadata,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    let CanvasPlacement {
+        content_width,
+        content_height,
+        left,
+        top,
+        requested_margins,
+        optical_content_centered,
+        optical_content_bounds_x,
+        intrinsic_overflow_left,
+        intrinsic_overflow_right,
+        intrinsic_overflow_top,
+        fold_clip_left,
+        fold_clip_right,
+        ..
+    } = placement;
+    let effective_left = left as isize - intrinsic_overflow_left as isize;
+    let effective_right = effective_left + content_width as isize;
+    let effective_top = top as isize - intrinsic_overflow_top as isize;
+    let effective_bottom = effective_top + content_height as isize;
+    metadata.soft_margins_pixels = [
+        effective_left.max(0) as usize,
+        effective_top.max(0) as usize,
+        (canvas.width_px as isize - effective_right).max(0) as usize,
+        (canvas.height_px as isize - effective_bottom).max(0) as usize,
+    ];
+    metadata.applied_margins = requested_margins.map(|margin| margin as f64).into();
+    metadata.uniform_canvas = true;
+    metadata.canvas_policy = MatchedCanvasPolicy::StrictMaximum;
+    metadata.canvas_overflow = placement.overflow
+        || intrinsic_overflow_left > 0
+        || intrinsic_overflow_right > 0
+        || intrinsic_overflow_top > 0;
+    metadata.matched_canvas_target_width = Some(canvas.width_px);
+    metadata.matched_canvas_target_height = Some(canvas.height_px);
+    metadata.matched_canvas_target_width_points = Some(canvas.width_points);
+    metadata.matched_canvas_target_height_points = Some(canvas.height_points);
+    metadata.matched_canvas_content_width = Some(content_width);
+    metadata.matched_canvas_content_height = Some(content_height);
+    metadata.matched_canvas_optical_placement = optical_content_centered;
+    metadata.matched_canvas_optical_content_left = optical_content_bounds_x.map(|(left, _)| left);
+    metadata.matched_canvas_optical_content_right =
+        optical_content_bounds_x.map(|(_, right)| right);
+    metadata.matched_canvas_intrinsic_overflow_left = intrinsic_overflow_left;
+    metadata.matched_canvas_intrinsic_overflow_right = intrinsic_overflow_right;
+    metadata.matched_canvas_intrinsic_overflow_top = intrinsic_overflow_top;
+    metadata.fold_clip_left = fold_clip_left;
+    metadata.fold_clip_right = fold_clip_right;
+    metadata.canvas_width = canvas.width_px;
+    metadata.canvas_height = canvas.height_px;
+    metadata.placement_offset_x = left;
+    metadata.placement_offset_y = top;
+    metadata.warning_events.extend(
+        canvas_placement_warning_events(placement, canvas, metadata.content_box.is_some())
+            .into_iter()
+            .map(canvas_warning_to_protocol),
+    );
+}
+
+fn canvas_warning_to_protocol(
+    warning: crate::engine::output_geometry::CanvasWarning,
+) -> CleanupWarningEvent {
+    use crate::engine::output_geometry::CanvasWarning;
+    match warning {
+        CanvasWarning::MatchedCanvasContentFitted {
+            content_width,
+            content_height,
+            inner_width,
+            inner_height,
+            document_canvas_width,
+            document_canvas_height,
+            ..
+        } => CleanupWarningEvent::MatchedCanvasContentFitted {
+            unit: WarningExtentUnit::Px,
+            content_width,
+            content_height,
+            inner_width,
+            inner_height,
+            document_canvas_width,
+            document_canvas_height,
+        },
+        CanvasWarning::MatchedCanvasMarginsReduced => {
+            CleanupWarningEvent::MatchedCanvasMarginsReduced
+        }
+        CanvasWarning::MatchedCanvasMarginsUnavailable => {
+            CleanupWarningEvent::MatchedCanvasMarginsUnavailable
+        }
+        CanvasWarning::MatchedCanvasPaperDownscaled {
+            scale_percent_tenths,
+            document_canvas_width,
+            document_canvas_height,
+            paper_width,
+            paper_height,
+            ..
+        } => CleanupWarningEvent::MatchedCanvasPaperDownscaled {
+            unit: WarningExtentUnit::Px,
+            scale_percent_tenths,
+            document_canvas_width,
+            document_canvas_height,
+            paper_width,
+            paper_height,
+        },
+        CanvasWarning::MatchedCanvasOpticalCenteringFallback => {
+            CleanupWarningEvent::MatchedCanvasOpticalCenteringFallback
+        }
+        CanvasWarning::MatchedCanvasIntrinsicOverflow { left_px, right_px } => {
+            CleanupWarningEvent::MatchedCanvasIntrinsicOverflow { left_px, right_px }
+        }
+        CanvasWarning::MatchedCanvasSpreadHeadroomTrimmed { top_px } => {
+            CleanupWarningEvent::MatchedCanvasSpreadHeadroomTrimmed { top_px }
+        }
+        CanvasWarning::MatchedCanvasFoldColumnsDiscarded {
+            left_columns,
+            right_columns,
+        } => CleanupWarningEvent::MatchedCanvasFoldColumnsDiscarded {
+            left_columns,
+            right_columns,
+        },
+    }
+}
 
 fn planning_page(page: &Page) -> PageDescriptor {
     PageDescriptor {
@@ -262,15 +916,21 @@ fn match_page_sizes(
     if eligible.is_empty() {
         return Ok(());
     }
-    let Some(canvas) = document_canvas else {
+    let Some(canvas) = document_canvas.map(|canvas| geometry_canvas(&canvas)) else {
         return Err(NativeError::new(
             NativeErrorCode::InvalidRequest,
             "Matched page size requires a documentCanvas plan; the manifest carried none",
         )
         .into());
     };
-    let shared_spread_fits = shared_spread_overflow_fits_for_written_outputs(&eligible, &canvas);
-    let mut placements = eligible
+    let geometry_outputs = eligible
+        .iter()
+        .map(|output| geometry_output(output))
+        .collect::<Vec<_>>();
+    let geometry_refs = geometry_outputs.iter().collect::<Vec<_>>();
+    let shared_spread_fits =
+        shared_spread_overflow_fits_for_geometry_outputs(&geometry_refs, &canvas);
+    let mut placements = geometry_outputs
         .iter()
         .map(|output| {
             plan_canvas_placement_with_shared_fit(
@@ -280,7 +940,7 @@ fn match_page_sizes(
             )
         })
         .collect::<Vec<_>>();
-    let deferred_spread_outputs = eligible
+    let deferred_spread_outputs = geometry_outputs
         .iter()
         .map(|output| DeferredSpreadVerticalPlacement {
             source_page_index: output.source_page_index,
@@ -1286,13 +1946,14 @@ mod page_workflow {
         };
         let destinations = resolve_destinations(page, result.outputs.len(), fallback_destination)?;
         let matched_canvas = if final_render && options.match_page_size && !options.ocr_mode {
-            let mut canvas = document_canvas
+            let canvas = document_canvas
                 .ok_or_else(|| invalid("Matched page size requires a documentCanvas plan"))?;
             // PDF page matching is a physical-points contract, not a
             // same-number-of-pixels contract. Reusing the document's finest raster
             // grid upscaled lower-DPI B&W/Mixed pages after cleanup, adding no
             // information while changing stroke geometry and bloating masks. Each
             // page keeps the DPI at which it was actually cleaned.
+            let mut canvas = geometry_canvas(&canvas);
             canvas = canvas.at_dpi(options.dpi);
             validate_canvas_for_options(canvas.width_px, canvas.height_px, &options)?;
             Some(canvas)
@@ -1302,7 +1963,12 @@ mod page_workflow {
         let shared_spread_overflow_plan = matched_canvas
             .and_then(|canvas| {
                 (result.classification == LayoutClassification::TwoPageSpread).then(|| {
-                    shared_spread_overflow_fit_for_outputs(&result.outputs, &options, &canvas)
+                    let geometry_outputs = result
+                        .outputs
+                        .iter()
+                        .map(|output| geometry_output_from_cleanup_result(output, &options))
+                        .collect::<Vec<_>>();
+                    shared_spread_overflow_fit_for_outputs(&geometry_outputs, &options, &canvas)
                 })
             })
             .flatten();
@@ -1312,8 +1978,12 @@ mod page_workflow {
             .enumerate()
             .map(|(index, output)| {
                 matched_canvas.map(|canvas| {
-                    let (paper_width, paper_height) =
-                        matched_output_paper_dimensions(&output.metadata);
+                    let (paper_width, paper_height) = matched_output_paper_dimensions_for(
+                        output.metadata.input_width,
+                        output.metadata.input_height,
+                        output.metadata.rotation,
+                        output.metadata.half,
+                    );
                     let optical_content_bounds_x = output
                         .metadata
                         .content_box
@@ -1618,7 +2288,12 @@ mod page_workflow {
                     }
                 }
                 publication.write_metadata(&destination.metadata_path, &output.metadata)?;
-                let (paper_width, paper_height) = matched_output_paper_dimensions(&output.metadata);
+                let (paper_width, paper_height) = matched_output_paper_dimensions_for(
+                    output.metadata.input_width,
+                    output.metadata.input_height,
+                    output.metadata.rotation,
+                    output.metadata.half,
+                );
                 let optical_content_bounds_x = output
                     .metadata
                     .content_box
@@ -1630,7 +2305,8 @@ mod page_workflow {
                     || options.ocr_mode
                 {
                     0
-                } else if let Some(canvas) = document_canvas {
+                } else if let Some(canvas) = document_canvas.map(|canvas| geometry_canvas(&canvas))
+                {
                     let fit = canvas_fit_for(
                         output.image.width(),
                         output.image.height(),
