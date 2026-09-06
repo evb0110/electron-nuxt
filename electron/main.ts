@@ -128,7 +128,10 @@ import {
     drainCriticalMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { sweepStaleManagedScratchTempDirs } from '@electron/utils/managedScratchTemp';
-import { initializeAppTempNamespace } from '@electron/utils/appTempDir';
+import {
+    cleanupStaleAppTempNamespaces,
+    initializeAppTempNamespace,
+} from '@electron/utils/appTempDir';
 import {
     configureProcessSafeMode,
     createProcessDeathRecovery,
@@ -750,6 +753,7 @@ void runInitSequence({
     allowOpenPaths,
     attachHostEnvironmentToWindow,
     broadcastUpdateStatus,
+    cleanupStaleAppTempNamespaces,
     cleanupStaleWorkingCopyDirectories,
     createWindow,
     devDockBadgeText: DEV_DOCK_BADGE_TEXT,

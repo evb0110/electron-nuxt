@@ -31,6 +31,10 @@ import {
     isVerifiedSessionProcess,
     killVerifiedSessionProcess,
 } from '@scripts/electron-run/electronRunProcessIdentity';
+import {
+    cleanupSessionAppTempIfUnowned,
+    hasWorkspaceRecoveryEvidence,
+} from '@scripts/electron-run/electronRunSessionCleanup';
 import type {
     ISessionInfo,
     ISessionStartingInfo,
@@ -292,11 +296,18 @@ export async function cleanupStaleSessionArtifacts(name = getCurrentSessionName(
     }
 
     const starting = getSessionStartingInfo(name);
-    if (starting && !isVerifiedSessionProcess(starting.pid, {
+    const startingControllerOwned = Boolean(starting && isVerifiedSessionProcess(starting.pid, {
         kind: 'controller',
         sessionName: name,
-    })) {
+    }));
+    if (starting && !startingControllerOwned) {
         await cleanupSessionStartingAttempt(name);
+    }
+
+    if (!hasWorkspaceRecoveryEvidence(name) && !controllerOwned && !startingControllerOwned) {
+        if (!cleanupSessionAppTempIfUnowned(name)) {
+            console.warn(`[Session '${name}'] Retained app temp during stale-artifact cleanup because a session-owned Electron process is still alive.`);
+        }
     }
 
     if (info && !(await isSessionRunning(name)) && !controllerOwned) {

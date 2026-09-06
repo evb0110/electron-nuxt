@@ -76,6 +76,7 @@ export interface IRunInitSequenceOptions {
         removedDirectories: number;
         removedOcrDirectories: number;
     }>;
+    cleanupStaleAppTempNamespaces?: () => Promise<number>;
     createWindow(options?: {
         showStartupPlaceholder?: boolean;
         waitForInitialRendererReady?: boolean;
@@ -346,6 +347,7 @@ function createPostRendererReadyMaintenanceRunner(
 ): () => void {
     const {
         cleanupStaleWorkingCopyDirectories,
+        cleanupStaleAppTempNamespaces,
         logger,
         sweepStaleDefaultAppTempPdfs,
         sweepStalePdfAnnotationParseArtifacts,
@@ -358,6 +360,17 @@ function createPostRendererReadyMaintenanceRunner(
     } = options;
 
     const steps: IStartupMaintenanceStepDefinition[] = [
+        ...(cleanupStaleAppTempNamespaces
+            ? [{
+                label: 'EVB app temp namespaces',
+                run: async () => {
+                    const removed = await cleanupStaleAppTempNamespaces();
+                    if (removed > 0) {
+                        logger.info(`Removed stale EVB app temp namespaces: ${removed}`);
+                    }
+                },
+            }]
+            : []),
         {
             label: 'default-app temp PDFs',
             run: sweepStaleDefaultAppTempPdfs,
