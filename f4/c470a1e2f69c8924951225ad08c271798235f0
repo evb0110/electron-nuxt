@@ -1,0 +1,35 @@
+tests/unit/scripts/windows-test/ocrPageMarkerOracle.test.ts
+  s_26c749c74623e7::t_03b463b0a63331 40
+tests/unit/contracts/canonicalAppFrames.test.ts
+  s_26c749c74623e7::t_44a8ddc082183f 185-192
+scripts/validation-gates.mjs
+  s_26c749c74623e7::t_94b3eb1b8eb790 61,239,242-243,276-280,287-293,1715-1725,1727-1728,1730-1759,1763,1770-1772,1775,1778,1781,1791,1794,1801-1806,1808-1810,1812-1813,1818-1819,1823-1832,1834-1841,1855-1865,1870,1872-1875,1880,1883-1902,1905-1909,1911,1913,1916,1919,2359,2379,2411-2412,2448-2449
+  s_26c749c74623e7::t_0c20b07eb7b932 1726,1729,1866-1869,1871
+scripts/windows-test/images/createTestClone.ts
+  s_26c749c74623e7::t_c77b71d8a2a78b 153-160
+tests/unit/scripts/windows-test/windowsHostOracleDispatcher.test.ts
+  s_26c749c74623e7::t_03b463b0a63331 225
+packages/contracts/diagnostics/canonicalAppFrames.ts
+  s_26c749c74623e7::t_44a8ddc082183f 51-57,292-294
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_26c749c74623e7::t_0c20b07eb7b932 677,684
+  s_26c749c74623e7::t_94b3eb1b8eb790 14,44,47,570-574,594,596,616,629-649,652-663,665-672,674-676,678-683,685,688,690,704-705
+  s_26c749c74623e7::t_7079edc25aa47d 689
+  s_26c749c74623e7::t_8b20ae9a19ef74 650-651,664,673,686-687,691-703
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f4c470a1e2f69c8924951225ad08c271798235f0",
+  "prompts": {},
+  "sessions": {
+    "s_26c749c74623e7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0739c-1fa7-79a0-a340-66a66b3ea256",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
