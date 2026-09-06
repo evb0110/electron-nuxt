@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
     }
     let db: ReturnType<typeof getOptionalAnalyticsDb>;
     try {
-        db = getOptionalAnalyticsDb(event);
+        db = getOptionalAnalyticsDb();
     } catch (error) {
         captureServerFailure({
             code: 'NITRO_ANALYTICS_DATABASE_INITIALIZATION_FAILED',

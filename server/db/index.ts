@@ -1,37 +1,28 @@
-import type { H3Event } from 'h3';
 import { neon } from '@neondatabase/serverless';
 import {
     drizzle,
     type NeonHttpDatabase,
 } from 'drizzle-orm/neon-http';
-import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
+import {
+    firstNonEmptyStringPreservingWhitespace,
+    getRuntimeEnv,
+} from '@server/utils/getRuntimeEnv';
 import * as schema from '@server/db/viewerAnalyticsEvent';
 
 let dbInstance: NeonHttpDatabase<typeof schema> | null = null;
 
-function firstNonEmptyString(values: Array<string | undefined>) {
-    for (const value of values) {
-        if (typeof value === 'string' && value.length > 0) {
-            return value;
-        }
-    }
-
-    return '';
-}
-
-function resolveDatabaseUrl(event?: H3Event) {
-    void event;
+function resolveDatabaseUrl() {
     const env = getRuntimeEnv();
 
-    return firstNonEmptyString([
+    return firstNonEmptyStringPreservingWhitespace([
         env.NUXT_ANALYTICS_DATABASE_URL,
         env.ANALYTICS_DATABASE_URL,
         env.DATABASE_URL,
     ]);
 }
 
-export function getAnalyticsDb(event?: H3Event): NeonHttpDatabase<typeof schema> {
-    const db = getOptionalAnalyticsDb(event);
+export function getAnalyticsDb(): NeonHttpDatabase<typeof schema> {
+    const db = getOptionalAnalyticsDb();
     if (!db) {
         throw new Error('Analytics database URL is not configured');
     }
@@ -39,9 +30,9 @@ export function getAnalyticsDb(event?: H3Event): NeonHttpDatabase<typeof schema>
     return db;
 }
 
-export function getOptionalAnalyticsDb(event?: H3Event): NeonHttpDatabase<typeof schema> | null {
+export function getOptionalAnalyticsDb(): NeonHttpDatabase<typeof schema> | null {
     if (!dbInstance) {
-        const url = resolveDatabaseUrl(event);
+        const url = resolveDatabaseUrl();
         if (!url) {
             return null;
         }

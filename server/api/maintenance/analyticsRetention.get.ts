@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
         });
     }
 
-    const db = getAnalyticsDb(event);
+    const db = getAnalyticsDb();
     let deletedRows = BigInt(0);
     let eventsDeleted = BigInt(0);
     let dedupeDeleted = BigInt(0);

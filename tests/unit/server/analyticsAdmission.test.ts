@@ -5,7 +5,6 @@ import {
 } from 'vitest';
 import {decodeViewerAnalyticsEventsBody} from '@server/utils/decodeViewerAnalyticsEventsBody';
 import {
-    createAnalyticsVisitorHash,
     isAnalyticsWriteAllowedForHost,
     isTrustedAnalyticsRequestValues,
 } from '@server/utils/analytics';
@@ -21,6 +20,7 @@ import {
 } from '@server/utils/analyticsRequestBody';
 import { isAnalyticsRetentionRequestAuthorized } from '@contracts/analyticsRetention';
 import {
+    createDailyAnalyticsVisitorHash,
     resolveAnalyticsClientIp,
     resolveStrongAnalyticsSecret,
 } from '@contracts/analyticsPrivacy';
@@ -73,6 +73,35 @@ describe('root analytics admission policy', () => {
             ANALYTICS_HASH_SECRET: 'a'.repeat(32),
             ANALYTICS_ALLOWED_HOSTS: 'web.evb-viewer.com',
         }, 'WEB.EVB-VIEWER.COM')).toBe(true);
+    });
+
+    it('preserves analytics environment precedence and exact empty-value handling', () => {
+        const secret = 'a'.repeat(32);
+        expect(isAnalyticsWriteAllowedForHost({
+            NUXT_ANALYTICS_WRITE_ENABLED: '',
+            ANALYTICS_WRITE_ENABLED: '1',
+            NUXT_ANALYTICS_HASH_SECRET: '',
+            ANALYTICS_HASH_SECRET: secret,
+            NUXT_ANALYTICS_ALLOWED_HOSTS: '',
+            ANALYTICS_ALLOWED_HOSTS: 'web.evb-viewer.com',
+        }, 'web.evb-viewer.com')).toBe(true);
+        expect(isAnalyticsWriteAllowedForHost({
+            NUXT_ANALYTICS_WRITE_ENABLED: ' ',
+            ANALYTICS_WRITE_ENABLED: '1',
+            ANALYTICS_HASH_SECRET: secret,
+        }, 'web.evb-viewer.com')).toBe(false);
+        expect(isAnalyticsWriteAllowedForHost({
+            NUXT_ANALYTICS_WRITE_ENABLED: '1',
+            ANALYTICS_HASH_SECRET: secret,
+            NUXT_ANALYTICS_ALLOWED_HOSTS: 'other.example',
+            ANALYTICS_ALLOWED_HOSTS: 'web.evb-viewer.com',
+        }, 'web.evb-viewer.com')).toBe(false);
+        expect(isAnalyticsWriteAllowedForHost({
+            NUXT_ANALYTICS_WRITE_ENABLED: '1',
+            ANALYTICS_HASH_SECRET: secret,
+            NUXT_ANALYTICS_ALLOWED_HOSTS: ' ',
+            ANALYTICS_ALLOWED_HOSTS: 'other.example',
+        }, 'web.evb-viewer.com')).toBe(true);
     });
 
     it('fails closed without a strong visitor-hash secret', () => {
@@ -157,13 +186,13 @@ describe('root analytics admission policy', () => {
             ip: '203.0.113.7',
             secret: 'a'.repeat(32),
         };
-        const hash = await createAnalyticsVisitorHash(input);
-        await expect(createAnalyticsVisitorHash(input)).resolves.toBe(hash);
-        await expect(createAnalyticsVisitorHash({
+        const hash = await createDailyAnalyticsVisitorHash(input);
+        await expect(createDailyAnalyticsVisitorHash(input)).resolves.toBe(hash);
+        await expect(createDailyAnalyticsVisitorHash({
             ...input,
             secret: 'b'.repeat(32),
         })).resolves.not.toBe(hash);
-        await expect(createAnalyticsVisitorHash({
+        await expect(createDailyAnalyticsVisitorHash({
             ...input,
             date: '2026-08-20',
         })).resolves.not.toBe(hash);

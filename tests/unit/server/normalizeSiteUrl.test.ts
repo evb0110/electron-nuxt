@@ -25,6 +25,29 @@ describe('resolveSiteUrl', () => {
         expect(resolveSiteUrl({} as H3Event)).toBe('https://canonical.example/');
     });
 
+    it('falls through empty canonical URL values in precedence order', async () => {
+        vi.stubGlobal('process', {env: {
+            NUXT_PUBLIC_SITE_URL: '',
+            NUXT_SITE_URL: 'https://secondary.example',
+            SITE_URL: 'https://fallback.example',
+        }});
+        const { resolveSiteUrl } = await import('@server/utils/normalizeSiteUrl');
+
+        expect(resolveSiteUrl({} as H3Event)).toBe('https://secondary.example/');
+    });
+
+    it('keeps whitespace-only canonical values from selecting lower-priority URLs', async () => {
+        vi.stubGlobal('process', {env: {
+            NODE_ENV: 'development',
+            NUXT_PUBLIC_SITE_URL: '   ',
+            NUXT_SITE_URL: 'https://secondary.example',
+        }});
+        requestUrlMock.value = new URL('https://request.example/sitemap.xml');
+        const { resolveSiteUrl } = await import('@server/utils/normalizeSiteUrl');
+
+        expect(resolveSiteUrl({} as H3Event)).toBe('https://request.example/');
+    });
+
     it('rejects malformed, non-web, and credential-bearing configured URLs', async () => {
         const { resolveSiteUrl } = await import('@server/utils/normalizeSiteUrl');
         for (const siteUrl of [

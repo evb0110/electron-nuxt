@@ -10,14 +10,14 @@ import {
     type IAnalyticsGeoData,
 } from '@contracts/analytics';
 import {
-    ANALYTICS_HASH_SECRET_MIN_LENGTH,
     createDailyAnalyticsVisitorHash,
     resolveAnalyticsClientIp,
     resolveStrongAnalyticsSecret,
 } from '@contracts/analyticsPrivacy';
-import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
-
-export { ANALYTICS_HASH_SECRET_MIN_LENGTH };
+import {
+    firstNonEmptyStringPreservingWhitespace,
+    getRuntimeEnv,
+} from '@server/utils/getRuntimeEnv';
 
 function isTruthyFlag(value: unknown) {
     return value === true
@@ -40,16 +40,6 @@ function normalizeAllowedHosts(value: unknown) {
     return compact(value.map(entry => typeof entry === 'string' ? entry.trim().toLowerCase() : ''));
 }
 
-function firstNonEmptyString(values: Array<string | undefined>) {
-    for (const value of values) {
-        if (typeof value === 'string' && value.length > 0) {
-            return value;
-        }
-    }
-
-    return '';
-}
-
 function resolveAnalyticsHashSecret(env: Record<string, string | undefined>) {
     return resolveStrongAnalyticsSecret([
         env.NUXT_ANALYTICS_HASH_SECRET,
@@ -61,7 +51,7 @@ export function isAnalyticsWriteAllowedForHost(
     env: Record<string, string | undefined>,
     requestHost: string,
 ) {
-    const writeEnabled = firstNonEmptyString([
+    const writeEnabled = firstNonEmptyStringPreservingWhitespace([
         env.NUXT_ANALYTICS_WRITE_ENABLED,
         env.ANALYTICS_WRITE_ENABLED,
     ]);
@@ -73,7 +63,7 @@ export function isAnalyticsWriteAllowedForHost(
     }
 
     const allowedHosts = normalizeAllowedHosts(
-        firstNonEmptyString([
+        firstNonEmptyStringPreservingWhitespace([
             env.NUXT_ANALYTICS_ALLOWED_HOSTS,
             env.ANALYTICS_ALLOWED_HOSTS,
         ]),
@@ -128,14 +118,6 @@ export function getAnalyticsRequestHost(event: H3Event) {
     return getRequestURL(event).host.trim().toLowerCase();
 }
 
-export async function createAnalyticsVisitorHash(input: {
-    date: string
-    ip: string
-    secret: string
-}) {
-    return createDailyAnalyticsVisitorHash(input);
-}
-
 export async function hashVisitorIdentity(
     event: H3Event,
     env: Record<string, string | undefined> = getRuntimeEnv(),
@@ -145,7 +127,7 @@ export async function hashVisitorIdentity(
         platformIp: getRequestIP(event),
         vercelForwardedFor: getHeader(event, 'x-vercel-forwarded-for'),
     });
-    return createAnalyticsVisitorHash({
+    return createDailyAnalyticsVisitorHash({
         date: new Date().toISOString().slice(0, 10),
         ip,
         secret: resolveAnalyticsHashSecret(env),
