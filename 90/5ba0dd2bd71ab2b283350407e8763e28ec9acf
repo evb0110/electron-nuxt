@@ -1,0 +1,94 @@
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_dcc6defac936b2::t_3dfc71ed250211 17-18
+  s_dcc6defac936b2::t_77d5be7fadbfb2 636
+  s_dcc6defac936b2::t_ed294452c3d2aa 10,586,602,623
+  s_dcc6defac936b2::t_b7e0838b353288 14-15
+  s_dcc6defac936b2::t_0c9efad398535b 533,556
+  s_dcc6defac936b2::t_87637bd4d061dd 13,16,22
+  s_dcc6defac936b2::t_9ef11f98373771 12
+  s_dcc6defac936b2::t_8e25cde5d69010 40-64
+  s_dcc6defac936b2::t_1342a82e78e8fb 431,486
+  s_dcc6defac936b2::t_da03bfd101c9f2 9,11
+  s_dcc6defac936b2::t_6cd237d52b82c0 570,572-578,581-582
+  s_dcc6defac936b2::t_55e06faa229581 638
+  s_dcc6defac936b2::t_2d76eb738d6e46 68-116,118-155
+  s_dcc6defac936b2::t_3c001afb251b73 641
+  s_dcc6defac936b2::t_3bd8636fdd38f1 37
+  s_dcc6defac936b2::t_2181a041fed313 4-8,20
+  s_dcc6defac936b2::t_0c9f35e5ac82e4 411-421
+  s_dcc6defac936b2::t_bd0fe790478648 314,323,459,468
+native/scan-cleanup/src/engine/staged_input.rs
+  s_dcc6defac936b2::t_2bef430a6366d4 491,502,507,540,598,601,606,635-636,664
+  s_dcc6defac936b2::t_c418b27bad1a1d 24-29,1073,1124
+  s_dcc6defac936b2::t_0f58a4dd74d236 1280-1283,1285-1301,1303-1338,1341-1346,1348-1353,1355-1362,1364-1368,1371-1377,1380,1382-1607
+  s_dcc6defac936b2::t_6a93124b4b5dec 12,14,176,183,194,198
+  s_dcc6defac936b2::t_e499da9cb2cc60 30-33,36
+  s_dcc6defac936b2::t_0bd2b78a0c9eaf 34-35
+  s_dcc6defac936b2::t_c1d7dd95e584ce 56-127,132-164,168,172-175,177,182,184-185,192-193,195-197
+  s_dcc6defac936b2::t_759354aa9d3981 128-131,165-167,169-171,178-181,186-191,199-201
+  s_dcc6defac936b2::t_e8f574bb67a442 575,579,647
+  s_dcc6defac936b2::t_a6e164437935d9 1276-1278
+  s_dcc6defac936b2::t_b7e0838b353288 3
+native/scan-cleanup/src/engine/resource_planning.rs
+  s_dcc6defac936b2::t_0f58a4dd74d236 349
+  s_dcc6defac936b2::t_4045f1dadb4c1b 4
+  s_dcc6defac936b2::t_2830cfe8a33c64 346
+  s_dcc6defac936b2::t_da426657fa894e 13-16,19-23
+  s_dcc6defac936b2::t_2b85f8f43c7f95 2,9,37-52,55-62,65
+  s_dcc6defac936b2::t_e76b134cff7d08 11-12,17-18,24-36,66
+  s_dcc6defac936b2::t_fc6a2842935049 53-54,63-64
+native/scan-cleanup/src/engine/batch_reconciliation.rs
+  s_dcc6defac936b2::t_2830cfe8a33c64 255
+  s_dcc6defac936b2::t_d2f4c6019c9195 15-22
+  s_dcc6defac936b2::t_e8f574bb67a442 169-189
+  s_dcc6defac936b2::t_3b4708b5b3785d 6
+  s_dcc6defac936b2::t_748664ec39f1dd 254
+  s_dcc6defac936b2::t_40d36d95faec7f 351,496
+  s_dcc6defac936b2::t_2b85f8f43c7f95 8
+  s_dcc6defac936b2::t_b77ad3603056c5 9,27
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_dcc6defac936b2::t_1b890f08de5089 46-78
+  s_dcc6defac936b2::t_b3ee5d49f97d38 782-800,810-812
+  s_dcc6defac936b2::t_9c349e6405a3a5 2134-2147,2150-2163,2617-2635,2637,2639-2652,2790-2803,2845-2860,2862
+  s_dcc6defac936b2::t_750d9ddff8580a 686-699,765-778
+  s_dcc6defac936b2::t_da426657fa894e 14,20-23
+  s_dcc6defac936b2::t_c48ba83cea620f 15-19,24-33,45
+  s_dcc6defac936b2::t_04e087cdaaefc9 34-44
+native/scan-cleanup/src/engine/page_statistics.rs
+  s_dcc6defac936b2::t_da426657fa894e 177
+  s_dcc6defac936b2::t_9103c33bf76d42 212
+  s_dcc6defac936b2::t_8445ddfc2baf3c 110-138,141-144,161-166,168
+  s_dcc6defac936b2::t_c2ebf8321e5c60 27-81,167
+  s_dcc6defac936b2::t_07b84fd5f3f5fe 173-176,178-201,358
+  s_dcc6defac936b2::t_0f58a4dd74d236 338-342,351-356
+  s_dcc6defac936b2::t_d168e60b72312b 82-109,1202,1300
+  s_dcc6defac936b2::t_748664ec39f1dd 22
+  s_dcc6defac936b2::t_a7f491a2d2b86b 816-819,822-826,830-833
+  s_dcc6defac936b2::t_e4e2068f977540 919,1019-1020,1103,1173-1174,1176,1179,1182,1185,1188,1191,1194
+  s_dcc6defac936b2::t_46171488d84e51 206-208,210-211,213-241,244-271,276-281
+  s_dcc6defac936b2::t_61946cba8e4149 5-10,282-325,327-337,343-350,357
+  s_dcc6defac936b2::t_5a147334522315 209
+  s_dcc6defac936b2::t_29cb12c42441bc 20
+  s_dcc6defac936b2::t_41907cd22c6bf6 1363-1392
+  s_dcc6defac936b2::t_3ad540530d25ef 242-243,272-275
+  s_dcc6defac936b2::t_3808b65bdee5b6 203-204
+  s_dcc6defac936b2::t_c6af404a54481a 14,326
+  s_dcc6defac936b2::t_cd9d57511f4bcf 202,205,484
+  s_dcc6defac936b2::t_6e7ae7bf29262c 139-140,145-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "905ba0dd2bd71ab2b283350407e8763e28ec9acf",
+  "prompts": {},
+  "sessions": {
+    "s_dcc6defac936b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-6997-78f1-aa1b-45a3adb5a218",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
