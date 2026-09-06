@@ -1,5 +1,9 @@
 # Sentry operations runbook
 
+Agents handling a bare `check Sentry` or `verify Sentry` request must start with
+[sentry-agent-check.md](./sentry-agent-check.md). This runbook is the policy and
+evidence reference that the agent-check procedure points to.
+
 This runbook applies to the `evb-viewer-desktop` and `evb-viewer-web`
 projects. It never authorizes a broader event payload than the closed
 `DiagnosticRecord` contract. Sentry is an error lead, not proof of a defect.

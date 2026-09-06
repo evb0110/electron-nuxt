@@ -1,5 +1,9 @@
 # Sentry account controls
 
+For an ambiguous `check Sentry` or `verify Sentry` request, start with
+[sentry-agent-check.md](./sentry-agent-check.md). This file records account
+state and policy; it is not a substitute for the read-only check procedure.
+
 This file records the configuration EVB Viewer requires before diagnostics can
 send production events. It contains setting names and policy decisions only.
 Never add DSNs, tokens, project identifiers, private endpoints, screenshots, or
