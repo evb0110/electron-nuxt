@@ -774,3 +774,25 @@ safe preload decoder, native managed-shape save projection, exact large-PDF
 fixture routing, and the complete #350 evidence recorded above. Candidate
 commit, PR integration, integrated-main verification, and the remaining #196,
 #168, #167, and Project 4 closure checks remain open.
+
+### 2026-09-06, split continuity and DjVu transition follow-up
+
+The earlier load-sensitive classification for inactive-DjVu split continuity is
+superseded by focused evidence. The integrated branch reproduced two blank
+image frames and three page-change frames at gate
+`2026-09-06T06-41-03-850Z-3618909-ebd85d47`, with page 18 ending at a maximum
+anchor drift of `0.4091786707769391`. The same case passed only when temporary
+diagnostics changed timing, so that run is not acceptance evidence.
+
+The focused PDF continuity case passed three times, including real pointer
+input, at gates `2026-09-06T06-27-05-694Z-3575012-21e2235d`,
+`2026-09-06T06-28-16-378Z-3579115-b3408a39`, and
+`2026-09-06T06-33-03-879Z-3592698-71d0eca9`. The integrated candidate now
+keeps page-source scroll ownership and raster rendering fenced for the full
+resize-transition lifecycle, rather than only while the outer resize prop is
+true. The focused DjVu case passed after that change at
+`2026-09-06T06-58-35-919Z-3678026-e6b00c48`; the unit check passed 14/14.
+Candidate commit is `aba9aa6d`; integration has the corresponding local
+commit. Temporary diagnostics were removed. The next required check is the
+affected integrated three-file gate, followed by broad regression and exact
+large-fixture acceptance after review.
