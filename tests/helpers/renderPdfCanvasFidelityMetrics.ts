@@ -9,7 +9,7 @@ import {
     Path2D,
     createCanvas,
 } from '@napi-rs/canvas';
-import { cast } from '@tests/helpers/cast';
+import { isRecord } from '@contracts/runtimeGuards';
 
 export interface IPdfCanvasFidelityMetrics {
     darkPixelRatio: number;
@@ -28,8 +28,10 @@ export async function renderPdfCanvasFidelityMetrics(path: string): Promise<IPdf
     });
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const bytes = await readFile(path);
-    const documentParameters = cast<Parameters<typeof pdfjs.getDocument>[0]>({
+    const documentParameters = {
         data: new Uint8Array(bytes),
+        // The legacy build still accepts this Node option although current
+        // PDF.js declarations omit it.
         disableWorker: true,
         // Fidelity fixtures contain unembedded standard fonts. Resolve those
         // from the same vendored PDF.js payload as the app so this corpus
@@ -38,7 +40,7 @@ export async function renderPdfCanvasFidelityMetrics(path: string): Promise<IPdf
         standardFontDataUrl: `${resolve(process.cwd(), 'public/pdf/standard_fonts')}${sep}`,
         useSystemFonts: false,
         useWorkerFetch: false,
-    });
+    } satisfies Extract<Parameters<typeof pdfjs.getDocument>[0], {data?: unknown}> & {disableWorker: boolean};
     const document = await pdfjs.getDocument(documentParameters).promise;
     try {
         const page = await document.getPage(1);
@@ -47,11 +49,23 @@ export async function renderPdfCanvasFidelityMetrics(path: string): Promise<IPdf
         const viewport = page.getViewport({scale: 1});
         const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
         const context = canvas.getContext('2d');
-        await page.render({
-            canvas: cast<HTMLCanvasElement>(canvas),
-            canvasContext: cast<CanvasRenderingContext2D>(context),
+        // PDF.js's public types require browser DOM objects, while its
+        // legacy Node build accepts the @napi-rs/canvas equivalents. Read
+        // and invoke this third-party method through the runtime boundary
+        // so the browser-only parameter type does not leak into the shim.
+        const renderFunction: unknown = Reflect.get(page, 'render');
+        if (typeof renderFunction !== 'function') {
+            throw new TypeError('PDF.js page render method is unavailable');
+        }
+        const renderTask: unknown = Reflect.apply(renderFunction, page, [{
+            canvas,
+            canvasContext: context,
             viewport,
-        }).promise;
+        }]);
+        if (!isRecord(renderTask) || !(renderTask.promise instanceof Promise)) {
+            throw new TypeError('PDF.js page render task is invalid');
+        }
+        await renderTask.promise;
         const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
         let darkPixels = 0;
         let inkPixels = 0;
