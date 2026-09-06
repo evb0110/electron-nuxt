@@ -568,6 +568,7 @@ describe('agent assistant opt-in gating', () => {
                 'login',
                 'status',
             ],
+            expect.objectContaining({env: expect.objectContaining({CODEX_HOME: join(mocks.userDataPath, 'assistant', 'codex-home')})}),
         );
         expect(mocks.spawn).not.toHaveBeenCalled();
         expect(mocks.startEmbeddedMcpServer).not.toHaveBeenCalled();

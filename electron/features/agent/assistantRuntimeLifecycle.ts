@@ -103,6 +103,15 @@ function getAssistantCwd() {
     return join(getAssistantBaseDir(), 'cwd');
 }
 
+function createCodexProcessEnvironment(codeHome: string, mcpToken?: string) {
+    return {
+        ...process.env,
+        CODEX_HOME: codeHome,
+        ...(mcpToken ? {[ASSISTANT_MCP_TOKEN_ENV]: mcpToken} : {}),
+        NO_COLOR: '1',
+    };
+}
+
 export async function ensureAssistantCwd() {
     const cwd = getAssistantCwd();
     await fsPromises.mkdir(cwd, { recursive: true });
@@ -266,7 +275,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         const result = await runCodexCli(codexInfoCache.path, [
             'login',
             'status',
-        ]);
+        ], {env: createCodexProcessEnvironment(getAssistantCodexHome())});
         options.providerRuntime.authState = result.ok ? 'signed-in' : 'signed-out';
         options.providerRuntime.account = null;
         if (result.ok) {
@@ -403,12 +412,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
 
         const client = new CodexAppServerClient(
             codexInfo.path,
-            {
-                ...process.env,
-                CODEX_HOME: codeHome,
-                [ASSISTANT_MCP_TOKEN_ENV]: mcpToken,
-                NO_COLOR: '1',
-            },
+            createCodexProcessEnvironment(codeHome, mcpToken),
             cwd,
             options.handleNotification,
             options.handleExit,

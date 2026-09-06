@@ -284,8 +284,12 @@ export async function resolveCodexCliPath() {
     return findCodexInLoginShell();
 }
 
-export function runCodexCli(codexPath: string, args: string[]) {
-    return runCommand(codexPath, args);
+export function runCodexCli(
+    codexPath: string,
+    args: string[],
+    options: {env?: NodeJS.ProcessEnv} = {},
+) {
+    return runCommand(codexPath, args, CODEX_COMMAND_TIMEOUT_MS, options);
 }
 
 function parseCodexVersion(stdout: string) {
