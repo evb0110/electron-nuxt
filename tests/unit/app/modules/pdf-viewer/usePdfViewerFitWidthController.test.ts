@@ -16,6 +16,53 @@ import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/
 import { cast } from '@tests/helpers/cast';
 
 describe('usePdfViewerFitWidthController', () => {
+    it('computes explicit fit width for the pending semantic page', async () => {
+        const currentPage = ref(1);
+        const pendingPage = ref<number | null>(2);
+        const viewerContainer = ref(cast<HTMLElement>({}));
+        const computeFitWidthScale = vi.fn(() => true);
+        const reRenderAllVisiblePages = vi.fn(async () => {});
+        const syncHorizontalScrollForZoomMode = vi.fn();
+        const scope = effectScope();
+
+        try {
+            const controller = scope.run(() => usePdfViewerFitWidthController({
+                viewerContainer,
+                pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
+                isLoading: ref(false),
+                continuousScroll: computed(() => true),
+                fitMode: computed(() => 'width' as const),
+                zoomMode: computed(() => 'fit-width' as const),
+                zoom: computed(() => 1),
+                effectiveScale: computed(() => 1),
+                fitWidthScale: ref(1),
+                viewMode: computed(() => 'single' as const),
+                currentPage,
+                numPages: ref(10),
+                pageMetricsVersion: ref(0),
+                visibleRange: ref({
+                    start: 1,
+                    end: 2,
+                }),
+                computeFitWidthScale,
+                getPendingNavigationTargetPage: () => pendingPage.value,
+                isFitWidthScaleCurrent: vi.fn(() => true),
+                syncHorizontalScrollForZoomMode,
+                cancelInFlightRenders: vi.fn(),
+                reRenderAllVisiblePages,
+                emitZoomMode: vi.fn(),
+            }));
+
+            await controller!.applyFitWidthToCurrentPage();
+
+            expect(computeFitWidthScale).toHaveBeenCalledWith(viewerContainer.value, {page: 2});
+            expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
+            expect(syncHorizontalScrollForZoomMode).toHaveBeenCalledOnce();
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('syncs fit-width zoom mode when the current page changes', async () => {
         const currentPage = ref(1);
         const emitZoomMode = vi.fn();

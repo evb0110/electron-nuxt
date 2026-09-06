@@ -105,3 +105,18 @@ After the cutover and writer consolidation, a renderer-attributable defect
 class remains with issue evidence (fidelity, speed, or memory) that the
 source-fork patch cannot address. Only then open a renderer-replacement map,
 and evaluate hayro and PDFium side by side on that evidence.
+
+## Scope amendment, 2026-09-06
+
+Issue #167 now closes through the Linux VPS acceptance path. The project uses
+the committed stock unpatched pdf.js and synthetic corpus, native and wasm
+writer checks, real EVB Electron coverage, qpdf, and an independent Linux
+renderer. The report records the exact tool versions, commands, hashes and
+artifacts and states that Linux evidence does not establish Acrobat Reader or
+macOS Preview compatibility. A Mac, Acrobat, Preview, owner-created fixture,
+human hand-check, and owner sign-off are outside this project's completion
+gate. The owner may perform separate visual verification later.
+
+This amendment changes only the acceptance route. The renderer, writer,
+editor ownership, preservation, identity, and cross-viewer product goals in
+this ADR remain unchanged.

@@ -427,6 +427,7 @@ export const usePdfViewerFeatureController = (
         numPages: documentSession.numPages,
         pageMetricsVersion: documentSession.pageMetricsVersion,
         visibleRange: viewportSession.visibleRange,
+        getPendingNavigationTargetPage: () => viewportSession.singlePageScroll.navigationAnchorPage.value,
         syncHorizontalScrollForZoomMode: viewportSession.viewModel.syncHorizontalScrollForZoomMode,
         computeFitWidthScale: viewportSession.scale.computeFitWidthScale,
         isFitWidthScaleCurrent: viewportSession.scale.isFitWidthScaleCurrent,

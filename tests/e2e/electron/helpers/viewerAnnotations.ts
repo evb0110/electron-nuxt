@@ -872,7 +872,11 @@ export async function createStickyNoteWithPointer(
         y: number
     },
     pageNumber?: number,
+    options: {allowClearPointSearch?: boolean;} = {},
 ) {
+    if (options.allowClearPointSearch && pageNumber === undefined) {
+        throw new Error('Clear-point search requires an explicit target page number');
+    }
     await openAnnotationsTab(page, 30_000);
     await waitForViewerInteractive(page, 30_000);
 
@@ -947,8 +951,11 @@ export async function createStickyNoteWithPointer(
             Math.min(Math.max(value, min), max)
         );
         return {
-            x: Math.round(clamp(rect.left + rect.width * xRatio, left, right)),
-            y: Math.round(clamp(rect.top + rect.height * yRatio, top, bottom)),
+            pageNumber: pageContainer.dataset.page ?? String(targetPageNumber ?? 1),
+            point: {
+                x: Math.round(clamp(rect.left + rect.width * xRatio, left, right)),
+                y: Math.round(clamp(rect.top + rect.height * yRatio, top, bottom)),
+            },
         };
     }, {
         targetPageNumber: pageNumber ?? null,
@@ -974,7 +981,83 @@ export async function createStickyNoteWithPointer(
             .__evbFindWorkspaceExpose?.({requiredMethods: ['getToolbarSnapshot']}) as {getToolbarSnapshot?: () => {isPlacingPageNote?: boolean};} | null;
         return workspace?.getToolbarSnapshot?.().isPlacingPageNote === true;
     }, {timeout: 10_000});
-    await page.mouse.click(point.x, point.y);
+    // Existing imported markup can cover the requested point after placement
+    // mode starts. The default contract remains strict: a covered point fails
+    // rather than moving the annotation. One fixture may opt into searching a
+    // clear point, but only inside its explicitly identified target page.
+    const pointHandle = await page.waitForFunction((request) => {
+        const requestedPoint = request.point;
+        const isUsableBackgroundPoint = (x: number, y: number) => {
+            const target = document.elementFromPoint(x, y);
+            const background = target?.closest<HTMLElement>('.pdf-annotation-editor-surface__background');
+            const layer = background?.closest<HTMLElement>('.pdf-annotation-editor-layer');
+            const pageContainer = layer?.closest<HTMLElement>('.page_container');
+            return Boolean(
+                target === background
+                && pageContainer?.classList.contains('page_container--rendered')
+                && pageContainer?.getAttribute('data-page-layer-readiness') === 'ready'
+                && layer?.dataset.pdfAnnotationEditorReady === 'true'
+                && layer.classList.contains('is-interactive')
+                && background
+                && getComputedStyle(background).pointerEvents !== 'none',
+            );
+        };
+        if (isUsableBackgroundPoint(requestedPoint.x, requestedPoint.y)) {
+            return requestedPoint;
+        }
+        if (!request.allowClearPointSearch) {
+            return false;
+        }
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const pageContainer = host?.querySelector<HTMLElement>(
+            `.page_container[data-page="${request.pageNumber}"]`,
+        ) ?? null;
+        if (!pageContainer || !host) {
+            return false;
+        }
+        const rect = pageContainer.getBoundingClientRect();
+        const hostRect = host.getBoundingClientRect();
+        const left = Math.max(rect.left, hostRect.left, 0) + 24;
+        const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
+        const top = Math.max(rect.top, hostRect.top, 0) + 24;
+        const bottom = Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24;
+        if (right <= left || bottom <= top) {
+            return false;
+        }
+        const ratios = [
+            0.12,
+            0.24,
+            0.36,
+            0.48,
+            0.6,
+            0.72,
+            0.84,
+            0.92,
+        ];
+        for (const yRatio of ratios) {
+            for (const xRatio of ratios) {
+                const x = Math.round(Math.min(Math.max(rect.left + rect.width * xRatio, left), right));
+                const y = Math.round(Math.min(Math.max(rect.top + rect.height * yRatio, top), bottom));
+                if (isUsableBackgroundPoint(x, y)) {
+                    return {
+                        x,
+                        y,
+                    };
+                }
+            }
+        }
+        return false;
+    }, {timeout: 10_000}, {
+        allowClearPointSearch: options.allowClearPointSearch === true,
+        pageNumber: point.pageNumber,
+        point: point.point,
+    });
+    const placementPoint = await pointHandle.jsonValue() as {
+        x: number;
+        y: number;
+    };
+    await pointHandle.dispose();
+    await page.mouse.click(placementPoint.x, placementPoint.y);
 
     const textarea = await page.waitForSelector(
         'textarea.note-window__textarea',

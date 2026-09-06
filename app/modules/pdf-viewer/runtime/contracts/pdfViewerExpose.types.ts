@@ -99,7 +99,7 @@ export interface IDocumentViewerExpose {
 }
 
 export interface IPdfViewerLoadExpose {
-    applyFitWidthToCurrentPage?: () => Promise<boolean>;
+    applyFitWidthToCurrentPage?: (options?: {page?: number | null | undefined}) => Promise<boolean>;
     waitForViewerLoadSettled?: () => Promise<void>;
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
     getPageMetricsSnapshot?: () => IPdfPageMetric[];

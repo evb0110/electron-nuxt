@@ -33,6 +33,9 @@ import {requireDocumentRevisionToken} from '@contracts';
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
 
+const asyncHelpersMock = vi.hoisted(() => ({waitForVisualFrames: vi.fn(async () => {})}));
+vi.mock('@app/utils/asyncHelpers', () => asyncHelpersMock);
+
 vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
 
 function createDocumentRevision(
@@ -92,6 +95,7 @@ function createReadyRecord(
 
 describe('useAppShellTabLifecycle', () => {
     it('keeps split close and retained-pane handoff inside the tab transition', async () => {
+        asyncHelpersMock.waitForVisualFrames.mockClear();
         const panes = ref<IEditorPaneState[]>([
             {
                 paneId: 'pane-left',
@@ -202,6 +206,7 @@ describe('useAppShellTabLifecycle', () => {
         expect(activePaneId.value).toBe('pane-left');
         expect(activeTabId.value).toBe('tab-document');
         expect(lifecycle.isTabTransitionBusy.value).toBe(false);
+        expect(asyncHelpersMock.waitForVisualFrames).toHaveBeenCalledWith({frames: 2});
     });
 
     it('delegates workspace close commands to the document controller transaction', async () => {

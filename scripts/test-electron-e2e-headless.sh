@@ -30,6 +30,15 @@ else
   exit 1
 fi
 
+case "$target_project" in
+  e2e-blocking-smoke|e2e-draw-shapes|e2e-large-pdf|e2e-native-save-reopen|e2e-regression|e2e-save-pipeline|e2e-xlarge-pdf)
+    if [ "${EVB_PDF_PAGE_OPS_DISABLE:-0}" != "1" ]; then
+      export EVB_PDF_PAGE_OPS_ENABLE=1
+    fi
+    PATH="$PATH" node scripts/assert-electron-native-page-ops.mjs "$target_project"
+    ;;
+esac
+
 export EVB_AUTOMATION_DISABLE_SANDBOX=1
 export EVB_AUTOMATION_NO_FOCUS="$no_focus"
 export EVB_AUTOMATION_HIDE_WINDOW="$hide_window"

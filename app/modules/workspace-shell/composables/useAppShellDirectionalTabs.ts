@@ -233,6 +233,11 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             await waitForVisualFrames({frames: 2});
         } finally {
             options.setWorkspaceLayoutResizing?.(false);
+            // Releasing the resize fence schedules one more layout and
+            // ResizeObserver delivery. Keep the split transition alive for
+            // those painted frames so the retained document anchor settles
+            // before callers observe the completed split.
+            await waitForVisualFrames({frames: 2});
         }
     }
 

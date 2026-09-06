@@ -15,6 +15,17 @@ const EDITED_SHAPE_COLOR: &str = "#224466";
 const GEOMETRY_QUANTUM: f64 = 10_000.0;
 const MAX_REFERENCE_DEPTH: usize = 64;
 const LEGACY_MARKER_MAX_NORMALIZED_SIZE: f64 = 0.020_000_000_1;
+const INTEROP_REQUIRED_KINDS: [&str; 5] = ["highlight", "note", "shape", "stamp", "text-box"];
+const INTEROP_REQUIRED_CASES: [&str; 8] = [
+    "nativeText",
+    "legacyFreeTextPopup",
+    "replyChain",
+    "unknownVendorKey",
+    "missingName",
+    "richText",
+    "appearance",
+    "reviewState",
+];
 
 #[derive(Clone)]
 struct FixtureSource {
@@ -400,15 +411,17 @@ fn interop_fixture_sources() -> Vec<FixtureSource> {
         env!("CARGO_MANIFEST_DIR"),
         "/../../tests/fixtures/electron/interop"
     ));
-    if !directory.is_dir() {
-        println!("skipping absent interop annotation corpus");
-        return Vec::new();
-    }
+    assert!(
+        directory.is_dir(),
+        "required interop annotation corpus directory is missing: {}",
+        directory.display()
+    );
     let manifest_path = directory.join("corpus-manifest.json");
-    if !manifest_path.is_file() {
-        println!("skipping absent interop annotation corpus manifest");
-        return Vec::new();
-    }
+    assert!(
+        manifest_path.is_file(),
+        "required interop annotation corpus manifest is missing: {}",
+        manifest_path.display()
+    );
     let manifest: Value = serde_json::from_slice(
         &fs::read(&manifest_path).expect("interop corpus manifest should be readable"),
     )
@@ -416,14 +429,52 @@ fn interop_fixture_sources() -> Vec<FixtureSource> {
     let entries = manifest["entries"]
         .as_array()
         .expect("interop corpus manifest should have an entries array");
+    assert!(
+        !entries.is_empty(),
+        "required interop annotation corpus manifest has no entries"
+    );
+    let declared_kinds = manifest["requiredKinds"]
+        .as_array()
+        .expect("interop corpus manifest should have requiredKinds")
+        .iter()
+        .map(|kind| {
+            kind.as_str()
+                .expect("required interop kind should be a string")
+                .to_string()
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        declared_kinds,
+        INTEROP_REQUIRED_KINDS
+            .into_iter()
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>(),
+        "required interop manifest must declare all five canonical kinds"
+    );
+    let required_cases = manifest["requiredCases"]
+        .as_object()
+        .expect("interop corpus manifest should have requiredCases");
+    for case in INTEROP_REQUIRED_CASES {
+        assert_eq!(
+            required_cases.get(case),
+            Some(&Value::Bool(true)),
+            "required interop manifest must cover scenario case {case}"
+        );
+    }
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry["status"].as_str() == Some("ready")),
+        "required interop corpus cannot contain non-ready entries"
+    );
     let ready = entries
         .iter()
         .filter(|entry| entry["status"].as_str() == Some("ready"))
         .collect::<Vec<_>>();
-    if ready.is_empty() {
-        println!("skipping empty interop annotation corpus manifest");
-        return Vec::new();
-    }
+    assert!(
+        !ready.is_empty(),
+        "required interop annotation corpus manifest has no ready entries"
+    );
     ready
         .into_iter()
         .map(|entry| {
@@ -1278,9 +1329,6 @@ fn native_annotation_round_trip_discovers_crate_and_ready_interop_fixtures() {
     }
 
     let interop_sources = interop_fixture_sources();
-    if interop_sources.is_empty() {
-        return;
-    }
     let mut interop_kinds = BTreeSet::new();
     let mut declared_interop_kinds = BTreeSet::new();
     for source in &interop_sources {

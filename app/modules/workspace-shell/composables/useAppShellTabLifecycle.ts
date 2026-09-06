@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
@@ -526,8 +527,16 @@ export const useAppShellTabLifecycle = (
             closeResolvedTabInState(paneId, tabId);
         }
 
+        const paneCountBeforeCleanup = panes.value.length;
         cleanupEmptyPanes();
         await activateDeferredCloseHandoff(shouldDeferCrossPaneHandoff, closeHandoffTarget);
+        if (panes.value.length < paneCountBeforeCleanup) {
+            // Closing the last tab in a split changes the track width after the
+            // Vue patch. Keep the transition fence open through the same two
+            // painted frames used when creating the split so the retained
+            // document anchor can be restored after the collapse settles.
+            await waitForVisualFrames({frames: 2});
+        }
     }
 
     async function handleCloseTab(paneId: string, tabId: string) {

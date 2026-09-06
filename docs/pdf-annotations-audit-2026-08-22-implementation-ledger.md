@@ -4,6 +4,106 @@ Date: 2026-08-23
 
 Source audit: `docs/pdf-annotations-feature-audit-2026-08-22.md`.
 
+## Current checkpoint, refreshed 2026-09-06 18:21 UTC
+
+- Candidate commit: `d66433d2801df25b33769e616a41292cc51e3` on
+  `ticket/196-renderer-interface`, with uncommitted helper, corpus, renderer,
+  native-test, CSS-policy, fit-width, topology-test, interop-unit-test,
+  documentation, ledger, and generated-WASM changes owned by the coordinator.
+  The interop unit test has the typed `inputPaths: []` call-site fix, and the
+  native-page-ops admission helper has its typed `project` option declaration.
+- Integration reference: `origin/main` at `4b0b13a013ae309b30a76a9c734f672215a6fc7b`; no candidate commit has
+  been integrated or verified on main yet.
+- Live heavy run: none. The required validation rerun passed from
+  `.devkit/gates/2026-09-06T173538Z/01-validate.log`, with summary
+  `.devkit/gates/2026-09-06T173538Z/summary.json` and consolidated evidence
+  `.devkit/analysis/gates/2026-09-06T17-35-38-877Z-724069-30da07f7.ndjson`.
+  It ran 1,276 test files with 10,806 passing tests, 8 skipped tests, and one
+  skipped file. Lint, typecheck, coverage ratchet, zero-execution coverage,
+  native tests and resource matrix, strict build, bundle integrity, and
+  blocking Electron smoke all passed. The blocking smoke reported 2 passed
+  and 1 skipped test. The previous validation failure at
+  `.devkit/gates/2026-09-06T143553Z/01-validate.log` remains historical; its
+  `inputPaths` type error and the later native-admission `project` inference
+  error are both fixed and covered by focused checks. The separate
+  delayed-toolbar worker remains outside this worktree and is not being
+  touched. Recent Electron runs used the published named-session lifecycle.
+  One PNG sub-session needed the documented process-tree fallback after its
+  graceful controller deadline; it left no candidate Electron survivor. The
+  follow-up focused Squiggly run passed
+  1/1 with `EVB_PDF_PAGE_OPS_ENABLE=1` at
+  `.devkit/analysis/gates/2026-09-06T15-58-43-259Z-563648-d13d2518.ndjson`.
+  The required-fixture #350 run passed 4/4 with native page operations enabled
+  at `.devkit/analysis/gates/2026-09-06T16-00-37-075Z-566273-466ae0b5.ndjson`.
+  The 14:56 broad regression was launched without that required environment
+  flag. Its annotation, markup, and related native-save failures remain a
+  failed historical artifact but are invalid for product diagnosis. They must
+  be replaced by correctly configured evidence, not waived.
+- The coordinator added a native-page-ops admission seam to the canonical
+  headless launcher. Native-required projects now export
+  `EVB_PDF_PAGE_OPS_ENABLE=1` and run
+  `scripts/assert-electron-native-page-ops.mjs` before the Electron command.
+  The check verifies an executable `evb-pdf-page-ops` with `--version`; an
+  explicit `EVB_PDF_PAGE_OPS_DISABLE=1` remains admissible for intentional
+  negative tests. The focused admission unit lane passed 4/4, and a launcher
+  `--help` probe reached Vitest only after the admission message. The new
+  launcher script and its unit test are coordinator-owned files in the pending
+  candidate commit.
+- Historical broad failure, now dispositioned by a correctly configured pass:
+  the mixed-size viewer smoke remains marked failed in broad artifact
+  `2026-09-06T09-13-35-511Z-3977170-a1fd46a8` at
+  `viewerSmoke.e2e.test.ts:2730`, with a concrete cause now identified. During
+  a pending page-2 navigation, `ResizeObserver.handleResize` recomputed fit
+  width for current page 1 after navigation had computed page 2. The repair
+  passes the trusted resize anchor page into the scale calculation and carries
+  the same semantic page through the deferred workspace fit call. The focused
+  repair run passed at
+  `2026-09-06T15-46-12-173Z-544080-0776c576`; the ten-predecessor topology
+  passed 10/10 at `2026-09-06T15-48-50-806Z-546810-1e84ec9c`. The correctly
+  configured broad run passed 24/24, including the mixed-size fit and
+  crop-overlay cases, at
+  `2026-09-06T18-02-34-043Z-784584-3bda45c5.ndjson`. The old red is retained
+  as historical evidence and is not waived.
+- Active ownership and next queue: Planck, Kuhn, Gauss, Tesla, Locke, Anscombe,
+  Pascal, and the short-lived Avicenna review lane completed or were closed
+  without source changes. The coordinator owns the shared launcher, helpers,
+  configuration, all three interop scripts, generated WASM, this ledger,
+  report, publication, and central heavy-test scheduling. Tesla verified that
+  `tests/unit/scripts/interopCorpus.test.ts`
+  executes both new MJS scripts and recorded 72/101 and 79/113 covered lines;
+  no further coverage test is justified. Locke produced the read-only #168
+  plan in ignored `.devkit/issue-168-prep/README.md`, including the verified
+  5.7.304 provenance and the unverified 6.x target handoff. Anscombe produced
+  the mixed-size diagnostic proposal without editing or launching Electron.
+  The split anchor hypothesis has a focused red/green disposition below. The
+  validation gate, #350, exact 882/2646, and correctly configured broad
+  Viewer Smoke acceptance are green. CodeRabbit was attempted once and
+  failed before returning findings because its service closed the WebSocket;
+  `coderabbit doctor` passed 9/9, so the documented fail-open path is recorded
+  below. The next gates are candidate commit and reconciliation with current
+  `main`, #196/#206 integration, the gated #168 6.x build and receipt,
+  integrated-main acceptance, and accurate issue/project closure. Historical
+  red artifacts remain below for traceability and are not treated as current
+  failures.
+- Pascal's #168 receipt search found no 6.x distribution or tarball. The only
+  present archive is the verified 5.7.304 package, SHA-256
+  `4d6fa1de10a0245230ccd986e7679d03ebb4249e57901b228db84726214f5adf`, with
+  the matching `f029c046` provenance. The pinned 6.x source is commit
+  `6922bee2b3dd047c954d5717a533a2d701559c17`, tree
+  `0fc8b8db395e8ab30ddec61a78bb9ad72d82512b`, targeting 6.3.311, but has no
+  generated package receipt. #168 therefore remains preparation-only. Its one
+  later gated action is a clean full-history fork build, receipt, hash and
+  verifier run after #196 integration.
+- Final candidate evidence after the latest source changes is recorded below:
+  #350 at `2026-09-06T17-47-42-656Z-764581-4f680ff6`, exact 882 at
+  `2026-09-06T17-50-28-015Z-768152-47f266e1`, exact 2646 at
+  `2026-09-06T17-59-21-375Z-780331-bc823f92`, and broad Viewer Smoke at
+  `2026-09-06T18-02-34-043Z-784584-3bda45c5`. Corpus reproducibility and qpdf
+  checks passed, and the fresh #167 real-Electron gate passed 2/2 at
+  `2026-09-06T18-18-14-963Z-812978-fc5a8a7c`, with retained independent
+  renderer evidence in
+  `.devkit/artifacts/issue-167-interop-negative-control-final`.
+
 ## Verification baseline
 
 - Audit baseline: `26c7b8d6b641f81c501d66dcf239a3ff90d31bcd`. During
@@ -988,6 +1088,35 @@ the red/green result. The remaining exact-882 cases, the mixed-size broad
 failure, exact 2646 acceptance, integrated-main verification, and #167 corpus
 acceptance remain open.
 
+### 2026-09-06, mixed-size focused topology follow-up
+
+The unchanged mixed-size page-2 fit predicate passed in a fresh focused run at
+`2026-09-06T10-36-04-758Z-4111208-5b9588e2`. A bounded shared-session
+reproduction that ran the ten preceding Viewer Smoke cases plus the target
+also passed all 11 selected tests at
+`2026-09-06T10-37-10-864Z-4112310-c693144f`. This rules out a deterministic
+fixture defect and shows that the preceding Viewer Smoke history alone is not
+sufficient to reproduce the broad red result. The broad gate
+`2026-09-06T09-13-35-511Z-3977170-a1fd46a8` remains failed. Load, cross-file
+session history, and geometry timing remain hypotheses, not a disposition.
+Temporary failure telemetry was removed after the comparison, and the
+page-width, canvas-readiness, and 15-second assertions remain unchanged.
+
+### 2026-09-06, exact 2,646-page acceptance
+
+The candidate xlarge gate
+`2026-09-06T10-30-42-864Z-4105416-26c69146` passed both tests in
+`xlargeDocumentAcceptance.e2e.test.ts` in 150.07 seconds. It admitted the
+required fixture at
+`/home/ubuntu/evb-fixtures/zaliznyak-three-distinct-copy-2646-pages.pdf`,
+verified 2,646 pages, 2,168,527,413 bytes, and SHA-256
+`5609c151c1cec881da4b97ec7028250574f8f0ee67540dcdc8808cc7b8ab0aea`. The
+acceptance artifact records path-backed stream staging with equal source and
+staged byte counts. The exact 882 and exact 2,646 candidate gates are now
+green. Broad mixed-size regression, remaining native and lifecycle coverage,
+integrated-main verification, and the rewritten #167 corpus acceptance remain
+open.
+
 ### 2026-09-06, exact 882-page annotation save acceptance
 
 After the hit-target repair, the full exact 882-page annotation-save gate
@@ -1002,3 +1131,332 @@ runner stopped the isolated session normally and preserved the gate artifact.
 Exact 2,646-page acceptance, the unresolved mixed-size broad failure,
 integrated-main verification, and the rewritten #167 corpus acceptance remain
 open.
+
+### 2026-09-06, current worker ownership and note-placement readiness correction
+
+The rewritten #167 body is the current completion contract. It removes
+Acrobat Reader, macOS Preview, Mac access, owner-created fixtures, human visual
+sign-off, and owner review from Project 4 closure. Linux qpdf, independent
+rendering, structural checks, real EVB Electron coverage, supported encrypted
+input, validation, review, integrated-main verification, and the reproducible
+report remain required. The owner will perform visual checks separately, and
+that work is not a project checkbox. The private source book and recording were
+transferred to this VPS but were not uploaded publicly.
+
+The four coordinated lanes and file ownership are recorded here. Sartre
+(`01a0758c-7b63-7592-80c7-392a8027942b`) performed the read-only mixed-size
+diagnosis. Its broad red artifact remains
+`2026-09-06T09-13-35-511Z-3977170-a1fd46a8`; the focused fresh and bounded
+shared-session greens do not prove a load cause. Faraday
+(`01a0758c-7c7c-70b3-b9ce-981e68e84d06`) performed the read-only pointer-layer
+review. The coordinator owns the shared Electron helpers, runner/configuration,
+this ledger, issue and project state, integration, commits, publication,
+review scheduling, and final acceptance. Maxwell
+(`01a0758c-7e11-7fc2-8645-a58fdcc23a68`) owns the disjoint #167 corpus-prep
+files `scripts/generate-interop-corpus.mjs`,
+`scripts/verify-interop-corpus.mjs`,
+`tests/fixtures/electron/interop/**`, and
+`tests/unit/scripts/interopCorpus.test.ts` until review and handoff. Maxwell
+must not edit shared helpers, run heavy Electron checks, change refs, or touch
+private fixtures. All lanes preserve concurrent edits and report exact red or
+green evidence rather than hypotheses.
+
+The scoped background hit target and `v-if` experiment exposed a test
+readiness race, not a save or annotation-identity failure. In the clean exact
+882 focused red run
+`2026-09-06T11-07-56-747Z-4157256-7f4adef7`, the selected page was rendered and
+the layer eventually had an interactive background, but immediately before
+the real pointer click the point still hit the canvas. The trace showed
+`pointermove`, `pointerdown`, `pointerup`, and `click` targeting `CANVAS`.
+The smallest justified test correction waits for the exact point to resolve to
+the ready interactive background before clicking. It does not change the
+10-second editor assertion, use DOM clicks, or weaken the scenario. The focused
+red/green pair is `2026-09-06T11-07-56-747Z-4157256-7f4adef7` and
+`2026-09-06T11-10-57-695Z-4160871-3b7ac2c4`, where the canonical note/text-box
+scenario passed in 29.86 seconds. The temporary event and DOM diagnostics were
+removed after the comparison. The full exact 882 acceptance must be rerun on
+the final candidate because the earlier 8/8 green preceded these later helper
+and CSS changes.
+
+The current #167 corpus-prep handoff contains the two ready PDFs, a manifest,
+README, deterministic generator, strict verifier, and unit checks. The
+generator labels the pdf-lib dictionary fixture synthetic and labels the
+stock `pdfjs-dist-codex-preview` 5.4.296 save as a stock PDF.js output with its
+limited provenance. The coordinator must verify that the package is the
+unpatched stock writer required by #167, review the five-kind and required-case
+inventories, add the real-Electron/native/encrypted acceptance and report, then
+run the applicable validation and integration gates. No required corpus may be
+silently skipped.
+
+### 2026-09-06, #167 corpus acceptance correction and encrypted proof
+
+The owner-authorized #167 VPS-only scope is now registered as the active
+acceptance contract. Linnaeus
+(`01a076c6-78f1-78f0-b004-55a9247b5fe6`) completed a read-only corpus audit
+without changing files, fixtures, refs or GitHub state. It confirmed the
+candidate corpus hashes and provenance, and identified the remaining contract
+gaps: required-case flags were not required to be true, Rust discovery still
+filtered non-ready entries, no reproducible Linux report existed, and the
+Electron corpus test needed broader evidence mapping. No heavy test was
+launched by that lane.
+
+The verifier now fails when any required scenario family is absent. The #177
+Rust consumer now fails for an absent or empty corpus, non-ready entries,
+incomplete required-case declarations, incomplete required-kind declarations,
+or missing ready fixture files. The focused native test passed 2/2 at the
+candidate after this change. The JS corpus verifier passed with 2 ready
+entries, all five canonical kinds, all eight required scenario families and 26
+scenarios; its unit suite passed 6/6. `node scripts/generate-interop-corpus.mjs
+--check` also passed. The historical optional-discovery wording in closed #177
+was clarified by an issue comment to document that #167 closure uses this
+strict mode.
+
+The first encrypted Electron attempt timed out because the test waited for a
+loaded viewer before driving the password prompt. A focused rerun then exposed
+the exact real-pointer hit-test collision: the requested point was covered by
+an imported SVG annotation child, while the page background itself was ready
+and interactive. The helper now retains real pointer input and chooses a
+current point only after hit-testing proves that the ready interactive
+background owns it. The encrypted acceptance passed at
+`2026-09-06T12-59-56-642Z-92131-4e327902`, including password entry, canonical
+import, note creation, unencrypted save, independent render, and password-free
+reopen. The earlier timeout and collision artifacts remain recorded as red
+diagnostic evidence; neither was waived. The corpus report, final validation,
+review, integration and main-tree acceptance remain open.
+
+### 2026-09-06, strict note placement and rendering negative control
+
+The shared `createStickyNoteWithPointer` helper now keeps its default contract
+strict at the caller's requested point. If hit-testing does not resolve that
+point to the ready interactive background, the helper fails instead of moving
+the note to the first rendered page. The only alternate path is an explicit
+`allowClearPointSearch` option, which requires a numeric target page and scans
+that page's own container. The encrypted #167 test uses that opt-in for page 1
+and asserts that the new canonical note has page 1 identity, positive geometry,
+and bounds inside that page.
+
+The focused rerun passed both #167 Electron tests in
+`2026-09-06T13-18-58-910Z-119682-d91f3963` with the named session lifecycle;
+the outer heavy-gate evidence is
+`2026-09-06T13-18-57-577Z-119652-d6b2f3bf.ndjson`. It covered corpus import,
+text edit, save, two fresh-copy reopens, encrypted password entry, real-pointer
+note creation, unencrypted save, independent rendering, qpdf's
+`File is not encrypted` output, and password-free reopen. The prior green at
+`2026-09-06T12-59-56-642Z-92131-4e327902` is retained as history, not used as
+the final result.
+
+`verify-interop-rendering.mjs` now renders each controlled fixture twice with
+Poppler: normal and `-hide-annotations`. Each selected text-box, highlight,
+native Text note, stamp, and Square crop must be non-white in the normal image,
+white in the hidden-annotation control, and differ by at least 1,024 mean
+levels. The final synthetic/stock evidence is retained at
+`.devkit/artifacts/issue-167-interop-negative-control`; hidden crops were
+`65535`, with normal-to-hidden deltas of 3,590.1, 11,822, 13,838.5, 35,037.7,
+and 5,840.9 respectively. Poppler reported its expected blank-legacy-AP
+warning. The renderer versions and exact commands are recorded in the JSON
+result. The focused corpus unit suite passed 7/7, the generator check and
+strict verifier passed, targeted lint passed, and tests/scripts typecheck
+passed. Exact large-fixture evidence and the mixed-size broad red remain open.
+
+### 2026-09-06, final candidate acceptance evidence and live-run correction
+
+The current candidate reran the required large fixtures after the strict note
+placement and renderer negative-control changes. The exact 882-page matrix
+passed 2/2 in
+`2026-09-06T13-29-03-256Z-133454-a5905ec9` using the required
+`1660bced...` fixture. The exact 2,646-page acceptance passed 2/2 in
+`2026-09-06T13-34-08-713Z-138382-9b88235f` using the required
+`5609c151...` fixture. The required-fixture #350 gate passed 4/4 in
+`2026-09-06T13-23-39-763Z-127335-2b23fb2a`. The lifecycle and stamp gate
+passed 8 tests, with 9 historical cases explicitly skipped, in
+`2026-09-06T13-25-11-224Z-129085-ddb4a7b4`. Skipped cases are not counted as
+acceptance evidence.
+
+The broad mixed-size gate remains red at
+`2026-09-06T09-13-35-511Z-3977170-a1fd46a8`. Its retained failure artifact
+identifies the page-2 fit-width test and captures a screenshot with toolbar
+state `2 / 4` at `158%`, page 2 selected, a wide page track and page 3 visible
+below. The artifact and session-combined log do not retain the serialized
+`pageOneSnapshot` or `pageTwoSnapshot`, page-track width, or raster-readiness
+values from the thrown assertion. The session logs do show the four-page
+fixture and page-2 transition reached the renderer, but that is not enough to
+classify the failure as load, shared-session history, or geometry timing. The
+focused predicate and the ten-predecessor shared-session reproduction both
+passed at `2026-09-06T10-36-04-758Z-4111208-5b9588e2` and
+`2026-09-06T10-37-10-864Z-4112310-c693144f`; those greens show
+intermittency, not a disposition. No timeout or assertion was widened.
+
+The broad gate's Electron session stopped through the normal lifecycle at
+09:18:33 UTC, while its outer validation process remained resident until the
+coordinator rechecked it after the later exact runs. It then exited without
+intervention. There is no live heavy process at this checkpoint. This corrects
+the earlier stale `Live heavy run: none` entry without deleting the historical
+red evidence.
+
+### 2026-09-06, native parallel lanes and validation correction
+
+The coordinator used three native Luna lanes in this worktree and closed them
+after their bounded reports. Tesla verified the interop coverage correction in
+`tests/unit/scripts/interopCorpus.test.ts`: the focused unit run passed 7/7,
+and the coverage summary recorded 72/101 lines for
+`scripts/generate-interop-corpus.mjs` and 79/113 lines for
+`scripts/verify-interop-rendering.mjs`. The lane found no justified remaining
+coverage gap and changed no files. Locke wrote only the ignored
+`.devkit/issue-168-prep/README.md` preparation artifact. It verifies the
+current `pdfjs-dist` 5.7.304 provenance and records the unverified 6.x target
+receipt, API differences, and ordered migration plan. Anscombe inspected the
+retained mixed-size broad red and supplied one diagnostic replay topology with
+the state predicates needed to distinguish raster scheduling, geometry timing,
+and shared-session history. It did not launch Electron or edit files.
+
+The required validation run at
+`.devkit/gates/2026-09-06T143553Z/01-validate.log` completed all other stages,
+including full coverage and blocking Electron smoke, but failed `typecheck.full`
+on the missing `inputPaths` property in the new renderer-oracle unit call. The
+coordinator added the typed `inputPaths: []` property. The focused interop
+unit run passed 7/7 and the tests/scripts typecheck passed afterward. The full
+required validation must be rerun on this fixed tree before publication.
+
+### 2026-09-06, mixed-size fit-width race repaired
+
+The broad red at
+`2026-09-06T09-13-35-511Z-3977170-a1fd46a8` is retained as a failed historical
+gate. A stack-captured focused reproduction identified the product race. A
+page-specific fit calculation for the pending page-2 navigation was followed
+by `ResizeObserver.handleResize` calling `computeFitWidthScale` without a page,
+which selected current page 1 while page 2 was still pending. The resulting
+scale could rebuild page 1 geometry over the page-2 transition. The same race
+was also possible in the deferred workspace fit handoff.
+
+The coordinator repaired this by passing the trusted resize anchor page in
+`app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts`,
+and by carrying the captured semantic page through
+`useWorkspaceViewState`, `usePdfViewerFitWidthController`, and the viewer
+expose contract. The focused unit set passed 40/40, including the pending-page
+resize assertion. The focused Electron reproduction passed 1/1 at
+`2026-09-06T15-46-12-173Z-544080-0776c576`, and the ten-predecessor topology
+passed 10/10 at `2026-09-06T15-48-50-806Z-546810-1e84ec9c`. The source
+instrumentation was removed after the caller was identified. Final broad and
+large-fixture acceptance remains required after the candidate settles. The
+separate crop-overlay failure from the broad gate has no evidence of sharing
+this cause and remains open.
+
+### 2026-09-06, split close continuity ordering repair
+
+The split close continuity probe reproduced the remaining race twice after the
+fit-width repair. The red artifacts were
+`2026-09-06T17-01-25-610Z-654516-76c5b088.ndjson` and
+`2026-09-06T17-05-49-572Z-658917-76c5b088.ndjson`. The first recorded 17
+wrong-page frames, all 16 close-phase frames after the split, with no blank
+frames. At the first mismatch, page 3 still had its old 565 by 731 rendered
+canvas while page 4 had a 126 by 163 placeholder. The chassis still carried
+requested, committed, and resize-anchor page 4. The second run kept page 4
+stable but recorded one anchor-drift frame, so the failure was intermittent,
+not a missing-document or disconnected-pane case.
+
+The render trace tied the ordering to `usePdfViewerResizeLifecycle`: the
+preview scale ref changed, `restoreResizeAnchorAfterLayout` submitted the
+asynchronous viewport-authority intent in the same turn, and the authority
+could resolve against the preceding page-track geometry. Vue then committed
+the preview scale, the visible range reprojected, and page 4's replacement
+raster was delayed or cancelled. The smallest repair keeps the immediate
+semantic preview, waits for the existing `nextTick` geometry commit, reapplies
+the preview, and only then submits the authority intent. It fail-closes if the
+viewer becomes inactive, starts loading, or loses its document during that
+flush. No timeout or continuity assertion changed.
+
+The resize lifecycle unit file passed 20/20 after its ordering assertions were
+updated. The affected app unit set passed 89/89. The same real-pointer split
+close topology passed with diagnostics enabled at
+`2026-09-06T17-16-45-309Z-673973-26a0a8bf.ndjson`, then passed again with all
+temporary trace and page-sample plumbing removed at
+`2026-09-06T17-19-28-526Z-678452-6cb01436.ndjson`. The broad historical
+mixed-size failure and the separate crop-overlay failure remain recorded and
+still require their own final disposition.
+
+### 2026-09-06, required validation green after admission and type fixes
+
+The coordinator first ran the focused native-page-ops admission unit file,
+which passed 4/4, the targeted lint lane, and the full repository typecheck.
+The smallest type fix added the documented `project` option to
+`scripts/assert-electron-native-page-ops.mjs`; it did not alter admission
+behavior. The canonical headless launcher continued to set
+`EVB_PDF_PAGE_OPS_ENABLE=1` for native-required projects and to admit explicit
+native-disabled negative tests.
+
+The required validation then passed in
+`.devkit/gates/2026-09-06T173538Z/01-validate.log`, with summary
+`.devkit/gates/2026-09-06T173538Z/summary.json` and consolidated evidence
+`.devkit/analysis/gates/2026-09-06T17-35-38-877Z-724069-30da07f7.ndjson`.
+It recorded 1,276 passing test files, 10,806 passing tests, 8 skipped tests,
+and one skipped file. Lint, typecheck, the coverage ratchet, the
+zero-execution tripwire, native tests, the all-platform resource matrix,
+strict build, Electron bundle integrity, and blocking Electron smoke all
+passed. The smoke ran through the native admission launcher and reported two
+passing tests and one skipped test. The earlier failed validation and the
+unconfigured 14:56 broad regression remain historical red artifacts. Neither
+is waived, and neither replaces the correctly configured final acceptance
+queue.
+
+### 2026-09-06, final candidate acceptance after green validation
+
+The final candidate reran the required acceptance after the green validation
+gate. The private #350 fixtures were rehashed before the run. The #350 gate
+passed 4/4 at
+`.devkit/analysis/gates/2026-09-06T17-47-42-656Z-764581-4f680ff6.ndjson`.
+It covered the legacy identity through pointer selection, sidebar and popup
+deletion, edit migration, save and reopen, reply and Popup cleanup, and
+neighbor preservation. The minimal source remained 3,153 bytes with SHA-256
+`f6f4a9800e5cd65891b57136000e59f083fb0a91aa2fe2ee4811903e60a130da`.
+
+The exact 882-page annotation-save lane passed 8/8 in
+`.devkit/analysis/gates/2026-09-06T17-50-28-015Z-768152-47f266e1.ndjson`.
+It admitted `/home/ubuntu/evb-fixtures/zaliznyak-exact-1660bced.pdf`,
+722,178,517 bytes, SHA-256
+`1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6`, and
+completed imported Text/Popup, markup edit, moved sticky-note, canonical
+note/text-box, hard-restart, FreeText continuity, create/reopen, and
+delete/restart cases. The exact 2,646-page lane passed 2/2 in
+`.devkit/analysis/gates/2026-09-06T17-59-21-375Z-780331-bc823f92.ndjson`.
+It admitted `/home/ubuntu/evb-fixtures/zaliznyak-three-distinct-copy-2646-pages.pdf`,
+2,168,527,413 bytes, SHA-256
+`5609c151c1cec881da4b97ec7028250574f8f0ee67540dcdc8808cc7b8ab0aea`.
+
+The correctly configured broad Viewer Smoke gate passed 24/24 in
+`.devkit/analysis/gates/2026-09-06T18-02-34-043Z-784584-3bda45c5.ndjson`.
+It passed the repaired mixed-size fit assertion, crop and screenshot overlay,
+PNG entry, all exercised DjVu opening/sidebar/viewport/navigation and split
+continuity cases, and the pressure cases. The historical broad red remains a
+failed record, but its missing native capability flag explains its annotation
+and markup failures, while the repaired fit-width and split ordering cases
+passed under the canonical launcher. One PNG sub-session hit the graceful-stop
+deadline and used the documented process-tree fallback; its test passed, the
+session was stopped, and no candidate Electron process survived. This is an
+infrastructure warning to retain for lifecycle review, not an acceptance
+assertion failure.
+
+The local CodeRabbit attempt was made against `main` with the complete dirty
+candidate scope after validation. The service closed its WebSocket before
+returning a review. `coderabbit doctor` then passed all 9 checks, including
+authentication and backend/WebSocket reachability, but no finding stream was
+returned. No paid continuation or repeated review attempt was made. This is a
+documented review-service fail-open condition after the required validation and
+acceptance gates passed; it remains visible for publication and integration
+review.
+
+### 2026-09-06, final #167 candidate evidence before publication
+
+The corpus reproducibility check and strict corpus verifier passed with two
+ready entries, all five canonical kinds, all eight required scenario families,
+26 scenarios, and one stock unpatched `pdfjs-dist-codex-preview` writer entry.
+The independent Linux renderer retained normal and `-hide-annotations`
+renders in `.devkit/artifacts/issue-167-interop-negative-control-final`.
+qpdf and Poppler checks passed, and every selected annotation crop had a
+positive hidden-minus-normal paint delta while the hidden crop was white.
+
+The fresh real-Electron #167 acceptance passed 2/2 in
+`.devkit/analysis/gates/2026-09-06T18-18-14-963Z-812978-fc5a8a7c.ndjson`.
+It covered corpus import, text-box edit and save, two reopen cycles, generated
+encrypted input, password-free save, independent rendering, and reopening the
+saved output. The named Electron session stopped normally. This evidence is
+candidate-only until integrated-main verification passes.

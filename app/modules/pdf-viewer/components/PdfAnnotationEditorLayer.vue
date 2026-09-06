@@ -17,6 +17,7 @@
         @keydown="handleKeydown"
     >
         <div
+            v-if="isInteractive"
             class="pdf-annotation-editor-surface__background"
             aria-hidden="true"
         />
