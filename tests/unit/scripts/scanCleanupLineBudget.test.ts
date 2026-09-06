@@ -40,6 +40,11 @@ interface ILineBudgetModule {
     };
     parseNulDelimitedGitPaths: (output: Uint8Array) => string[];
     classifyBaselineTreeEntry: (output: Uint8Array) => 'absent' | 'present';
+    isExplicitNonRepositoryResult: (result: {
+        status: number | null;
+        stdout: string;
+        stderr: string
+    }) => boolean;
     validateScanCleanupBaseline: (value: unknown, label?: string) => unknown;
     compareScanCleanupBaselines: (current: {
         homes: Record<string, {
@@ -253,6 +258,30 @@ describe('scan-cleanup line budget', () => {
         expect(() => module.classifyBaselineTreeEntry(Buffer.from('other.json\0'))).toThrow('unexpected path');
     });
 
+    it('accepts fallback only for the exact expected non-repository result', () => {
+        const stderr = 'fatal: not a git repository (or any of the parent directories): .git\n';
+        expect(module.isExplicitNonRepositoryResult({
+            status: 128,
+            stdout: '',
+            stderr,
+        })).toBe(true);
+        expect(module.isExplicitNonRepositoryResult({
+            status: 127,
+            stdout: '',
+            stderr,
+        })).toBe(false);
+        expect(module.isExplicitNonRepositoryResult({
+            status: 128,
+            stdout: '',
+            stderr: `wrapper: ${stderr}`,
+        })).toBe(false);
+        expect(module.isExplicitNonRepositoryResult({
+            status: 128,
+            stdout: 'false\n',
+            stderr,
+        })).toBe(false);
+    });
+
     it('fails closed when a confirmed Git worktree cannot enumerate its index', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-index-'));
         temporaryDirectories.push(root);
@@ -290,7 +319,7 @@ describe('scan-cleanup line budget', () => {
         temporaryDirectories.push(linkedWorktreeRoot);
         await mkdir(join(linkedWorktreeRoot, 'app/modules/scan-cleanup'), {recursive: true});
         await writeFile(join(linkedWorktreeRoot, '.git'), 'gitdir: /missing/worktree/metadata\n');
-        expect(() => module.collectScanCleanupLineCounts(linkedWorktreeRoot)).toThrow('Git metadata marker exists');
+        expect(() => module.collectScanCleanupLineCounts(linkedWorktreeRoot)).toThrow('Cannot determine whether scan-cleanup root is a Git worktree');
     });
 
     it('fails closed when a tracked source disappears after Git enumeration', async () => {

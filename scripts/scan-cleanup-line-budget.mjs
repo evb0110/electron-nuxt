@@ -21,6 +21,7 @@ const SOURCE_EXTENSIONS = new Set([
     '.vue',
 ]);
 const SCAN_CLEANUP_TEST_PATH = /scan[-_]?cleanup/iu;
+const NOT_A_REPOSITORY_DIAGNOSTIC = /^fatal: not a git repository \(or any of the parent directories\): \.git\n?$/u;
 const GENERATED_DIRECTORY_NAMES = new Set([
     '.nuxt',
     '.output',
@@ -356,6 +357,13 @@ function hasGitAdministrativeMarker(root) {
     }
 }
 
+/** @param {{status: number | null, stdout: string, stderr: string}} result @returns {boolean} */
+export function isExplicitNonRepositoryResult(result) {
+    return result.status === 128
+        && result.stdout === ''
+        && NOT_A_REPOSITORY_DIAGNOSTIC.test(result.stderr.replace(/\r\n/gu, '\n'));
+}
+
 /** @param {string} root @returns {boolean} */
 function isGitWorktree(root) {
     const result = spawnSync('git', [
@@ -376,15 +384,19 @@ function isGitWorktree(root) {
         ],
     });
     if (result.error) throw new Error(`Cannot run Git to inspect scan-cleanup root: ${root}`, {cause: result.error});
-    const stdout = result.stdout.trim();
-    const stderr = result.stderr.trim();
-    if (result.status === 0 && stdout === 'true') {
+    const stdout = result.stdout;
+    const stderr = result.stderr;
+    if (result.status === 0 && stdout.trim() === 'true') {
         return true;
     }
-    if (result.status === 0 && stdout === 'false') {
+    if (result.status === 0 && stdout.trim() === 'false') {
         return false;
     }
-    if (result.status !== 0 && /not a git repository/iu.test(stderr)) {
+    if (isExplicitNonRepositoryResult({
+        status: result.status,
+        stdout,
+        stderr,
+    })) {
         if (hasGitAdministrativeMarker(root)) {
             throw new Error(`Git metadata marker exists but cannot be validated for scan-cleanup root: ${root}`);
         }
