@@ -26,7 +26,7 @@ import {
     getClaudeAssistantModelLabel,
     normalizeClaudeAssistantModel,
     shouldUseClaudeAssistantFastMode,
-} from '@electron/features/agent/claudeAgentSdkAssistant';
+} from '@electron/features/agent/claudeProviderMetadata';
 import {
     CODEX_APP_INSTALL_URL,
     type ICodexCliInfo,

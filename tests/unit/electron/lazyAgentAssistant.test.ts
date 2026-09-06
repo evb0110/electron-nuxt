@@ -1,69 +1,56 @@
 import {
-    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-    moduleLoads: 0,
-    initializeAgentAssistantRuntime: vi.fn(),
-    getAgentAssistantState: vi.fn(async () => ({status: 'ready'})),
-    shutdownAgentAssistant: vi.fn(async () => {}),
+const observations = vi.hoisted(() => ({
+    moduleEvaluations: 0,
+    runtimeInitializations: 0,
+    stateReads: 0,
+    shutdowns: 0,
 }));
 
 vi.mock('@electron/features/agent/codexAssistant', () => {
-    mocks.moduleLoads += 1;
+    observations.moduleEvaluations += 1;
     return {
-        initializeAgentAssistantRuntime: mocks.initializeAgentAssistantRuntime,
-        getAgentAssistantState: mocks.getAgentAssistantState,
+        initializeAgentAssistantRuntime: () => { observations.runtimeInitializations += 1; },
+        getAgentAssistantState: async () => { observations.stateReads += 1; return {state: 'read'}; },
         installAgentAssistantCodex: vi.fn(),
         startAgentAssistantLogin: vi.fn(),
         cancelAgentAssistantLogin: vi.fn(),
-        sendAgentAssistantMessage: vi.fn(),
+        sendAgentAssistantMessage: async () => ({state: 'sent'}),
         interruptAgentAssistant: vi.fn(),
         resetAgentAssistantChat: vi.fn(),
-        shutdownAgentAssistant: mocks.shutdownAgentAssistant,
+        shutdownAgentAssistant: async () => { observations.shutdowns += 1; },
     };
 });
 
-describe('lazyAgentAssistant', () => {
-    beforeEach(() => {
-        vi.resetModules();
-        vi.clearAllMocks();
-        mocks.moduleLoads = 0;
-    });
-
+describe('lazy assistant facade', () => {
     it('does not load the assistant runtime only to shut down', async () => {
-        const {shutdownAgentAssistantIfLoaded} = await import(
-            '@electron/features/agent/lazyAgentAssistant'
-        );
-
+        const {shutdownAgentAssistantIfLoaded} = await import('@electron/features/agent/lazyAgentAssistant');
         await shutdownAgentAssistantIfLoaded();
-
-        expect(mocks.moduleLoads).toBe(0);
-        expect(mocks.shutdownAgentAssistant).not.toHaveBeenCalled();
+        expect(observations.moduleEvaluations).toBe(0);
+        expect(observations.shutdowns).toBe(0);
     });
 
-    it('loads one runtime module on first use and reuses it after shutdown', async () => {
+    it('loads the facade runtime for a state read without initializing it', async () => {
+        const {getAgentAssistantState} = await import('@electron/features/agent/lazyAgentAssistant');
+        await expect(getAgentAssistantState()).resolves.toEqual({state: 'read'});
+        expect(observations.moduleEvaluations).toBe(1);
+        expect(observations.stateReads).toBe(1);
+        expect(observations.runtimeInitializations).toBe(0);
+    });
+
+    it('initializes the runtime when an operation needs it and reuses the module', async () => {
         const {
             getAgentAssistantState,
-            shutdownAgentAssistantIfLoaded,
+            sendAgentAssistantMessage,
         } = await import('@electron/features/agent/lazyAgentAssistant');
-
-        await Promise.all([
-            getAgentAssistantState(),
-            getAgentAssistantState(),
-        ]);
-        const shutdown = shutdownAgentAssistantIfLoaded();
-        expect(mocks.shutdownAgentAssistant).toHaveBeenCalledOnce();
-        await shutdown;
+        await sendAgentAssistantMessage({} as never);
         await getAgentAssistantState();
-
-        expect(mocks.moduleLoads).toBe(1);
-        expect(mocks.initializeAgentAssistantRuntime).toHaveBeenCalledTimes(3);
-        expect(mocks.getAgentAssistantState).toHaveBeenCalledTimes(3);
-        expect(mocks.shutdownAgentAssistant).toHaveBeenCalledOnce();
+        expect(observations.moduleEvaluations).toBe(1);
+        expect(observations.runtimeInitializations).toBe(1);
     });
 });

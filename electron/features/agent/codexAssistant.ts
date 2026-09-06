@@ -31,13 +31,15 @@ import {
 import { installManagedCodex } from '@electron/features/agent/codexCli';
 import {
     CLAUDE_AGENT_MODELS,
-    ClaudeAgentAssistantSession,
-    detectClaudeAuthState,
-    getClaudeAgentSdkInfo,
     isClaudeAuthErrorMessage,
+    getClaudeProviderInfo,
+    detectClaudeProviderAuthState,
     shouldUseClaudeAssistantFastMode,
     normalizeClaudeAssistantModel,
-    type IClaudeAgentAssistantInit,
+} from '@electron/features/agent/claudeProviderMetadata';
+import type {
+    IClaudeAgentAssistantInit,
+    IClaudeAgentAssistantSessionOptions,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import { createClaudeTurnPresentationCallbacks } from '@electron/features/agent/createClaudeTurnPresentationCallbacks';
 import {
@@ -115,6 +117,17 @@ let claudeInfoCache: IClaudeAssistantProviderInfo | null = null;
 let pendingLoginId: string | null = null;
 let authReturnWindow: TAssistantReturnWindow = null;
 let installPromise: Promise<IAgentAssistantInstallResult> | null = null;
+interface IClaudeRuntimeModule {
+    getClaudeAgentSdkInfo(): Promise<IClaudeAssistantProviderInfo>;
+    detectClaudeAuthState(): Promise<'signed-in' | 'signed-out' | 'unknown'>;
+    ClaudeAgentAssistantSession: new (options: IClaudeAgentAssistantSessionOptions) => NonNullable<IAssistantChatSession['claudeSession']>;
+}
+let claudeRuntimeModulePromise: Promise<IClaudeRuntimeModule> | null = null;
+async function loadClaudeRuntimeModule() {
+    claudeRuntimeModulePromise ??= import('@electron/features/agent/claudeAgentSdkAssistant') as Promise<IClaudeRuntimeModule>;
+    return claudeRuntimeModulePromise;
+}
+
 const sessionStore = createAssistantChatSessionStore({
     onSessionDeleted: (session: IAssistantChatSession, reason: string) => {
         const currentRuntime = runtimeLifecycle.getRuntime();
@@ -235,11 +248,9 @@ function getChatSession(
     }
     return sessionStore.getSession(scope, selection);
 }
-
 function getAssistantTurnBusyError() {
     return te('dialogs.agentAssistant.turnBusy');
 }
-
 function createAssistantBusyResult(session: IAssistantChatSession) {
     const error = getAssistantTurnBusyError();
     return withAssistantErrorEnvelope({
@@ -248,19 +259,16 @@ function createAssistantBusyResult(session: IAssistantChatSession) {
         error,
     });
 }
-
 function hasConflictingAssistantMcpSessionScope(session: IAssistantChatSession) {
     const activeScope = getActiveAssistantMcpSessionScope();
     return activeScope !== null && activeScope.sessionKey !== sessionStore.keyForSession(session);
 }
-
 function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
     const scope = sessionStore.resolveRequestedScope(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request);
     rememberStateScope(scope, selection);
     return scope ? getChatSession(scope, selection, { create: true }) : null;
 }
-
 function decodeRecordResponse(value: unknown): Record<PropertyKey, unknown> | null {
     return isRecord(value) ? value : null;
 }
@@ -399,10 +407,11 @@ function hasActiveClaudeSession() {
 }
 
 async function refreshClaudeInfo() {
-    claudeInfoCache = await getClaudeAgentSdkInfo();
+    const claudeRuntime = await loadClaudeRuntimeModule();
+    claudeInfoCache = await claudeRuntime.getClaudeAgentSdkInfo();
     if (claudeInfoCache.installed) {
         if (!(hasActiveClaudeSession() && claudeProviderRuntime.authState === 'signed-in')) {
-            const detected = await detectClaudeAuthState();
+            const detected = await claudeRuntime.detectClaudeAuthState();
             // A 'signed-out' demotion (from a real auth failure) is sticky: an
             // inconclusive 'unknown' must not silently re-mark the account as usable.
             // Only positive evidence ('signed-in') clears it.
@@ -738,6 +747,7 @@ async function ensureClaudeAssistantSession(
     session.effort = normalizedEffort;
     session.speedMode = normalizedSpeedMode;
     sessionStore.recordSessionSnapshot(session);
+    const {ClaudeAgentAssistantSession} = await loadClaudeRuntimeModule();
     session.claudeSession = new ClaudeAgentAssistantSession({
         cwd,
         model: session.model,
@@ -764,24 +774,17 @@ export async function getAgentAssistantState(
         await shutdownAgentAssistant();
         return currentState(scope, selection);
     }
-
-    if (selection.provider === 'claude') {
-        await refreshClaudeInfo();
-        return currentState(scope, selection);
-    }
-
-    const codexInfo = await runtimeLifecycle.refreshCodexInfo();
-    if (codexInfo.installed && codexInfo.isVersionSupported) {
-        try {
-            await runtimeLifecycle.ensureRuntime();
-            await refreshAuthStateAndRuntimeAvailability();
-        } catch (error) {
-            logger.warn(`Assistant runtime is not ready: ${getErrorMessage(error)}`);
-        }
+    // State reads may inspect cached provider metadata, but never start a
+    // provider runtime. A first send/login/install operation owns startup.
+    if (selection.provider === 'codex') {
+        await runtimeLifecycle.refreshCodexInfo();
+    } else {
+        claudeInfoCache = await getClaudeProviderInfo();
+        claudeProviderRuntime.authState = await detectClaudeProviderAuthState();
+        claudeProviderRuntime.runtimeState = claudeInfoCache.installed ? 'ready' : 'stopped';
     }
     return currentState(scope, selection);
 }
-
 export async function installAgentAssistantCodex(): Promise<IAgentAssistantInstallResult> {
     await assistantFeatureLifecycle.waitForShutdown();
     if (!(await isAssistantFeatureEnabled())) {
