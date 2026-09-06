@@ -855,7 +855,7 @@ blank-frame, canvas-identity, semantic-page, and anchor-drift checks. The
 candidate and integration changes are now ready for commit and the affected
 regression group. The private book and recording remain on the VPS and were
 not uploaded publicly.
-+### 2026-09-06, split delivery fence and affected-gate follow-up
+### 2026-09-06, split delivery fence and affected-gate follow-up
 
 The affected three-file gate at
 `2026-09-06T08-34-08-342Z-3904048-e16cdfa4` failed only in the PDF
@@ -884,10 +884,72 @@ five intentional skips at
 `2026-09-06T09-02-39-958Z-3943832-53c18067`, including PDF and DjVu
 split-close continuity and the page-7 smoke. Broad regression, exact
 large-document acceptance, and integrated-main verification remain required.
-+
 
 CodeRabbit was attempted after this commit. Both review requests ended with
 the review WebSocket closing before findings. `coderabbit doctor` passed all
 9 checks, including authentication and backend/WebSocket reachability, and a
 single retry produced the same close. No review findings were returned, so
 this is recorded as a review-service failure rather than an approval.
+
+### 2026-09-06, corrected mixed-size and exact-fixture status
+
+The candidate broad regression at
+`2026-09-06T09-13-35-511Z-3977170-a1fd46a8` remains failed. It passed 68 tests
+and skipped 18, but timed out in
+`viewerSmoke.e2e.test.ts:2730` while fitting an explicitly selected page 2 in
+the mixed-size PDF. The assertion still requires the page width to match the
+page-track content width within 2 CSS pixels and a rendered canvas. Focused
+reproductions passed at
+`2026-09-06T09-35-47-335Z-4027766-1b5e2488` and
+`2026-09-06T09-36-55-324Z-4029093-9ec337b4`; those runs do not establish a
+load cause or close the broad failure. The failure table therefore keeps this
+as an unresolved intermittent acceptance failure. The next diagnostic must
+capture requested, committed and observed page, fit mode, page and track
+widths, and raster readiness from the failed session before another broad run.
+No timeout, deadline, or assertion was changed.
+
+The exact local 882-page source was independently verified at
+`/home/ubuntu/evb-fixtures/zaliznyak-exact-1660bced.pdf`, 722,178,517 bytes,
+SHA-256 `1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6`.
+The required candidate acceptance gate
+`2026-09-06T09-43-22-143Z-4036099-542d315c` admitted that fixture but failed
+2/8 tests. The two failures timed out in
+`tests/e2e/electron/helpers/viewerAnnotations.ts:979` while waiting for
+`textarea.note-window__textarea` after real pointer note placement in
+`largePdfAnnotationSave.e2e.test.ts:3294` and `:3660`. The remaining six
+tests passed. The captured screenshots show page 1 or page 16 with the note
+tool active and no new note editor. A single-test exact reproduction at
+`2026-09-06T09-53-32-443Z-4055032-32521550` reproduced the first failure,
+passing no tests and skipping the other seven. This is a candidate product or
+interaction failure, not a waived baseline issue; root cause and baseline
+comparison remain open.
+
+The candidate now contains the published session lifecycle from `d208b880a`
+as commit `49c8d588d`. Future Electron runs use its profile-scoped owner
+marker, verified process identity, checkpoint-preserving recovery, and normal
+runner stop path. The temporary failure-only diagnostic in
+`viewerAnnotations.ts` remains uncommitted until the state capture is
+complete, then will be removed.
+
+### 2026-09-06, issue #167 VPS-only completion criteria
+
+The live body of [issue #167](https://github.com/evb0110/evb-viewer/issues/167)
+was reread after its rewrite. It supersedes the old manual interoperability
+brief. Acrobat Reader, macOS Preview, a Mac, owner-created fixtures, human
+visual sign-off, and owner review are outside this project and must not block
+issue or Project 4 closure. The final report must state the limits of Linux
+evidence and must not claim Acrobat or Preview compatibility.
+
+The authoritative #167 acceptance ledger now includes the required committed
+`tests/fixtures/electron/interop/` corpus, manifest and README,
+`scripts/generate-interop-corpus.mjs`, accurate stock unpatched pdf.js
+provenance, explicit synthetic legacy/native/reply/unknown-key cases, all five
+canonical kinds, reproducible hashes and qpdf baselines, required missing-
+corpus failure behavior, #177 discovery and Rust round-trip coverage, #350
+identity and lifecycle reuse, no-op and edited save preservation, real EVB
+pointer coverage, qpdf plus an independent Linux renderer, supported encrypted
+input save, nonzero scenario counts, validation and review evidence, integrated
+main verification, and the reproducible report under
+`docs/reliability/issue-167-vps-interop-<date>.md`. Required fixtures may not
+be absent or silently skipped. Issue #167 remains open until those checks pass
+on the integrated tree.
