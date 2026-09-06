@@ -13,7 +13,6 @@ import {
 import {
     FakeIndexedDbFactory,
     MemoryStorage,
-    cast,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
 
@@ -22,6 +21,43 @@ const PDF_SOURCE_OPTIONS = {
     kind: 'source',
     saveKind: 'pdf',
 } as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+interface IFileSystemFileHandleFixtureOptions {
+    readonly name: string;
+    readonly getFile?: FileSystemFileHandle['getFile'];
+    readonly isSameEntry?: FileSystemFileHandle['isSameEntry'];
+}
+
+function createEmptyFileSystemWritableFileStream(): FileSystemWritableFileStream {
+    const writable = Object.assign(new WritableStream(), {
+        abort: async (_reason?: unknown) => {},
+        close: async () => {},
+        seek: async (_position: number) => {},
+        truncate: async (_size: number) => {},
+        write: async (_chunk: FileSystemWriteChunkType) => {},
+    });
+    return writable satisfies FileSystemWritableFileStream;
+}
+
+function createFileSystemFileHandle(
+    options: IFileSystemFileHandleFixtureOptions,
+): FileSystemFileHandle {
+    const handle = {
+        kind: 'file',
+        name: options.name,
+        getFile: options.getFile ?? (async () => new File([], options.name)),
+        isSameEntry: options.isSameEntry ?? (async (_other: FileSystemHandle) => false),
+        createWritable: async () => createEmptyFileSystemWritableFileStream(),
+        createSyncAccessHandle: async () => {
+            throw new Error('Synchronous access is not part of this file handle fixture');
+        },
+    } satisfies FileSystemFileHandle;
+    return handle;
+}
 
 function createStoredPdf(
     store: BrowserDocumentStore,
@@ -49,10 +85,9 @@ describe('BrowserDocumentStore', () => {
     });
 
     it('rehydrates persisted save targets with the original file handle', async () => {
-        const handle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const handle = createFileSystemFileHandle({
             name: 'saved-report.pdf',
-            getFile: vi.fn(),
+            getFile: vi.fn(async () => new File([], 'saved-report.pdf')),
         });
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
@@ -76,17 +111,15 @@ describe('BrowserDocumentStore', () => {
     });
 
     it('dedupes a reopened physical file handle across browser windows', async () => {
-        const persistedHandle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const persistedHandle = createFileSystemFileHandle({
             name: 'same-entry.pdf',
             getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'same-entry.pdf')),
-            isSameEntry: vi.fn(async () => false),
+            isSameEntry: vi.fn(async (_candidate: FileSystemHandle) => false),
         });
-        const reopenedHandle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const reopenedHandle = createFileSystemFileHandle({
             name: 'same-entry.pdf',
             getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'same-entry.pdf')),
-            isSameEntry: vi.fn(async (candidate: FileSystemFileHandle) => candidate === persistedHandle),
+            isSameEntry: vi.fn(async (candidate: FileSystemHandle) => candidate === persistedHandle),
         });
         const firstWindow = new BrowserDocumentStore();
         const firstRef = await firstWindow.registerFile(
@@ -113,8 +146,7 @@ describe('BrowserDocumentStore', () => {
     });
 
     it('forgets a replaced file handle before deduping a later registration', async () => {
-        const handle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const handle = createFileSystemFileHandle({
             name: 'replaced.pdf',
             getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'replaced.pdf')),
         });
@@ -140,10 +172,7 @@ describe('BrowserDocumentStore', () => {
     });
 
     it('uses the latest save name when refreshing recent files', async () => {
-        const handle = cast<FileSystemFileHandle>({
-            kind: 'file',
-            name: 'saved-report.pdf',
-        });
+        const handle = createFileSystemFileHandle({name: 'saved-report.pdf'});
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(
             'report.pdf',
@@ -245,15 +274,11 @@ describe('BrowserDocumentStore', () => {
     it('dedupes two handles for the same physical browser file', async () => {
         const firstFile = new File([Uint8Array.of(1, 2, 3)], 'same-entry.pdf', { type: 'application/pdf' });
         const secondFile = new File([Uint8Array.of(4, 5, 6)], 'same-entry.pdf', { type: 'application/pdf' });
-        const firstHandle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const firstHandle = createFileSystemFileHandle({
             name: 'same-entry.pdf',
-            isSameEntry: vi.fn(async () => true),
+            isSameEntry: vi.fn(async (_other: FileSystemHandle) => true),
         });
-        const secondHandle = cast<FileSystemFileHandle>({
-            kind: 'file',
-            name: 'same-entry.pdf',
-        });
+        const secondHandle = createFileSystemFileHandle({name: 'same-entry.pdf'});
         const store = new BrowserDocumentStore();
 
         const firstRef = await store.registerFile(firstFile, {
@@ -283,8 +308,7 @@ describe('BrowserDocumentStore', () => {
                 lastModified: 11,
             },
         ));
-        const handle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const handle = createFileSystemFileHandle({
             name: 'witness.pdf',
             getFile,
         });
@@ -398,13 +422,9 @@ describe('BrowserDocumentStore', () => {
 
     it('clears failed pending file loads instead of keeping a poisoned pendingLoad', async () => {
         const store = new BrowserDocumentStore();
-        const file = cast<File>({
-            name: 'broken.pdf',
-            type: 'application/pdf',
-            size: 3,
-            arrayBuffer: vi.fn(async () => {
-                throw new Error('read failed');
-            }),
+        const file = new File([Uint8Array.of(1, 2, 3)], 'broken.pdf', {type: 'application/pdf'});
+        vi.spyOn(file, 'arrayBuffer').mockImplementation(async () => {
+            throw new Error('read failed');
         });
 
         const ref = store.getRefForFile(file);
@@ -492,18 +512,9 @@ describe('BrowserDocumentStore', () => {
     });
 
     it('evicts old recent blobs once the persisted recent-file budget is exceeded', async () => {
-        const firstHandle = cast<FileSystemFileHandle>({
-            kind: 'file',
-            name: 'first.pdf',
-        });
-        const secondHandle = cast<FileSystemFileHandle>({
-            kind: 'file',
-            name: 'second.pdf',
-        });
-        const thirdHandle = cast<FileSystemFileHandle>({
-            kind: 'file',
-            name: 'third.pdf',
-        });
+        const firstHandle = createFileSystemFileHandle({name: 'first.pdf'});
+        const secondHandle = createFileSystemFileHandle({name: 'second.pdf'});
+        const thirdHandle = createFileSystemFileHandle({name: 'third.pdf'});
         const fileSize = Math.floor(BROWSER_MAX_RECENT_FILES_PERSISTED_BYTES / 2) + 1;
         const store = new BrowserDocumentStore();
 
@@ -856,7 +867,10 @@ describe('BrowserDocumentStore', () => {
             && chunk.index === 1
         ))?.[0];
         expect(missingChunkKey).toBeTruthy();
-        chunks?.delete(missingChunkKey as string);
+        if (typeof missingChunkKey !== 'string') {
+            throw new TypeError('Expected a stored chunk key for the corruption fixture');
+        }
+        chunks?.delete(missingChunkKey);
 
         await expect(store.cloneStoredDocument(ref, {
             fileName: 'clone.pdf',
@@ -877,8 +891,7 @@ describe('BrowserDocumentStore', () => {
 
     it('reads handle-backed documents lazily', async () => {
         const bytes = Uint8Array.of(9, 8, 7, 6, 5);
-        const handle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const handle = createFileSystemFileHandle({
             name: 'lazy.pdf',
             getFile: vi.fn(async () => new File([bytes], 'lazy.pdf', { type: 'application/pdf' })),
         });
@@ -920,8 +933,7 @@ describe('BrowserDocumentStore', () => {
         const getFile = vi.fn()
             .mockResolvedValueOnce(firstFile)
             .mockResolvedValueOnce(replacementFile);
-        const handle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const handle = createFileSystemFileHandle({
             name: 'snapshot.pdf',
             getFile,
         });
@@ -949,8 +961,7 @@ describe('BrowserDocumentStore', () => {
 
     it('mirrors picked source bytes even when a save handle is present', async () => {
         const bytes = Uint8Array.of(3, 1, 4);
-        const handle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const handle = createFileSystemFileHandle({
             name: 'picked.pdf',
             getFile: vi.fn(async () => {
                 throw new DOMException('Not allowed', 'NotAllowedError');
@@ -975,8 +986,7 @@ describe('BrowserDocumentStore', () => {
 
     it('keeps source bytes readable after save-handle-backed source creation', async () => {
         const bytes = Uint8Array.of(6, 2, 5);
-        const handle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const handle = createFileSystemFileHandle({
             name: 'saved.pdf',
             getFile: vi.fn(async () => {
                 throw new DOMException('Not allowed', 'NotAllowedError');
@@ -1005,8 +1015,7 @@ describe('BrowserDocumentStore', () => {
     it('hydrates legacy handle-backed sources before reopening them', async () => {
         const bytes = Uint8Array.of(8, 9, 7);
         const getFile = vi.fn(async () => new File([bytes], 'legacy.pdf', { type: 'application/pdf' }));
-        const handle = cast<FileSystemFileHandle>({
-            kind: 'file',
+        const handle = createFileSystemFileHandle({
             name: 'legacy.pdf',
             getFile,
         });
@@ -1233,18 +1242,20 @@ describe('BrowserDocumentStore', () => {
 
     it('keeps an oversized picked file range-readable without reading the whole file in memory', async () => {
         const fileSize = BROWSER_MAX_FULL_READ_BYTES + 1;
-        const fullRead = vi.fn(async () => {
+        const file = new File([], 'oversized.pdf', {
+            type: 'application/pdf',
+            lastModified: 31,
+        });
+        Object.defineProperty(file, 'size', {
+            configurable: true,
+            value: fileSize,
+        });
+        const fullRead = vi.spyOn(file, 'arrayBuffer').mockImplementation(async () => {
             throw new Error('full file read should not be used');
         });
-        const slice = vi.fn((start: number, _end: number) => ({arrayBuffer: async () => Uint8Array.of(start === 0 ? 5 : 8).buffer}));
-        const file = cast<File>({
-            name: 'oversized.pdf',
-            type: 'application/pdf',
-            size: fileSize,
-            lastModified: 31,
-            arrayBuffer: fullRead,
-            slice,
-        });
+        vi.spyOn(file, 'slice').mockImplementation((start = 0, _end) => (
+            new Blob([Uint8Array.of(start === 0 ? 5 : 8)], {type: 'application/pdf'})
+        ));
         vi.stubGlobal('indexedDB', undefined);
         const store = new BrowserDocumentStore();
 
@@ -1326,16 +1337,20 @@ describe('BrowserDocumentStore', () => {
         const bytes = new Uint8Array((16 * 1024 * 1024) + 1);
         bytes[0] = 7;
         bytes[bytes.byteLength - 1] = 8;
-        const file = cast<File>({
-            name: 'pending-large.pdf',
-            type: 'application/pdf',
-            size: bytes.byteLength,
-            slice: vi.fn((start: number, end: number) => ({arrayBuffer: async () => {
+        const file = new File([], 'pending-large.pdf', {type: 'application/pdf'});
+        Object.defineProperty(file, 'size', {
+            configurable: true,
+            value: bytes.byteLength,
+        });
+        vi.spyOn(file, 'slice').mockImplementation((start = 0, end = bytes.byteLength) => {
+            const chunk = new Blob([bytes.slice(start, end)], {type: 'application/pdf'});
+            vi.spyOn(chunk, 'arrayBuffer').mockImplementation(async () => {
                 if (start === 0) {
                     await firstChunkReady;
                 }
                 return bytes.slice(start, end).buffer;
-            }})),
+            });
+            return chunk;
         });
         const store = new BrowserDocumentStore();
         const ref = store.getRefForFile(file);
@@ -1412,8 +1427,11 @@ describe('BrowserDocumentStore', () => {
         const documents = database?.getStoreRecords('documents');
         const record = documents?.get(ref);
         expect(record).toBeTruthy();
+        if (!isRecord(record)) {
+            throw new TypeError('Expected a stored document record for the corruption fixture');
+        }
         documents?.set(ref, {
-            ...(record as Record<string, unknown>),
+            ...record,
             data: new Uint8Array(),
             storageMode: 'chunked',
             fileSize: 8,

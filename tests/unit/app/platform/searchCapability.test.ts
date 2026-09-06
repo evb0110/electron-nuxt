@@ -7,10 +7,7 @@ import {
 } from 'vitest';
 import { readFileSync } from 'fs';
 import { buildPdfSearchExcerpt } from '@pdf-core';
-import {
-    cast,
-    FakeIndexedDbFactory,
-} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {FakeIndexedDbFactory} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {requireRequestId} from '@contracts/shared';
 
 interface ISearchConformanceCase {
@@ -29,6 +26,25 @@ interface ISearchConformanceCase {
 }
 
 interface ISearchConformanceCorpus {cases: ISearchConformanceCase[];}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function requireFakeIndexedDbFactory(): FakeIndexedDbFactory {
+    const value: unknown = globalThis.indexedDB;
+    if (!(value instanceof FakeIndexedDbFactory)) {
+        throw new TypeError('Expected the browser search test IndexedDB factory');
+    }
+    return value;
+}
+
+function requirePersistedRecord(value: unknown): Record<string, unknown> {
+    if (!isRecord(value)) {
+        throw new TypeError('Expected a persisted browser search record');
+    }
+    return value;
+}
 
 const searchConformanceCorpus = JSON.parse(readFileSync(
     new URL('../../../../packages/contracts/searchConformanceCorpus.json', import.meta.url),
@@ -133,7 +149,7 @@ describe('createBrowserSearchCapability', () => {
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { clearSearchCaches } = createBrowserSearchCapability();
         await clearSearchCaches();
-        const database = cast<FakeIndexedDbFactory>(indexedDB)
+        const database = requireFakeIndexedDbFactory()
             .getDatabase('evb-browser-search-cache');
         database?.rejectNextTransaction(new Error('clear transaction failed'));
 
@@ -471,12 +487,12 @@ describe('createBrowserSearchCapability', () => {
         const firstCapability = createBrowserSearchCapability().capability;
         await firstCapability.run('/tmp/test.pdf', 'foo', { pageCount: 1 });
 
-        const indexedDbFactory = cast<FakeIndexedDbFactory>(indexedDB);
+        const indexedDbFactory = requireFakeIndexedDbFactory();
         const record = indexedDbFactory
             .getDatabase('evb-browser-search-cache')
             ?.getStoreRecords('document-text')
             .get('/tmp/test.pdf');
-        mutateRecord(cast<Record<string, unknown>>(record));
+        mutateRecord(requirePersistedRecord(record));
 
         const secondCapability = createBrowserSearchCapability().capability;
         await expect(secondCapability.run('/tmp/test.pdf', 'bar', { pageCount: 1 })).resolves.toEqual({
@@ -548,7 +564,7 @@ describe('createBrowserSearchCapability', () => {
             await capability.warmIndex(`/tmp/lru-${index}.pdf`);
         }
 
-        const indexedDbFactory = cast<FakeIndexedDbFactory>(indexedDB);
+        const indexedDbFactory = requireFakeIndexedDbFactory();
         const database = indexedDbFactory.getDatabase('evb-browser-search-cache');
         expect(database?.getStoreRecords('document-text').size).toBe(16);
         expect(database?.getStoreRecords('document-text').has('/tmp/lru-1.pdf')).toBe(false);
@@ -606,9 +622,9 @@ describe('createBrowserSearchCapability', () => {
         const { capability } = createBrowserSearchCapability();
         await expect(capability.warmIndex('/tmp/sparse.pdf')).resolves.toBe(true);
 
-        const database = cast<FakeIndexedDbFactory>(indexedDB)
+        const database = requireFakeIndexedDbFactory()
             .getDatabase('evb-browser-search-cache');
-        const record = cast<Record<string, unknown>>(
+        const record = requirePersistedRecord(
             database?.getStoreRecords('document-text').get('/tmp/sparse.pdf'),
         );
         expect(record.version).toBe(8);
@@ -631,7 +647,7 @@ describe('createBrowserSearchCapability', () => {
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
         await capability.resetCache();
-        const database = cast<FakeIndexedDbFactory>(indexedDB)
+        const database = requireFakeIndexedDbFactory()
             .getDatabase('evb-browser-search-cache');
         database?.getStoreRecords('document-text').set(path, {
             version: 7,
@@ -652,7 +668,7 @@ describe('createBrowserSearchCapability', () => {
         });
         await expect(capability.warmIndex(path, {requestId: requireRequestId('legacy-million')})).resolves.toBe(false);
         await vi.waitFor(() => {
-            const migrated = cast<Record<string, unknown>>(
+            const migrated = requirePersistedRecord(
                 database?.getStoreRecords('document-text').get(path),
             );
             expect(migrated.version).toBe(8);
@@ -666,7 +682,7 @@ describe('createBrowserSearchCapability', () => {
             typeof value === 'object'
             && value !== null
             && 'length' in value
-            && Number((value as {length?: unknown}).length) >= 1_000_000
+            && Number(value.length) >= 1_000_000
         ))).toBe(false);
         arrayFrom.mockRestore();
     });
@@ -705,7 +721,7 @@ describe('createBrowserSearchCapability', () => {
             typeof value === 'object'
             && value !== null
             && 'length' in value
-            && Number((value as {length?: unknown}).length) >= 1_000_000
+            && Number(value.length) >= 1_000_000
         ))).toBe(false);
         arrayFrom.mockRestore();
     });
@@ -830,7 +846,7 @@ describe('createBrowserSearchCapability', () => {
         expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
         expect(getPage).toHaveBeenCalledTimes(6);
 
-        const indexedDbFactory = cast<FakeIndexedDbFactory>(indexedDB);
+        const indexedDbFactory = requireFakeIndexedDbFactory();
         const database = indexedDbFactory.getDatabase('evb-browser-search-cache');
         expect(database?.getStoreRecords('document-text').size ?? 0).toBe(0);
     });
@@ -1003,9 +1019,9 @@ describe('createBrowserSearchCapability', () => {
         expect(browserSearchWorkerClientMock.createBrowserSearchWorkerPageStreamRequest)
             .toHaveBeenCalledWith({pdfPath: '/tmp/worker-stream.pdf'});
         expect(pdfjsModule.getDocument).not.toHaveBeenCalled();
-        const database = cast<FakeIndexedDbFactory>(indexedDB)
+        const database = requireFakeIndexedDbFactory()
             .getDatabase('evb-browser-search-cache');
-        const record = cast<Record<string, unknown>>(
+        const record = requirePersistedRecord(
             database?.getStoreRecords('document-text').get('/tmp/worker-stream.pdf'),
         );
         expect(record.pageCount).toBe(2_646);
