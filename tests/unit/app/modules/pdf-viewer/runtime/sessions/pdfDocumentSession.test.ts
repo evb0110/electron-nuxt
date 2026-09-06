@@ -1587,6 +1587,89 @@ describe('PdfDocumentSession range loading', () => {
         ]);
     });
 
+    it('does not let a cancelled page acquisition block PDF.js teardown', async () => {
+        const pendingPage = Promise.withResolvers<{
+            cleanup: ReturnType<typeof vi.fn>;
+            getViewport: ReturnType<typeof vi.fn>;
+            pageNumber: number;
+        }>();
+        const pageOne = {
+            cleanup: vi.fn(),
+            getViewport: vi.fn(() => ({
+                width: 100,
+                height: 200,
+            })),
+            pageNumber: 1,
+        };
+        const getPage = vi.fn((pageNumber: number) => (
+            Promise.resolve(pageNumber === 1 ? pageOne : pendingPage.promise)
+        ));
+        const pageTwo = {
+            cleanup: vi.fn(),
+            getViewport: vi.fn(() => ({
+                width: 100,
+                height: 200,
+            })),
+            pageNumber: 2,
+        };
+        const documentDestroy = vi.fn(() => Promise.resolve());
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: 2,
+                getPage,
+                destroy: documentDestroy,
+            }),
+            destroy: vi.fn(() => Promise.resolve()),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(Uint8Array.of(1, 2, 3, 4));
+
+        const documentState = createPdfDocumentSession();
+        await expect(documentState.loadPdf(new Blob([Uint8Array.of(1)]))).resolves.not.toBeNull();
+        const scheduler = documentState.rasterScheduler!;
+        scheduler.setDemand({
+            sourceId: 'viewport',
+            input: [{
+                consumerGeneration: 1,
+                documentFence: scheduler.documentFence,
+                estimatedPixels: 100,
+                lane: 'viewport-visible',
+                ordinal: 1,
+                pageNumber: requirePageNumber(2),
+                renderKey: 'pending-page',
+                retention: 'render-cache',
+            } as const],
+            policy: {
+                expand: input => input,
+                compareWithinLane: () => 0,
+            },
+            target: {
+                id: 'viewport',
+                prepare: async () => ({}),
+                start: () => ({
+                    _internalRenderTask: null,
+                    cancel: vi.fn(),
+                    imageCoordinates: null,
+                    onContinue: vi.fn(),
+                    onError: vi.fn(),
+                    promise: Promise.resolve(),
+                    separateAnnots: false,
+                }),
+                commit: () => true,
+                discard: vi.fn(),
+                release: vi.fn(),
+            },
+        });
+        await vi.waitFor(() => expect(getPage).toHaveBeenCalledWith(2));
+
+        documentState.cleanup();
+
+        await vi.waitFor(() => expect(documentDestroy).toHaveBeenCalledOnce());
+        expect(scheduler.snapshot().accepting).toBe(false);
+
+        pendingPage.resolve(pageTwo);
+        await vi.waitFor(() => expect(pageTwo.cleanup).toHaveBeenCalledOnce());
+    });
+
     it('does not destroy PDF.js while cancelled page preparation is still running', async () => {
         const events: string[] = [];
         const operatorList = Promise.withResolvers<{
@@ -1665,7 +1748,7 @@ describe('PdfDocumentSession range loading', () => {
         await vi.waitFor(() => expect(prepareStarted).toHaveBeenCalledOnce());
 
         documentState.cleanup();
-        await vi.waitFor(() => expect(scheduler.snapshot().accepting).toBe(false));
+        expect(scheduler.snapshot().accepting).toBe(false);
 
         expect(documentDestroy).not.toHaveBeenCalled();
         expect(page.cleanup).not.toHaveBeenCalled();

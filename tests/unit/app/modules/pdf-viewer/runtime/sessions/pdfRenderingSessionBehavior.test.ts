@@ -1027,8 +1027,8 @@ describe('PdfRenderingSession behavior', () => {
         });
         try {
             await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
-            expect(fixture.documentSession.leasePage).toHaveBeenCalledWith(3, 'render-cache');
-            expect(fixture.documentSession.leasePage).not.toHaveBeenCalledWith(4, 'render-cache');
+            expect(fixture.documentSession.leasePage).toHaveBeenCalledWith(3, 'render-cache', expect.any(AbortSignal));
+            expect(fixture.documentSession.leasePage).not.toHaveBeenCalledWith(4, 'render-cache', expect.any(AbortSignal));
 
             fixture.renderTasks[0]!.resolve();
             await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
@@ -1037,7 +1037,7 @@ describe('PdfRenderingSession behavior', () => {
                 revision: 2,
                 mandatoryRaster: null,
             };
-            await vi.waitFor(() => expect(fixture.documentSession.leasePage).toHaveBeenCalledWith(4, 'render-cache'));
+            await vi.waitFor(() => expect(fixture.documentSession.leasePage).toHaveBeenCalledWith(4, 'render-cache', expect.any(AbortSignal)));
         } finally {
             await fixture.dispose();
         }

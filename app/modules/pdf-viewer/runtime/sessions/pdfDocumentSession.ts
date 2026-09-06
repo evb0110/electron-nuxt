@@ -521,7 +521,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     function leaseOwnedPage(
         document: PDFDocumentProxy,
         pageNumber: TPageNumber,
-        retention: TPdfDocumentPageLeaseRetention = 'render-cache',
+        retention: TPdfDocumentPageLeaseRetention = 'render-cache', signal?: AbortSignal,
     ) {
         if (pdfDocument.value !== document) {
             throw createStalePdfDocumentError(
@@ -529,10 +529,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             );
         }
         return retention === 'transient-background'
-            ? pageCache.leaseTransientBackgroundPage(pageNumber)
-            : pageCache.leasePage(pageNumber);
+            ? pageCache.leaseTransientBackgroundPage(pageNumber, signal)
+            : pageCache.leasePage(pageNumber, signal);
     }
-
     async function acceptLoadedDocument(
         document: PDFDocumentProxy,
         version: number,
@@ -561,8 +560,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         };
         const leasePage = (
             pageNumber: TPageNumber,
-            retention: TPdfDocumentPageLeaseRetention = 'render-cache',
-        ) => leaseOwnedPage(document, pageNumber, retention);
+            retention: TPdfDocumentPageLeaseRetention = 'render-cache', signal?: AbortSignal,
+        ) => leaseOwnedPage(document, pageNumber, retention, signal);
         registerPdfDocumentPageLeaseOwner(document, leasePage);
         activeRasterScheduler = ensurePdfPageRasterScheduler(document, {
             documentFence: captureFence(),
@@ -590,7 +589,6 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             document,
         };
     }
-
     function preserveLoadState(shouldPreserve: boolean) {
         return {
             numPages: shouldPreserve ? numPages.value : 0,
@@ -784,15 +782,19 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             finishLoad(version);
         }
     }
-
     function cleanup() {
         teardownWaitAbortController?.abort();
         teardownWaitAbortController = null;
         pendingRangeReadFailure = null;
         const version = incrementRenderVersion();
         const document = pdfDocument.value;
-        if (activeRasterScheduler) {
-            activeRasterScheduler = null;
+        const rasterScheduler = activeRasterScheduler;
+        rasterScheduler?.invalidate({
+            documentFence: rasterScheduler.documentFence,
+            reason: 'document-cleanup',
+        });
+        activeRasterScheduler = null;
+        if (rasterScheduler) {
             options.emitRasterScheduler?.(null);
         }
         pageCache.cleanupAll();
