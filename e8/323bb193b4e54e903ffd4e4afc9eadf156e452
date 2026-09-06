@@ -1,0 +1,145 @@
+tests/e2e/electron/legacyNote350.e2e.test.ts
+  s_d252de3ad71cee::t_d0b6f0a31f0474 958-964,972,976-982,984-991,998-1012
+  s_d252de3ad71cee::t_663153d0f84824 371-387,894
+  s_d252de3ad71cee::t_47f4bbd0771ac0 729
+  s_d252de3ad71cee::t_46356e30dfef57 1,187-189,239,534-537,563-566,583-586,598-601,619-622,739
+  s_d252de3ad71cee::t_1da7a08f6daf69 6,694-695,902
+  s_d252de3ad71cee::t_e8029aa27dd44a 106-107,393,404,704,721
+  s_d252de3ad71cee::t_ce9ae5ec406a75 302-352,366-367
+  s_d252de3ad71cee::t_fa258b8bdbf5b6 479-490,511,524-532,808
+  s_d252de3ad71cee::t_9aaf9ccc09a3de 538,540-554
+  s_d252de3ad71cee::t_c09cca2e12c11b 947-948,950-957,965-971,973-975,983,992-997,1013-1014
+  s_d252de3ad71cee::t_c674dadc6365cc 41,50-79
+  s_d252de3ad71cee::t_fd210b24b0943f 80-83,88-94,762,765,781,944-946
+  s_d252de3ad71cee::t_b5874c939339d5 9,103-104,190-238
+  s_d252de3ad71cee::t_ba6dca11e68b91 244,258-272
+  s_d252de3ad71cee::t_18fc420cec9172 276,278-280,285-299
+  s_d252de3ad71cee::t_2219b8c2549219 787,949,1018
+  s_d252de3ad71cee::t_67ea5d091b925e 32-36,84-87
+  s_d252de3ad71cee::t_0bb78ac9604a87 2-5,7-8,10-31,37-40,42-49,95-102,108-186,240-243,273-274,353-362,369-370,388-391,394-396,398-400,402-403,405-430,450-478,533,539,555-562,567-582,587-597,602-618,623-637,677-693,696-702,705-707,709-720,722-728,730-738,760-761,763-764,766-780,782-786,788-807,809-893,895-901,903-943,1048
+  s_d252de3ad71cee::t_11063420c8d2f8 245-257,277,281-284,441,491-510,512-520,523,673-676,749-754
+  s_d252de3ad71cee::t_f34c987853657d 105,392,397,401,703,708
+  s_d252de3ad71cee::t_b278c2affb2728 275,300-301,363-365,368
+  s_d252de3ad71cee::t_8fc27e95ab58c6 431-440,442-449,740-748,755-759
+  s_d252de3ad71cee::t_cd05945113686b 638-672
+  s_d252de3ad71cee::t_58eb45ced39dd9 1015-1017,1019-1047
+  s_d252de3ad71cee::t_fc2d80e813dfa3 521-522
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_d252de3ad71cee::t_34ad4f7ff620f0 4039-4041
+  s_d252de3ad71cee::t_fdbe318d124c84 4042-4060
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_d252de3ad71cee::t_19959d7cae273b 1139,1642
+docs/pdf-annotations-audit-2026-08-22-implementation-ledger.md
+  s_d252de3ad71cee::t_e49e0c2f692b65 667-676
+  s_d252de3ad71cee::t_6dd61d319e4832 651,702-741
+  s_d252de3ad71cee::t_3a0aede952f0d9 689-701
+  s_d252de3ad71cee::t_9fe6fdd00dc1e3 677-688
+  s_d252de3ad71cee::t_fb1b8bafac4d3d 652
+  s_d252de3ad71cee::t_b881698aed8d8e 659-666
+  s_d252de3ad71cee::t_0d731a5667114f 603-604,615-649,654-658
+  s_d252de3ad71cee::t_9d73c85c486301 742-776
+  s_d252de3ad71cee::t_352e3abd31ddbe 650,653
+  s_d252de3ad71cee::t_60633311a50a34 580-602,605-614
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_d252de3ad71cee::t_8767451328d6fe 4460-4463,4465-4466,4527-4529,4549-4550
+  s_d252de3ad71cee::t_92cbf9f70564ff 1229-1240,1246
+  s_d252de3ad71cee::t_d7291509abd212 3645-3649,3655,3816-3817,3823,3831
+  s_d252de3ad71cee::t_227a5e45750747 3960,3965,3972,3975,4072-4075
+  s_d252de3ad71cee::t_2f311971452a52 345,372
+  s_d252de3ad71cee::t_8c0e7ebaad6c4c 4179
+  s_d252de3ad71cee::t_60b45eab95025c 4091-4092,4131-4133
+  s_d252de3ad71cee::t_5716fd087762ed 3921,3925,3930,3978
+  s_d252de3ad71cee::t_5056d820309d66 1812,1817,1842,1845,1850,1853
+  s_d252de3ad71cee::t_77cf6618ffc355 637-676,681-701
+  s_d252de3ad71cee::t_fe50002ec57a6d 476-477,493,504,509,511,513,520,523,556-557,563,575,578,580,616,620,634,704,715
+  s_d252de3ad71cee::t_464f154faaeed0 590,596-597,608-609
+  s_d252de3ad71cee::t_f1f8d416f5231c 677-680
+  s_d252de3ad71cee::t_0a4da19f613f00 595,599-607
+  s_d252de3ad71cee::t_ac373f04771de1 1133-1151,3218
+  s_d252de3ad71cee::t_b41a13b16ae235 478-481,486-490,589,592-594,615
+  s_d252de3ad71cee::t_c674dadc6365cc 1439,1497-1498,1501,3221,3268
+  s_d252de3ad71cee::t_b663c78e27a1a7 4079-4081
+  s_d252de3ad71cee::t_8352d88b62e364 4220,4227
+  s_d252de3ad71cee::t_2bff2fda8ac716 339,517
+  s_d252de3ad71cee::t_996bc612c3845c 4284-4285,4290,4293,4312-4316,4347,4351-4352
+  s_d252de3ad71cee::t_a560e18fc362ca 482-485,581-587,610-613
+vitest.shared.config.ts
+  s_d252de3ad71cee::t_e335bba94b9a0e 97
+tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts
+  s_d252de3ad71cee::t_ddb6f47e31e51b 63,328,337-340,683-684,686-687,689-690
+  s_d252de3ad71cee::t_707149320b2e0f 685,688
+  s_d252de3ad71cee::t_05f5ea5b931d4d 668-671,675,700
+  s_d252de3ad71cee::t_fdb966ffaaec1d 653,658,661,663-667,672-674,676-677,692-694
+  s_d252de3ad71cee::t_3eb4bca99df5f1 696
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_d252de3ad71cee::t_b9749a009aabe7 1128-1129
+tests/e2e/electron/squigglyMarkup.e2e.test.ts
+  s_d252de3ad71cee::t_26302d8e074ffd 392,397-401,413
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_d252de3ad71cee::t_c674dadc6365cc 109,408,417-421
+  s_d252de3ad71cee::t_67ea5d091b925e 387
+  s_d252de3ad71cee::t_634f5eb81baf01 104-108,110-177
+  s_d252de3ad71cee::t_44ae52fee90aa7 384-386,388-392,397-399,404-407,409-416,422-425
+  s_d252de3ad71cee::t_0f6a2e0a015588 11-13,26-29
+  s_d252de3ad71cee::t_762c79cf850f8c 393-396,400-403
+tests/unit/e2e/electronFixturePolicy.test.ts
+  s_d252de3ad71cee::t_762c79cf850f8c 540
+  s_d252de3ad71cee::t_d6b44288fc1b97 55,523-539,541-544
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_d252de3ad71cee::t_1b00de6d8e72a8 444-447,471-473
+  s_d252de3ad71cee::t_2fab5725db2486 717,721-724,751-754,756,758
+  s_d252de3ad71cee::t_825c837a6e1849 15,733-740
+electron/preload/readHostResourceProfileArgument.ts
+  s_d252de3ad71cee::t_56a181fd076d35 26
+  s_d252de3ad71cee::t_05d0ed745ac60e 5,20-21
+tests/unit/electron/readHostResourceProfileArgument.test.ts
+  s_d252de3ad71cee::t_67ea5d091b925e 8,11,38
+  s_d252de3ad71cee::t_0460c6a4e9e052 1-7,12-27,29-32,34-37,39-44
+  s_d252de3ad71cee::t_1dc3e2bd521259 28,33
+  s_d252de3ad71cee::t_27fdc98c1fff21 9-10
+electron/preload/readDiagnosticsPolicyArgument.ts
+  s_d252de3ad71cee::t_7d8cddf0c3558c 6,17-18,23
+tests/e2e/electron/helpers/fixtures.ts
+  s_d252de3ad71cee::t_d6b44288fc1b97 560-615
+  s_d252de3ad71cee::t_d4e367090fabb1 149
+tests/e2e/electron/performanceProfileVisuals.e2e.test.ts
+  s_d252de3ad71cee::t_d7281eb4786c0f 109,126,166
+tests/e2e/electron/annotationStrokeParity.e2e.test.ts
+  s_d252de3ad71cee::t_33415daaa45020 315
+  s_d252de3ad71cee::t_0a4da19f613f00 192,195-198
+  s_d252de3ad71cee::t_c674dadc6365cc 344-349,356-357,362-363
+  s_d252de3ad71cee::t_67ea5d091b925e 350-355,358-361
+  s_d252de3ad71cee::t_8f9c432562c721 55-60,123-137,159-162
+  s_d252de3ad71cee::t_062cde5517a148 45-54,173-176,185-188,193-194,199-201,340-343,364-368
+  s_d252de3ad71cee::t_4cb407c707ce74 248,314,332-339
+tests/e2e/electron/largePdfNativePreview.e2e.test.ts
+  s_d252de3ad71cee::t_d6b44288fc1b97 15,47,704-705,708,714
+  s_d252de3ad71cee::t_382aca7ccb997a 515
+  s_d252de3ad71cee::t_14ac82246aca2f 34-38,46,48-51,697,706-707,709-710,715,718
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_d252de3ad71cee::t_fb50cb35f6d2a3 775-780
+  s_d252de3ad71cee::t_92cbf9f70564ff 301-311
+  s_d252de3ad71cee::t_007e2e788bc12c 727
+  s_d252de3ad71cee::t_8c0bfd06c27fb0 831-832,835,851,854-857,859
+  s_d252de3ad71cee::t_fb35ac26cd696f 961-976
+  s_d252de3ad71cee::t_5dc425c2bd8b23 261-272
+electron/preload/decodeBase64UrlUtf8.ts
+  s_d252de3ad71cee::t_90402968b4663b 1-28,30-33
+  s_d252de3ad71cee::t_c674dadc6365cc 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e8323bb193b4e54e903ffd4e4afc9eadf156e452",
+  "prompts": {},
+  "sessions": {
+    "s_d252de3ad71cee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0723f-6c82-7453-a893-5fe26c4041d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
