@@ -1,6 +1,5 @@
 //! Stream and staged raster input coordination.
-use crate::io::{copy_bounded_cancelable, BoundedIoError, MAX_STREAM_INPUT_BYTES};
-use crate::protocol::manifest_v3::{normalized_path, ManifestV3, Page};
+use crate::io::{copy_bounded_cancelable, raster, BoundedIoError};
 #[cfg(test)]
 use crate::protocol::manifest_v3::{
     AnalysisPurpose, CanvasScope, DetailPixelRect, DetailRenderPlan, Operation, PageOutput,
@@ -13,6 +12,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
+use std::path::Component;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -31,12 +31,87 @@ pub(crate) enum LeaseEvent {
 pub(crate) type LeaseAnnouncer<'a> =
     &'a (dyn Fn(LeaseEvent, usize, usize) -> Result<(), NativeError> + Sync);
 
-fn invalid(message: impl Into<String>) -> NativeError {
+#[derive(Clone, Debug)]
+pub(crate) struct StagedPageDescriptor {
+    pub(crate) input_path: PathBuf,
+    pub(crate) metadata_path: PathBuf,
+    pub(crate) source_page_index: usize,
+    pub(crate) max_bytes: usize,
+    pub(crate) stream_input: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StagedInputBatch {
+    pub(crate) pages: Vec<StagedPageDescriptor>,
+    pub(crate) raster_window: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StagedPathPlan {
+    pub(crate) input_paths: Vec<PathBuf>,
+    pub(crate) destination_paths: Vec<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct StagedLeaseDescriptor {
+    pub(crate) input_path: PathBuf,
+    pub(crate) page_number: usize,
+    pub(crate) total_pages: usize,
+    pub(crate) enabled: bool,
+}
+
+fn normalized_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    normalized.pop();
+                } else if !normalized.has_root() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    #[cfg(windows)]
+    {
+        return PathBuf::from(normalized.to_string_lossy().to_lowercase());
+    }
+    #[cfg(not(windows))]
+    normalized
+}
+
+pub(crate) fn invalid(message: impl Into<String>) -> NativeError {
     NativeError::new(NativeErrorCode::InvalidRequest, message.into())
 }
+
+pub(crate) fn map_raster_error(
+    error: raster::RasterReadError,
+    path: &Path,
+    page_index: usize,
+) -> NativeError {
+    NativeError::new(
+        match error {
+            raster::RasterReadError::Io(_) => NativeErrorCode::Io,
+            raster::RasterReadError::Invalid(_) => NativeErrorCode::InvalidRequest,
+            raster::RasterReadError::TooLarge(_) => NativeErrorCode::TooLarge,
+        },
+        format!(
+            "Unable to read scan-cleanup raster for page {} ({}): {error}",
+            page_index + 1,
+            path.display(),
+        ),
+    )
+}
+
 pub(crate) struct MaterializedStreamPage {
     index: usize,
-    page: Page,
+    page: StagedPageDescriptor,
     temporary_input: Option<PathBuf>,
 }
 
@@ -48,14 +123,8 @@ impl Drop for MaterializedStreamPage {
     }
 }
 
-pub(crate) fn manifest_has_stream_inputs(manifest: &ManifestV3) -> bool {
-    manifest.pages.iter().any(|page| {
-        fs::metadata(&page.input_path).is_ok_and(|metadata| !metadata.file_type().is_file())
-    })
-}
-
-pub(crate) fn assert_manifest_paths_within_root(
-    manifest: &ManifestV3,
+pub(crate) fn assert_paths_within_root(
+    paths: &StagedPathPlan,
     root: &Path,
 ) -> Result<(), NativeError> {
     let canonical_root = fs::canonicalize(root).map_err(|error| {
@@ -71,11 +140,7 @@ pub(crate) fn assert_manifest_paths_within_root(
         )));
     }
     let canonical_root = normalized_path(&canonical_root);
-    for path in manifest
-        .input_paths()
-        .into_iter()
-        .chain(manifest.destination_paths())
-    {
+    for path in paths.input_paths.iter().chain(&paths.destination_paths) {
         if fs::symlink_metadata(path).is_ok() && fs::canonicalize(path).is_err() {
             return Err(invalid(format!(
                 "Manifest path cannot be resolved: {}",
@@ -92,10 +157,10 @@ pub(crate) fn assert_manifest_paths_within_root(
     Ok(())
 }
 
-pub(crate) fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
+pub(crate) fn preflight_paths(paths: &StagedPathPlan) -> Result<(), NativeError> {
     let mut input_paths = HashSet::new();
     let mut input_files = HashSet::new();
-    for path in manifest.input_paths() {
+    for path in &paths.input_paths {
         input_paths.insert(resolved_manifest_path(path));
         if let Some(identity) = existing_file_identity(path) {
             input_files.insert(identity);
@@ -103,7 +168,7 @@ pub(crate) fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), Nati
     }
     let mut destination_paths = HashSet::new();
     let mut destination_files = HashSet::new();
-    for path in manifest.destination_paths() {
+    for path in &paths.destination_paths {
         let resolved = resolved_manifest_path(path);
         if input_paths.contains(&resolved)
             || existing_file_identity(path).is_some_and(|identity| input_files.contains(&identity))
@@ -218,6 +283,33 @@ mod tests {
         time::Duration,
     };
 
+    fn staged_batch(manifest: &ManifestV3) -> StagedInputBatch {
+        StagedInputBatch {
+            raster_window: manifest.raster_window,
+            pages: manifest
+                .pages
+                .iter()
+                .map(|page| StagedPageDescriptor {
+                    input_path: page.input_path.clone(),
+                    metadata_path: page.page_metadata_path.clone(),
+                    source_page_index: page.source_page_index,
+                    max_bytes: crate::io::MAX_STREAM_INPUT_BYTES,
+                    stream_input: fs::metadata(&page.input_path)
+                        .is_ok_and(|metadata| !metadata.file_type().is_file()),
+                })
+                .collect(),
+        }
+    }
+
+    fn staged_lease(manifest: &ManifestV3, page: &Page) -> StagedLeaseDescriptor {
+        StagedLeaseDescriptor {
+            input_path: page.input_path.clone(),
+            page_number: page.source_page_index.saturating_add(1),
+            total_pages: manifest.pages.len(),
+            enabled: manifest.staged_input_window.is_some(),
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn streamed_inputs_use_one_page_worker_to_avoid_fifo_pool_deadlock() {
@@ -319,7 +411,7 @@ mod tests {
             }
         });
 
-        let processed = run_stream_page_jobs(&manifest, |(index, page)| {
+        let processed = run_stream_page_jobs(&staged_batch(&manifest), |(index, page)| {
             let metadata = fs::metadata(&page.input_path).unwrap();
             assert!(metadata.is_file(), "the task must never reopen a FIFO");
             let bytes = fs::read(&page.input_path).unwrap();
@@ -407,7 +499,7 @@ mod tests {
                 .count()
         };
 
-        let processed = run_stream_page_jobs(&manifest, |(index, page)| {
+        let processed = run_stream_page_jobs(&staged_batch(&manifest), |(index, page)| {
             if index == 0 {
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
                 loop {
@@ -551,13 +643,18 @@ mod tests {
         };
 
         let processed = run_page_jobs(&manifest, |(index, page)| {
-            with_announced_staged_page_input(&manifest, page, &announce, || {
-                let bytes = fs::read(&page.input_path).map_err(|error| {
-                    NativeError::new(NativeErrorCode::Io, format!("page {index}: {error}"))
-                })?;
-                assert_eq!(bytes, format!("page-{index}").as_bytes());
-                Ok(index)
-            })
+            let protocol_page = &manifest.pages[index];
+            with_announced_staged_page_input(
+                &staged_lease(&manifest, protocol_page),
+                &announce,
+                || {
+                    let bytes = fs::read(&page.input_path).map_err(|error| {
+                        NativeError::new(NativeErrorCode::Io, format!("page {index}: {error}"))
+                    })?;
+                    assert_eq!(bytes, format!("page-{index}").as_bytes());
+                    Ok(index)
+                },
+            )
         })
         .unwrap();
 
@@ -610,10 +707,11 @@ mod tests {
             Ok(())
         };
         for _ in 0..2 {
-            let bytes = with_announced_staged_page_input(&manifest, page, &announce, || {
-                Ok(fs::read(&page.input_path).unwrap())
-            })
-            .unwrap();
+            let bytes =
+                with_announced_staged_page_input(&staged_lease(&manifest, page), &announce, || {
+                    Ok(fs::read(&page.input_path).unwrap())
+                })
+                .unwrap();
             assert_eq!(bytes, b"deterministic");
         }
         assert_eq!(renders.load(Ordering::Acquire), 2);
@@ -637,10 +735,11 @@ mod tests {
             leases.lock().unwrap().push(stage);
             Ok(())
         };
-        let error = with_announced_staged_page_input(&manifest, page, &announce, || {
-            Err::<(), _>(NativeError::new(NativeErrorCode::Io, "page failed"))
-        })
-        .unwrap_err();
+        let error =
+            with_announced_staged_page_input(&staged_lease(&manifest, page), &announce, || {
+                Err::<(), _>(NativeError::new(NativeErrorCode::Io, "page failed"))
+            })
+            .unwrap_err();
         assert_eq!(error.to_string(), "page failed");
         assert_eq!(
             leases.into_inner().unwrap(),
@@ -665,7 +764,8 @@ mod tests {
             announced.fetch_add(1, Ordering::AcqRel);
             Ok(())
         };
-        with_announced_staged_page_input(&manifest, page, &announce, || Ok(())).unwrap();
+        with_announced_staged_page_input(&staged_lease(&manifest, page), &announce, || Ok(()))
+            .unwrap();
         assert_eq!(announced.load(Ordering::Acquire), 0);
         let _ = fs::remove_dir_all(dir);
     }
@@ -793,7 +893,14 @@ mod tests {
             let _ = fs::write(fifo, b"this stream is larger than eight bytes");
         });
 
-        let error = match materialize_stream_page(0, &page, 8, || false) {
+        let descriptor = StagedPageDescriptor {
+            input_path: page.input_path.clone(),
+            metadata_path: page.page_metadata_path.clone(),
+            source_page_index: page.source_page_index,
+            max_bytes: 8,
+            stream_input: true,
+        };
+        let error = match materialize_stream_page(0, &descriptor, || false) {
             Ok(_) => panic!("oversize stream unexpectedly materialized"),
             Err(error) => error,
         };
@@ -856,7 +963,7 @@ mod tests {
         let first_fifo = fifo_paths[0].clone();
         let producer = std::thread::spawn(move || fs::write(first_fifo, b"first page"));
 
-        let error = run_stream_page_jobs(&manifest, |(index, _)| {
+        let error = run_stream_page_jobs(&staged_batch(&manifest), |(index, _)| {
             Err::<(), _>(NativeError::new(
                 NativeErrorCode::NativeFailure,
                 format!("page {} failed", index + 1),
@@ -925,7 +1032,7 @@ mod tests {
         let producer = std::thread::spawn(move || fs::write(first_fifo, b"first page"));
         let (finished_sender, finished_receiver) = std::sync::mpsc::channel();
         let run = std::thread::spawn(move || {
-            let result = run_stream_page_jobs(&manifest, |(index, _)| {
+            let result = run_stream_page_jobs(&staged_batch(&manifest), |(index, _)| {
                 Err::<(), _>(NativeError::new(
                     NativeErrorCode::NativeFailure,
                     format!("page {} failed", index + 1),
@@ -950,9 +1057,9 @@ mod tests {
     }
 }
 
-pub(crate) fn stream_materialized_path(page: &Page, index: usize) -> PathBuf {
+pub(crate) fn stream_materialized_path(page: &StagedPageDescriptor, index: usize) -> PathBuf {
     let parent = page
-        .page_metadata_path
+        .metadata_path
         .parent()
         .unwrap_or_else(|| Path::new("."));
     parent.join(format!(
@@ -963,12 +1070,12 @@ pub(crate) fn stream_materialized_path(page: &Page, index: usize) -> PathBuf {
 
 pub(crate) fn materialize_stream_page(
     index: usize,
-    page: &Page,
-    max_bytes: usize,
+    page: &StagedPageDescriptor,
     is_canceled: impl Fn() -> bool,
 ) -> Result<MaterializedStreamPage, NativeError> {
     let mut materialized = page.clone();
-    if fs::metadata(&page.input_path).is_ok_and(|metadata| metadata.file_type().is_file()) {
+    let _ = page.source_page_index;
+    if !page.stream_input {
         return Ok(MaterializedStreamPage {
             index,
             page: materialized,
@@ -994,14 +1101,14 @@ pub(crate) fn materialize_stream_page(
                 copy_bounded_nonblocking_stream_cancelable(
                     &mut source,
                     &mut destination,
-                    max_bytes,
+                    page.max_bytes,
                     &is_canceled,
                 )?;
                 return Ok(());
             }
         }
         let mut source = fs::File::open(&page.input_path)?;
-        copy_bounded_cancelable(&mut source, &mut destination, max_bytes, &is_canceled)?;
+        copy_bounded_cancelable(&mut source, &mut destination, page.max_bytes, &is_canceled)?;
         Ok(())
     })();
     if let Err(error) = copy_result {
@@ -1061,19 +1168,16 @@ pub(crate) fn staged_input_is_ready(path: &Path, page_number: usize) -> Result<b
 /// re-render the identical raster before the read, which is what makes a
 /// bounded window produce exactly the pixels whole-document staging would.
 pub(crate) fn acquire_staged_page_input(
-    manifest: &ManifestV3,
-    page: &Page,
+    lease: &StagedLeaseDescriptor,
     announce: LeaseAnnouncer<'_>,
 ) -> Result<(), NativeError> {
-    if manifest.staged_input_window.is_none() {
+    if !lease.enabled {
         return Ok(());
     }
-    let page_number = page.source_page_index.saturating_add(1);
-    let total_pages = manifest.pages.len();
-    announce(LeaseEvent::Required, page_number, total_pages)?;
+    announce(LeaseEvent::Required, lease.page_number, lease.total_pages)?;
     wait_for_staged_page_input(
-        &page.input_path,
-        page_number,
+        &lease.input_path,
+        lease.page_number,
         STAGED_INPUT_WAIT_TIMEOUT,
         STAGED_INPUT_POLL_INTERVAL,
     )
@@ -1113,43 +1217,37 @@ pub(crate) fn wait_for_staged_page_input(
 /// release, including the reconciliation rerun, so the owning process always
 /// knows exactly which rasters the sidecar still holds.
 pub(crate) fn release_staged_page_input(
-    manifest: &ManifestV3,
-    page: &Page,
+    lease: &StagedLeaseDescriptor,
     announce: LeaseAnnouncer<'_>,
 ) -> Result<(), NativeError> {
-    if manifest.staged_input_window.is_none() {
+    if !lease.enabled {
         return Ok(());
     }
-    announce(
-        LeaseEvent::Released,
-        page.source_page_index.saturating_add(1),
-        manifest.pages.len(),
-    )
+    announce(LeaseEvent::Released, lease.page_number, lease.total_pages)
 }
 
 pub(crate) fn with_announced_staged_page_input<T>(
-    manifest: &ManifestV3,
-    page: &Page,
+    lease: &StagedLeaseDescriptor,
     announce: LeaseAnnouncer<'_>,
     read: impl FnOnce() -> Result<T, NativeError>,
 ) -> Result<T, NativeError> {
-    acquire_staged_page_input(manifest, page, announce)?;
+    acquire_staged_page_input(lease, announce)?;
     let outcome = read();
     // The lease is released even when the read failed: the owning process must
     // be able to reclaim that scratch raster before it rolls the run back.
-    let released = release_staged_page_input(manifest, page, announce);
+    let released = release_staged_page_input(lease, announce);
     outcome.and_then(|value| released.map(|()| value))
 }
 
 pub(crate) fn run_stream_page_jobs<T, F>(
-    manifest: &ManifestV3,
+    batch: &StagedInputBatch,
     task: F,
 ) -> Result<Vec<T>, Box<dyn Error>>
 where
     T: Send,
-    F: Fn((usize, &Page)) -> Result<T, NativeError> + Send + Sync,
+    F: Fn((usize, &StagedPageDescriptor)) -> Result<T, NativeError> + Send + Sync,
 {
-    if manifest.raster_window <= 1 {
+    if batch.raster_window <= 1 {
         // A FIFO is a one-shot transport, not a replayable page file. Direct
         // callers coordinate no producer window, so keep the conservative
         // acknowledgement turnstile: it never opens an unwritten future FIFO
@@ -1160,11 +1258,10 @@ where
             let canceled = Arc::new(AtomicBool::new(false));
             let reader_canceled = Arc::clone(&canceled);
             scope.spawn(move || {
-                for (index, page) in manifest.pages.iter().enumerate() {
-                    let materialized =
-                        materialize_stream_page(index, page, MAX_STREAM_INPUT_BYTES, || {
-                            reader_canceled.load(Ordering::Acquire)
-                        });
+                for (index, page) in batch.pages.iter().enumerate() {
+                    let materialized = materialize_stream_page(index, page, || {
+                        reader_canceled.load(Ordering::Acquire)
+                    });
                     let failed = materialized.is_err();
                     if sender.send(materialized).is_err() || failed {
                         break;
@@ -1179,7 +1276,7 @@ where
                 }
             });
 
-            let mut results = Vec::with_capacity(manifest.pages.len());
+            let mut results = Vec::with_capacity(batch.pages.len());
             let mut first_error = None;
             for materialized in receiver {
                 match materialized {
@@ -1213,7 +1310,7 @@ where
             }
             match first_error {
                 Some(error) => Err(error.into()),
-                None if results.len() == manifest.pages.len() => Ok(results),
+                None if results.len() == batch.pages.len() => Ok(results),
                 None => Err(invalid("Streamed scan-cleanup input ended before every page").into()),
             }
         });
@@ -1225,20 +1322,19 @@ where
     // current page is processed. The channel is two slots smaller than the
     // window because the processing page and the reader's in-progress page
     // are both live outside it.
-    let channel_capacity = manifest.raster_window.saturating_sub(2);
+    let channel_capacity = batch.raster_window.saturating_sub(2);
     thread::scope(|scope| {
         let (sender, receiver) = sync_channel(channel_capacity);
         let canceled = Arc::new(AtomicBool::new(false));
         let reader_canceled = Arc::clone(&canceled);
         scope.spawn(move || {
-            for (index, page) in manifest.pages.iter().enumerate() {
+            for (index, page) in batch.pages.iter().enumerate() {
                 if reader_canceled.load(Ordering::Acquire) {
                     break;
                 }
-                let materialized =
-                    materialize_stream_page(index, page, MAX_STREAM_INPUT_BYTES, || {
-                        reader_canceled.load(Ordering::Acquire)
-                    });
+                let materialized = materialize_stream_page(index, page, || {
+                    reader_canceled.load(Ordering::Acquire)
+                });
                 let failed = materialized.is_err();
                 if sender.send(materialized).is_err() || failed {
                     break;
@@ -1246,7 +1342,7 @@ where
             }
         });
 
-        let mut results = Vec::with_capacity(manifest.pages.len());
+        let mut results = Vec::with_capacity(batch.pages.len());
         let mut first_error = None;
         for materialized in receiver {
             match materialized {
@@ -1267,7 +1363,7 @@ where
         }
         match first_error {
             Some(error) => Err(error.into()),
-            None if results.len() == manifest.pages.len() => Ok(results),
+            None if results.len() == batch.pages.len() => Ok(results),
             None => Err(invalid("Streamed scan-cleanup input ended before every page").into()),
         }
     })
@@ -1276,6 +1372,33 @@ where
 #[cfg(test)]
 mod path_validation_tests {
     use super::*;
+    use crate::protocol::manifest_v3::{ManifestV3, Page};
+
+    fn staged_paths(manifest: &ManifestV3) -> StagedPathPlan {
+        StagedPathPlan {
+            input_paths: manifest
+                .input_paths()
+                .into_iter()
+                .map(Path::to_path_buf)
+                .collect(),
+            destination_paths: manifest
+                .destination_paths()
+                .into_iter()
+                .map(Path::to_path_buf)
+                .collect(),
+        }
+    }
+
+    fn assert_manifest_paths_within_root(
+        manifest: &ManifestV3,
+        root: &Path,
+    ) -> Result<(), NativeError> {
+        super::assert_paths_within_root(&staged_paths(manifest), root)
+    }
+
+    fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
+        super::preflight_paths(&staged_paths(manifest))
+    }
 
     #[cfg(unix)]
     #[test]

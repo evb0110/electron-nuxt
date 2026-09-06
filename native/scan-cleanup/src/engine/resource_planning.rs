@@ -1,43 +1,55 @@
 //! Memory and worker planning for batch page processing.
 use crate::cache::{ByteLru, PageCache, SourceFingerprint, DEFAULT_CACHE_BUDGET_BYTES};
 use crate::domain::options::OutputMode;
-use crate::engine::staged_input::{manifest_has_stream_inputs, run_stream_page_jobs};
+use crate::engine::staged_input::{invalid, map_raster_error};
 use crate::io::raster;
-use crate::protocol::manifest_v3::{ManifestV3, Operation, Page};
 use evb_native_support::NativeError;
 use std::error::Error;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::{fs, thread};
+use std::thread;
 
-fn invalid(message: impl Into<String>) -> NativeError {
-    NativeError::new(
-        evb_native_support::NativeErrorCode::InvalidRequest,
-        message.into(),
-    )
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PlanningOperation {
+    Analyze,
+    Render,
 }
 
-fn map_raster_error(
-    error: raster::RasterReadError,
-    path: &std::path::Path,
-    page_index: usize,
-) -> NativeError {
-    let code = match error {
-        raster::RasterReadError::Io(_) => evb_native_support::NativeErrorCode::Io,
-        raster::RasterReadError::Invalid(_) => evb_native_support::NativeErrorCode::InvalidRequest,
-        raster::RasterReadError::TooLarge(_) => evb_native_support::NativeErrorCode::TooLarge,
-    };
-    NativeError::new(
-        code,
-        format!(
-            "Unable to read scan-cleanup raster for page {} ({}): {error}",
-            page_index + 1,
-            path.display(),
-        ),
-    )
+#[derive(Clone, Debug)]
+pub(crate) struct PageDescriptor {
+    pub(crate) input_path: PathBuf,
+    pub(crate) source_page_index: usize,
+    pub(crate) options: CleanupOptionsView,
+    pub(crate) stream_input: bool,
+    pub(crate) trusted_foreground_mask_path: Option<PathBuf>,
+    pub(crate) trusted_mrc_background_path: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct CleanupOptionsView {
+    pub(crate) max_pixels: u64,
+    pub(crate) max_dimension: u32,
+    pub(crate) output_mode: OutputMode,
+    pub(crate) source_has_bilevel_layer: bool,
+    pub(crate) thickness: i8,
+}
+
+pub(crate) trait PlanningManifest {
+    fn operation(&self) -> PlanningOperation;
+    fn host_memory_bytes(&self) -> Option<u64>;
+    fn staged_input_window(&self) -> Option<usize>;
+    fn staged_input_peak_pixels(&self) -> Option<u64>;
+    fn page_count(&self) -> usize;
+    fn page(&self, index: usize) -> PageDescriptor;
+
+    fn run_stream_page_jobs<T, F>(&self, task: F) -> Result<Vec<T>, Box<dyn Error>>
+    where
+        T: Send,
+        F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync;
 }
 
 pub(crate) fn manifest_cache(
-    operation: Operation,
+    operation: PlanningOperation,
     host_memory_bytes: Option<u64>,
 ) -> Arc<Mutex<ByteLru>> {
     Arc::new(Mutex::new(ByteLru::new(cache_budget_bytes(
@@ -47,7 +59,7 @@ pub(crate) fn manifest_cache(
 }
 
 pub(crate) fn page_cache_for(
-    page: &Page,
+    page: &PageDescriptor,
     shared: &Arc<Mutex<ByteLru>>,
 ) -> Result<PageCache, NativeError> {
     let source = SourceFingerprint::from_path(&page.input_path, page.source_page_index).map_err(
@@ -64,28 +76,30 @@ pub(crate) fn page_cache_for(
     )?;
     Ok(PageCache::new(Arc::clone(shared), source))
 }
-pub(crate) fn run_page_jobs<T, F>(manifest: &ManifestV3, task: F) -> Result<Vec<T>, Box<dyn Error>>
+pub(crate) fn run_page_jobs<M, T, F>(manifest: &M, task: F) -> Result<Vec<T>, Box<dyn Error>>
 where
+    M: PlanningManifest + Sync,
     T: Send,
-    F: Fn((usize, &Page)) -> Result<T, NativeError> + Send + Sync,
+    F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
 {
-    if manifest_has_stream_inputs(manifest) {
-        return run_stream_page_jobs(manifest, task);
+    if (0..manifest.page_count()).any(|index| manifest.page(index).stream_input) {
+        return manifest.run_stream_page_jobs(task);
     }
     let worker_threads = page_worker_threads(manifest)?;
     let processing_threads = std::thread::available_parallelism().map_or(1, usize::from);
     run_regular_page_jobs(manifest, task, worker_threads, processing_threads)
 }
 
-pub(crate) fn run_regular_page_jobs<T, F>(
-    manifest: &ManifestV3,
+pub(crate) fn run_regular_page_jobs<M, T, F>(
+    manifest: &M,
     task: F,
     worker_threads: usize,
     processing_threads: usize,
 ) -> Result<Vec<T>, Box<dyn Error>>
 where
+    M: PlanningManifest + Sync,
     T: Send,
-    F: Fn((usize, &Page)) -> Result<T, NativeError> + Send + Sync,
+    F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
 {
     let results: Vec<Result<T, NativeError>> = if worker_threads > 1 {
         let pool = rayon::ThreadPoolBuilder::new()
@@ -108,7 +122,7 @@ where
         let state = Mutex::new(DispatchState {
             next_page: 0,
             failure_observed: false,
-            outcomes: (0..manifest.pages.len()).map(|_| None).collect(),
+            outcomes: (0..manifest.page_count()).map(|_| None).collect(),
         });
 
         // The bounded page workers are ordinary scoped OS threads. They wait
@@ -116,7 +130,7 @@ where
         // through `install`; even a one-thread pool therefore always has a
         // worker available to execute the page and its nested Rayon stages.
         thread::scope(|scope| {
-            for _ in 0..worker_threads.min(manifest.pages.len()) {
+            for _ in 0..worker_threads.min(manifest.page_count()) {
                 let state = &state;
                 let pool = &pool;
                 let task = &task;
@@ -125,16 +139,16 @@ where
                         let mut state = state
                             .lock()
                             .unwrap_or_else(|poisoned| poisoned.into_inner());
-                        if state.failure_observed || state.next_page >= manifest.pages.len() {
+                        if state.failure_observed || state.next_page >= manifest.page_count() {
                             return;
                         }
                         let index = state.next_page;
                         state.next_page += 1;
                         index
                     };
-                    let page = &manifest.pages[index];
+                    let page = manifest.page(index);
                     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        pool.install(|| task((index, page)))
+                        pool.install(|| task((index, &page)))
                     }));
                     let mut state = state
                         .lock()
@@ -176,7 +190,12 @@ where
             })
             .collect()
     } else {
-        manifest.pages.iter().enumerate().map(task).collect()
+        (0..manifest.page_count())
+            .map(|index| {
+                let page = manifest.page(index);
+                task((index, &page))
+            })
+            .collect()
     };
     results
         .into_iter()
@@ -184,21 +203,21 @@ where
         .map_err(Into::into)
 }
 
-pub(crate) fn page_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> {
-    if manifest_has_stream_inputs(manifest) {
+pub(crate) fn page_worker_threads<M: PlanningManifest>(manifest: &M) -> Result<usize, NativeError> {
+    if (0..manifest.page_count()).any(|index| manifest.page(index).stream_input) {
         // FIFO readers block an OS thread until their producer opens the
         // matching pipe. Running a page-sized Rayon pool over ordered streams
         // can occupy the whole pool with future readers while the current page
         // needs nested Rayon work to finish: a real circular wait observed as
         // 180-second pdftoppm timeouts near the end of large documents.
         Ok(1)
-    } else if manifest.pages.len() > 1 {
+    } else if manifest.page_count() > 1 {
         let threads = manifest_worker_threads(manifest)?;
         // Never lease more staged inputs than the owning process promised to
         // keep on disk: a wider page pool would demand a wider raster window
         // than the scratch budget admitted.
         Ok(manifest
-            .staged_input_window
+            .staged_input_window()
             .map_or(threads, |window| threads.min(window.max(1))))
     } else {
         Ok(1)
@@ -208,19 +227,19 @@ pub(crate) const FALLBACK_SYSTEM_MEMORY_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 pub(crate) const GRAY_PEAK_BYTES_PER_PIXEL: u64 = 40;
 pub(crate) const COLOR_PEAK_BYTES_PER_PIXEL: u64 = 80;
 
-pub(crate) fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, NativeError> {
+pub(crate) fn manifest_worker_threads<M: PlanningManifest>(
+    manifest: &M,
+) -> Result<usize, NativeError> {
     let available = std::thread::available_parallelism().map_or(2, usize::from);
-    let staged_inputs = manifest.staged_input_window.is_some();
-    let measured_peak_page_bytes = manifest
-        .pages
-        .iter()
-        .map(|page| {
+    let staged_inputs = manifest.staged_input_window().is_some();
+    let measured_peak_page_bytes = (0..manifest.page_count())
+        .map(|index| {
+            let page = manifest.page(index);
             let options = &page.options;
             // Do not synchronously open pipes or other streaming inputs while
             // sizing the worker pool. Doing so would prevent completed regular
             // pages from reporting analysis progress until every stream opens.
-            if fs::metadata(&page.input_path).is_ok_and(|metadata| !metadata.file_type().is_file())
-            {
+            if page.stream_input {
                 return Ok(0);
             }
             // A staged window renders page rasters on request, so most inputs
@@ -239,7 +258,7 @@ pub(crate) fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, Na
             Ok(estimate_peak_page_bytes(
                 width,
                 height,
-                manifest.operation,
+                manifest.operation(),
                 options.output_mode,
             ))
         })
@@ -247,19 +266,21 @@ pub(crate) fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, Na
         .into_iter()
         .max()
         .unwrap_or(1);
-    let declared_peak_page_bytes = manifest.staged_input_peak_pixels.map_or(0, |pixels| {
-        peak_page_bytes_for_pixels(pixels, manifest.operation, OutputMode::Auto)
+    let declared_peak_page_bytes = manifest.staged_input_peak_pixels().map_or(0, |pixels| {
+        peak_page_bytes_for_pixels(pixels, manifest.operation(), OutputMode::Auto)
     });
     let peak_page_bytes = measured_peak_page_bytes.max(declared_peak_page_bytes);
     let total_memory = manifest
-        .host_memory_bytes
+        .host_memory_bytes()
         .unwrap_or(FALLBACK_SYSTEM_MEMORY_BYTES);
     let process_budget = total_memory.saturating_mul(40) / 100;
     let worker_budget = process_budget
-        .saturating_sub(cache_budget_bytes(manifest.operation, manifest.host_memory_bytes) as u64);
+        .saturating_sub(
+            cache_budget_bytes(manifest.operation(), manifest.host_memory_bytes()) as u64,
+        );
     Ok(adaptive_thread_count(
         available,
-        manifest.pages.len(),
+        manifest.page_count(),
         worker_budget,
         peak_page_bytes,
     ))
@@ -276,7 +297,7 @@ pub(crate) fn manifest_worker_threads(manifest: &ManifestV3) -> Result<usize, Na
 pub(crate) fn estimate_peak_page_bytes(
     width: usize,
     height: usize,
-    operation: Operation,
+    operation: PlanningOperation,
     output_mode: OutputMode,
 ) -> u64 {
     peak_page_bytes_for_pixels(
@@ -288,10 +309,10 @@ pub(crate) fn estimate_peak_page_bytes(
 
 pub(crate) fn peak_page_bytes_for_pixels(
     pixels: u64,
-    operation: Operation,
+    operation: PlanningOperation,
     output_mode: OutputMode,
 ) -> u64 {
-    let decodes_color = operation == Operation::Analyze
+    let decodes_color = operation == PlanningOperation::Analyze
         || matches!(
             output_mode,
             OutputMode::Color | OutputMode::Mixed | OutputMode::Auto
@@ -322,22 +343,25 @@ pub(crate) fn adaptive_thread_count(
     cpu_limit.min(memory_limit).min(page_count).max(1)
 }
 
-pub(crate) fn cache_budget_bytes(operation: Operation, host_memory_bytes: Option<u64>) -> usize {
+pub(crate) fn cache_budget_bytes(
+    operation: PlanningOperation,
+    host_memory_bytes: Option<u64>,
+) -> usize {
     let total_memory = host_memory_bytes.unwrap_or(FALLBACK_SYSTEM_MEMORY_BYTES);
     // Analyze retains decoded sources because reconciliation may replay them.
     // Render retains analysis-stage artifacts but deliberately does not retain
     // decoded page inputs, so reserve half as much cache memory while keeping
     // a non-zero budget for those reusable stages.
     let denominator = match operation {
-        Operation::Analyze => 10,
-        Operation::Render => 20,
+        PlanningOperation::Analyze => 10,
+        PlanningOperation::Render => 20,
     };
     let cap = match operation {
-        Operation::Analyze => DEFAULT_CACHE_BUDGET_BYTES,
+        PlanningOperation::Analyze => DEFAULT_CACHE_BUDGET_BYTES,
         // Stage artifacts remain reusable during a render, but decoded page
         // inputs no longer occupy this shared LRU. Keep half the normal cap
         // available for those artifacts instead of reserving no cache at all.
-        Operation::Render => DEFAULT_CACHE_BUDGET_BYTES / 2,
+        PlanningOperation::Render => DEFAULT_CACHE_BUDGET_BYTES / 2,
     };
     cap.min((total_memory / denominator) as usize)
 }
@@ -345,8 +369,8 @@ pub(crate) fn cache_budget_bytes(operation: Operation, host_memory_bytes: Option
 mod tests {
     use super::manifest_cache;
     use super::*;
-    use crate::engine::page_statistics::decode_page_inputs;
-    use crate::engine::page_statistics::derive_page_ink_contexts;
+    use crate::adapters::batch_cli::decode_page_inputs;
+    use crate::engine::page_statistics::{derive_page_ink_contexts, derive_page_ink_sample};
     use crate::protocol::manifest_v3::{
         AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, PageOutput, RenderMode, VERSION,
     };
@@ -364,6 +388,24 @@ mod tests {
         time::Duration,
     };
 
+    fn planning_page(page: &Page) -> PageDescriptor {
+        PageDescriptor {
+            input_path: page.input_path.clone(),
+            source_page_index: page.source_page_index,
+            options: CleanupOptionsView {
+                max_pixels: page.options.max_pixels,
+                max_dimension: page.options.max_dimension,
+                output_mode: page.options.output_mode,
+                source_has_bilevel_layer: page.options.source_has_bilevel_layer,
+                thickness: page.options.thickness,
+            },
+            stream_input: fs::metadata(&page.input_path)
+                .is_ok_and(|metadata| !metadata.file_type().is_file()),
+            trusted_foreground_mask_path: page.trusted_foreground_mask_path.clone(),
+            trusted_mrc_background_path: page.trusted_mrc_background_path.clone(),
+        }
+    }
+
     #[test]
     fn adaptive_threads_respect_cpu_pages_and_memory() {
         assert_eq!(adaptive_thread_count(16, 20, 10_000, 1_000), 8);
@@ -375,8 +417,8 @@ mod tests {
 
     #[test]
     fn operation_aware_cache_reservation_keeps_render_stage_budget() {
-        let analyze = cache_budget_bytes(Operation::Analyze, Some(8 * 1024 * 1024 * 1024));
-        let render = cache_budget_bytes(Operation::Render, Some(8 * 1024 * 1024 * 1024));
+        let analyze = cache_budget_bytes(PlanningOperation::Analyze, Some(8 * 1024 * 1024 * 1024));
+        let render = cache_budget_bytes(PlanningOperation::Render, Some(8 * 1024 * 1024 * 1024));
 
         assert!(render > 0);
         assert!(render < analyze);
@@ -412,8 +454,8 @@ mod tests {
             detail_render_plan: None,
             outputs: Vec::new(),
         };
-        let render_cache = manifest_cache(Operation::Render, None);
-        let render_page_cache = page_cache_for(&page, &render_cache).unwrap();
+        let render_cache = manifest_cache(PlanningOperation::Render, None);
+        let render_page_cache = page_cache_for(&planning_page(&page), &render_cache).unwrap();
         decode_page_inputs(&page, &page.options, &render_page_cache, false, true).unwrap();
         let render_key =
             crate::cache::StageCacheKey::decoded(&render_page_cache.source, true, &page.options);
@@ -423,8 +465,8 @@ mod tests {
             .get::<crate::io::raster::DecodedRaster>(&render_key)
             .is_none());
 
-        let analyze_cache = manifest_cache(Operation::Analyze, None);
-        let analyze_page_cache = page_cache_for(&page, &analyze_cache).unwrap();
+        let analyze_cache = manifest_cache(PlanningOperation::Analyze, None);
+        let analyze_page_cache = page_cache_for(&planning_page(&page), &analyze_cache).unwrap();
         decode_page_inputs(&page, &page.options, &analyze_page_cache, true, true).unwrap();
         assert!(analyze_cache
             .lock()
@@ -493,7 +535,8 @@ mod tests {
         };
 
         assert!(manifest_worker_threads(&manifest).unwrap() > 1);
-        let contexts = derive_page_ink_contexts(&manifest).unwrap();
+        let samples = run_page_jobs(&manifest, |(_, page)| derive_page_ink_sample(page)).unwrap();
+        let contexts = derive_page_ink_contexts(&samples);
         assert_eq!(contexts.len(), 12);
         assert!(contexts.iter().all(Option::is_some));
         assert_eq!(contexts[0], contexts[11]);
@@ -711,8 +754,10 @@ mod tests {
         // land within +/-25 % of that or the worker budget admits threads the
         // host cannot hold.
         const MEASURED_PEAK_BYTES: f64 = 1.60e9;
-        let modelled = cache_budget_bytes(Operation::Render, None) as f64
-            + 5.0 * estimate_peak_page_bytes(2119, 3204, Operation::Render, OutputMode::Bw) as f64;
+        let modelled = cache_budget_bytes(PlanningOperation::Render, None) as f64
+            + 5.0
+                * estimate_peak_page_bytes(2119, 3204, PlanningOperation::Render, OutputMode::Bw)
+                    as f64;
         let ratio = modelled / MEASURED_PEAK_BYTES;
         assert!(
             (0.75..=1.25).contains(&ratio),
@@ -723,10 +768,12 @@ mod tests {
     #[test]
     fn peak_page_estimate_accounts_for_rgb_analysis_and_auto_render() {
         let pixels = 2_000 * 1_500;
-        let gray_render = estimate_peak_page_bytes(2_000, 1_500, Operation::Render, OutputMode::Bw);
-        let analysis = estimate_peak_page_bytes(2_000, 1_500, Operation::Analyze, OutputMode::Bw);
+        let gray_render =
+            estimate_peak_page_bytes(2_000, 1_500, PlanningOperation::Render, OutputMode::Bw);
+        let analysis =
+            estimate_peak_page_bytes(2_000, 1_500, PlanningOperation::Analyze, OutputMode::Bw);
         let auto_render =
-            estimate_peak_page_bytes(2_000, 1_500, Operation::Render, OutputMode::Auto);
+            estimate_peak_page_bytes(2_000, 1_500, PlanningOperation::Render, OutputMode::Auto);
 
         assert_eq!(gray_render, pixels * 40);
         assert_eq!(analysis, pixels * 80);
@@ -914,11 +961,11 @@ mod tests {
     #[test]
     fn color_peak_estimate_accounts_for_rgb_working_copies() {
         assert_eq!(
-            estimate_peak_page_bytes(100, 50, Operation::Render, OutputMode::Bw),
+            estimate_peak_page_bytes(100, 50, PlanningOperation::Render, OutputMode::Bw),
             200_000
         );
         assert_eq!(
-            estimate_peak_page_bytes(100, 50, Operation::Render, OutputMode::Color),
+            estimate_peak_page_bytes(100, 50, PlanningOperation::Render, OutputMode::Color),
             400_000
         );
     }
