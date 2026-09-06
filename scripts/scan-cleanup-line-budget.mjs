@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-import {execFileSync} from 'node:child_process';
+import {
+    execFileSync,
+    spawnSync,
+} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
     lstatSync,
@@ -307,7 +310,6 @@ function isGeneratedFallbackArtifact(relativePath) {
         || /\.(?:generated|gen)\.(?:d\.)?ts$/iu.test(relativePath);
 }
 
-/** @param {string} root @param {string} relativeDirectory @returns {string[] | null} */
 /** @param {Uint8Array} output @returns {string[]} */
 export function parseNulDelimitedGitPaths(output) {
     const relativePaths = [];
@@ -318,34 +320,48 @@ export function parseNulDelimitedGitPaths(output) {
         if (relativePath.length > 0) relativePaths.push(relativePath);
         start = end + 1;
     }
+    if (start !== output.length) throw new Error('Git path enumeration ended with an unterminated NUL record.');
     return relativePaths;
+}
+
+/** @param {string} root @returns {boolean} */
+function isGitWorktree(root) {
+    const result = spawnSync('git', [
+        'rev-parse',
+        '--is-inside-work-tree',
+    ], {
+        cwd: root,
+        encoding: 'utf8',
+        env: {
+            ...process.env,
+            LANG: 'C',
+            LC_ALL: 'C',
+        },
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
+    });
+    if (result.error) throw new Error(`Cannot run Git to inspect scan-cleanup root: ${root}`, {cause: result.error});
+    const stdout = result.stdout.trim();
+    const stderr = result.stderr.trim();
+    if (result.status === 0 && stdout === 'true') {
+        return true;
+    }
+    if (result.status === 0 && stdout === 'false') {
+        return false;
+    }
+    if (result.status !== 0 && /not a git repository/iu.test(stderr)) {
+        return false;
+    }
+    throw new Error(`Cannot determine whether scan-cleanup root is a Git worktree: ${root} (status ${result.status}, stderr ${stderr || '<empty>'})`);
 }
 
 /** @param {string} root @param {string} relativeDirectory @returns {string[] | null} */
 function trackedSourceFiles(root, relativeDirectory) {
-    let worktreeStatus;
-    try {
-        worktreeStatus = execFileSync('git', [
-            'rev-parse',
-            '--is-inside-work-tree',
-        ], {
-            cwd: root,
-            encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
-        });
-    } catch {
+    if (!isGitWorktree(root)) {
         return null;
-    }
-    const worktreeStatusText = worktreeStatus.trim();
-    if (worktreeStatusText === 'false') {
-        return null;
-    }
-    if (worktreeStatusText !== 'true') {
-        throw new Error(`Cannot determine whether scan-cleanup root is a Git worktree: ${root}`);
     }
     let output;
     try {
@@ -375,7 +391,7 @@ function trackedSourceFiles(root, relativeDirectory) {
                 stat = lstatSync(filePath);
             } catch (error) {
                 if ((/** @type {{code?: string}} */ (error)).code === 'ENOENT') {
-                    return null;
+                    throw new Error(`Tracked scan-cleanup source disappeared before it could be counted: ${path.relative(root, filePath)}`, {cause: error});
                 }
                 throw error;
             }

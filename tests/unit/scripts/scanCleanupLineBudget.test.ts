@@ -74,6 +74,24 @@ interface ILineBudgetModule {
 
 const module = await import(pathToFileURL(join(process.cwd(), 'scripts/scan-cleanup-line-budget.mjs')).href) as ILineBudgetModule;
 const temporaryDirectories: string[] = [];
+const symlinkCapability = await (async () => {
+    const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-symlink-probe-'));
+    try {
+        await symlink(join(root, 'missing-target'), join(root, 'probe.ts'));
+        return true;
+    } catch (error) {
+        const code = (error as {code?: string}).code;
+        if (code === 'EACCES' || code === 'EINVAL' || code === 'ENOTSUP' || code === 'EPERM') {
+            return false;
+        }
+        throw error;
+    } finally {
+        await rm(root, {
+            force: true,
+            recursive: true,
+        });
+    }
+})();
 const homePaths = {
     app: 'app/modules/scan-cleanup',
     electron: 'electron/features/scan-cleanup',
@@ -124,6 +142,8 @@ function approvedBaseline(current: ReturnType<typeof baseline>, previous: Return
 afterEach(async () => {
     await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
         force: true,
+        maxRetries: 3,
+        retryDelay: 10,
         recursive: true,
     })));
 });
@@ -223,6 +243,7 @@ describe('scan-cleanup line budget', () => {
             'app/modules/scan-cleanup/line\nname.rs',
             'quoted"name.vue',
         ]);
+        expect(() => module.parseNulDelimitedGitPaths(Buffer.from('unfinished.ts'))).toThrow('unterminated NUL record');
     });
 
     it('fails closed when a confirmed Git worktree cannot enumerate its index', async () => {
@@ -237,7 +258,25 @@ describe('scan-cleanup line budget', () => {
         expect(() => module.collectScanCleanupLineCounts(root)).toThrow('Cannot enumerate tracked scan-cleanup sources');
     });
 
-    it.runIf(process.platform !== 'win32')('rejects a dangling tracked source symlink', async () => {
+    it('fails closed when a tracked source disappears after Git enumeration', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-missing-'));
+        temporaryDirectories.push(root);
+        const source = join(root, 'app/modules/scan-cleanup/missing.ts');
+        await mkdir(join(root, 'app/modules/scan-cleanup'), {recursive: true});
+        await writeFile(source, 'const missing = 1;\n');
+        execFileSync('git', [
+            'init',
+            '-q',
+        ], {cwd: root});
+        execFileSync('git', [
+            'add',
+            '--all',
+        ], {cwd: root});
+        await rm(source);
+        expect(() => module.collectScanCleanupLineCounts(root)).toThrow('source disappeared');
+    });
+
+    it.runIf(symlinkCapability)('rejects a dangling tracked source symlink', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-symlink-'));
         temporaryDirectories.push(root);
         await Promise.all([
@@ -261,7 +300,7 @@ describe('scan-cleanup line budget', () => {
         expect(() => module.collectScanCleanupLineCounts(root)).toThrow('tracked source symlink');
     });
 
-    it.runIf(process.platform !== 'win32')('rejects a tracked source symlink escaping the repository', async () => {
+    it.runIf(symlinkCapability)('rejects a tracked source symlink escaping the repository', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-external-symlink-'));
         const outside = await mkdtemp(join(tmpdir(), 'scan-cleanup-outside-'));
         temporaryDirectories.push(root, outside);
