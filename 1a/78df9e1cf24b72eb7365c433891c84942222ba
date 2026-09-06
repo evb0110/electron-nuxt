@@ -1,0 +1,25 @@
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_d252de3ad71cee::t_590b6ae1910400 1137-1139
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_d252de3ad71cee::t_a5df4abc6de208 252
+app/utils/document-viewer/chassis/documentViewportResizeAnchor.ts
+  s_d252de3ad71cee::t_1d170b6e8c26a1 17-18,41,64-68
+docs/pdf-annotations-audit-2026-08-22-implementation-ledger.md
+  s_d252de3ad71cee::t_1fa3c791494cc5 859-892
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1a78df9e1cf24b72eb7365c433891c84942222ba",
+  "prompts": {},
+  "sessions": {
+    "s_d252de3ad71cee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0723f-6c82-7453-a893-5fe26c4041d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
