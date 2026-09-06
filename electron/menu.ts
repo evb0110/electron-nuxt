@@ -40,7 +40,6 @@ import {
     getWindowByIdFromRegistry,
 } from '@electron/window/registry';
 import { getErrorMessage } from '@electron/utils/error';
-import { shouldExposeDevToolsMenu } from '@electron/shouldExposeDevToolsMenu';
 
 const logger = createLogger('menu');
 const DOCUMENTS_EVENT_CHANNELS = DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels;
@@ -673,12 +672,8 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                 enabled: state.canCreatePane,
                 args: ['down'],
             }),
-            ...(shouldExposeDevToolsMenu()
-                ? [
-                    { type: 'separator' as const },
-                    { role: 'toggleDevTools' as const },
-                ]
-                : []),
+            { type: 'separator' },
+            { role: 'toggleDevTools' },
         ],
     };
 }
