@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {execFileSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {
     readFileSync,
     readdirSync,
@@ -18,7 +19,7 @@ const SOURCE_EXTENSIONS = new Set([
 const SCAN_CLEANUP_TEST_PATH = /scan[-_]?cleanup/iu;
 /** @typedef {{byFile: Record<string, number>, path: string, total: number}} ILineHome */
 /** @typedef {{homes: Record<string, ILineHome>, productionTotal: number, tests: {byFile: Record<string, number>, total: number}}} ILineCounts */
-/** @typedef {{homes: Record<string, {lines: number, path: string}>, productionTotal: number, version: number}} ILineBudgetBaseline */
+/** @typedef {{version: 1, productionTotal: number, homes: Record<string, {lines: number, path: string}>, consolidationApproval?: {version: 1, reason: string, baseCommit: string, previousIdentity: string, currentIdentity: string}}} ILineBudgetBaseline */
 
 /** @type {ReadonlyArray<[string, string]>} */
 export const SCAN_CLEANUP_HOMES = Object.freeze([
@@ -220,14 +221,38 @@ function countRustCodeLines(source) {
     return split.productionLines.length + split.testCodeLines.length;
 }
 
+/** @param {string} source @param {number} start @returns {number} */
+function findRustCfgTestEnd(source, start) {
+    const remainder = source.slice(start);
+    const semicolonItem = /^(?:\s*#\s*\[[^\]]*\]\s*)*(?:(?:pub)(?:\s*\([^)]*\))?\s+)?(?:use|const|static|type|extern\s+crate)\b/u.test(remainder);
+    if (semicolonItem) {
+        const semicolon = source.indexOf(';', start);
+        return semicolon;
+    }
+    const openingBrace = source.indexOf('{', start);
+    const semicolon = source.indexOf(';', start);
+    if (semicolon >= 0 && (openingBrace < 0 || semicolon < openingBrace)) {
+        return semicolon;
+    }
+    return openingBrace;
+}
+
 /** @param {string} source @returns {{productionLines: number[], testCodeLines: number[]}} */
 export function splitRustTestCodeLines(source) {
     const masked = maskRustNonCode(source);
     /** @type {Set<number>} */
     const testLines = new Set();
     for (const match of masked.matchAll(/#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]/gu)) {
-        const openingBrace = masked.indexOf('{', (match.index ?? 0) + match[0].length);
-        if (openingBrace < 0) continue;
+        const itemStart = (match.index ?? 0) + match[0].length;
+        const itemEnd = findRustCfgTestEnd(masked, itemStart);
+        if (itemEnd < 0) continue;
+        if (masked[itemEnd] === ';') {
+            const startLine = source.slice(0, match.index ?? 0).split('\n').length - 1;
+            const endLine = source.slice(0, itemEnd + 1).split('\n').length - 1;
+            for (let line = startLine; line <= endLine; line += 1) testLines.add(line);
+            continue;
+        }
+        const openingBrace = itemEnd;
         let depth = 0;
         let closingBrace = -1;
         for (let index = openingBrace; index < masked.length; index += 1) {
@@ -451,8 +476,11 @@ export function evaluateScanCleanupLineBudget(counts, baseline, {allowBaselineIn
     };
 }
 
-/** @param {{homes: Record<string, {lines: number}>, productionTotal: number}} current @param {{homes: Record<string, {lines: number}>, productionTotal: number} | null} previous @param {{allowHomeIncrease?: boolean}} [options] */
-export function compareScanCleanupBaselines(current, previous, {allowHomeIncrease = false} = {}) {
+/** @param {ILineBudgetBaseline} current @param {ILineBudgetBaseline | null} previous @param {{allowHomeIncrease?: boolean, baseCommit?: string}} [options] */
+export function compareScanCleanupBaselines(current, previous, {
+    allowHomeIncrease = false,
+    baseCommit,
+} = {}) {
     validateScanCleanupBaseline(current, 'current baseline');
     if (previous === null) {
         return {
@@ -462,6 +490,16 @@ export function compareScanCleanupBaselines(current, previous, {allowHomeIncreas
     }
     validateScanCleanupBaseline(previous, 'base baseline');
     const failures = [];
+    const approval = current.consolidationApproval;
+    if (approval !== undefined) {
+        if (previous === null) {
+            failures.push('consolidation approval requires a baseline at the supplied base ref');
+        } else {
+            const approvalFailures = validateConsolidationApproval(current, previous, approval, baseCommit);
+            failures.push(...approvalFailures);
+        }
+    }
+    let homeIncreased = false;
     for (const [
         name,
         home,
@@ -469,8 +507,11 @@ export function compareScanCleanupBaselines(current, previous, {allowHomeIncreas
         const previousLines = previous.homes?.[name]?.lines;
         if (typeof previousLines !== 'number') {
             failures.push(`${name} has no baseline at the supplied base ref`);
-        } else if (home.lines > previousLines && !allowHomeIncrease) {
-            failures.push(`${name} baseline increased by ${home.lines - previousLines} code lines`);
+        } else if (home.lines > previousLines) {
+            homeIncreased = true;
+            if (!allowHomeIncrease && approval === undefined) {
+                failures.push(`${name} baseline increased by ${home.lines - previousLines} code lines`);
+            }
         }
     }
     if (current.productionTotal > previous.productionTotal) {
@@ -479,7 +520,30 @@ export function compareScanCleanupBaselines(current, previous, {allowHomeIncreas
     return {
         bootstrap: false,
         failures,
+        homeIncreased,
     };
+}
+
+/** @param {ILineBudgetBaseline} baseline @returns {string} */
+function baselineIdentity(baseline) {
+    return createHash('sha256').update(JSON.stringify({
+        version: baseline.version,
+        productionTotal: baseline.productionTotal,
+        homes: Object.fromEntries(SCAN_CLEANUP_HOMES.map(([name]) => [
+            name,
+            baseline.homes[name],
+        ])),
+    })).digest('hex');
+}
+
+/** @param {ILineBudgetBaseline} current @param {ILineBudgetBaseline} previous @param {NonNullable<ILineBudgetBaseline['consolidationApproval']>} approval @param {string | undefined} baseCommit @returns {string[]} */
+function validateConsolidationApproval(current, previous, approval, baseCommit) {
+    const failures = [];
+    if (!/^consolidation:\s*\S/iu.test(approval.reason)) failures.push('consolidation approval has an invalid reason');
+    if (baseCommit !== undefined && approval.baseCommit !== baseCommit) failures.push('consolidation approval does not match the supplied base ref');
+    if (approval.previousIdentity !== baselineIdentity(previous)) failures.push('consolidation approval does not match the base baseline');
+    if (approval.currentIdentity !== baselineIdentity(current)) failures.push('consolidation approval does not match the current baseline');
+    return failures;
 }
 
 /** @param {unknown} value @param {string} label @returns {ILineBudgetBaseline} */
@@ -516,12 +580,34 @@ export function validateScanCleanupBaseline(value, label = 'baseline') {
             throw new Error(`${label} home ${name} lines must be a nonnegative integer.`);
         }
     }
+    const approval = candidate.consolidationApproval;
+    if (approval !== undefined) {
+        if (approval === null || typeof approval !== 'object' || Array.isArray(approval)) {
+            throw new Error(`${label} consolidationApproval must be an object.`);
+        }
+        const metadata = /** @type {Record<string, unknown>} */ (approval);
+        if (metadata.version !== 1) throw new Error(`${label} consolidationApproval has unsupported version.`);
+        if (typeof metadata.reason !== 'string' || !/^consolidation:\s*\S/iu.test(metadata.reason)) {
+            throw new Error(`${label} consolidationApproval reason must be non-empty and start with consolidation:.`);
+        }
+        if (typeof metadata.baseCommit !== 'string' || !/^[0-9a-f]{40}$/iu.test(metadata.baseCommit)) {
+            throw new Error(`${label} consolidationApproval baseCommit is invalid.`);
+        }
+        for (const field of [
+            'previousIdentity',
+            'currentIdentity',
+        ]) {
+            if (typeof metadata[field] !== 'string' || !/^[0-9a-f]{64}$/iu.test(metadata[field])) {
+                throw new Error(`${label} consolidationApproval ${field} is invalid.`);
+            }
+        }
+    }
     return /** @type {ILineBudgetBaseline} */ (value);
 }
 
-/** @param {ILineCounts} counts @returns {ILineBudgetBaseline} */
-function baselineFromCounts(counts) {
-    return {
+/** @param {ILineCounts} counts @param {{reason?: string, baseCommit?: string, previous?: ILineBudgetBaseline | null}} [approvalData] @returns {ILineBudgetBaseline} */
+function baselineFromCounts(counts, approvalData) {
+    const baseline = /** @type {ILineBudgetBaseline} */ ({
         version: 1,
         productionTotal: counts.productionTotal,
         homes: Object.fromEntries(Object.entries(counts.homes).map(([
@@ -534,7 +620,17 @@ function baselineFromCounts(counts) {
                 path: home.path,
             },
         ])),
-    };
+    });
+    if (approvalData?.reason && approvalData.baseCommit && approvalData.previous) {
+        baseline.consolidationApproval = {
+            version: 1,
+            reason: approvalData.reason,
+            baseCommit: approvalData.baseCommit,
+            previousIdentity: baselineIdentity(approvalData.previous),
+            currentIdentity: baselineIdentity(baseline),
+        };
+    }
+    return baseline;
 }
 
 /** @param {string} root @returns {ILineBudgetBaseline} */
@@ -561,20 +657,30 @@ function resolveBaseRef(argv) {
     }
 }
 
-/** @param {string} root @param {string} baseRef @returns {ILineBudgetBaseline | null} */
-function readBaselineAtRef(root, baseRef) {
+/** @param {string} root @param {string} baseRef @returns {string} */
+function resolveBaseCommit(root, baseRef) {
     try {
-        execFileSync('git', [
+        return execFileSync('git', [
             'rev-parse',
             '--verify',
             `${baseRef}^{commit}`,
         ], {
             cwd: root,
-            stdio: 'ignore',
-        });
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        }).trim();
     } catch {
         throw new Error(`Cannot verify scan-cleanup baseline base ref "${baseRef}".`);
     }
+}
+
+/** @param {string} root @param {string} baseRef @returns {{baseline: ILineBudgetBaseline | null, baseCommit: string}} */
+function readBaselineAtRef(root, baseRef) {
+    const baseCommit = resolveBaseCommit(root, baseRef);
     let baselineText;
     try {
         baselineText = execFileSync('git', [
@@ -590,16 +696,22 @@ function readBaselineAtRef(root, baseRef) {
             ],
         });
     } catch {
-        return null;
+        return {
+            baseline: null,
+            baseCommit,
+        };
     }
-    return validateScanCleanupBaseline(JSON.parse(baselineText), 'base baseline');
+    return {
+        baseline: validateScanCleanupBaseline(JSON.parse(baselineText), 'base baseline'),
+        baseCommit,
+    };
 }
 
-/** @param {string} root @param {ILineCounts} counts */
-function writeBaseline(root, counts) {
+/** @param {string} root @param {ILineCounts} counts @param {{reason?: string, baseCommit?: string, previous?: ILineBudgetBaseline | null}} [approvalData] */
+function writeBaseline(root, counts, approvalData) {
     writeFileSync(
         path.join(root, SCAN_CLEANUP_LINE_BUDGET_BASELINE),
-        `${JSON.stringify(baselineFromCounts(counts), null, 2)}\n`,
+        `${JSON.stringify(baselineFromCounts(counts, approvalData), null, 2)}\n`,
         'utf8',
     );
 }
@@ -617,11 +729,15 @@ export function runScanCleanupLineBudget({
     const counts = collectScanCleanupLineCounts(root);
     const baseline = readBaseline(root);
     const baseRef = resolveBaseRef(argv);
-    const previousBaseline = readBaselineAtRef(root, baseRef);
+    const previousBaselineInfo = readBaselineAtRef(root, baseRef);
+    const previousBaseline = previousBaselineInfo.baseline;
     const overrideReason = readOption(argv, 'allow-baseline-increase') ?? readOption(argv, 'override');
     const updateBaseline = argv.includes('--update-baseline');
     const allowBaselineIncrease = overrideReason !== undefined;
-    const baselineComparison = compareScanCleanupBaselines(baseline, previousBaseline, {allowHomeIncrease: allowBaselineIncrease});
+    const baselineComparison = compareScanCleanupBaselines(baseline, previousBaseline, {
+        allowHomeIncrease: allowBaselineIncrease,
+        baseCommit: previousBaselineInfo.baseCommit,
+    });
     const evaluation = evaluateScanCleanupLineBudget(counts, baseline, {allowBaselineIncrease});
     process.stdout.write('Scan-cleanup code-line budget\n');
     for (const [
@@ -634,6 +750,7 @@ export function runScanCleanupLineBudget({
     process.stdout.write(`  production total: ${counts.productionTotal} (baseline ${evaluation.baselineTotal}, delta ${counts.productionTotal - evaluation.baselineTotal})\n`);
     process.stdout.write(`  tests: ${counts.tests.total} code lines across ${Object.keys(counts.tests.byFile).length} files (reported separately)\n`);
     process.stdout.write(`  baseline base ref: ${baseRef}${baselineComparison.bootstrap ? ' (bootstrap, no baseline at ref)' : ''}\n`);
+    if (baseline.consolidationApproval) process.stdout.write(`  consolidation approval: ${baseline.consolidationApproval.reason}\n`);
 
     if (baselineComparison.failures.length > 0) {
         throw new Error(`Scan-cleanup baseline policy failed: ${baselineComparison.failures.join('; ')}`);
@@ -650,13 +767,19 @@ export function runScanCleanupLineBudget({
         if (allowBaselineIncrease && !/^consolidation:\s*\S/iu.test(overrideReason?.trim() ?? '')) {
             throw new Error('Baseline increase override requires a non-empty reason.');
         }
-        if (counts.productionTotal > evaluation.baselineTotal) {
+        if (previousBaseline !== null && counts.productionTotal > evaluation.baselineTotal) {
             throw new Error('Refusing to raise the production total. Consolidation overrides may only rebalance named-home baselines without growing the production total.');
         }
-        if (hasHomeIncrease && !allowBaselineIncrease) {
+        if (previousBaseline !== null && hasHomeIncrease && !allowBaselineIncrease) {
             throw new Error('Refusing to raise the baseline. Use --update-baseline --allow-baseline-increase=consolidation:... for a consolidation commit.');
         }
-        writeBaseline(root, counts);
+        writeBaseline(root, counts, baselineComparison.homeIncreased && allowBaselineIncrease
+            ? {
+                reason: overrideReason,
+                baseCommit: previousBaselineInfo.baseCommit,
+                previous: previousBaseline,
+            }
+            : undefined);
         if (allowBaselineIncrease) process.stdout.write(`  Baseline increase override: ${overrideReason}\n`);
         else process.stdout.write('  Baseline updated without increasing production budget.\n');
         return {

@@ -1,10 +1,12 @@
 import {
     mkdir,
     mkdtemp,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -36,9 +38,13 @@ interface ILineBudgetModule {
     }, previous: {
         homes: Record<string, {lines: number}>;
         productionTotal: number;
-    } | null, options?: {allowHomeIncrease?: boolean}) => {
+    } | null, options?: {
+            allowHomeIncrease?: boolean;
+            baseCommit?: string
+        }) => {
         bootstrap: boolean;
         failures: string[]
+        homeIncreased?: boolean
     };
     evaluateScanCleanupLineBudget: (counts: {
         homes: Record<string, {total: number}>;
@@ -77,6 +83,27 @@ function baseline(lines: Partial<Record<keyof typeof homePaths, number>> = {}, p
                 path,
             },
         ])),
+    };
+}
+
+function baselineIdentity(value: ReturnType<typeof baseline>) {
+    return createHash('sha256').update(JSON.stringify({
+        version: value.version,
+        productionTotal: value.productionTotal,
+        homes: value.homes,
+    })).digest('hex');
+}
+
+function approvedBaseline(current: ReturnType<typeof baseline>, previous: ReturnType<typeof baseline>, baseCommit = '0123456789012345678901234567890123456789') {
+    return {
+        ...current,
+        consolidationApproval: {
+            version: 1 as const,
+            reason: 'consolidation: rebalance test homes',
+            baseCommit,
+            previousIdentity: baselineIdentity(previous),
+            currentIdentity: baselineIdentity(current),
+        },
     };
 }
 
@@ -195,6 +222,37 @@ describe('scan-cleanup line budget', () => {
         ]);
     });
 
+    it('ends cfg(test) semicolon items without capturing following production code', () => {
+        const source = [
+            '#[cfg(test)]',
+            'use foo::{bar, baz};',
+            '#[cfg(test)]',
+            'const TEST_VALUE: &str = "}";',
+            '#[cfg(test)]',
+            'static TEST_STATIC: &[u8] = b"{";',
+            'fn production() {}',
+        ].join('\n');
+        const split = module.splitRustTestCodeLines(source);
+        expect(split.testCodeLines).toEqual([
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+        ]);
+        expect(split.productionLines).toEqual([6]);
+    });
+
+    it('keeps the render module imports after its cfg(test) use in production', async () => {
+        const source = await readFile(join(process.cwd(), 'native/scan-cleanup/src/engine/render.rs'), 'utf8');
+        const split = module.splitRustTestCodeLines(source);
+        expect(split.testCodeLines).toContain(0);
+        expect(split.testCodeLines).toContain(1);
+        expect(split.productionLines).toContain(2);
+        expect(split.productionLines).toContain(3);
+    });
+
     it('validates the complete baseline shape before comparison', () => {
         expect(() => module.validateScanCleanupBaseline(baseline())).not.toThrow();
         const missingHome = baseline();
@@ -243,6 +301,45 @@ describe('scan-cleanup line budget', () => {
             bootstrap: true,
             failures: [],
         });
+    });
+
+    it('accepts only the exact persisted consolidation transition in CI mode', () => {
+        const previous = baseline({
+            app: 10,
+            native: 10,
+        });
+        const current = baseline({
+            app: 11,
+            native: 9,
+        });
+        const approved = approvedBaseline(current, previous);
+        expect(module.compareScanCleanupBaselines(approved, previous, {baseCommit: approved.consolidationApproval.baseCommit}).failures).toEqual([]);
+        expect(module.compareScanCleanupBaselines({
+            ...approved,
+            homes: {
+                ...approved.homes,
+                app: {
+                    lines: 12,
+                    path: homePaths.app,
+                },
+            },
+        }, previous, {baseCommit: approved.consolidationApproval.baseCommit}).failures.join(' ')).toContain('current baseline');
+        expect(module.compareScanCleanupBaselines(approved, {
+            ...previous,
+            homes: {
+                ...previous.homes,
+                native: {
+                    lines: 11,
+                    path: homePaths.native,
+                },
+            },
+        }, {baseCommit: approved.consolidationApproval.baseCommit}).failures.join(' ')).toContain('base baseline');
+        expect(module.compareScanCleanupBaselines(current, previous).failures.join(' ')).toContain('app baseline increased');
+        expect(module.compareScanCleanupBaselines({
+            ...approved,
+            productionTotal: 21,
+        }, previous, {baseCommit: approved.consolidationApproval.baseCommit}).failures.join(' ')).toContain('production total baseline increased');
+        expect(module.compareScanCleanupBaselines(approved, previous, {baseCommit: 'fedcba98765432100123456789abcdef01234567'}).failures.join(' ')).toContain('supplied base ref');
     });
 
     it('reports the growing home and rejects production growth without an override', () => {

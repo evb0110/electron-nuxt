@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "productionTotal": 78682,
+  "productionTotal": 78760,
   "homes": {
     "app": {
       "lines": 16825,
@@ -23,7 +23,7 @@
       "path": "scan-cleanup-adapters"
     },
     "native": {
-      "lines": 34750,
+      "lines": 34828,
       "path": "native/scan-cleanup"
     }
   }
