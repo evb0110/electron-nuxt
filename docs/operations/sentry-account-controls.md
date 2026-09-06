@@ -121,14 +121,14 @@ removal rehearsal are in `sentry-runbook.md`.
 
 ## Production activation record
 
-Release `v0.1.452` is the first production viewer release with consent-gated
+Release `v0.1.453` is the current production viewer release with consent-gated
 client diagnostics. The exact prebuilt output is deployed at the canonical
 viewer alias. Its public JavaScript matches the private manifest and contains
-no source maps. The live Sentry feed contains 256 unresolved deterministic
-source-map canary issues for this release. A sampled issue reported
-`missing_source_content`, so the previous upload-only acceptance claim is
-retracted. A new exact release must pass the CLI/API verifier before this
-control can be considered complete. Nitro runtime reporting remains disabled.
+no source maps. The exact production receipt contains 259 deterministic
+source-map canaries, all verified through the source-map-debug and
+processed-event checks. The earlier v0.1.452 `missing_source_content` result is
+historical and does not describe the current release. Nitro runtime reporting
+remains disabled pending its legal approval and observation gates.
 
 The live browser check on 2026-09-05 recorded no Sentry request before consent,
 one event after the user granted the still-live report, no later event after
