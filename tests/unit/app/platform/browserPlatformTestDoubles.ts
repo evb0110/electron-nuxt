@@ -1,7 +1,3 @@
-// Keep this compatibility export for platform tests that have not yet moved
-// their own fixtures. The local fake implementations below do not use it.
-export {cast} from '@tests/helpers/cast';
-
 export class MemoryStorage {
     private readonly data = new Map<string, string>();
 
@@ -18,7 +14,6 @@ export class MemoryStorage {
         this.data.set(key, value);
     }
 }
-
 class FakeIdbRequest<T> extends EventTarget implements IDBRequest<T> {
     public result!: T;
     public error: DOMException | null = null;
