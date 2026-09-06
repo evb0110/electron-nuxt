@@ -1,0 +1,34 @@
+tests/unit/scripts/verifySentrySourcemapCanaries.test.ts
+  s_b412fd4cd3f576::t_0ddfbbc192fad0 159
+scripts/release/upload-sentry-sourcemaps.mjs
+  s_b412fd4cd3f576::t_dcb794a07fc1aa 158-160,164-168,171,234-248,290
+  s_b412fd4cd3f576::t_f6b99849f5dcc3 554,557-582
+  s_b412fd4cd3f576::t_5c60c4f01ad720 583
+tests/unit/scripts/uploadSentrySourcemaps.test.ts
+  s_b412fd4cd3f576::t_71180cdbe1e6e0 237-238
+  s_b412fd4cd3f576::t_acd38127039fd0 191-214,224,233-236,239
+tests/unit/scripts/sendSentrySourcemapCanaries.test.ts
+  s_b412fd4cd3f576::t_d2da5872b00f2a 161
+  s_b412fd4cd3f576::t_7f14940af8ce4a 283-338,340-342
+  s_b412fd4cd3f576::t_ea6f85f4c83194 339
+  s_b412fd4cd3f576::t_d722c77a4d022b 177
+scripts/release/send-sentry-sourcemap-canaries.mjs
+  s_b412fd4cd3f576::t_d2da5872b00f2a 22
+  s_b412fd4cd3f576::t_7f14940af8ce4a 160-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1ddfc23522b97962798981fd8e94eae9239ce192",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
