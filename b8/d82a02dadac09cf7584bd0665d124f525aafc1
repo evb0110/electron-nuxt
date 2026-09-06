@@ -1,0 +1,25 @@
+docs/operations/sentry-runbook.md
+  s_b412fd4cd3f576::t_e84aa16d71fc83 81
+  s_b412fd4cd3f576::t_7e94e19e7efd74 232-236,252-253,258-263,265,268-269
+  s_b412fd4cd3f576::t_826e58da3d6bec 163-167
+  s_b412fd4cd3f576::t_da5c9fd6969aeb 208-216
+  s_b412fd4cd3f576::t_fd1571e037864c 194-201
+docs/architecture/sentry-implementation-ledger-2026-09-01.md
+  s_b412fd4cd3f576::t_5e86f623b82462 3,5-6,9-24,137-145,190,192-194,1497,1543-1548,1552,1691-1692,1712-1714
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b8d82a02dadac09cf7584bd0665d124f525aafc1",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
