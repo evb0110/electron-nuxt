@@ -174,7 +174,6 @@ const retainedResizeAnchor = shallowRef<IDocumentViewportResizeAnchor | null>(nu
 let retainedResizeAnchorFence: {
     generation: number;
     interactionEpoch: number;
-    viewportIntentId: string | null;
 } | null = null;
 const RESIZE_ANCHOR_QUIET_MS = 120;
 let resizeAnchorReleaseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -203,7 +202,7 @@ function applyRetainedResizeAnchor(reason: string) {
         || session.lifecycle !== 'ready'
         || session.requestedPage !== session.committedPage
         || fence.generation !== session.generation
-        || fence.viewportIntentId !== (session.viewportIntent?.id ?? null)
+        || session.committedPage !== anchor.pageNumber
         || fence.interactionEpoch !== chassisAuthority.viewportWritePort.getInteractionEpoch()
     ) {
         releaseRetainedResizeAnchor();
@@ -253,7 +252,6 @@ function retainCurrentResizeAnchor() {
     retainedResizeAnchorFence = retainedResizeAnchor.value ? {
         generation: session.generation,
         interactionEpoch: chassisAuthority.viewportWritePort.getInteractionEpoch(),
-        viewportIntentId: session.viewportIntent?.id ?? null,
     } : null;
     if (retainedResizeAnchor.value) {
         openingFrameResizeObserver?.observe(retainedResizeAnchor.value.element);
