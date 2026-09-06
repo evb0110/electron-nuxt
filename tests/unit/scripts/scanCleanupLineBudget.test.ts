@@ -3,9 +3,13 @@ import {
     mkdtemp,
     readFile,
     rm,
+    symlink,
     writeFile,
 } from 'node:fs/promises';
-import {spawnSync} from 'node:child_process';
+import {
+    execFileSync,
+    spawnSync,
+} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -19,7 +23,10 @@ import {
 
 interface ILineBudgetModule {
     collectScanCleanupLineCounts: (root: string) => {
-        homes: Record<string, {total: number}>;
+        homes: Record<string, {
+            byFile: Record<string, number>;
+            total: number
+        }>;
         productionTotal: number;
         tests: {
             byFile: Record<string, number>;
@@ -168,6 +175,53 @@ describe('scan-cleanup line budget', () => {
         expect(counts.productionTotal).toBe(5);
         expect(counts.tests.total).toBe(4);
         expect(Object.keys(counts.tests.byFile)).toHaveLength(3);
+    });
+
+    it('uses Git-tracked sources, preserves unusual names, and rejects tracked symlinks', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-lines-'));
+        temporaryDirectories.push(root);
+        await Promise.all([
+            mkdir(join(root, 'app/modules/scan-cleanup'), {recursive: true}),
+            mkdir(join(root, 'electron/features/scan-cleanup'), {recursive: true}),
+            mkdir(join(root, 'packages/contracts/scan-cleanup'), {recursive: true}),
+            mkdir(join(root, 'scan-cleanup-core'), {recursive: true}),
+            mkdir(join(root, 'scan-cleanup-adapters'), {recursive: true}),
+            mkdir(join(root, 'native/scan-cleanup/src'), {recursive: true}),
+            mkdir(join(root, 'native/scan-cleanup/tests'), {recursive: true}),
+            writeFile(join(root, '.gitignore'), '**/generated.d.ts\n**/generated.vue\n**/generated.rs\n**/auto-imports.d.ts\n'),
+        ]);
+        await Promise.all([
+            writeFile(join(root, 'app/modules/scan-cleanup/suppressed.ts'), '// eslint-disable max-lines\nconst suppressed = 1;\n'),
+            writeFile(join(root, 'app/modules/scan-cleanup/tracked\nname.ts'), 'const unusual = 1;\n'),
+            writeFile(join(root, 'electron/features/scan-cleanup/generated.vue'), '<template>ignored</template>\n'.repeat(30)),
+            writeFile(join(root, 'app/modules/scan-cleanup/generated.d.ts'), 'declare const ignored: string;\n'.repeat(30)),
+            writeFile(join(root, 'native/scan-cleanup/src/generated.rs'), 'fn ignored() {}\n'.repeat(30)),
+            writeFile(join(root, 'native/scan-cleanup/auto-imports.d.ts'), 'declare const ignored: string;\n'.repeat(66)),
+            writeFile(join(root, 'native/scan-cleanup/src/lib.rs'), 'fn tracked() {}\n'),
+            writeFile(join(root, 'native/scan-cleanup/tests/lib.rs'), 'fn test() {}\n'),
+        ]);
+        execFileSync('git', [
+            'init',
+            '-q',
+        ], {cwd: root});
+        execFileSync('git', [
+            'add',
+            '--all',
+        ], {cwd: root});
+        const counts = module.collectScanCleanupLineCounts(root);
+        expect(counts.productionTotal).toBe(3);
+        expect(counts.tests.total).toBe(1);
+        expect(Object.keys(counts.homes.app!.byFile)).toContain('app/modules/scan-cleanup/tracked\nname.ts');
+
+        const outside = join(root, 'outside.ts');
+        const escape = join(root, 'native/scan-cleanup/src/escape.ts');
+        await writeFile(outside, 'const outside = 1;\n');
+        await symlink(outside, escape);
+        execFileSync('git', [
+            'add',
+            '--all',
+        ], {cwd: root});
+        expect(() => module.collectScanCleanupLineCounts(root)).toThrow('tracked source symlink');
     });
 
     it('splits an inline Rust cfg test item with nested syntax from production', () => {

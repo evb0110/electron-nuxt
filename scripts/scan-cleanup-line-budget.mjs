@@ -3,6 +3,7 @@ import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
     existsSync,
+    lstatSync,
     readFileSync,
     readdirSync,
     writeFileSync,
@@ -309,6 +310,7 @@ function isGeneratedFallbackArtifact(relativePath) {
 
 /** @param {string} root @param {string} relativeDirectory @returns {string[] | null} */
 function trackedSourceFiles(root, relativeDirectory) {
+    let output;
     try {
         execFileSync('git', [
             'rev-parse',
@@ -321,29 +323,45 @@ function trackedSourceFiles(root, relativeDirectory) {
                 'ignore',
             ],
         });
-        const output = execFileSync('git', [
+        output = execFileSync('git', [
             'ls-files',
             '--cached',
+            '-z',
             '--',
             relativeDirectory,
         ], {
             cwd: root,
-            encoding: 'utf8',
             stdio: [
                 'ignore',
                 'pipe',
                 'ignore',
             ],
         });
-        return output
-            .split(/\r?\n/u)
-            .filter(relativePath => relativePath.length > 0 && SOURCE_EXTENSIONS.has(path.extname(relativePath)))
-            .map(relativePath => path.join(root, relativePath))
-            .filter(filePath => existsSync(filePath))
-            .sort();
     } catch {
         return null;
     }
+    const relativePaths = [];
+    let start = 0;
+    for (let end = 0; end < output.length; end += 1) {
+        if (output[end] !== 0) continue;
+        const relativePath = output.subarray(start, end).toString('utf8');
+        if (SOURCE_EXTENSIONS.has(path.extname(relativePath))) relativePaths.push(relativePath);
+        start = end + 1;
+    }
+    return relativePaths
+        .map(relativePath => path.join(root, relativePath))
+        .map(filePath => {
+            if (!existsSync(filePath)) {
+                return null;
+            }
+            const stat = lstatSync(filePath);
+            if (stat.isSymbolicLink()) {
+                throw new Error(`Refusing to count tracked source symlink outside the repository: ${path.relative(root, filePath)}`);
+            }
+            return stat.isFile() ? filePath : null;
+        })
+        .filter((filePath) => filePath !== null)
+        .sort();
 }
 
 /** @param {string} root @param {string} relativeDirectory @returns {string[]} */
