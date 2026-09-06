@@ -1,15 +1,69 @@
 //! Memory and worker planning for batch page processing.
-use crate::adapters::batch_cli::*;
-use crate::adapters::single_ocr_cli::invalid;
-use crate::cache::DEFAULT_CACHE_BUDGET_BYTES;
+use crate::cache::{ByteLru, PageCache, SourceFingerprint, DEFAULT_CACHE_BUDGET_BYTES};
 use crate::domain::options::OutputMode;
-use crate::engine::staged_input::*;
+use crate::engine::staged_input::{manifest_has_stream_inputs, run_stream_page_jobs};
 use crate::io::raster;
 use crate::protocol::manifest_v3::{ManifestV3, Operation, Page};
 use evb_native_support::NativeError;
 use std::error::Error;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::{fs, thread};
+
+fn invalid(message: impl Into<String>) -> NativeError {
+    NativeError::new(
+        evb_native_support::NativeErrorCode::InvalidRequest,
+        message.into(),
+    )
+}
+
+fn map_raster_error(
+    error: raster::RasterReadError,
+    path: &std::path::Path,
+    page_index: usize,
+) -> NativeError {
+    let code = match error {
+        raster::RasterReadError::Io(_) => evb_native_support::NativeErrorCode::Io,
+        raster::RasterReadError::Invalid(_) => evb_native_support::NativeErrorCode::InvalidRequest,
+        raster::RasterReadError::TooLarge(_) => evb_native_support::NativeErrorCode::TooLarge,
+    };
+    NativeError::new(
+        code,
+        format!(
+            "Unable to read scan-cleanup raster for page {} ({}): {error}",
+            page_index + 1,
+            path.display(),
+        ),
+    )
+}
+
+pub(crate) fn manifest_cache(
+    operation: Operation,
+    host_memory_bytes: Option<u64>,
+) -> Arc<Mutex<ByteLru>> {
+    Arc::new(Mutex::new(ByteLru::new(cache_budget_bytes(
+        operation,
+        host_memory_bytes,
+    ))))
+}
+
+pub(crate) fn page_cache_for(
+    page: &Page,
+    shared: &Arc<Mutex<ByteLru>>,
+) -> Result<PageCache, NativeError> {
+    let source = SourceFingerprint::from_path(&page.input_path, page.source_page_index).map_err(
+        |error| {
+            NativeError::new(
+                evb_native_support::NativeErrorCode::Io,
+                format!(
+                    "Unable to read scan-cleanup input for page {} ({}): {error}",
+                    page.source_page_index + 1,
+                    page.input_path.display(),
+                ),
+            )
+        },
+    )?;
+    Ok(PageCache::new(Arc::clone(shared), source))
+}
 pub(crate) fn run_page_jobs<T, F>(manifest: &ManifestV3, task: F) -> Result<Vec<T>, Box<dyn Error>>
 where
     T: Send,
@@ -289,9 +343,10 @@ pub(crate) fn cache_budget_bytes(operation: Operation, host_memory_bytes: Option
 }
 #[cfg(test)]
 mod tests {
+    use super::manifest_cache;
     use super::*;
-    use crate::adapters::batch_cli::manifest_cache;
     use crate::engine::page_statistics::decode_page_inputs;
+    use crate::engine::page_statistics::derive_page_ink_contexts;
     use crate::protocol::manifest_v3::{
         AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, PageOutput, RenderMode, VERSION,
     };

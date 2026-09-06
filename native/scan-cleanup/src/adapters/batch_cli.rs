@@ -1,210 +1,161 @@
 use crate::adapters::manifest_publication::run_manifest_transaction;
 use crate::adapters::single_ocr_cli::{invalid, parse_options};
 use crate::engine::batch_reconciliation::reconcile_classification_batch;
-use crate::engine::output_geometry::match_page_sizes;
-use crate::engine::page_statistics::{run_classification, run_page};
-use crate::engine::resource_planning::{cache_budget_bytes, run_page_jobs};
-use crate::engine::staged_input::{manifest_has_stream_inputs, with_staged_page_input};
-use crate::mode_select::{OutputModeDiagnostics, OutputModeRecommendationReason};
+use crate::engine::output_geometry::{
+    align_deferred_spread_vertical_placements, apply_canvas_metadata,
+    plan_canvas_placement_with_shared_fit, shared_spread_overflow_fits_for_written_outputs,
+    validate_canvas_for_options, DeferredSpreadVerticalPlacement, WrittenOutput,
+};
+use crate::engine::page_statistics::{
+    derive_page_ink_contexts, run_classification, run_page, EnginePageTimings, PageRunResult,
+};
+use crate::engine::resource_planning::{manifest_cache, page_cache_for, run_page_jobs};
+use crate::engine::staged_input::{
+    assert_manifest_paths_within_root, preflight_manifest_paths, with_announced_staged_page_input,
+    LeaseEvent,
+};
+#[cfg(test)]
+use crate::io::raster;
 use crate::{
-    cache::{ByteLru, PageCache, SourceFingerprint},
-    ink_consistency::{
-        minority_selection_mask, stroke_mass_metrics, DocumentInkPrior, DocumentInkSample,
-        PageInkConsistencyContext,
-    },
-    io::raster,
-    pipeline::AnalysisOutputMetadata,
-    png,
+    pipeline::CleanupMetadata,
     protocol::{
-        manifest_v3::{
-            normalized_path, AnalysisPurpose, CanvasScope, DocumentCanvas, ManifestV3, Operation,
-            Page, PageOutput, RenderMode,
-        },
+        manifest_v3::{AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode},
         progress::{PageStageTimings, Progress, ProgressEnvelope, ProgressStage},
         result::ResultEnvelope,
     },
     split::LayoutClassification,
-    CleanupOptions, OrthogonalRotation, OutputMode,
 };
 use evb_native_support::{
     bounded_io::deserialize_json_file_bounded, NativeError, NativeErrorCode, NativeErrorEnvelope,
 };
-use scan_primitives::GrayImage;
 use serde::Serialize;
 use std::{
     collections::HashSet,
     error::Error,
-    ffi::OsString,
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Mutex,
 };
 
-const LAYERED_BACKGROUND_MAX_DPI: f64 = 200.0;
-const PHOTO_BACKGROUND_MAX_DPI: f64 = 300.0;
-pub(crate) const FOLD_TAIL_NEAR_PAPER_FLOOR: u8 = 250;
-const MAX_MANIFEST_BYTES: usize = 256 * 1024 * 1024;
-
-pub(crate) fn layered_background_dpi(options: &CleanupOptions, confirmed_picture: bool) -> f64 {
-    let max_dpi = if confirmed_picture {
-        PHOTO_BACKGROUND_MAX_DPI
-    } else {
-        LAYERED_BACKGROUND_MAX_DPI
-    };
-    options
-        .source_background_dpi()
-        .min(options.dpi)
-        .min(max_dpi)
-}
-
-pub(crate) fn background_canvas_dimensions(
-    canvas: &DocumentCanvas,
-    background_dpi: f64,
-) -> (usize, usize) {
-    let background_canvas = canvas.at_dpi(background_dpi);
-    (background_canvas.width_px, background_canvas.height_px)
-}
-
-pub(crate) fn background_dimensions_to_publish(
-    actual_width: usize,
-    actual_height: usize,
-    target_width: usize,
-    target_height: usize,
-) -> (usize, usize) {
-    // An exact match must stay on its existing coarse grid. Any one-pixel
-    // rounding discrepancy is corrected to the authoritative physical target,
-    // never multiplied by another DPI ratio from the current dimensions.
-    if actual_width == target_width && actual_height == target_height {
-        (actual_width, actual_height)
-    } else {
-        (target_width, target_height)
+fn protocol_timings(timings: EnginePageTimings) -> PageStageTimings {
+    PageStageTimings {
+        decode_ms: timings.decode_ms,
+        analysis_level_ms: timings.analysis_level_ms,
+        normalization_ms: timings.normalization_ms,
+        illumination_preparation_ms: timings.illumination_preparation_ms,
+        layout_normalization_ms: timings.layout_normalization_ms,
+        calibration_ms: timings.calibration_ms,
+        picture_mask_ms: timings.picture_mask_ms,
+        mode_recommendation_ms: timings.mode_recommendation_ms,
+        quality_normalization_ms: timings.quality_normalization_ms,
+        text_axis_ms: timings.text_axis_ms,
+        split_ms: timings.split_ms,
+        deskew_ms: timings.deskew_ms,
+        content_ms: timings.content_ms,
+        rasterization_ms: timings.rasterization_ms,
+        mask_rasterization_ms: timings.mask_rasterization_ms,
+        binarization_ms: timings.binarization_ms,
+        threshold_preparation_ms: timings.threshold_preparation_ms,
+        thresholding_ms: timings.thresholding_ms,
+        binary_postprocess_ms: timings.binary_postprocess_ms,
+        mixed_composition_ms: timings.mixed_composition_ms,
+        output_processing_ms: timings.output_processing_ms,
+        render_ms: timings.render_ms,
+        write_ms: timings.write_ms,
     }
 }
 
-pub(crate) struct WrittenOutput {
-    pub(crate) output_path: PathBuf,
-    pub(crate) metadata_path: PathBuf,
-    pub(crate) bilevel_output_path: Option<PathBuf>,
-    pub(crate) background_output_path: Option<PathBuf>,
-    pub(crate) foreground_mask_output_path: Option<PathBuf>,
-    pub(crate) foreground_alpha_output_path: Option<PathBuf>,
-    pub(crate) picture_mask_output_path: Option<PathBuf>,
-    pub(crate) tone_preservation_alpha_output_path: Option<PathBuf>,
-    pub(crate) options: CleanupOptions,
-    pub(crate) source_page_index: usize,
-    pub(crate) half: crate::pipeline::PageHalf,
-    pub(crate) width: usize,
-    pub(crate) height: usize,
-    /// The logical paper frame this output is responsible for, in the pixels
-    /// the source sheet was rendered at. This deliberately differs from the
-    /// source region: an off-centre cutter selects unequal pixel regions but
-    /// does not put the two leaves at different physical scales.
-    pub(crate) paper_width: f64,
-    pub(crate) paper_height: f64,
-    pub(crate) content_detected: bool,
-    /// The first visible content row in this output's intrinsic raster. Kept
-    /// in memory so deferred matched-canvas placement can use the exact same
-    /// spread anchor as the in-memory final path without adding protocol
-    /// metadata.
-    pub(crate) spread_content_top: Option<f64>,
-    /// The transformed horizontal ownership box in the intrinsic raster.
-    /// Deferred preview placement needs the same optical input as the
-    /// in-memory final path without extending protocol metadata.
-    pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
-    /// Consecutive provably-paper columns at this leaf's fold edge, measured
-    /// before deferred matched-canvas placement.
-    pub(crate) fold_side_near_paper_run: usize,
-    /// Consecutive provably-paper columns at the outer edges. These prove that
-    /// optical placement may preserve a signed raster origin without ink loss.
-    pub(crate) outer_near_paper_edge_runs: NearPaperEdgeRuns,
-    pub(crate) matched_in_memory: bool,
+fn match_page_sizes(
+    outputs: &[&WrittenOutput],
+    document_canvas: Option<crate::protocol::manifest_v3::DocumentCanvas>,
+) -> Result<(), Box<dyn Error>> {
+    let eligible = outputs
+        .iter()
+        .copied()
+        .filter(|output| {
+            output.options.match_page_size && !output.options.ocr_mode && !output.matched_in_memory
+        })
+        .collect::<Vec<_>>();
+    if eligible.is_empty() {
+        return Ok(());
+    }
+    let Some(canvas) = document_canvas else {
+        return Err(NativeError::new(
+            NativeErrorCode::InvalidRequest,
+            "Matched page size requires a documentCanvas plan; the manifest carried none",
+        )
+        .into());
+    };
+    let target_width = canvas.width_px;
+    let target_height = canvas.height_px;
+    let shared_spread_fits = shared_spread_overflow_fits_for_written_outputs(&eligible, &canvas);
+    let mut placements = eligible
+        .iter()
+        .map(|output| {
+            plan_canvas_placement_with_shared_fit(
+                output,
+                &canvas,
+                shared_spread_fits.get(&output.source_page_index),
+            )
+        })
+        .collect::<Vec<_>>();
+    let deferred_spread_outputs = eligible
+        .iter()
+        .map(|output| DeferredSpreadVerticalPlacement {
+            source_page_index: output.source_page_index,
+            half: output.half,
+            intrinsic_height: output.height,
+            content_top: output.spread_content_top,
+        })
+        .collect::<Vec<_>>();
+    align_deferred_spread_vertical_placements(
+        &mut placements,
+        &deferred_spread_outputs,
+        &shared_spread_fits,
+        &canvas,
+    );
+
+    for (output, placement) in eligible.into_iter().zip(placements) {
+        let repad_result = (|| -> Result<(), Box<dyn Error>> {
+            validate_canvas_for_options(target_width, target_height, &output.options)?;
+            let mut metadata: CleanupMetadata =
+                serde_json::from_slice(&fs::read(&output.metadata_path)?)?;
+            metadata.intrinsic_raster_width.get_or_insert(output.width);
+            metadata
+                .intrinsic_raster_height
+                .get_or_insert(output.height);
+            apply_canvas_metadata(&mut metadata, placement, &canvas);
+            write_json_atomic(&output.metadata_path, &metadata)?;
+            Ok(())
+        })();
+        if let Err(error) = repad_result {
+            let _ = fs::remove_file(&output.output_path);
+            let _ = fs::remove_file(&output.metadata_path);
+            if let Some(path) = &output.bilevel_output_path {
+                let _ = fs::remove_file(path);
+            }
+            if let Some(path) = &output.background_output_path {
+                let _ = fs::remove_file(path);
+            }
+            if let Some(path) = &output.foreground_mask_output_path {
+                let _ = fs::remove_file(path);
+            }
+            if let Some(path) = &output.foreground_alpha_output_path {
+                let _ = fs::remove_file(path);
+            }
+            if let Some(path) = &output.picture_mask_output_path {
+                let _ = fs::remove_file(path);
+            }
+            if let Some(path) = &output.tone_preservation_alpha_output_path {
+                let _ = fs::remove_file(path);
+            }
+            return Err(error);
+        }
+    }
+    Ok(())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PageResultMetadata {
-    pub(crate) source_page_index: usize,
-    pub(crate) layout_classification: crate::split::LayoutClassification,
-    pub(crate) layout_confidence: f64,
-    pub(crate) cutter_x_px: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) split_seam: Option<crate::protocol::manifest_v3::SplitSeamPolyline>,
-    pub(crate) rotation_degrees: OrthogonalRotation,
-    pub(crate) canvas_scope: CanvasScope,
-    pub(crate) excluded: bool,
-    pub(crate) blank_outputs_skipped: usize,
-    pub(crate) output_count: usize,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub(crate) outputs: Vec<AnalysisOutputMetadata>,
-    pub(crate) tier1_verdict: crate::split::LayoutClassification,
-    pub(crate) reconciled: bool,
-    pub(crate) cluster_agreement: f64,
-    pub(crate) split_diagnostics: crate::split::SplitDiagnostics,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) document_prior: Option<crate::split::DocumentPrior>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) text_axis: Option<crate::engine::text_axis::TextAxisHint>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) recommended_output_mode: Option<OutputMode>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) recommended_output_mode_confidence: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) recommended_output_mode_reason: Option<OutputModeRecommendationReason>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) soft_alpha_foreground_recommendation: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) output_mode_diagnostics: Option<OutputModeDiagnostics>,
-    #[serde(skip)]
-    pub(crate) rotated_width: usize,
-    #[serde(skip)]
-    pub(crate) rotated_height: usize,
-    #[serde(skip)]
-    pub(crate) candidate_cutter_ratio: Option<f64>,
-    #[serde(skip)]
-    pub(crate) whitespace_score: f64,
-    #[serde(skip)]
-    pub(crate) reconciliation_eligible: bool,
-    #[serde(skip)]
-    pub(crate) tier1_confidence: f64,
-    #[serde(skip)]
-    pub(crate) calibration_stroke_width_px: Option<f64>,
-    #[serde(skip)]
-    pub(crate) calibration_x_height_px: Option<f64>,
-}
-
-pub(crate) struct PageRunResult {
-    pub(crate) outputs: Vec<WrittenOutput>,
-    pub(crate) metadata: PageResultMetadata,
-    pub(crate) page_metadata_path: PathBuf,
-    pub(crate) timings: PageStageTimings,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct Tier1Provenance {
-    pub(crate) verdict: LayoutClassification,
-    pub(crate) confidence: f64,
-    pub(crate) candidate_cutter_ratio: Option<f64>,
-    pub(crate) whitespace_score: f64,
-}
-
-pub(crate) fn manifest_cache(
-    operation: Operation,
-    host_memory_bytes: Option<u64>,
-) -> Arc<Mutex<ByteLru>> {
-    Arc::new(Mutex::new(ByteLru::new(cache_budget_bytes(
-        operation,
-        host_memory_bytes,
-    ))))
-}
-
-pub(crate) fn page_cache_for(
-    page: &Page,
-    shared: &Arc<Mutex<ByteLru>>,
-) -> Result<PageCache, NativeError> {
-    let source = SourceFingerprint::from_path(&page.input_path, page.source_page_index)
-        .map_err(|error| map_page_io_error(error, &page.input_path, page.source_page_index))?;
-    Ok(PageCache::new(Arc::clone(shared), source))
-}
+const MAX_MANIFEST_BYTES: usize = 256 * 1024 * 1024;
 
 #[derive(Debug, Eq, PartialEq)]
 enum ScanCleanupCliInvocation {
@@ -360,6 +311,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
     };
     let cache = manifest_cache(Operation::Render, None);
     let page_cache = page_cache_for(&page, &cache)?;
+    let publication = CliPagePublication;
     run_page(
         &page,
         CanvasScope::Page,
@@ -368,6 +320,7 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
         Some((&output, &metadata)),
         None,
         &page_cache,
+        &publication,
     )
     .map(|_| ())
 }
@@ -399,94 +352,6 @@ fn run_manifest(path: &Path, allowed_path_root: Option<&Path>) -> Result<(), Box
             Err(error)
         }
     }
-}
-
-pub(crate) fn trusted_selection_is_incomplete(
-    selection_width: usize,
-    background_width: usize,
-) -> bool {
-    background_width.saturating_mul(2) > selection_width
-}
-
-fn derive_page_ink_sample(page: &Page) -> Result<Option<DocumentInkSample>, NativeError> {
-    if page.options.output_mode != OutputMode::Bw
-        || !page.options.source_has_bilevel_layer
-        || page.options.thickness != 0
-    {
-        return Ok(None);
-    }
-    let Some(selection_path) = page.trusted_foreground_mask_path.as_ref() else {
-        return Ok(None);
-    };
-    let Some(background_path) = page.trusted_mrc_background_path.as_ref() else {
-        return Ok(None);
-    };
-    let selection = raster::read_foreground_selection(
-        selection_path,
-        page.options.max_pixels,
-        page.options.max_dimension,
-    )
-    .map_err(|error| map_raster_error(error, selection_path, page.source_page_index))?;
-    let (background_width, _) = raster::read_dimensions(
-        background_path,
-        page.options.max_pixels,
-        page.options.max_dimension,
-    )
-    .map_err(|error| map_raster_error(error, background_path, page.source_page_index))?;
-    if trusted_selection_is_incomplete(selection.width(), background_width) {
-        return Ok(None);
-    }
-    let Some(ink) = minority_selection_mask(&selection) else {
-        return Ok(None);
-    };
-    let Some(metrics) = stroke_mass_metrics(&ink) else {
-        return Ok(None);
-    };
-    Ok(Some(DocumentInkSample {
-        metrics,
-        width: ink.width(),
-        height: ink.height(),
-    }))
-}
-
-pub(crate) fn derive_page_ink_contexts(
-    manifest: &ManifestV3,
-) -> Result<Vec<Option<PageInkConsistencyContext>>, Box<dyn Error>> {
-    if !manifest.pages.iter().any(|page| {
-        page.trusted_foreground_mask_path.is_some()
-            && page.trusted_mrc_background_path.is_some()
-            && page.options.output_mode == OutputMode::Bw
-            && page.options.source_has_bilevel_layer
-            && page.options.thickness == 0
-    }) {
-        return Ok(vec![None; manifest.pages.len()]);
-    }
-    // Trusted MRC masks are separate, replayable inputs. Use the same
-    // memory-derived page bound as the real work for regular manifests, but
-    // never hand a streamed input to `run_page_jobs`: doing so would consume a
-    // one-shot FIFO before the render pass gets its turn. Streamed renders use
-    // the conservative serial prepass instead.
-    let samples = if manifest_has_stream_inputs(manifest) {
-        manifest
-            .pages
-            .iter()
-            .map(derive_page_ink_sample)
-            .collect::<Result<Vec<_>, _>>()?
-    } else {
-        run_page_jobs(manifest, |(_, page)| derive_page_ink_sample(page))?
-    };
-    let Some(prior) = DocumentInkPrior::from_page_samples(samples.iter().flatten().copied()) else {
-        return Ok(vec![None; samples.len()]);
-    };
-    Ok(samples
-        .into_iter()
-        .map(|source_sample| {
-            source_sample.map(|source_sample| PageInkConsistencyContext {
-                prior,
-                source_sample,
-            })
-        })
-        .collect())
 }
 
 fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
@@ -543,6 +408,18 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         }
         Ok(())
     };
+    let announce_lease = |event: LeaseEvent, page_number: usize, total: usize| {
+        let stage = match event {
+            LeaseEvent::Required => ProgressStage::PageInputRequired,
+            LeaseEvent::Released => ProgressStage::PageInputReleased,
+        };
+        write_progress(Progress::page_input(stage, page_number, total)).map_err(|error| {
+            NativeError::new(
+                NativeErrorCode::NativeFailure,
+                format!("Unable to publish scan-cleanup staged input lease: {error}"),
+            )
+        })
+    };
     let analyzing = manifest.operation == Operation::Analyze;
     let page_ink_contexts = if analyzing {
         vec![None; manifest.pages.len()]
@@ -551,7 +428,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     };
     let plan_content = manifest.analysis_purpose == AnalysisPurpose::PagePlan;
     let run_analysis = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
-        let result = with_staged_page_input(manifest, page, || {
+        let result = with_announced_staged_page_input(manifest, page, &announce_lease, || {
             let page_cache = page_cache_for(page, &cache)?;
             run_classification(
                 page,
@@ -579,6 +456,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     };
     let run_one = |(index, page): (usize, &Page)| -> Result<PageRunResult, NativeError> {
         let page_cache = page_cache_for(page, &cache)?;
+        let publication = CliPagePublication;
         let result = run_page(
             page,
             manifest.canvas_scope,
@@ -587,6 +465,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
             None,
             page_ink_contexts[index],
             &page_cache,
+            &publication,
         )
         .map_err(|error| {
             let envelope = NativeErrorEnvelope::from_error(error.as_ref());
@@ -604,7 +483,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     // Reconciliation only ever revises classification-pass results; a render pass
     // has already published its pages by the time it returns.
     if analyzing {
-        reconcile_classification_batch(manifest, &mut page_results, &cache)?;
+        reconcile_classification_batch(manifest, &mut page_results, &cache, &announce_lease)?;
     }
     for (index, page_result) in page_results.iter().enumerate() {
         write_json_atomic(&page_result.page_metadata_path, &page_result.metadata)?;
@@ -651,6 +530,7 @@ pub(crate) fn write_progress(progress: Progress) -> Result<(), Box<dyn Error>> {
 
 fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usize) -> Progress {
     let metadata = &result.metadata;
+    let stage_timings = protocol_timings(result.timings);
     Progress {
         stage: ProgressStage::PageComplete,
         completed_pages: index + 1,
@@ -673,7 +553,7 @@ fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usi
         cluster_agreement: Some(metadata.cluster_agreement),
         document_prior: metadata.document_prior,
         text_axis: metadata.text_axis,
-        stage_timings: (!result.timings.is_empty()).then_some(result.timings),
+        stage_timings: (!stage_timings.is_empty()).then_some(stage_timings),
         recommended_output_mode: metadata.recommended_output_mode,
         recommended_output_mode_confidence: metadata.recommended_output_mode_confidence,
         recommended_output_mode_reason: metadata.recommended_output_mode_reason,
@@ -682,250 +562,28 @@ fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usi
     }
 }
 
-pub(crate) fn assert_manifest_paths_within_root(
-    manifest: &ManifestV3,
-    root: &Path,
-) -> Result<(), NativeError> {
-    let canonical_root = fs::canonicalize(root).map_err(|error| {
-        invalid(format!(
-            "Allowed path root is not an existing directory: {} ({error})",
-            root.display()
-        ))
-    })?;
-    if !canonical_root.is_dir() {
-        return Err(invalid(format!(
-            "Allowed path root is not a directory: {}",
-            root.display()
-        )));
-    }
-    let canonical_root = normalized_path(&canonical_root);
-    for path in manifest
-        .input_paths()
-        .into_iter()
-        .chain(manifest.destination_paths())
-    {
-        // An entry that exists but cannot be resolved is a dangling or looping
-        // symlink: it names no directory this root can vouch for.
-        if fs::symlink_metadata(path).is_ok() && fs::canonicalize(path).is_err() {
-            return Err(invalid(format!(
-                "Manifest path cannot be resolved: {}",
-                path.display()
-            )));
-        }
-        if !resolved_manifest_path(path).starts_with(&canonical_root) {
-            return Err(invalid(format!(
-                "Manifest path escapes the allowed path root: {}",
-                path.display()
-            )));
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
-    let mut input_paths = HashSet::new();
-    let mut input_files = HashSet::new();
-    for path in manifest.input_paths() {
-        input_paths.insert(resolved_manifest_path(path));
-        if let Some(identity) = existing_file_identity(path) {
-            input_files.insert(identity);
-        }
-    }
-
-    let mut destination_paths = HashSet::new();
-    let mut destination_files = HashSet::new();
-    for path in manifest.destination_paths() {
-        let resolved = resolved_manifest_path(path);
-        if input_paths.contains(&resolved)
-            || existing_file_identity(path).is_some_and(|identity| input_files.contains(&identity))
-        {
-            return Err(invalid(format!(
-                "Output destination aliases an input file: {}",
-                path.display()
-            )));
-        }
-        match fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.is_dir() => {
-                // An existing directory is never replaced by our atomic file
-                // writers. Optional bilevel/layer destinations intentionally
-                // use this to exercise their composite fallback.
-            }
-            Ok(metadata) if metadata.is_file() => {
-                // Batch publication snapshots regular files into randomized,
-                // exclusively-created same-directory backups before workers
-                // run, then discards or restores them transactionally.
-            }
-            Ok(_) => {
-                return Err(invalid(format!(
-                    "Output destination must be a regular file or directory: {}",
-                    path.display()
-                )));
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(NativeError::new(
-                    NativeErrorCode::Io,
-                    format!(
-                        "Unable to inspect output destination {}: {error}",
-                        path.display()
-                    ),
-                ));
-            }
-        }
-        if !destination_paths.insert(resolved)
-            || existing_file_identity(path)
-                .is_some_and(|identity| !destination_files.insert(identity))
-        {
-            return Err(invalid(format!(
-                "Output destinations must refer to different files: {}",
-                path.display()
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn resolved_manifest_path(path: &Path) -> PathBuf {
-    let absolute = if path.is_absolute() {
-        normalized_path(path)
-    } else {
-        std::env::current_dir()
-            .map(|directory| normalized_path(&directory.join(path)))
-            .unwrap_or_else(|_| normalized_path(path))
-    };
-    let mut ancestor = absolute.as_path();
-    let mut missing = Vec::<OsString>::new();
-    loop {
-        if let Ok(mut resolved) = fs::canonicalize(ancestor) {
-            for component in missing.iter().rev() {
-                resolved.push(component);
-            }
-            return normalized_path(&resolved);
-        }
-        let Some(file_name) = ancestor.file_name() else {
-            return absolute;
-        };
-        missing.push(file_name.to_owned());
-        let Some(parent) = ancestor.parent() else {
-            return absolute;
-        };
-        ancestor = parent;
-    }
-}
-
-#[cfg(unix)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct ExistingFileIdentity {
-    device: u64,
-    inode: u64,
-}
-
-#[cfg(unix)]
-fn existing_file_identity(path: &Path) -> Option<ExistingFileIdentity> {
-    use std::os::unix::fs::MetadataExt;
-
-    fs::metadata(path)
-        .ok()
-        .map(|metadata| ExistingFileIdentity {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-        })
-}
-
-#[cfg(not(unix))]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct ExistingFileIdentity;
-
-#[cfg(not(unix))]
-fn existing_file_identity(_path: &Path) -> Option<ExistingFileIdentity> {
-    None
-}
-pub(crate) fn write_gray_layer_background(path: &Path, image: &GrayImage) -> Result<(), String> {
-    if path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("ppm"))
-    {
-        raster::write_gray_ppm_atomic(path, image)
-    } else if path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("pgm"))
-    {
-        raster::write_gray_pgm_atomic(path, image)
-    } else {
-        png::write_gray_atomic(path, image)
-    }
-}
-
-pub(crate) const CANVAS_GRID_TOLERANCE_PX: f64 = 1.0;
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct NearPaperEdgeRuns {
-    pub(crate) left: usize,
-    pub(crate) right: usize,
-}
-
-pub(crate) const PLACEMENT_CENTERING_BOUNDS_X: Option<(f64, f64)> = None;
-pub(crate) fn resolve_destinations(
-    page: &Page,
-    output_count: usize,
-    fallback: Option<(&Path, &Path)>,
-) -> Result<Vec<PageOutput>, NativeError> {
-    if !page.outputs.is_empty() {
-        if page.outputs.len() < output_count {
-            return Err(invalid(format!(
-                "Cleanup produced {output_count} pages but only {} output destinations were supplied",
-                page.outputs.len()
-            )));
-        }
-        return Ok(page.outputs.iter().take(output_count).cloned().collect());
-    }
-    let (output, metadata) =
-        fallback.ok_or_else(|| invalid("Render page requires output destinations"))?;
-    if output_count == 1 {
-        return Ok(vec![PageOutput {
-            output_path: output.to_path_buf(),
-            metadata_path: metadata.to_path_buf(),
-            bilevel_output_path: None,
-            background_output_path: None,
-            foreground_mask_output_path: None,
-            foreground_alpha_output_path: None,
-            picture_mask_output_path: None,
-            tone_preservation_alpha_output_path: None,
-        }]);
-    }
-    Ok((0..output_count)
-        .map(|index| PageOutput {
-            output_path: suffixed_path(output, index),
-            metadata_path: suffixed_path(metadata, index),
-            bilevel_output_path: None,
-            background_output_path: None,
-            foreground_mask_output_path: None,
-            foreground_alpha_output_path: None,
-            picture_mask_output_path: None,
-            tone_preservation_alpha_output_path: None,
-        })
-        .collect())
-}
-
-fn suffixed_path(path: &Path, index: usize) -> PathBuf {
-    let suffix = if index == 0 { "left" } else { "right" };
-    let stem = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("page");
-    let extension = path.extension().and_then(|value| value.to_str());
-    let name = match extension {
-        Some(extension) => format!("{stem}-{suffix}.{extension}"),
-        None => format!("{stem}-{suffix}"),
-    };
-    path.with_file_name(name)
-}
-
 pub(crate) fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(), Box<dyn Error>> {
     let bytes = serde_json::to_vec_pretty(value)?;
     crate::io::write_atomic(path, &bytes).map_err(|error| std::io::Error::other(error).into())
 }
 
+struct CliPagePublication;
+
+impl crate::engine::page_statistics::PagePublication for CliPagePublication {
+    fn write_metadata(
+        &self,
+        path: &Path,
+        metadata: &CleanupMetadata,
+    ) -> Result<(), Box<dyn Error>> {
+        write_json_atomic(path, metadata)
+    }
+
+    fn remove_file(&self, path: &Path) {
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn map_page_io_error(
     error: std::io::Error,
     path: &Path,
@@ -941,6 +599,7 @@ pub(crate) fn map_page_io_error(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn map_raster_error(
     error: raster::RasterReadError,
     path: &Path,
@@ -961,6 +620,7 @@ pub(crate) fn map_raster_error(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn map_image_error(message: String) -> NativeError {
     let code = if message.contains("guardrails") {
         NativeErrorCode::TooLarge
@@ -973,12 +633,12 @@ pub(crate) fn map_image_error(message: String) -> NativeError {
 mod tests {
     use super::{
         map_image_error, map_page_io_error, map_raster_error, parse_cli_args,
-        write_gray_layer_background, ScanCleanupCliInvocation,
+        ScanCleanupCliInvocation,
     };
-    use crate::engine::page_statistics::normalize_trusted_foreground_selection;
+    use crate::engine::page_statistics::write_gray_layer_background;
     use crate::io::raster::RasterReadError;
     use evb_native_support::NativeErrorCode;
-    use scan_primitives::{BinaryImage, GrayImage};
+    use scan_primitives::GrayImage;
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -1212,29 +872,5 @@ mod tests {
         assert!(bytes.starts_with(header));
         assert_eq!(&bytes[header.len()..], &[127, 127]);
         fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn trusted_mrc_foreground_uses_sparse_marks_for_either_soft_mask_polarity() {
-        let mut source = GrayImage::new(8, 4, 176);
-        for x in 2..6 {
-            source.set(x, 2, 18);
-        }
-        let mut sparse_white = GrayImage::new(8, 4, 0);
-        let mut dense_white = GrayImage::new(8, 4, 255);
-        for x in 2..6 {
-            sparse_white.set(x, 2, 255);
-            dense_white.set(x, 2, 0);
-        }
-
-        let expected = BinaryImage::from_fn_parallel(8, 4, |x, y| y == 2 && (2..6).contains(&x));
-        assert_eq!(
-            normalize_trusted_foreground_selection(&sparse_white, &source),
-            expected
-        );
-        assert_eq!(
-            normalize_trusted_foreground_selection(&dense_white, &source),
-            expected
-        );
     }
 }

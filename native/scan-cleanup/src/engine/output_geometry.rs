@@ -1,10 +1,4 @@
 //! Matched-canvas planning and raster placement geometry.
-use crate::adapters::batch_cli::{
-    background_canvas_dimensions, layered_background_dpi, write_json_atomic,
-    CANVAS_GRID_TOLERANCE_PX, FOLD_TAIL_NEAR_PAPER_FLOOR, PLACEMENT_CENTERING_BOUNDS_X,
-};
-use crate::adapters::batch_cli::{NearPaperEdgeRuns, WrittenOutput};
-use crate::adapters::single_ocr_cli::invalid;
 use crate::bw::paper_reference;
 use crate::engine::render::{CleanupRaster, CleanupResult};
 use crate::engine::render::{CleanupWarningEvent, WarningExtentUnit};
@@ -17,8 +11,71 @@ use evb_native_support::{NativeError, NativeErrorCode};
 use rayon::prelude::*;
 use scan_primitives::{BinaryImage, GrayImage};
 use std::collections::HashMap;
-use std::error::Error;
-use std::fs;
+use std::path::PathBuf;
+
+pub(crate) const FOLD_TAIL_NEAR_PAPER_FLOOR: u8 = 250;
+
+pub(crate) fn layered_background_dpi(options: &CleanupOptions, confirmed_picture: bool) -> f64 {
+    let max_dpi = if confirmed_picture { 300.0 } else { 200.0 };
+    options
+        .source_background_dpi()
+        .min(options.dpi)
+        .min(max_dpi)
+}
+
+pub(crate) fn background_canvas_dimensions(
+    canvas: &DocumentCanvas,
+    background_dpi: f64,
+) -> (usize, usize) {
+    let background_canvas = canvas.at_dpi(background_dpi);
+    (background_canvas.width_px, background_canvas.height_px)
+}
+
+pub(crate) fn background_dimensions_to_publish(
+    actual_width: usize,
+    actual_height: usize,
+    target_width: usize,
+    target_height: usize,
+) -> (usize, usize) {
+    if actual_width == target_width && actual_height == target_height {
+        (actual_width, actual_height)
+    } else {
+        (target_width, target_height)
+    }
+}
+
+pub(crate) const CANVAS_GRID_TOLERANCE_PX: f64 = 1.0;
+pub(crate) const PLACEMENT_CENTERING_BOUNDS_X: Option<(f64, f64)> = None;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct NearPaperEdgeRuns {
+    pub(crate) left: usize,
+    pub(crate) right: usize,
+}
+
+pub(crate) struct WrittenOutput {
+    pub(crate) output_path: PathBuf,
+    pub(crate) metadata_path: PathBuf,
+    pub(crate) bilevel_output_path: Option<PathBuf>,
+    pub(crate) background_output_path: Option<PathBuf>,
+    pub(crate) foreground_mask_output_path: Option<PathBuf>,
+    pub(crate) foreground_alpha_output_path: Option<PathBuf>,
+    pub(crate) picture_mask_output_path: Option<PathBuf>,
+    pub(crate) tone_preservation_alpha_output_path: Option<PathBuf>,
+    pub(crate) options: CleanupOptions,
+    pub(crate) source_page_index: usize,
+    pub(crate) half: crate::pipeline::PageHalf,
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) paper_width: f64,
+    pub(crate) paper_height: f64,
+    pub(crate) content_detected: bool,
+    pub(crate) spread_content_top: Option<f64>,
+    pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
+    pub(crate) fold_side_near_paper_run: usize,
+    pub(crate) outer_near_paper_edge_runs: NearPaperEdgeRuns,
+    pub(crate) matched_in_memory: bool,
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CanvasPlacement {
     pub(crate) content_width: usize,
@@ -626,19 +683,21 @@ pub(crate) fn plan_canvas_placement_with_shared_fit(
         output.half,
         output.fold_side_near_paper_run,
     );
-    let mut placement = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-        output.width,
-        output.height,
-        output.paper_width,
-        output.paper_height,
-        output.content_detected,
-        &output.options,
-        output.half,
+    let mut placement = plan_canvas_placement(
+        CanvasPlacementRequest {
+            width: output.width,
+            height: output.height,
+            paper_width: output.paper_width,
+            paper_height: output.paper_height,
+            content_detected: output.content_detected,
+            options: &output.options,
+            half: output.half,
+            optical_content_bounds_x: PLACEMENT_CENTERING_BOUNDS_X,
+            shared_overflow_fit: shared_overflow_plan.map(|plan| plan.shared_fit),
+            fold_trim,
+            outer_near_paper_runs: placement_near_paper_edge_runs,
+        },
         canvas,
-        PLACEMENT_CENTERING_BOUNDS_X,
-        shared_overflow_plan.map(|plan| plan.shared_fit),
-        fold_trim,
-        placement_near_paper_edge_runs,
     );
     placement.optical_content_bounds_x = output.optical_content_bounds_x;
     placement
@@ -703,7 +762,42 @@ pub(crate) fn plan_canvas_placement_for_with_optical_center_and_fit(
     optical_content_bounds_x: Option<(f64, f64)>,
     shared_overflow_fit: Option<f64>,
 ) -> CanvasPlacement {
-    plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
+    plan_canvas_placement(
+        CanvasPlacementRequest {
+            width,
+            height,
+            paper_width,
+            paper_height,
+            content_detected,
+            options,
+            half,
+            optical_content_bounds_x,
+            shared_overflow_fit,
+            fold_trim: FoldSideTrim::default(),
+            outer_near_paper_runs: NearPaperEdgeRuns::default(),
+        },
+        canvas,
+    )
+}
+pub(crate) struct CanvasPlacementRequest<'a> {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) paper_width: f64,
+    pub(crate) paper_height: f64,
+    pub(crate) content_detected: bool,
+    pub(crate) options: &'a CleanupOptions,
+    pub(crate) half: crate::pipeline::PageHalf,
+    pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
+    pub(crate) shared_overflow_fit: Option<f64>,
+    pub(crate) fold_trim: FoldSideTrim,
+    pub(crate) outer_near_paper_runs: NearPaperEdgeRuns,
+}
+
+pub(crate) fn plan_canvas_placement(
+    request: CanvasPlacementRequest<'_>,
+    canvas: &DocumentCanvas,
+) -> CanvasPlacement {
+    let CanvasPlacementRequest {
         width,
         height,
         paper_width,
@@ -711,28 +805,11 @@ pub(crate) fn plan_canvas_placement_for_with_optical_center_and_fit(
         content_detected,
         options,
         half,
-        canvas,
         optical_content_bounds_x,
         shared_overflow_fit,
-        FoldSideTrim::default(),
-        NearPaperEdgeRuns::default(),
-    )
-}
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-    width: usize,
-    height: usize,
-    paper_width: f64,
-    paper_height: f64,
-    content_detected: bool,
-    options: &CleanupOptions,
-    half: crate::pipeline::PageHalf,
-    canvas: &DocumentCanvas,
-    optical_content_bounds_x: Option<(f64, f64)>,
-    shared_overflow_fit: Option<f64>,
-    fold_trim: FoldSideTrim,
-    outer_near_paper_runs: NearPaperEdgeRuns,
-) -> CanvasPlacement {
+        fold_trim,
+        outer_near_paper_runs,
+    } = request;
     let effective_width = fold_trim.effective_width(width);
     let CanvasFit {
         requested_margins,
@@ -1362,109 +1439,6 @@ pub(crate) fn align_deferred_spread_vertical_placements<T>(
         }
     }
 }
-pub(crate) fn match_page_sizes(
-    outputs: &[&WrittenOutput],
-    document_canvas: Option<DocumentCanvas>,
-) -> Result<(), Box<dyn Error>> {
-    let eligible = outputs
-        .iter()
-        .copied()
-        .filter(|output| {
-            output.options.match_page_size && !output.options.ocr_mode && !output.matched_in_memory
-        })
-        .collect::<Vec<_>>();
-    if eligible.is_empty() {
-        return Ok(());
-    }
-    // Without a plan there is no document-wide answer to derive here: this
-    // process sees one manifest, and a canvas invented from the outputs it
-    // happens to hold is a different rectangle for every window and for the
-    // preview. The caller has to measure it and say so.
-    let Some(canvas) = document_canvas else {
-        return Err(invalid(
-            "Matched page size requires a documentCanvas plan; the manifest carried none",
-        )
-        .into());
-    };
-    let target_width = canvas.width_px;
-    let target_height = canvas.height_px;
-    let shared_spread_fits = shared_spread_overflow_fits_for_written_outputs(&eligible, &canvas);
-    let mut placements = eligible
-        .iter()
-        .map(|output| {
-            plan_canvas_placement_with_shared_fit(
-                output,
-                &canvas,
-                shared_spread_fits.get(&output.source_page_index),
-            )
-        })
-        .collect::<Vec<_>>();
-    let deferred_spread_outputs = eligible
-        .iter()
-        .map(|output| DeferredSpreadVerticalPlacement {
-            source_page_index: output.source_page_index,
-            half: output.half,
-            intrinsic_height: output.height,
-            content_top: output.spread_content_top,
-        })
-        .collect::<Vec<_>>();
-    align_deferred_spread_vertical_placements(
-        &mut placements,
-        &deferred_spread_outputs,
-        &shared_spread_fits,
-        &canvas,
-    );
-
-    for (output, placement) in eligible.into_iter().zip(placements) {
-        let repad_result = (|| -> Result<(), Box<dyn Error>> {
-            validate_canvas(target_width, target_height, output)?;
-            let mut metadata: CleanupMetadata =
-                serde_json::from_slice(&fs::read(&output.metadata_path)?)?;
-            metadata.intrinsic_raster_width.get_or_insert(output.width);
-            metadata
-                .intrinsic_raster_height
-                .get_or_insert(output.height);
-            apply_canvas_metadata(&mut metadata, placement, &canvas);
-
-            // Final runs materialize matched outputs in `run_page`, so the
-            // deferred path only receives preview outputs. Preview keeps its
-            // intrinsic raster and reports the measured canvas placement.
-            write_json_atomic(&output.metadata_path, &metadata)?;
-            Ok(())
-        })();
-        if let Err(error) = repad_result {
-            let _ = fs::remove_file(&output.output_path);
-            let _ = fs::remove_file(&output.metadata_path);
-            if let Some(bilevel_path) = &output.bilevel_output_path {
-                let _ = fs::remove_file(bilevel_path);
-            }
-            if let Some(background_path) = &output.background_output_path {
-                let _ = fs::remove_file(background_path);
-            }
-            if let Some(mask_path) = &output.foreground_mask_output_path {
-                let _ = fs::remove_file(mask_path);
-            }
-            if let Some(alpha_path) = &output.foreground_alpha_output_path {
-                let _ = fs::remove_file(alpha_path);
-            }
-            if let Some(mask_path) = &output.picture_mask_output_path {
-                let _ = fs::remove_file(mask_path);
-            }
-            if let Some(mask_path) = &output.tone_preservation_alpha_output_path {
-                let _ = fs::remove_file(mask_path);
-            }
-            return Err(error);
-        }
-    }
-    Ok(())
-}
-pub(crate) fn validate_canvas(
-    width: usize,
-    height: usize,
-    output: &WrittenOutput,
-) -> Result<(), NativeError> {
-    validate_canvas_for_options(width, height, &output.options)
-}
 pub(crate) fn validate_canvas_for_options(
     width: usize,
     height: usize,
@@ -1893,9 +1867,6 @@ pub(crate) fn place_rgb_on_white_canvas_with_source_window(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::batch_cli::{
-        background_canvas_dimensions, background_dimensions_to_publish,
-    };
     use crate::engine::render::{CleanupWarningEvent, WarningExtentUnit};
     use crate::protocol::manifest_v3::DocumentCanvas;
     use crate::CleanupOptions;
@@ -2160,33 +2131,37 @@ mod tests {
         .overflow_fit
         .min(canvas_fit_for(599, 599, paper.0, paper.1, true, &options, &canvas).overflow_fit);
 
-        let left = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-            1_198,
-            1_198,
-            paper.0,
-            paper.1,
-            true,
-            &options,
-            crate::pipeline::PageHalf::Left,
+        let left = plan_canvas_placement(
+            CanvasPlacementRequest {
+                width: 1_198,
+                height: 1_198,
+                paper_width: paper.0,
+                paper_height: paper.1,
+                content_detected: true,
+                options: &options,
+                half: crate::pipeline::PageHalf::Left,
+                optical_content_bounds_x: None,
+                shared_overflow_fit: Some(shared_fit),
+                fold_trim: left_trim,
+                outer_near_paper_runs: Default::default(),
+            },
             &canvas,
-            None,
-            Some(shared_fit),
-            left_trim,
-            Default::default(),
         );
-        let right = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-            599,
-            599,
-            paper.0,
-            paper.1,
-            true,
-            &options,
-            crate::pipeline::PageHalf::Right,
+        let right = plan_canvas_placement(
+            CanvasPlacementRequest {
+                width: 599,
+                height: 599,
+                paper_width: paper.0,
+                paper_height: paper.1,
+                content_detected: true,
+                options: &options,
+                half: crate::pipeline::PageHalf::Right,
+                optical_content_bounds_x: None,
+                shared_overflow_fit: Some(shared_fit),
+                fold_trim: Default::default(),
+                outer_near_paper_runs: Default::default(),
+            },
             &canvas,
-            None,
-            Some(shared_fit),
-            Default::default(),
-            Default::default(),
         );
 
         assert_eq!(shared_fit, 1.0);
@@ -2639,39 +2614,43 @@ mod tests {
             width_px: 2_196,
             height_px: 3_241,
         };
-        let left = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-            2_298,
-            2_810,
-            2_196.0,
-            3_136.0,
-            true,
-            &options,
-            crate::pipeline::PageHalf::Left,
+        let left = plan_canvas_placement(
+            CanvasPlacementRequest {
+                width: 2_298,
+                height: 2_810,
+                paper_width: 2_196.0,
+                paper_height: 3_136.0,
+                content_detected: true,
+                options: &options,
+                half: crate::pipeline::PageHalf::Left,
+                optical_content_bounds_x: Some((336.0, 2_002.0)),
+                shared_overflow_fit: Some(1.0),
+                fold_trim: FoldSideTrim {
+                    left: 0,
+                    right: 219,
+                },
+                outer_near_paper_runs: NearPaperEdgeRuns {
+                    left: 300,
+                    right: 0,
+                },
+            },
             &canvas,
-            Some((336.0, 2_002.0)),
-            Some(1.0),
-            FoldSideTrim {
-                left: 0,
-                right: 219,
-            },
-            NearPaperEdgeRuns {
-                left: 300,
-                right: 0,
-            },
         );
-        let right = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-            1_605,
-            3_098,
-            2_196.0,
-            3_136.0,
-            true,
-            &options,
-            crate::pipeline::PageHalf::Right,
+        let right = plan_canvas_placement(
+            CanvasPlacementRequest {
+                width: 1_605,
+                height: 3_098,
+                paper_width: 2_196.0,
+                paper_height: 3_136.0,
+                content_detected: true,
+                options: &options,
+                half: crate::pipeline::PageHalf::Right,
+                optical_content_bounds_x: Some((175.0, 1_301.0)),
+                shared_overflow_fit: Some(1.0),
+                fold_trim: FoldSideTrim::default(),
+                outer_near_paper_runs: NearPaperEdgeRuns::default(),
+            },
             &canvas,
-            Some((175.0, 1_301.0)),
-            Some(1.0),
-            FoldSideTrim::default(),
-            NearPaperEdgeRuns::default(),
         );
 
         assert_eq!(left.intrinsic_overflow_left, 71);
@@ -2808,23 +2787,21 @@ mod tests {
         };
 
         let deferred = plan_canvas_placement_with_shared_fit(&output, &canvas, Some(&shared_plan));
-        let in_memory = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-            output.width,
-            output.height,
-            output.paper_width,
-            output.paper_height,
-            output.content_detected,
-            &options,
-            output.half,
+        let in_memory = plan_canvas_placement(
+            CanvasPlacementRequest {
+                width: output.width,
+                height: output.height,
+                paper_width: output.paper_width,
+                paper_height: output.paper_height,
+                content_detected: output.content_detected,
+                options: &options,
+                half: output.half,
+                optical_content_bounds_x: PLACEMENT_CENTERING_BOUNDS_X,
+                shared_overflow_fit: Some(shared_plan.shared_fit),
+                fold_trim: shared_plan.trims[0],
+                outer_near_paper_runs: output.outer_near_paper_edge_runs,
+            },
             &canvas,
-            // Both matched-canvas planning sites answer under one placement
-            // policy, so the deferred leaf lands exactly where the in-memory
-            // one does; a site that quietly kept its own rule is the drift
-            // this comparison exists to catch.
-            PLACEMENT_CENTERING_BOUNDS_X,
-            Some(shared_plan.shared_fit),
-            shared_plan.trims[0],
-            output.outer_near_paper_edge_runs,
         );
 
         assert_eq!(
@@ -2865,22 +2842,24 @@ mod tests {
         let mut leaf = GrayImage::new(1_000, 500, 255);
         leaf.set(0, 250, 0);
         let outer_run = edge_near_paper_run_in_gray(&leaf, HorizontalEdge::Left);
-        let placement = plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-            1_000,
-            500,
-            1_000.0,
-            500.0,
-            true,
-            &options,
-            crate::pipeline::PageHalf::Full,
-            &canvas,
-            Some((300.0, 950.0)),
-            None,
-            FoldSideTrim::default(),
-            NearPaperEdgeRuns {
-                left: outer_run,
-                right: 0,
+        let placement = plan_canvas_placement(
+            CanvasPlacementRequest {
+                width: 1_000,
+                height: 500,
+                paper_width: 1_000.0,
+                paper_height: 500.0,
+                content_detected: true,
+                options: &options,
+                half: crate::pipeline::PageHalf::Full,
+                optical_content_bounds_x: Some((300.0, 950.0)),
+                shared_overflow_fit: None,
+                fold_trim: FoldSideTrim::default(),
+                outer_near_paper_runs: NearPaperEdgeRuns {
+                    left: outer_run,
+                    right: 0,
+                },
             },
+            &canvas,
         );
 
         assert_eq!(outer_run, 0);
