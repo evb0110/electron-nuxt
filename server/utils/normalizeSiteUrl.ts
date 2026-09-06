@@ -3,19 +3,12 @@ import {
     getRequestURL,
 } from 'h3';
 import { compact } from 'es-toolkit/array';
-import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
+import {
+    firstNonEmptyStringPreservingWhitespace,
+    getRuntimeEnv,
+} from '@server/utils/getRuntimeEnv';
 
 const DEFAULT_PRODUCTION_SITE_URL = 'https://web.evb-viewer.com';
-
-function firstNonEmptyString(values: Array<string | undefined>) {
-    for (const value of values) {
-        if (typeof value === 'string' && value.length > 0) {
-            return value;
-        }
-    }
-
-    return '';
-}
 
 export function normalizeSiteUrl(siteUrl: string) {
     let parsed: URL;
@@ -42,7 +35,7 @@ export function normalizeSiteUrl(siteUrl: string) {
 export function resolveSiteUrl(event: H3Event) {
     const requestUrl = getRequestURL(event);
     const env = getRuntimeEnv();
-    const configuredSiteUrl = firstNonEmptyString([
+    const configuredSiteUrl = firstNonEmptyStringPreservingWhitespace([
         env.NUXT_PUBLIC_SITE_URL,
         env.NUXT_SITE_URL,
         env.SITE_URL,
