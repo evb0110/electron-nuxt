@@ -16,6 +16,10 @@ import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { ZOOM } from '@app/constants/pdfLayout';
 import { useWorkspaceInteractionControls } from '@app/modules/workspace-shell/composables/useWorkspaceInteractionControls';
 import type { TAnnotationTool } from '@app/types/annotations';
+import type {
+    IWorkspaceDocumentViewerSplitPort,
+    IWorkspacePdfViewerInteractionPort,
+} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type {
     ISettingsData,
@@ -28,7 +32,7 @@ import {
     DEFAULT_SETTINGS,
     sanitizeSettings,
 } from '@contracts/settings';
-import { cast } from '@tests/helpers/cast';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 
 const activeScopes: Array<() => void> = [];
 
@@ -66,8 +70,8 @@ function createInteractionControls(overrides: {
         showSettings: ref(false),
         annotationTool: ref<TAnnotationTool>('none'),
         annotationPlacingPageNote: ref(false),
-        pdfViewerRef: ref(null),
-        documentViewerRef: ref(null),
+        pdfViewerRef: ref<IWorkspacePdfViewerInteractionPort | null>(null),
+        documentViewerRef: ref<IWorkspaceDocumentViewerSplitPort | null>(null),
         shapePropertiesPopoverVisible: computed(() => false),
         annotationContextMenuVisible: computed(() => false),
         pageContextMenuVisible: computed(() => false),
@@ -97,9 +101,10 @@ function createInteractionControls(overrides: {
         openFileWithViewerLifecycle: vi.fn(),
         waitForPdfReload: vi.fn(async () => {}),
         loadPdfFromPath: vi.fn(async () => {}),
+        documentRevisionToken: ref(requireDocumentRevisionToken('revision-token')),
     };
     activeScopes.push(() => scope.stop());
-    const controls = scope.run(() => useWorkspaceInteractionControls(cast(options)));
+    const controls = scope.run(() => useWorkspaceInteractionControls(options));
     if (!controls) {
         throw new Error('The workspace interaction controls did not construct.');
     }

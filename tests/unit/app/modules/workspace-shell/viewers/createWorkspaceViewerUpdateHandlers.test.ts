@@ -12,7 +12,6 @@ import {
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import type { IAnalyticsDocumentScope } from '@app/composables/useAnalytics';
 import type { TPdfSource } from '@app/types/pdfUi';
-import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({ emitAutomationEvent: vi.fn() }));
 
@@ -24,8 +23,17 @@ function createOptions(overrides: {
 } = {}) {
     const currentPage = ref(1);
     const accepted = overrides.accepted ?? true;
+    const analytics = {
+        key: 'workspace-test',
+        activate: vi.fn(),
+        clear: vi.fn(),
+        deactivate: vi.fn(),
+        dispose: vi.fn(),
+        merge: vi.fn(),
+        set: vi.fn(),
+    } satisfies IAnalyticsDocumentScope;
     return {
-        analytics: cast<IAnalyticsDocumentScope>({ merge: vi.fn() }),
+        analytics,
         tabId: 'tab-1',
         pdfSrc: ref<TPdfSource | null>(null),
         currentPage,

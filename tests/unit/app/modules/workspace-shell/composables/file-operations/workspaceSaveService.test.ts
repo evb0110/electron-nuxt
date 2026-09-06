@@ -9,16 +9,17 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { requireDocumentRef } from '@contracts/documentRef';
 import type { IPdfSerializedCommitCallbacks } from '@contracts/electronApiDocuments';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { requireRequestId } from '@contracts/shared';
-import { cast } from '@tests/helpers/cast';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 import {
     createDeferred,
     createDeps,
+    createPdfSaveTransactionResult,
     createPdfNoteComment,
     expectWorkspaceSaveMarked,
     expectWorkspaceSaveNotMarked,
@@ -380,17 +381,22 @@ describe('workspaceSaveService', () => {
 
     it('waits for the document operation lease before saving the working copy', async () => {
         const leaseRelease = createDeferred<undefined>();
-        const runWithDocumentOperationLease = vi.fn(async (_kind: 'save', operation: () => Promise<boolean>) => {
+        const runWithDocumentOperationLeaseSpy = vi.fn();
+        const runWithDocumentOperationLease = async <T>(
+            _kind: TDocumentOperationKind,
+            operation: () => Promise<T>,
+        ): Promise<T> => {
+            runWithDocumentOperationLeaseSpy(_kind, operation);
             await leaseRelease.promise;
             return operation();
-        });
-        const { deps } = createDeps({ runWithDocumentOperationLease: cast(runWithDocumentOperationLease) });
+        };
+        const { deps } = createDeps({runWithDocumentOperationLease});
         const { handleSave } = useWorkspaceSaveServiceForTest(deps);
 
         const savePromise = handleSave();
         await Promise.resolve();
 
-        expect(runWithDocumentOperationLease).toHaveBeenCalledWith('save', expect.any(Function));
+        expect(runWithDocumentOperationLeaseSpy).toHaveBeenCalledWith('save', expect.any(Function));
         expect(deps.isSaving.value).toBe(true);
         expect(deps.validatePdfPath).not.toHaveBeenCalled();
 
@@ -516,7 +522,7 @@ describe('workspaceSaveService', () => {
         });
         const runSaveTransaction = vi.fn(async () => {
             annotationToken = 'annotation-after-materialize';
-            return cast({
+            return createPdfSaveTransactionResult({
                 source: 'pdfjs-materialize',
                 baseBytes: new Uint8Array([9]),
                 serializedBytes: new Uint8Array([9]),
@@ -571,7 +577,7 @@ describe('workspaceSaveService', () => {
                 didSaveAs: false,
             };
         });
-        const runSaveTransaction = vi.fn(async () => cast({
+        const runSaveTransaction = vi.fn(async () => createPdfSaveTransactionResult({
             source: 'serialized-rewrite',
             baseBytes: new Uint8Array([1]),
             serializedBytes: new Uint8Array([2]),
@@ -867,10 +873,10 @@ describe('workspaceSaveService', () => {
     });
 
     it('uses PDF.js saveDocument when live annotation storage has modified ids', async () => {
-        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+        const livePdfDocument = shallowRef(createPdfDocumentProxy({annotationStorage: {
             resetModified: vi.fn(),
             modifiedIds: { ids: new Set(['3856R']) },
-        } }));
+        }}));
         const {
             deps,
             saveFile,
@@ -1041,7 +1047,7 @@ describe('workspaceSaveService', () => {
     it('reclassifies only in the outer retry when native decline exposes a newer annotation mutation', async () => {
         const serializableMap = new Map<string, unknown>();
         const modifiedIds = new Set<string>();
-        const pdfDocument = shallowRef(cast<PDFDocumentProxy>({
+        const pdfDocument = shallowRef(createPdfDocumentProxy({
             numPages: 3,
             annotationStorage: {
                 serializable: {

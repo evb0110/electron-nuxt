@@ -18,7 +18,6 @@ import { requireEpochMs } from '@contracts/timestamps';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TPdfSource } from '@app/types/pdfUi';
-import { cast } from '@tests/helpers/cast';
 
 const {
     mockHasElectronAPI,
@@ -61,8 +60,8 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
     const pageLabelsDirty = overrides.pageLabelsDirty ?? ref(false);
     const bookmarksDirty = overrides.bookmarksDirty ?? ref(false);
 
-    return cast<Parameters<typeof usePageFileOperations>[0]>({
-        pdfSrc: ref<unknown>({}),
+    return {
+        pdfSrc: ref<TPdfSource | null>(new Blob([], {type: 'application/pdf'})),
         hasDocument: ref(true),
         isAnySaving: ref(false),
         isHistoryBusy: ref(false),
@@ -90,7 +89,7 @@ function createDeps(overrides: Partial<Parameters<typeof usePageFileOperations>[
         emitOpenInNewTab: vi.fn(),
         removeRecentFileIfMissing: vi.fn(async () => false),
         ...overrides,
-    });
+    } satisfies Parameters<typeof usePageFileOperations>[0];
 }
 
 describe('usePageFileOperations', () => {

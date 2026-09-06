@@ -21,11 +21,16 @@ import {
 } from '@app/types/workspaceExpose';
 import type { ITab } from '@app/types/tabs';
 import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
-import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import {
+    createWorkspaceDocumentRecord,
+    type IWorkspaceDocumentRecord,
+} from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { requireDocumentRef } from '@contracts/documentRef';
+import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 const routingMocks = vi.hoisted(() => ({
     getPdfOpeningGeometry: vi.fn(),
@@ -55,6 +60,17 @@ function createTabStub(id: string): ITab {
     };
 }
 
+function createDocumentIdentity(documentRef: string): IDocumentRevisionInfo {
+    return {
+        version: 1,
+        token: requireDocumentRevisionToken(`test-revision-${documentRef}`),
+        documentRef: requireDocumentRef(documentRef),
+        authority: 'browser-document-store',
+        contentRevision: 1,
+        mintedAt: requireEpochMs(1),
+    };
+}
+
 function createWorkspace(hasPdf = false, isDjvuMode = false, isOpeningDocument = false): IWorkspaceRecord {
     const state = ref(hasPdf);
     const openPath = vi.fn(async (_path: string) => {
@@ -69,11 +85,12 @@ function createWorkspace(hasPdf = false, isDjvuMode = false, isOpeningDocument =
     return {
         openPath,
         openResult,
-        workspace: cast<IWorkspaceExpose>({
+        workspace: createWorkspaceExposeFixture({
             hasPdf: state,
             handleOpenFileDirectWithPersist: openPath,
             handleOpenFileWithResult: openResult,
-            getToolbarSnapshot: () => cast<IWorkspaceExpose['getToolbarSnapshot'] extends () => infer T ? T : never>({
+            getToolbarSnapshot: () => ({
+                ...createDefaultWorkspaceToolbarSnapshot(),
                 isDjvuMode,
                 isOpeningDocument,
                 viewerCapabilities: {
@@ -692,10 +709,10 @@ describe('useAppShellWorkspaceRouting', () => {
         });
         routingOptions.getDocumentRecord = vi.fn((tabId: string | null | undefined) => (
             tabId === 'tab-1'
-                ? cast({
+                ? createWorkspaceDocumentRecord({
                     tab: {
                         fileName: 'source.djvu',
-                        originalPath: '/docs/source.djvu',
+                        originalPath: requireDocumentRef('/docs/source.djvu'),
                         isDirty: false,
                         isDjvu: true,
                     },
@@ -1002,10 +1019,10 @@ describe('useAppShellWorkspaceRouting', () => {
         });
         routingOptions.getDocumentRecord.mockImplementation((tabId: string | null | undefined) => (
             tabId === 'tab-2'
-                ? cast({
+                ? createWorkspaceDocumentRecord({
                     tab: {
                         fileName: 'opened.pdf',
-                        originalPath: '/docs/opened.pdf',
+                        originalPath: requireDocumentRef('/docs/opened.pdf'),
                         isDirty: false,
                         isDjvu: false,
                     },
@@ -1060,14 +1077,14 @@ describe('useAppShellWorkspaceRouting', () => {
         });
         routingOptions.getDocumentRecord.mockImplementation((tabId: string | null | undefined) => (
             tabId === 'tab-2'
-                ? cast({
+                ? createWorkspaceDocumentRecord({
                     tab: {
                         fileName: 'generated.pdf',
                         originalPath: null,
                         isDirty: false,
                         isDjvu: false,
                     },
-                    documentIdentity: {documentRef: '/managed/generated.pdf'},
+                    documentIdentity: createDocumentIdentity('/managed/generated.pdf'),
                     toolbarSnapshot: {
                         ...createDefaultWorkspaceToolbarSnapshot(),
                         hasPdf: true,
@@ -1110,10 +1127,10 @@ describe('useAppShellWorkspaceRouting', () => {
         });
         routingOptions.getDocumentRecord.mockImplementation((tabId: string | null | undefined) => (
             tabId === 'tab-2'
-                ? cast({
+                ? createWorkspaceDocumentRecord({
                     tab: {
                         fileName: 'seeded.pdf',
-                        originalPath: '/docs/seeded.pdf',
+                        originalPath: requireDocumentRef('/docs/seeded.pdf'),
                         isDirty: false,
                         isDjvu: false,
                     },
@@ -1281,11 +1298,11 @@ describe('useAppShellWorkspaceRouting', () => {
             ));
             routingOptions.getDocumentRecord.mockImplementation((tabId: string | null | undefined) => (
                 tabId === activeTab.id && documentAccepted
-                    ? cast({
+                    ? createWorkspaceDocumentRecord({
                         tab: {
                             ...activeTab,
                             fileName: 'large.pdf',
-                            originalPath: '/docs/large.pdf',
+                            originalPath: requireDocumentRef('/docs/large.pdf'),
                         },
                         documentIdentity: null,
                         toolbarSnapshot: {
@@ -1331,11 +1348,11 @@ describe('useAppShellWorkspaceRouting', () => {
             routingOptions.getTabById = vi.fn((tabId: string | null | undefined) => (
                 tabId === reservedTab.id ? reservedTab : null
             ));
-            routingOptions.getDocumentRecord.mockReturnValue(cast({
+            routingOptions.getDocumentRecord.mockReturnValue(createWorkspaceDocumentRecord({
                 tab: {
                     ...reservedTab,
                     fileName: 'old.pdf',
-                    originalPath: '/docs/old.pdf',
+                    originalPath: requireDocumentRef('/docs/old.pdf'),
                 },
                 documentIdentity: null,
                 toolbarSnapshot: {
@@ -1380,13 +1397,13 @@ describe('useAppShellWorkspaceRouting', () => {
             });
             routingOptions.getDocumentRecord.mockImplementation((tabId: string | null | undefined) => (
                 tabId === reservedTab.id && visuallySettled
-                    ? cast({
+                    ? createWorkspaceDocumentRecord({
                         tab: {
                             ...reservedTab,
                             fileName: 'restored.pdf',
-                            originalPath: '/docs/restored.pdf',
+                            originalPath: requireDocumentRef('/docs/restored.pdf'),
                         },
-                        documentIdentity: {originalPath: '/docs/restored.pdf'},
+                        documentIdentity: createDocumentIdentity('/docs/restored.pdf'),
                         toolbarSnapshot: {
                             ...createDefaultWorkspaceToolbarSnapshot(),
                             initialVisualReady: true,
@@ -1432,10 +1449,10 @@ describe('useAppShellWorkspaceRouting', () => {
         });
         routingOptions.getDocumentRecord.mockImplementation((tabId: string | null | undefined) => (
             tabId === 'tab-2'
-                ? cast({
+                ? createWorkspaceDocumentRecord({
                     tab: {
                         fileName: 'startup.pdf',
-                        originalPath: '/docs/startup.pdf',
+                        originalPath: requireDocumentRef('/docs/startup.pdf'),
                         isDirty: false,
                         isDjvu: false,
                     },
