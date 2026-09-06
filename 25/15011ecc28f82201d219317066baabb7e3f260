@@ -1,0 +1,39 @@
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_4bc3578643284e::t_214012c3e9e849 599
+  s_4bc3578643284e::t_33ddff9a73cb78 550-553,555-558,575-578,580-583,601-604,606-609,633-636,676-679,709,711-714,748-751
+  s_4bc3578643284e::t_11ae52e1b02df5 629,745
+tests/unit/electron/assistantProviderInitialization.test.ts
+  s_4bc3578643284e::t_3e8e9bc266571a 1-6,15-23
+  s_4bc3578643284e::t_58926a30218ec4 7-14,24-34
+electron/features/agent/claudeProviderMetadata.ts
+  s_4bc3578643284e::t_cd6715544e6e47 16
+  s_4bc3578643284e::t_48b2ebfe108d18 2-7,11,14-15,21-29,34-108,110-111,114,118,127-195,198-227,229-230,232,235-241,243-418,421,423,426,428-453,469,473,475-477,480,489-493
+electron/features/agent/codexAssistant.ts
+  s_4bc3578643284e::t_f40b554e72c862 776-778
+  s_4bc3578643284e::t_33ddff9a73cb78 120
+  s_4bc3578643284e::t_11e4c66991bb2a 36,406,409,781-784
+  s_4bc3578643284e::t_f4d04150a78485 1144-1147
+  s_4bc3578643284e::t_c177b7c13d0ca2 35,780
+docs/architecture/assistant-production-files.txt
+  s_4bc3578643284e::t_7240f385943b9c 70
+tests/unit/electron/claudeAgentSdkAssistant.test.ts
+  s_4bc3578643284e::t_4048558ac3dc9c 206-222
+electron/features/agent/claudeAgentSdkAssistant.ts
+  s_4bc3578643284e::t_1c3c50e08487ae 44-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2515011ecc28f82201d219317066baabb7e3f260",
+  "prompts": {},
+  "sessions": {
+    "s_4bc3578643284e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077e6-eb15-77a0-a18d-00dc2fd0c65a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
