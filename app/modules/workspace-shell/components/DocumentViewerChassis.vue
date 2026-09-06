@@ -247,9 +247,9 @@ function retainCurrentResizeAnchor() {
     if (!viewport) {
         return;
     }
-    releaseRetainedResizeAnchor();
-    retainedResizeAnchor.value = captureDocumentViewportResizeAnchor(viewport);
     const session = chassisAuthority.openSurface.viewportSession.value;
+    releaseRetainedResizeAnchor();
+    retainedResizeAnchor.value = captureDocumentViewportResizeAnchor(viewport, {preferredPageNumber: session.committedPage ?? session.requestedPage});
     retainedResizeAnchorFence = retainedResizeAnchor.value ? {
         generation: session.generation,
         interactionEpoch: chassisAuthority.viewportWritePort.getInteractionEpoch(),
