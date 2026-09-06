@@ -1,17 +1,9 @@
 //! Cross-page classification reconciliation.
-use crate::cache::ByteLru;
-use crate::domain::options::OutputMode;
 use crate::engine::page_statistics::{
     bucket_classification, classification_bucket, dimensions_within_tolerance, median, ramp_local,
-    robust_typographic_median, run_classification, PageResultMetadata, PageRunResult,
+    robust_typographic_median,
 };
-use crate::engine::resource_planning::page_cache_for;
-use crate::engine::staged_input::{with_announced_staged_page_input, LeaseAnnouncer};
-use crate::protocol::manifest_v3::{AnalysisPurpose, ManifestV3, Operation};
 use crate::split::LayoutClassification;
-use evb_native_support::{NativeError, NativeErrorEnvelope};
-use std::error::Error;
-use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy)]
 pub(crate) struct Tier1Provenance {
@@ -20,25 +12,66 @@ pub(crate) struct Tier1Provenance {
     pub(crate) candidate_cutter_ratio: Option<f64>,
     pub(crate) whitespace_score: f64,
 }
+
+pub(crate) struct ReconciliationPolicy {
+    pub(crate) minimum_confidence: f64,
+    pub(crate) minimum_support: usize,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ReconciliationCandidate {
+    pub(crate) cutter_x: Option<f64>,
+    pub(crate) tier1_verdict: LayoutClassification,
+    pub(crate) tier1_confidence: f64,
+    pub(crate) candidate_cutter_ratio: Option<f64>,
+    pub(crate) whitespace_score: f64,
+    pub(crate) rotated_width: usize,
+    pub(crate) rotated_height: usize,
+    pub(crate) calibration_stroke_width_px: Option<f64>,
+    pub(crate) calibration_x_height_px: Option<f64>,
+    pub(crate) reconciliation_eligible: bool,
+    pub(crate) excluded: bool,
+    pub(crate) document_prior: Option<crate::split::DocumentPrior>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ReconciliationAction {
+    Rerun {
+        index: usize,
+        prior: crate::split::DocumentPrior,
+        tier1: Tier1Provenance,
+    },
+    Update {
+        index: usize,
+        prior: crate::split::DocumentPrior,
+        classification: LayoutClassification,
+        confidence: f64,
+        cutter_x: Option<f64>,
+        tier1_verdict: LayoutClassification,
+        reconciled: bool,
+        cluster_agreement: f64,
+        output_count: usize,
+        clear_split_seam: bool,
+        clear_outputs: bool,
+    },
+}
+
 pub(crate) fn reconcile_classification_batch(
-    manifest: &ManifestV3,
-    results: &mut [PageRunResult],
-    cache: &Arc<Mutex<ByteLru>>,
-    announce: LeaseAnnouncer<'_>,
-) -> Result<(), Box<dyn Error>> {
+    results: &[ReconciliationCandidate],
+    policy: ReconciliationPolicy,
+) -> Vec<ReconciliationAction> {
+    let mut actions = Vec::new();
     let eligible = results
         .iter()
         .enumerate()
-        .filter(|(_, result)| {
-            result.metadata.reconciliation_eligible && result.metadata.document_prior.is_none()
-        })
+        .filter(|(_, result)| result.reconciliation_eligible && result.document_prior.is_none())
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
     let mut clusters: Vec<Vec<usize>> = Vec::new();
     for index in eligible {
-        let metadata = &results[index].metadata;
+        let metadata = results[index];
         if let Some(cluster) = clusters.iter_mut().find(|cluster| {
-            let representative = &results[cluster[0]].metadata;
+            let representative = results[cluster[0]];
             dimensions_within_tolerance(metadata.rotated_width, representative.rotated_width)
                 && dimensions_within_tolerance(
                     metadata.rotated_height,
@@ -55,18 +88,18 @@ pub(crate) fn reconcile_classification_batch(
         let confident = cluster
             .iter()
             .copied()
-            .filter(|&index| results[index].metadata.tier1_confidence >= 0.60)
+            .filter(|&index| results[index].tier1_confidence >= policy.minimum_confidence)
             .collect::<Vec<_>>();
         let mut support = [0usize; 3];
         let mut confidence_sum = [0.0_f64; 3];
         for &index in &confident {
-            let metadata = &results[index].metadata;
+            let metadata = results[index];
             let bucket = classification_bucket(metadata.tier1_verdict);
             support[bucket] += 1;
             confidence_sum[bucket] += metadata.tier1_confidence;
         }
         let Some(dominant_bucket) = (0..support.len())
-            .filter(|&bucket| support[bucket] >= 2)
+            .filter(|&bucket| support[bucket] >= policy.minimum_support)
             .max_by(|&left, &right| {
                 support[left]
                     .cmp(&support[right])
@@ -90,9 +123,9 @@ pub(crate) fn reconcile_classification_batch(
         let mut cutter_ratios = confident
             .iter()
             .filter_map(|&index| {
-                let metadata = &results[index].metadata;
+                let metadata = results[index];
                 (metadata.tier1_verdict == LayoutClassification::TwoPageSpread)
-                    .then_some(metadata.cutter_x_px)
+                    .then_some(metadata.cutter_x)
                     .flatten()
                     .map(|cutter| cutter / metadata.rotated_width.max(1) as f64)
             })
@@ -113,23 +146,23 @@ pub(crate) fn reconcile_classification_batch(
             (consensus * (0.65 + 0.25 * mean_confidence) * cutter_consistency).clamp(0.0, 0.95);
         let mut widths = cluster
             .iter()
-            .map(|&index| results[index].metadata.rotated_width as f64)
+            .map(|&index| results[index].rotated_width as f64)
             .collect::<Vec<_>>();
         let mut heights = cluster
             .iter()
-            .map(|&index| results[index].metadata.rotated_height as f64)
+            .map(|&index| results[index].rotated_height as f64)
             .collect::<Vec<_>>();
         widths.sort_by(f64::total_cmp);
         heights.sort_by(f64::total_cmp);
         let document_stroke_width_px = robust_typographic_median(
             cluster
                 .iter()
-                .filter_map(|&index| results[index].metadata.calibration_stroke_width_px),
+                .filter_map(|&index| results[index].calibration_stroke_width_px),
         );
         let document_x_height_px = robust_typographic_median(
             cluster
                 .iter()
-                .filter_map(|&index| results[index].metadata.calibration_x_height_px),
+                .filter_map(|&index| results[index].calibration_x_height_px),
         );
         let prior = crate::split::DocumentPrior {
             dominant_layout,
@@ -144,7 +177,7 @@ pub(crate) fn reconcile_classification_batch(
         };
 
         for index in cluster {
-            let metadata = &results[index].metadata;
+            let metadata = results[index];
             let candidate_is_off_prior = prior
                 .cutter_ratio_median
                 .zip(metadata.candidate_cutter_ratio)
@@ -156,46 +189,21 @@ pub(crate) fn reconcile_classification_batch(
                     || metadata.tier1_confidence < 0.60
                     || candidate_is_off_prior);
             if rerun_with_prior {
-                let tier1 = Tier1Provenance {
-                    verdict: metadata.tier1_verdict,
-                    confidence: metadata.tier1_confidence,
-                    candidate_cutter_ratio: metadata.candidate_cutter_ratio,
-                    whitespace_score: metadata.whitespace_score,
-                };
-                // Reconciliation re-reads the page, which is exactly why a
-                // staged raster has to be replayable rather than consumed: the
-                // lease is taken again and the owning process re-renders the
-                // same input if its window already released it.
-                let mut rerun = with_announced_staged_page_input(
-                    manifest,
-                    &manifest.pages[index],
-                    announce,
-                    || {
-                        let page_cache = page_cache_for(&manifest.pages[index], cache)?;
-                        run_classification(
-                            &manifest.pages[index],
-                            manifest.canvas_scope,
-                            Some(prior),
-                            manifest.operation == Operation::Analyze
-                                || manifest.pages[index].options.output_mode == OutputMode::Auto,
-                            manifest.analysis_purpose == AnalysisPurpose::PagePlan,
-                            &page_cache,
-                        )
-                        .map_err(|error| {
-                            let envelope = NativeErrorEnvelope::from_error(error.as_ref());
-                            NativeError::new(envelope.code, envelope.message)
-                        })
+                actions.push(ReconciliationAction::Rerun {
+                    index,
+                    prior,
+                    tier1: Tier1Provenance {
+                        verdict: metadata.tier1_verdict,
+                        confidence: metadata.tier1_confidence,
+                        candidate_cutter_ratio: metadata.candidate_cutter_ratio,
+                        whitespace_score: metadata.whitespace_score,
                     },
-                )?;
-                rerun.timings += results[index].timings;
-                results[index] = rerun;
-                preserve_tier1_provenance_after_rerun(&mut results[index].metadata, tier1, prior);
+                });
                 continue;
             }
 
-            let metadata = &mut results[index].metadata;
             let tier1_cutter = (metadata.tier1_verdict == LayoutClassification::TwoPageSpread)
-                .then_some(metadata.cutter_x_px)
+                .then_some(metadata.cutter_x)
                 .flatten();
             let decision = crate::split::reconcile_layout_decision(
                 metadata.tier1_verdict,
@@ -207,60 +215,143 @@ pub(crate) fn reconcile_classification_batch(
                 metadata.rotated_height,
                 prior,
             );
-            metadata.layout_classification = decision.classification;
-            metadata.layout_confidence = decision.confidence;
-            metadata.cutter_x_px = decision.cutter_x;
-            metadata.tier1_verdict = decision.reconciliation.tier1_verdict;
-            metadata.reconciled = decision.reconciliation.reconciled;
-            metadata.cluster_agreement = decision.reconciliation.cluster_agreement;
-            metadata.document_prior = Some(prior);
-            metadata.output_count = if metadata.excluded {
-                0
-            } else if decision.classification == LayoutClassification::TwoPageSpread {
-                2
-            } else {
-                1
-            };
-            if decision.classification != LayoutClassification::TwoPageSpread {
-                metadata.split_seam = None;
-            }
-            if decision.reconciliation.reconciled {
-                metadata.outputs.clear();
-            }
+            actions.push(ReconciliationAction::Update {
+                index,
+                prior,
+                classification: decision.classification,
+                confidence: decision.confidence,
+                cutter_x: decision.cutter_x,
+                tier1_verdict: decision.reconciliation.tier1_verdict,
+                reconciled: decision.reconciliation.reconciled,
+                cluster_agreement: decision.reconciliation.cluster_agreement,
+                output_count: if metadata.excluded {
+                    0
+                } else if decision.classification == LayoutClassification::TwoPageSpread {
+                    2
+                } else {
+                    1
+                },
+                clear_split_seam: decision.classification != LayoutClassification::TwoPageSpread,
+                clear_outputs: decision.reconciliation.reconciled,
+            });
         }
     }
-    Ok(())
-}
-pub(crate) fn preserve_tier1_provenance_after_rerun(
-    metadata: &mut PageResultMetadata,
-    tier1: Tier1Provenance,
-    prior: crate::split::DocumentPrior,
-) {
-    metadata.tier1_verdict = tier1.verdict;
-    metadata.tier1_confidence = tier1.confidence;
-    metadata.candidate_cutter_ratio = tier1.candidate_cutter_ratio;
-    metadata.whitespace_score = tier1.whitespace_score;
-    metadata.reconciled = metadata.layout_classification != tier1.verdict;
-    metadata.cluster_agreement = if metadata.layout_classification == prior.dominant_layout {
-        prior.agreement_strength
-    } else {
-        -prior.agreement_strength
-    };
-    metadata.document_prior = Some(prior);
+    actions
 }
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::page_statistics::EnginePageTimings as PageStageTimings;
-    use crate::engine::resource_planning::manifest_cache;
+    use crate::adapters::batch_cli::{PageResultMetadata, PageRunResult};
     use crate::protocol::manifest_v3::{
         AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode, SplitSeamPolyline,
         VERSION,
     };
+    use crate::protocol::progress::PageStageTimings;
     use crate::split::{ClusterDimensions, DocumentPrior, LayoutClassification};
     use crate::{CleanupOptions, OrthogonalRotation};
     use scan_primitives::{GrayImage, Point};
     use std::{fs, path::PathBuf};
+
+    fn reconcile_classification_batch(
+        results: &mut [PageRunResult],
+        policy: ReconciliationPolicy,
+        mut rerun: impl FnMut(
+            usize,
+            crate::split::DocumentPrior,
+        ) -> Result<PageRunResult, Box<dyn std::error::Error>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let candidates = results
+            .iter()
+            .map(|result| ReconciliationCandidate {
+                tier1_verdict: result.metadata.tier1_verdict,
+                tier1_confidence: result.metadata.tier1_confidence,
+                candidate_cutter_ratio: result.metadata.candidate_cutter_ratio,
+                whitespace_score: result.metadata.whitespace_score,
+                rotated_width: result.metadata.rotated_width,
+                rotated_height: result.metadata.rotated_height,
+                calibration_stroke_width_px: result.metadata.calibration_stroke_width_px,
+                calibration_x_height_px: result.metadata.calibration_x_height_px,
+                reconciliation_eligible: result.metadata.reconciliation_eligible,
+                excluded: result.metadata.excluded,
+                document_prior: result.metadata.document_prior,
+                cutter_x: result.metadata.cutter_x_px,
+            })
+            .collect::<Vec<_>>();
+        for action in super::reconcile_classification_batch(&candidates, policy) {
+            match action {
+                ReconciliationAction::Rerun {
+                    index,
+                    prior,
+                    tier1,
+                } => {
+                    let mut rerun = rerun(index, prior)?;
+                    rerun.timings += results[index].timings;
+                    results[index] = rerun;
+                    let metadata = &mut results[index].metadata;
+                    metadata.tier1_verdict = tier1.verdict;
+                    metadata.tier1_confidence = tier1.confidence;
+                    metadata.candidate_cutter_ratio = tier1.candidate_cutter_ratio;
+                    metadata.whitespace_score = tier1.whitespace_score;
+                    metadata.reconciled = metadata.layout_classification != tier1.verdict;
+                    metadata.cluster_agreement =
+                        if metadata.layout_classification == prior.dominant_layout {
+                            prior.agreement_strength
+                        } else {
+                            -prior.agreement_strength
+                        };
+                    metadata.document_prior = Some(prior);
+                }
+                ReconciliationAction::Update {
+                    index,
+                    prior,
+                    classification,
+                    confidence,
+                    cutter_x,
+                    tier1_verdict,
+                    reconciled,
+                    cluster_agreement,
+                    output_count,
+                    clear_split_seam,
+                    clear_outputs,
+                } => {
+                    let metadata = &mut results[index].metadata;
+                    metadata.layout_classification = classification;
+                    metadata.layout_confidence = confidence;
+                    metadata.cutter_x_px = cutter_x;
+                    metadata.tier1_verdict = tier1_verdict;
+                    metadata.reconciled = reconciled;
+                    metadata.cluster_agreement = cluster_agreement;
+                    metadata.document_prior = Some(prior);
+                    metadata.output_count = output_count;
+                    if clear_split_seam {
+                        metadata.split_seam = None;
+                    }
+                    if clear_outputs {
+                        metadata.outputs.clear();
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn preserve_tier1_provenance_after_rerun(
+        metadata: &mut PageResultMetadata,
+        tier1: Tier1Provenance,
+        prior: crate::split::DocumentPrior,
+    ) {
+        metadata.tier1_verdict = tier1.verdict;
+        metadata.tier1_confidence = tier1.confidence;
+        metadata.candidate_cutter_ratio = tier1.candidate_cutter_ratio;
+        metadata.whitespace_score = tier1.whitespace_score;
+        metadata.reconciled = metadata.layout_classification != tier1.verdict;
+        metadata.cluster_agreement = if metadata.layout_classification == prior.dominant_layout {
+            prior.agreement_strength
+        } else {
+            -prior.agreement_strength
+        };
+        metadata.document_prior = Some(prior);
+    }
 
     #[cfg(unix)]
     #[test]
@@ -345,10 +436,17 @@ mod tests {
         ];
 
         let error = reconcile_classification_batch(
-            &manifest,
             &mut results,
-            &manifest_cache(Operation::Analyze, None),
-            &|_event, _page, _total| Ok(()),
+            ReconciliationPolicy {
+                minimum_confidence: 0.60,
+                minimum_support: 2,
+            },
+            |index, _prior| {
+                assert!(fs::metadata(&manifest.pages[index].input_path)
+                    .map(|metadata| !metadata.file_type().is_file())
+                    .unwrap_or(false));
+                Err("rerun input failed".into())
+            },
         )
         .unwrap_err();
         assert!(!error.to_string().is_empty());
@@ -490,10 +588,20 @@ mod tests {
         ];
 
         reconcile_classification_batch(
-            &manifest,
             &mut results,
-            &manifest_cache(Operation::Analyze, None),
-            &|_event, _page, _total| Ok(()),
+            ReconciliationPolicy {
+                minimum_confidence: 0.60,
+                minimum_support: 2,
+            },
+            |index, _prior| {
+                assert_eq!(manifest.pages.len(), 4);
+                Ok(result(
+                    index,
+                    LayoutClassification::TwoPageSpread,
+                    0.90,
+                    PageStageTimings::default(),
+                ))
+            },
         )
         .unwrap();
 
