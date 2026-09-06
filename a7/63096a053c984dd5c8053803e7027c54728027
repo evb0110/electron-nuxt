@@ -1,0 +1,29 @@
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_d252de3ad71cee::t_a5df4abc6de208 251
+  s_d252de3ad71cee::t_c6d011b3e1d3d6 250
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_d252de3ad71cee::t_78806cf9017764 1128-1130
+app/utils/document-viewer/chassis/documentViewportResizeAnchor.ts
+  s_d252de3ad71cee::t_ef099e8ff0138d 18,41,64-68
+  s_d252de3ad71cee::t_a5df4abc6de208 17
+docs/pdf-annotations-audit-2026-08-22-implementation-ledger.md
+  s_d252de3ad71cee::t_03032220c38216 799-832
+tests/unit/app/utils/document-viewer/documentViewportResizeAnchor.test.ts
+  s_d252de3ad71cee::t_3bf71d6fdbbf39 77-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a763096a053c984dd5c8053803e7027c54728027",
+  "prompts": {},
+  "sessions": {
+    "s_d252de3ad71cee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0723f-6c82-7453-a893-5fe26c4041d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
