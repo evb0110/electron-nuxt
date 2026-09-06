@@ -18,7 +18,6 @@ import {
 } from 'vitest';
 import { allowDocxWritePath } from '@electron/file-access/docxExportPaths';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
-import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     atomicReplace: vi.fn(async (
@@ -61,7 +60,8 @@ describe('DOCX export stream commit cancellation race', () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-docx-commit-race-'));
         try {
             const sender = new FakeWebContents();
-            const senderWebContents = cast<WebContents>(sender);
+            // The export path only reads the lifecycle methods provided by this test double.
+            const senderWebContents = sender as WebContents;
             const targetPath = join(directory, 'export.docx');
             allowDocxWritePath(targetPath, senderWebContents);
             const context = {
@@ -99,7 +99,8 @@ describe('DOCX export stream commit cancellation race', () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-docx-commit-race-'));
         try {
             const sender = new FakeWebContents();
-            const senderWebContents = cast<WebContents>(sender);
+            // The export path only reads the lifecycle methods provided by this test double.
+            const senderWebContents = sender as WebContents;
             const targetPath = join(directory, 'export.docx');
             allowDocxWritePath(targetPath, senderWebContents);
             const context = {

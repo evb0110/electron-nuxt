@@ -1,6 +1,6 @@
 import type {
     IpcMainInvokeEvent,
-    IpcRendererEvent,
+    IpcRenderer,
 } from 'electron';
 import { BrowserWindow } from 'electron';
 import {
@@ -16,8 +16,11 @@ import {
     DOCUMENT_MENU_PLATFORM_FEATURE,
     DOCUMENT_PICKER_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
-import type { IDocumentsService } from '@electron/features/documents/documentsService';
-import { createDocumentsPreloadClient } from '@electron/features/documents/createDocumentsPreloadClient';
+import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
+import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
+import { WINDOW_TABS_PLATFORM_FEATURE } from '@contracts/windowTabsPlatformFeature';
+import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { handleOpenPdfDialog } from '@electron/features/documents/main/documentOpenHandlers';
 import { handleSavePdfDialog } from '@electron/features/documents/main/documentSaveDialogHandlers';
 import { registerDocumentsIpcAdapter } from '@electron/features/documents/registerDocumentsIpcAdapter';
@@ -26,8 +29,8 @@ import {
     setupMenu,
 } from '@electron/menu';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { cast } from '@tests/helpers/cast';
+import { createDocumentsServiceFixture } from '@tests/unit/electron/helpers/createDocumentsServiceFixture';
+import { createWorkspaceExposeFixture } from '@tests/unit/electron/helpers/createWorkspaceExposeFixture';
 
 interface IMenuItemLike {
     click?: (item: unknown, window?: unknown) => unknown;
@@ -37,7 +40,8 @@ interface IMenuItemLike {
 }
 
 type TInvokeHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
-type TRendererListener = (event: IpcRendererEvent, payload?: unknown) => void;
+type TRendererListener = (event: unknown, payload?: unknown) => void;
+type TTestIpcRenderer = Pick<IpcRenderer, 'invoke' | 'on' | 'postMessage' | 'removeListener' | 'send'>;
 
 const mocks = vi.hoisted(() => ({
     buildFromTemplate: vi.fn((template: unknown) => ({template})),
@@ -154,47 +158,58 @@ describe('native menu and dialog routing', () => {
     it('routes native menu commands through preload, workspace, IPC codecs, and the OS dialog boundary', async () => {
         const invokeHandlers = new Map<string, TInvokeHandler>();
         const listeners = new Map<string, Set<TRendererListener>>();
+        // The mocked BrowserWindow constructor accepts test ids, unlike Electron's options object.
         const window = new BrowserWindow(42 as never);
         mocks.focusedWindow = window;
 
-        const ipcRenderer = cast<Electron.IpcRenderer>({
+        const on = vi.fn();
+        const removeListener = vi.fn();
+        const ipcRenderer = {
             invoke: async (channel: string, ...args: unknown[]) => {
                 const handler = invokeHandlers.get(channel);
                 if (!handler) {
                     throw new Error(`Missing IPC handler for ${channel}`);
                 }
-                return handler(cast<IpcMainInvokeEvent>({sender: window.webContents}), ...args);
+                // The adapter only reads sender from this IPC event double.
+                return handler({sender: window.webContents} as IpcMainInvokeEvent, ...args);
             },
-            on: (channel: string, listener: TRendererListener) => {
-                const channelListeners = listeners.get(channel) ?? new Set<TRendererListener>();
-                channelListeners.add(listener);
-                listeners.set(channel, channelListeners);
-                return ipcRenderer;
-            },
+            on,
             postMessage: vi.fn(),
-            removeListener: (channel: string, listener: TRendererListener) => {
-                listeners.get(channel)?.delete(listener);
-                return ipcRenderer;
-            },
+            removeListener,
+            send: vi.fn(),
+        } satisfies TTestIpcRenderer;
+        on.mockImplementation((channel: string, listener: TRendererListener) => {
+            const channelListeners = listeners.get(channel) ?? new Set<TRendererListener>();
+            channelListeners.add(listener);
+            listeners.set(channel, channelListeners);
+            return ipcRenderer;
+        });
+        removeListener.mockImplementation((channel: string, listener: TRendererListener) => {
+            listeners.get(channel)?.delete(listener);
+            return ipcRenderer;
         });
         mocks.emitRendererEvent = (channel: string, ...args: unknown[]) => {
             for (const listener of listeners.get(channel) ?? []) {
-                listener({} as IpcRendererEvent, args[0]);
+                // Renderer subscribers ignore the Electron event metadata in this harness.
+                listener({}, args[0]);
             }
         };
 
-        const service = cast<IDocumentsService>({
+        const service = createDocumentsServiceFixture({
             openDocumentDialog: handleOpenPdfDialog,
             onWorkingCopyBackingStatusChanged: vi.fn(() => () => {}),
             savePdfDialog: handleSavePdfDialog,
         });
+        const registrar: Parameters<typeof registerDocumentsIpcAdapter>[0] = {handle: (channel, handler) => {
+            invokeHandlers.set(channel, (...args: unknown[]) => Reflect.apply(handler, undefined, args));
+        }};
         registerDocumentsIpcAdapter(
-            {handle: (channel: string, handler: TInvokeHandler) => invokeHandlers.set(channel, handler)} as never,
+            registrar,
             service,
             {eventRegistrar: {on: vi.fn()}},
         );
 
-        const documents = createDocumentsPreloadClient(ipcRenderer);
+        const documents = createDocumentsPreloadFileClient(ipcRenderer);
         const documentPicker = createPlatformFeaturePreloadClient(
             ipcRenderer,
             DOCUMENT_PICKER_PLATFORM_FEATURE,
@@ -211,7 +226,7 @@ describe('native menu and dialog routing', () => {
         let saveDialogResult: string | null = null;
         const print = vi.fn(async () => undefined);
         const deletePages = vi.fn();
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             handleDeletePages: deletePages,
             handlePrint: print,
             handleSaveAs: async () => {
@@ -219,19 +234,45 @@ describe('native menu and dialog routing', () => {
                 return saveDialogResult !== null;
             },
         });
-        registerTabsMenuBindings(cast<Parameters<typeof registerTabsMenuBindings>[0]>({
+        const menuApi = {
             documentMenu,
-            djvu: {},
-            settings: {},
-            updates: {},
-            windowTabs: {},
-        }), cast<Parameters<typeof registerTabsMenuBindings>[1]>({
+            djvu: createPlatformFeaturePreloadClient(ipcRenderer, DJVU_PLATFORM_FEATURE),
+            settings: {
+                ...createPlatformFeaturePreloadClient(ipcRenderer, SETTINGS_PLATFORM_FEATURE),
+                getDebugLogs: async () => [],
+                onDebugLog: () => () => undefined,
+                rendererLog: () => undefined,
+            },
+            updates: {
+                ...createPlatformFeaturePreloadClient(ipcRenderer, UPDATES_PLATFORM_FEATURE),
+                onMenuCheckForUpdates: () => () => undefined,
+            },
+            windowTabs: {
+                ...createPlatformFeaturePreloadClient(ipcRenderer, WINDOW_TABS_PLATFORM_FEATURE),
+                notifyRendererReady: () => undefined,
+            },
+        } satisfies Parameters<typeof registerTabsMenuBindings>[0];
+        const menuDeps = {
             activeTabId: ref('tab-1'),
             activeWorkspace: ref(workspace),
+            checkForUpdates: async () => undefined,
+            clearRecentFiles: async () => undefined,
+            copyActiveTab: () => undefined,
+            createTab: () => ({id: 'tab-2'}),
+            focusPane: () => undefined,
+            handleCloseTab: async () => undefined,
             handleFallbackToolbarOpenFile: async () => {
                 await documentPicker.openDocumentDialog();
             },
-        }));
+            handleWindowTabsAction: () => undefined,
+            loadRecentFiles: async () => undefined,
+            moveActiveTab: () => undefined,
+            openPathInAppropriateTab: async () => true,
+            openPathsInAppropriateTab: async () => undefined,
+            splitEditor: () => undefined,
+            toggleAssistant: () => undefined,
+        } satisfies Parameters<typeof registerTabsMenuBindings>[1];
+        registerTabsMenuBindings(menuApi, menuDeps);
 
         setupMenu();
         setMenuDocumentState(window.id, true);
@@ -275,6 +316,7 @@ describe('native menu and dialog routing', () => {
     });
 
     it('keeps native About and opens Acknowledgements as a local renderer page', async () => {
+        // The mocked BrowserWindow constructor accepts test ids, unlike Electron's options object.
         const window = new BrowserWindow(43 as never);
         mocks.focusedWindow = window;
 

@@ -11,7 +11,6 @@ import {
     PDFDataRangeTransport,
     PDFWorker,
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { cast } from '@tests/helpers/cast';
 
 const MEGABYTE = 1024 * 1024;
 const PDF_SIZE = 17 * MEGABYTE;
@@ -186,7 +185,8 @@ async function createPdfjsWorker() {
             }
         },
     };
-    const pdfWorker = new PDFWorker(cast<ConstructorParameters<typeof PDFWorker>[0]>({port}));
+    // pdfjs-dist's declaration only permits a null port, but its runtime worker bridge accepts this port.
+    const pdfWorker = Reflect.construct(PDFWorker, [{port}]) as InstanceType<typeof PDFWorker>;
     await pdfWorker.promise;
     return {
         close: async () => {
@@ -221,11 +221,12 @@ describe('PDF.js range transport', () => {
                     begin,
                     ...(isLast === undefined ? {} : {isLast}),
                 });
-                cast<(
-                    rangeBegin: number,
-                    rangeChunk: Uint8Array | null,
-                    rangeIsLast?: boolean,
-                ) => void>(super.onDataRange).call(this, begin, chunk, isLast);
+                // pdfjs-dist's declaration omits the optional runtime third argument.
+                Reflect.apply(super.onDataRange, this, [
+                    begin,
+                    chunk,
+                    isLast,
+                ]);
             }
 
             override requestDataRange(begin: number, end: number) {
@@ -284,11 +285,12 @@ describe('PDF.js range transport', () => {
             }
 
             override onDataRange(begin: number, chunk: Uint8Array | null, isLast?: boolean) {
-                cast<(
-                    rangeBegin: number,
-                    rangeChunk: Uint8Array | null,
-                    rangeIsLast?: boolean,
-                ) => void>(super.onDataRange).call(this, begin, chunk, isLast);
+                // pdfjs-dist's declaration omits the optional runtime third argument.
+                Reflect.apply(super.onDataRange, this, [
+                    begin,
+                    chunk,
+                    isLast,
+                ]);
             }
 
             override requestDataRange(begin: number, end: number) {

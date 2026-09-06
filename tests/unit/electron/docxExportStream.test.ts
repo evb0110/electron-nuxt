@@ -24,7 +24,6 @@ import {
 } from '@electron/features/documents/main/docxExportStream';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import { DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES } from '@contracts/docxExport';
-import { cast } from '@tests/helpers/cast';
 
 class FakeWebContents extends EventEmitter {
     readonly id = 42;
@@ -47,7 +46,8 @@ async function createFixture() {
     const directory = await mkdtemp(join(tmpdir(), 'evb-docx-stream-'));
     temporaryDirectories.push(directory);
     const sender = new FakeWebContents();
-    const senderWebContents = cast<WebContents>(sender);
+    // The export path only reads the lifecycle methods provided by this test double.
+    const senderWebContents = sender as WebContents;
     const targetPath = join(directory, 'export.docx');
     allowDocxWritePath(targetPath, senderWebContents);
     const context = {
