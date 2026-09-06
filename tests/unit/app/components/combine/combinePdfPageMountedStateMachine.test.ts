@@ -55,15 +55,16 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logErro
 
 const ButtonStub = defineComponent({
     inheritAttrs: false,
-    setup: (_props, {attrs, slots}) => () => h('button', {
+    setup: (_props, {
+        attrs,
+        slots,
+    }) => () => h('button', {
         ...attrs,
         type: 'button',
     }, slots.default?.()),
 });
 const IconStub = defineComponent({setup: () => () => h('span')});
-const PassthroughStub = defineComponent({
-    setup: (_props, {slots}) => () => h('span', slots.default?.()),
-});
+const PassthroughStub = defineComponent({setup: (_props, {slots}) => () => h('span', slots.default?.())});
 
 interface IQueueFile {
     id: string;
