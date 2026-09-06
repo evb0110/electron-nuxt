@@ -15,6 +15,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireRequestId} from '@contracts/shared';
 import type {ISearchDjvuTextOptions} from '@electron/djvu/textSearch';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
@@ -452,7 +453,7 @@ describe('registerDjvuIpcAdapter', () => {
             });
             const handler = getHandler('djvu:text:search');
             const request = {
-                requestId: 'reused-native-search',
+                requestId: requireRequestId('reused-native-search'),
                 pageCount: 431,
             };
 

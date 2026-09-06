@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
@@ -61,7 +63,7 @@ export function loadSharedDocumentOcrAvailability(
 export function loadSharedDocumentOcrPage(
     workingCopyPath: TDocumentRef,
     documentRevisionToken: TDocumentRevisionToken,
-    pageNumber: number,
+    pageNumber: TPageNumber,
 ) {
     const key = `${cacheKey(workingCopyPath, documentRevisionToken)}\0${pageNumber}`;
     const cached = pageSnapshots.get(key);

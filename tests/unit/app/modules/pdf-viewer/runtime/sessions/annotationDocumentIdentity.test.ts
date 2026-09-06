@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     afterEach,
     describe,
@@ -213,7 +214,7 @@ describe('annotation document identity', () => {
             workingCopyPath: '/managed/working.pdf',
             src: {
                 kind: 'path',
-                path: '/managed/working.pdf',
+                path: requireDocumentRef('/managed/working.pdf'),
                 size: 4,
             },
         });
@@ -228,7 +229,7 @@ describe('annotation document identity', () => {
             workingCopyPath: '/managed/working.pdf',
             src: {
                 kind: 'path',
-                path: '/managed/working.pdf',
+                path: requireDocumentRef('/managed/working.pdf'),
                 size: 4,
             },
         });
@@ -289,7 +290,7 @@ describe('annotation document identity', () => {
             workingCopyPath: '/managed/working.pdf',
             src: {
                 kind: 'path',
-                path: '/managed/working.pdf',
+                path: requireDocumentRef('/managed/working.pdf'),
                 size: 4,
             },
         });
@@ -325,7 +326,7 @@ describe('annotation document identity', () => {
             workingCopyPath: '/managed/working.pdf',
             src: {
                 kind: 'path',
-                path: '/managed/working.pdf',
+                path: requireDocumentRef('/managed/working.pdf'),
                 size: 4,
             },
         });

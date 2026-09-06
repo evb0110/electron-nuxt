@@ -1,6 +1,7 @@
 import type { Ref } from 'vue';
 import {useResizeObserver} from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import { preservePdfResizeCanvasVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/preservePdfResizeCanvasVisualSnapshot';
 import { schedulePdfResizeCanvasVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/schedulePdfResizeCanvasVisualSnapshotRelease';
@@ -185,6 +186,12 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         token: number,
         anchorPage: number | null,
     ) {
+        logPdfRenderTrace('resize-layer-visibility-transition', {
+            active,
+            source,
+            token,
+            anchorPage,
+        });
         setResizeTransitionVisible?.({
             active,
             source,
@@ -405,17 +412,16 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 `.page_container[data-page="${page}"]`,
             );
             const activeLease = activeResizeVisualSnapshots.get(page);
-            const isActiveLeaseValid = Boolean(
+            if (
                 activeLease
                 && !activeLease.released
                 && activeLease.document === pdfDocument.value
                 && activeLease.pageContainer === pageContainer
                 && pageContainer?.dataset.page === String(page)
-                && activeLease.snapshot.isValid(),
-            );
-            if (isActiveLeaseValid) {
-                activeLease!.holdForMs = Math.max(activeLease!.holdForMs, normalizedHoldForMs);
-                activeLease!.lastCaptureAtMs = capturedAtMs;
+                && activeLease.snapshot.isValid()
+            ) {
+                activeLease.holdForMs = Math.max(activeLease.holdForMs, normalizedHoldForMs);
+                activeLease.lastCaptureAtMs = capturedAtMs;
                 continue;
             }
             activeLease?.snapshot.release();
@@ -515,12 +521,31 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
             preferredAnchorPage,
             trustPreferredAnchorPage: true,
         });
+        const previousViewportSize = lastObservedViewportSize;
         const viewportGeometryChanged = consumeViewportGeometryChange();
         const updated = computeFitWidthScale(viewerContainer.value);
         if (!updated && !viewportGeometryChanged) {
             return;
         }
         if (pdfDocument.value) {
+            const preserveRenderedLayers = !updated && !pendingResizeAnchor;
+            logPdfRenderTrace('resize-observer-render-decision', {
+                previousViewportSize,
+                viewportSize: lastObservedViewportSize,
+                viewportGeometryChanged,
+                scaleChanged: updated,
+                preserveRenderedLayers,
+                pendingNavigationPage: options.pendingNavigationAnchorPage?.value ?? null,
+                anchorPage: resizeAnchor.page,
+            });
+            if (preserveRenderedLayers) {
+                // Scrollbar or host-size changes at a fixed scale do not stale
+                // canvas pixels or text geometry. The viewport authority still
+                // reconciles the anchor and visible render demand, including a
+                // pending search destination, without hiding or rebuilding layers.
+                options.submitResizeIntent(resizeAnchor.semanticAnchor);
+                return;
+            }
             if (pendingResizeAnchor) {
                 if (updated || viewportGeometryChanged) {
                     // Scrollbar admission/removal can deliver a second resize

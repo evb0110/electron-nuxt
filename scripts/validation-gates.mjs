@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /* eslint-disable max-lines -- The gate owner keeps scheduling, evidence, and impact policy in one inspectable module. */
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
     execFileSync,
     spawn,
@@ -50,9 +51,14 @@ const allTs7Projects = [
     'electron/tsconfig.json',
     'tests/tsconfig.json',
     'tsconfig.scripts.json',
+    'tsconfig.scripts-js.json',
     'server/tsconfig.json',
 ];
+// ESLint holds one TypeScript program per tsconfig in the flat config, and the
+// tests program alone types 1300+ files, so the peak lives above 6 GB.
+const eslintNodeHeapMb = 8192;
 const heavyGateDefaultWaitMs = 30 * 60_000;
+const heavyGateWaitReportIntervalMs = 10_000;
 const validationCacheSchemaVersion = 1;
 const validationCacheRootOnlyDirectories = new Set([
     '.devkit',
@@ -70,6 +76,7 @@ const validationCacheDirectoryNames = new Set([
     'target',
 ]);
 const validationInputHashCache = new Map();
+/** @type {Record<string, string[]>} */
 const validationStageInputPaths = {
     build: [
         'app',
@@ -111,6 +118,8 @@ const validationStageInputPaths = {
         'electron',
         'landing',
         'packages',
+        'scan-cleanup-adapters',
+        'scan-cleanup-core',
         'scripts',
         'server',
         'tests',
@@ -123,6 +132,7 @@ const validationStageInputPaths = {
         'stylelint.config.mjs',
         'package.json',
         'pnpm-lock.yaml',
+        'tests-as-never-baseline.json',
         'tsconfig*.json',
         'vitest.config.ts',
         'vitest.shared.config.ts',
@@ -217,25 +227,76 @@ const validationTiers = new Set([
     'integration',
     'nightly',
 ]);
+
+/** @typedef {'iteration' | 'acceptance' | 'integration' | 'nightly' | 'lint' | 'lint-all' | 'lint-changed' | 'heavy'} TValidationTier */
+/** @typedef {{args: string[], command: string, id: string, additionalInputPaths?: string[], cachePath?: string, cacheable?: boolean, dependsOn?: string[], env?: NodeJS.ProcessEnv, heavyWeight?: number, inputFingerprint?: string, inputPaths?: string[], inputScope?: string, parallelPhase?: string, priority?: number, tools?: string[], weight?: number}} IValidationStage */
+/** @typedef {{additionalInputPaths?: string[], args?: string[], cachePath?: string, cacheable?: boolean, dependsOn?: string[], env?: NodeJS.ProcessEnv, heavyWeight?: number, inputFingerprint?: string, inputPaths?: string[], inputScope?: string, parallelPhase?: string, priority?: number, tools?: string[], weight?: number}} IValidationStageOptions */
+/** @typedef {{base?: string | undefined, classification?: IValidationClassification, files: string[], known: boolean, reason?: string | undefined}} IValidationChanges */
+/** @typedef {{full: boolean, impacts: Record<string, boolean>, unmatchedFiles: string[]}} IValidationClassification */
+/** @typedef {{paths: string[]}} IValidationImpactDefinition */
+/** @typedef {{additionalInputPaths?: string[], extraValues?: unknown[], inputPaths?: string[], inputScope?: string | undefined, root?: string, tools?: string[]}} IValidationFingerprintOptions */
+/** @typedef {{cacheHit: boolean, cacheReason: string, cacheState: string, inputFingerprint: string}} IValidationCacheDecision */
+/** @typedef {{cache: string, cacheHit: boolean, cacheReason: string, dependsOn: string[], endedAt: string, gateCapacity?: number, gateWaitMs?: number, id: string, inputFingerprint: string, loadAverage: number[], skipped: boolean, status: 'passed' | 'failed', wallMs: number, weight: number}} IValidationStageResult */
+/** @typedef {{error: unknown, id: string}} IValidationStageFailure */
+/** @typedef {{dependency: string, id: string}} IValidationStageSkip */
+/** @typedef {{capacity: number, coordinated: boolean, release: () => Promise<void>, waitedMs: number}} IHeavyGateHandle */
+/** @typedef {{acquired: boolean, capacity: number, holders: {id: string, pid: number, projectRoot?: string, weight: number}[], usedWeight: number}} IHeavyGateAdmission */
+/** @typedef {{error: unknown, ok: boolean, stageDefinition: IValidationStage}} IValidationStageOutcome */
+/** @typedef {{failures: IValidationStageFailure[], skipped: IValidationStageSkip[]}} IValidationStagePoolResult */
+/** @typedef {{code?: string, message?: string}} INodeError */
+
+/** @param {unknown} value @returns {value is INodeError} */
+function isNodeError(value) {
+    return typeof value === 'object' && value !== null;
+}
+
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+function isRecord(value) {
+    return typeof value === 'object' && value !== null;
+}
+
+/** @param {string | undefined} value @returns {value is TValidationTier} */
+function isValidationTier(value) {
+    return value !== undefined && validationTiers.has(value);
+}
+
+/** @param {string} filePath */
 function normalizePath(filePath) {
     return filePath.split(path.sep).join('/').replace(/^\.\//u, '');
 }
+/** @param {string[]} values @returns {string[]} */
 function unique(values) {
     return [...new Set(values)];
 }
+/** @param {unknown} value @param {number} fallback */
 function parsePositiveInteger(value, fallback) {
     const parsed = Number.parseInt(String(value ?? ''), 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
+/** @param {unknown} value @returns {number | undefined} */
+function parsePositiveIntegerOrUndefined(value) {
+    const parsed = Number.parseInt(String(value ?? ''), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+/** @returns {number} */
 export function getDefaultGateCapacity() {
     return typeof os.availableParallelism === 'function'
         ? os.availableParallelism()
         : Math.max(os.cpus().length, 1);
 }
+/** @param {number | undefined} capacity @param {NodeJS.ProcessEnv} env @returns {number | undefined} */
+function resolveConfiguredHeavyGateCapacity(capacity, env) {
+    const configuredCapacity = capacity === undefined
+        ? env.EVB_GATE_CAPACITY
+        : capacity;
+    return parsePositiveIntegerOrUndefined(configuredCapacity);
+}
+/** @param {string[]} argv @param {string} name @returns {string | undefined} */
 function readArg(argv, name) {
     const prefix = `--${name}=`;
     return argv.find(argument => argument.startsWith(prefix))?.slice(prefix.length);
 }
+/** @param {string[]} argv @param {string} name @returns {string[]} */
 function readArgs(argv, name) {
     const prefix = `--${name}=`;
     return argv
@@ -243,11 +304,11 @@ function readArgs(argv, name) {
         .map(argument => argument.slice(prefix.length))
         .filter(Boolean);
 }
+/** @param {string} command @param {string[]} args @param {import('node:child_process').SpawnOptions} [options] @returns {Promise<{error: Error | null, status: number | null, stderr: string, stdout: string}>} */
 function runCapture(command, args, options = {}) {
     return new Promise((resolve) => {
         const child = spawn(command, args, {
             cwd: projectRoot,
-            encoding: 'utf8',
             stdio: [
                 'ignore',
                 'pipe',
@@ -279,6 +340,7 @@ function runCapture(command, args, options = {}) {
         }));
     });
 }
+/** @param {string[]} args @returns {Promise<string | null>} */
 async function gitOutput(args) {
     const result = await runCapture('git', args);
     if (result.error || result.status !== 0) {
@@ -286,9 +348,11 @@ async function gitOutput(args) {
     }
     return result.stdout.trim();
 }
+/** @param {string | null | undefined} output @returns {string[]} */
 function splitNullOutput(output) {
     return output?.split('\0').filter(Boolean).map(normalizePath) ?? [];
 }
+/** @param {{base?: string | undefined, explicitFiles?: string[] | undefined}} options @returns {Promise<IValidationChanges>} */
 export async function collectValidationChanges({
     base,
     explicitFiles = [],
@@ -362,6 +426,7 @@ export async function collectValidationChanges({
         reason: 'git',
     };
 }
+/** @param {string[]} files @param {Record<string, IValidationImpactDefinition>} [policy] @returns {IValidationClassification} */
 export function classifyValidationImpacts(
     files,
     policy = getValidationImpactPolicy(),
@@ -385,6 +450,7 @@ export function classifyValidationImpacts(
         unmatchedFiles,
     };
 }
+/** @param {string[]} files @param {IValidationClassification} classification */
 function selectedTypecheckProjects(files, classification) {
     if (classification.full || classification.impacts.policy) {
         return {
@@ -401,7 +467,7 @@ function selectedTypecheckProjects(files, classification) {
         projects.push('tests/tsconfig.json');
     }
     if (classification.impacts.scripts || classification.impacts.build || classification.impacts.native) {
-        projects.push('tsconfig.scripts.json');
+        projects.push('tsconfig.scripts.json', 'tsconfig.scripts-js.json');
     }
     if (classification.impacts.server) {
         projects.push('server/tsconfig.json');
@@ -416,6 +482,7 @@ function selectedTypecheckProjects(files, classification) {
         workspacePackages: classification.impacts.packages,
     };
 }
+/** @param {string[]} files @param {IValidationClassification} classification @returns {string[]} */
 function selectedUnitProjects(files, classification) {
     if (classification.full || classification.impacts.policy) {
         return [...unitProjects];
@@ -453,6 +520,7 @@ function selectedUnitProjects(files, classification) {
     }
     return unique(projects);
 }
+/** @param {string} id @param {string} command @param {string[]} args @param {IValidationStageOptions} options @returns {IValidationStage} */
 function stage(id, command, args, options = {}) {
     return {
         args,
@@ -464,18 +532,21 @@ function stage(id, command, args, options = {}) {
         id,
     };
 }
+/** @param {string} id @param {string} scriptName @param {IValidationStageOptions} options @returns {IValidationStage} */
 function pnpmRunStage(id, scriptName, options = {}) {
     return stage(id, 'pnpm', [
         'run',
         scriptName,
     ], options);
 }
+/** @param {string} id @param {string} scriptName @param {string[]} args @param {IValidationStageOptions} options @returns {IValidationStage} */
 function nodeStage(id, scriptName, args = [], options = {}) {
     return stage(id, 'node', [
         scriptName,
         ...args,
     ], options);
 }
+/** @param {string} id @param {string[]} projects @param {string[]} extraArgs @param {IValidationStageOptions} options @returns {IValidationStage} */
 function vitestStage(id, projects, extraArgs = [], options = {}) {
     return stage(id, 'pnpm', [
         'exec',
@@ -488,6 +559,7 @@ function vitestStage(id, projects, extraArgs = [], options = {}) {
         ...extraArgs,
     ], options);
 }
+/** @param {string} id @param {string[]} projects @param {string[]} files @param {IValidationStageOptions} options @returns {IValidationStage} */
 function vitestRelatedStage(id, projects, files, options = {}) {
     return stage(id, 'pnpm', [
         'exec',
@@ -501,6 +573,7 @@ function vitestRelatedStage(id, projects, files, options = {}) {
         '--passWithNoTests',
     ], options);
 }
+/** @param {TValidationTier} tier @param {string[]} files @param {IValidationClassification} classification @returns {IValidationStage[]} */
 function affectedPlan(tier, files, classification) {
     const stages = [];
     const typecheck = selectedTypecheckProjects(files, classification);
@@ -623,6 +696,7 @@ function affectedPlan(tier, files, classification) {
     }
     return stages;
 }
+/** @param {{allGates?: boolean, cold?: boolean, changes: IValidationChanges, classification?: IValidationClassification, tier: TValidationTier}} options @returns {IValidationStage[]} */
 export function getValidationPlan({
     allGates = false,
     cold = false,
@@ -705,7 +779,7 @@ export function getValidationPlan({
             weight: 2,
         }),
     ];
-    if (tier === 'iteration' || tier === 'acceptance' || tier === 'integration') {
+    if (tier === 'acceptance' || tier === 'integration') {
         if (tier === 'acceptance') {
             fullStages.push(pnpmRunStage(
                 'electron.bundle-integrity',
@@ -801,6 +875,7 @@ export function getValidationPlan({
         ),
     ];
 }
+/** @param {string[]} filePaths @param {unknown[]} [extraValues] @param {string} [root] @returns {string} */
 function hashFiles(filePaths, extraValues = [], root = projectRoot) {
     const hash = createHash('sha256');
     for (const value of extraValues) {
@@ -813,18 +888,20 @@ function hashFiles(filePaths, extraValues = [], root = projectRoot) {
         try {
             hash.update(readFileSync(path.join(root, filePath)));
         } catch (error) {
-            hash.update(`missing:${error?.code ?? 'unknown'}`);
+            hash.update(`missing:${isNodeError(error) ? error.code ?? 'unknown' : 'unknown'}`);
         }
         hash.update('\0');
     }
     return hash.digest('hex');
 }
+/** @param {string} pattern @returns {RegExp} */
 function pathPatternToRegExp(pattern) {
     return new RegExp(`^${pattern
         .split('*')
         .map(part => part.replace(/[.+?^${}()|[\]\\]/gu, '\\$&'))
         .join('.*')}$`, 'u');
 }
+/** @param {string} inputPath @param {string} root @returns {string[]} */
 function expandValidationInputPath(inputPath, root) {
     const normalizedInputPath = normalizePath(inputPath);
     if (!normalizedInputPath.includes('*')) {
@@ -841,9 +918,11 @@ function expandValidationInputPath(inputPath, root) {
         return [];
     }
 }
+/** @param {string[]} inputPaths @param {string} root @returns {{files: string[], missing: string[]}} */
 function collectValidationInputFiles(inputPaths, root) {
     const files = new Set();
     const missing = new Set();
+    /** @param {string} relativePath */
     const visit = (relativePath) => {
         const absolutePath = path.join(root, relativePath);
         let metadata;
@@ -890,6 +969,7 @@ function collectValidationInputFiles(inputPaths, root) {
         missing: [...missing].sort(),
     };
 }
+/** @param {string} absolutePath @param {import('node:fs').Stats} metadata @returns {string} */
 function validationFileDigest(absolutePath, metadata) {
     const cached = validationInputHashCache.get(absolutePath);
     if (cached && cached.size === metadata.size && cached.mtimeMs === metadata.mtimeMs) {
@@ -903,6 +983,7 @@ function validationFileDigest(absolutePath, metadata) {
     });
     return digest;
 }
+/** @param {string[]} inputPaths @param {string} root @returns {string} */
 function hashValidationInputs(inputPaths, root) {
     const {
         files,
@@ -926,6 +1007,7 @@ function hashValidationInputs(inputPaths, root) {
     }
     return hash.digest('hex');
 }
+/** @param {string} packageName @param {string} root @returns {string} */
 function readPackageVersion(packageName, root) {
     const cacheKey = `${root}\0package:${packageName}`;
     if (toolVersionCache.has(cacheKey)) {
@@ -944,6 +1026,7 @@ function readPackageVersion(packageName, root) {
     toolVersionCache.set(cacheKey, version);
     return version;
 }
+/** @param {string} command @param {string[]} args @param {string} root @returns {string} */
 function readCommandVersion(command, args, root) {
     const cacheKey = `${root}\0command:${command} ${args.join(' ')}`;
     if (toolVersionCache.has(cacheKey)) {
@@ -966,7 +1049,9 @@ function readCommandVersion(command, args, root) {
     toolVersionCache.set(cacheKey, version);
     return version;
 }
+/** @param {string[]} tools @param {string} root @returns {Record<string, string>} */
 function validationToolVersions(tools, root) {
+    /** @type {Record<string, string>} */
     const versions = {node: process.version};
     const requestedTools = new Set(tools);
     if (requestedTools.has('pnpm')) {
@@ -985,6 +1070,7 @@ function validationToolVersions(tools, root) {
     }
     return versions;
 }
+/** @returns {Record<string, string | undefined>} */
 function validationEnvironmentValues() {
     return Object.fromEntries(Object.entries(process.env)
         .filter(([key]) => validationEnvironmentKeys.has(key)
@@ -993,6 +1079,7 @@ function validationEnvironmentValues() {
             || key.startsWith('VITE_'))
         .sort(([left], [right]) => left.localeCompare(right, 'en')));
 }
+/** @param {IValidationStage} stageDefinition @returns {string[]} */
 function inferValidationTools(stageDefinition) {
     if (stageDefinition.tools) {
         return stageDefinition.tools;
@@ -1053,6 +1140,7 @@ function inferValidationTools(stageDefinition) {
     }
     return ['pnpm'];
 }
+/** @param {IValidationFingerprintOptions} options @returns {string} */
 export function getValidationInputFingerprint({
     additionalInputPaths = [],
     extraValues = [],
@@ -1082,8 +1170,11 @@ const validationBuildOutputPaths = [
     'nuxt-output',
     '.tmp/native-build-manifest',
 ];
+/** @param {string} root @param {string[]} outputPaths @returns {string} */
 function collectValidationOutputState(root, outputPaths) {
+    /** @type {string[]} */
     const entries = [];
+    /** @param {string} relativePath */
     const visit = relativePath => {
         const absolutePath = path.join(root, relativePath);
         let metadata;
@@ -1116,9 +1207,11 @@ function collectValidationOutputState(root, outputPaths) {
     }
     return entries.sort().join('\n');
 }
+/** @param {string} [root] @returns {string} */
 export function getValidationBuildMarkerPath(root = projectRoot) {
     return path.join(root, '.devkit', 'cache', 'build', 'strict.json');
 }
+/** @param {string} buildScriptName @param {string} root @returns {string} */
 function getValidationBuildInputFingerprint(buildScriptName, root) {
     return getValidationInputFingerprint({
         extraValues: [
@@ -1133,8 +1226,9 @@ function getValidationBuildInputFingerprint(buildScriptName, root) {
         ],
     });
 }
+/** @param {{buildScriptName?: string, outputPaths?: string[], root?: string}} options @returns {Promise<string | null>} */
 export async function writeValidationBuildMarker({
-    buildScriptName,
+    buildScriptName = '',
     outputPaths = validationBuildOutputPaths,
     root = projectRoot,
 } = {}) {
@@ -1155,8 +1249,9 @@ export async function writeValidationBuildMarker({
     await rename(temporaryPath, markerPath);
     return markerPath;
 }
+/** @param {{buildScriptName?: string, outputPaths?: string[], root?: string}} options @returns {boolean} */
 export function isValidationBuildFresh({
-    buildScriptName,
+    buildScriptName = '',
     outputPaths = validationBuildOutputPaths,
     root = projectRoot,
 } = {}) {
@@ -1176,6 +1271,7 @@ export function isValidationBuildFresh({
     const outputState = collectValidationOutputState(root, outputPaths);
     return !outputState.includes('missing:') && outputState === marker.outputState;
 }
+/** @param {{arch?: NodeJS.Architecture, nodeVersion?: string, platform?: NodeJS.Platform, root?: string}} options */
 export function getLintCachePaths({
     arch = process.arch,
     nodeVersion = process.version,
@@ -1193,7 +1289,9 @@ export function getLintCachePaths({
         'nuxt-output',
         'release',
     ]);
+    /** @type {string[]} */
     const tsconfigFiles = [];
+    /** @param {string} directory */
     function visit(directory) {
         for (const entry of readdirSync(path.join(root, directory), {withFileTypes: true})) {
             const relativePath = path.join(directory, entry.name);
@@ -1234,6 +1332,7 @@ export function getLintCachePaths({
         stylelint: path.join(cacheRoot, 'stylelint.cache'),
     };
 }
+/** @param {string[]} files @returns {Promise<{eslint: string[], landing: string[], stylelint: string[]}>} */
 async function lintTargets(files) {
     const existingFiles = files.filter(file => existsSync(path.join(projectRoot, file)));
     const eslintCandidates = existingFiles.filter(file => !file.startsWith('landing/') && (
@@ -1255,17 +1354,18 @@ async function lintTargets(files) {
         stylelint: unique(stylelint),
     };
 }
+/** @param {{keep?: number, minimumAgeMs?: number, nowMs?: number, root?: string}} options @returns {Promise<string[]>} */
 export async function pruneRetentionEntries({
     keep = 100,
     minimumAgeMs = 10 * 60_000,
     nowMs = Date.now(),
-    root,
+    root = projectRoot,
 } = {}) {
     let entries;
     try {
         entries = await readdir(root, {withFileTypes: true});
     } catch (error) {
-        if (error?.code === 'ENOENT') {
+        if (isNodeError(error) && error.code === 'ENOENT') {
             return [];
         }
         throw error;
@@ -1291,6 +1391,7 @@ export async function pruneRetentionEntries({
     }
     return removed;
 }
+/** @param {string[]} argv */
 async function runLint(argv) {
     const changed = argv.includes('--changed');
     const fix = argv.includes('--fix');
@@ -1313,6 +1414,8 @@ async function runLint(argv) {
                 'app',
                 'electron',
                 'packages',
+                'scan-cleanup-adapters',
+                'scan-cleanup-core',
                 'scripts',
                 'server',
                 'tests',
@@ -1355,10 +1458,28 @@ async function runLint(argv) {
             ...(!noCache ? {cachePath: cachePaths.eslint} : {}),
             additionalInputPaths: relevantFiles,
             cacheable: true,
-            env: withNodeHeap(process.env, 6144),
+            env: withNodeHeap(process.env, eslintNodeHeapMb),
             heavyWeight: full ? (eslintCacheWarm ? 1 : 2) : 0,
             inputScope: 'lint',
             weight: full ? (eslintCacheWarm ? 1 : 2) : 1,
+        }));
+    }
+    if (
+        full
+        || relevantFiles.some(file => (
+            file.startsWith('tests/')
+            || file === 'package.json'
+            || file === 'scripts/checkTestsAsNever.ts'
+            || file === 'tests-as-never-baseline.json'
+        ))
+    ) {
+        commands.push(nodeStage('lint.tests-as-never', '--import', [
+            'tsx',
+            'scripts/checkTestsAsNever.ts',
+        ], {
+            additionalInputPaths: relevantFiles,
+            cacheable: true,
+            inputScope: 'lint',
         }));
     }
     if (targets.landing.length > 0) {
@@ -1476,6 +1597,7 @@ async function runLint(argv) {
     });
 }
 
+/** @param {NodeJS.ProcessEnv} [env] @returns {string} */
 function heavyGateRoot(env = process.env) {
     if (env.EVB_GATE_SEMAPHORE_DIR) {
         return path.resolve(env.EVB_GATE_SEMAPHORE_DIR);
@@ -1485,14 +1607,15 @@ function heavyGateRoot(env = process.env) {
         : (env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'));
     return path.join(base, 'evb-viewer', 'heavy-gates');
 }
+/** @param {unknown} pid @returns {boolean} */
 function isPidAlive(pid) {
-    if (!Number.isInteger(pid) || pid < 1) {
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid < 1) {
         return false;
     }
     try {
         process.kill(pid, 0);
     } catch (error) {
-        return error?.code === 'EPERM';
+        return isNodeError(error) && error.code === 'EPERM';
     }
     if (process.platform === 'win32') {
         return true;
@@ -1524,18 +1647,21 @@ function isPidAlive(pid) {
             process.kill(pid, 0);
             return true;
         } catch (error) {
-            return error?.code === 'EPERM';
+            return isNodeError(error) && error.code === 'EPERM';
         }
     }
     return state !== 'Z' && state !== 'X';
 }
+/** @param {string} filePath @returns {Promise<Record<string, unknown> | null>} */
 async function readJson(filePath) {
     try {
-        return JSON.parse(await readFile(filePath, 'utf8'));
+        const value = JSON.parse(await readFile(filePath, 'utf8'));
+        return isRecord(value) ? value : null;
     } catch {
         return null;
     }
 }
+/** @param {string} root @param {number} nowMs @returns {Promise<(() => Promise<void>) | null>} */
 async function acquireMutationLock(root, nowMs) {
     const lockPath = path.join(root, 'mutation.lock');
     try {
@@ -1549,7 +1675,7 @@ async function acquireMutationLock(root, nowMs) {
             await unlink(lockPath).catch(() => undefined);
         };
     } catch (error) {
-        if (error?.code !== 'EEXIST') {
+        if (!isNodeError(error) || error.code !== 'EEXIST') {
             throw error;
         }
     }
@@ -1570,6 +1696,7 @@ async function acquireMutationLock(root, nowMs) {
     }
     return null;
 }
+/** @param {string} root @param {() => Promise<unknown>} callback @returns {Promise<unknown | null>} */
 async function withMutationLock(root, callback) {
     for (let attempt = 0; attempt < 40; attempt += 1) {
         const release = await acquireMutationLock(root, Date.now());
@@ -1585,22 +1712,73 @@ async function withMutationLock(root, callback) {
     return null;
 }
 
+/** @param {unknown} value @returns {string} */
+function formatHeavyGateLabel(value) {
+    const label = String(value ?? 'unknown').replaceAll(/\s+/gu, ' ').trim();
+    return label || 'unknown';
+}
+/** @param {IHeavyGateAdmission['holders']} holders @returns {string} */
+function formatHeavyGateHolders(holders) {
+    if (holders.length === 0) {
+        return 'none';
+    }
+    return holders.map(holder => {
+        const holderRoot = typeof holder.projectRoot === 'string'
+            ? `, root=${formatHeavyGateLabel(holder.projectRoot)}`
+            : '';
+        return `${formatHeavyGateLabel(holder.id)}(pid=${String(holder.pid)}, weight=${String(holder.weight)}${holderRoot})`;
+    }).join(', ');
+}
+/** @param {IHeavyGateAdmission | null} admission @param {number} requestedWeight @param {number} fallbackCapacity @returns {string} */
+function describeHeavyGateAdmission(admission, requestedWeight, fallbackCapacity) {
+    if (!admission) {
+        return `needs=${String(requestedWeight)}, used=unknown/${String(fallbackCapacity)}, holders=mutation.lock busy`;
+    }
+    const admittedWeight = Math.min(requestedWeight, admission.capacity);
+    const needs = requestedWeight > admission.capacity
+        ? `${String(requestedWeight)} (capped to ${String(admittedWeight)})`
+        : String(requestedWeight);
+    return `needs=${needs}, used=${String(admission.usedWeight)}/${String(admission.capacity)}, holders=${formatHeavyGateHolders(admission.holders)}`;
+}
+/** @param {IHeavyGateAdmission | null} admission @returns {string} */
+function heavyGateAdmissionState(admission) {
+    if (!admission) {
+        return 'mutation.lock busy';
+    }
+    return [
+        admission.capacity,
+        admission.usedWeight,
+        ...admission.holders.map(holder => [
+            holder.id,
+            holder.pid,
+            holder.projectRoot,
+            holder.weight,
+        ]),
+    ].join('|');
+}
+
+/** @param {{capacity?: number, env?: NodeJS.ProcessEnv, failOpenOnTimeout?: boolean, id?: string, root?: string, waitMs?: number, weight?: number}} options @returns {Promise<IHeavyGateHandle>} */
 export async function acquireHeavyGate({
     env = process.env,
-    capacity = parsePositiveInteger(env.EVB_GATE_CAPACITY, getDefaultGateCapacity()),
+    capacity,
     failOpenOnTimeout = false,
-    id,
+    id = 'heavy',
     root = heavyGateRoot(env),
     waitMs = parsePositiveInteger(env.EVB_GATE_WAIT_MS, heavyGateDefaultWaitMs),
     weight = 1,
 } = {}) {
+    const configuredCapacity = resolveConfiguredHeavyGateCapacity(capacity, env);
+    const resolveCurrentCapacity = () => configuredCapacity ?? getDefaultGateCapacity();
+    const initialCapacity = resolveCurrentCapacity();
     if (env.EVB_HEAVY_GATE_HELD === '1' || weight < 1) {
         return {
+            capacity: initialCapacity,
             coordinated: true,
             release: async () => undefined,
+            waitedMs: 0,
         };
     }
-    const boundedWeight = Math.min(weight, capacity);
+    const requestedWeight = Number.isFinite(weight) ? Math.max(1, Math.floor(weight)) : 1;
     const holdersDir = path.join(root, 'holders');
     try {
         await mkdir(holdersDir, {
@@ -1608,31 +1786,59 @@ export async function acquireHeavyGate({
             recursive: true,
         });
     } catch (error) {
-        process.stderr.write(`[gate] Heavy-gate coordination unavailable (${error.message}); continuing uncoordinated.\n`);
+        process.stderr.write(`[gate] Heavy-gate coordination unavailable (${isNodeError(error) ? error.message ?? String(error) : String(error)}); continuing uncoordinated.\n`);
         return {
+            capacity: initialCapacity,
             coordinated: false,
             release: async () => undefined,
+            waitedMs: 0,
         };
     }
 
     const holderName = `${process.pid}-${randomUUID()}.json`;
     const holderPath = path.join(holdersDir, holderName);
     const deadline = Date.now() + waitMs;
+    let blockedSinceMs;
+    let lastObservedCapacity = initialCapacity;
+    /** @type {IHeavyGateAdmission | null} */
+    let lastAdmission = null;
+    let lastReportedState = '';
+    let lastReportedAtMs = 0;
     while (Date.now() <= deadline) {
-        const acquired = await withMutationLock(root, async () => {
+        /** @type {IHeavyGateAdmission | null} */
+        const admission = /** @type {IHeavyGateAdmission | null} */ (await withMutationLock(root, async () => {
+            const currentCapacity = resolveCurrentCapacity();
             const holderNames = (await readdir(holdersDir)).filter(name => name.endsWith('.json'));
+            /** @type {IHeavyGateAdmission['holders']} */
+            const holders = [];
             let usedWeight = 0;
             for (const name of holderNames) {
                 const candidatePath = path.join(holdersDir, name);
                 const holder = await readJson(candidatePath);
-                if (!holder || !isPidAlive(holder.pid)) {
+                const holderPid = typeof holder?.pid === 'number' ? holder.pid : 0;
+                if (!holder || !isPidAlive(holderPid)) {
                     await unlink(candidatePath).catch(() => undefined);
                     continue;
                 }
-                usedWeight += parsePositiveInteger(holder.weight, 1);
+                const holderWeight = parsePositiveInteger(holder.weight, 1);
+                usedWeight += holderWeight;
+                holders.push({
+                    id: typeof holder.id === 'string' ? holder.id : 'unknown',
+                    pid: holderPid,
+                    weight: holderWeight,
+                    ...(typeof holder.projectRoot === 'string'
+                        ? {projectRoot: holder.projectRoot}
+                        : {}),
+                });
             }
-            if (usedWeight + boundedWeight > capacity) {
-                return false;
+            const boundedWeight = Math.min(requestedWeight, currentCapacity);
+            if (usedWeight + boundedWeight > currentCapacity) {
+                return {
+                    acquired: false,
+                    capacity: currentCapacity,
+                    holders,
+                    usedWeight,
+                };
             }
             await writeFile(holderPath, JSON.stringify({
                 acquiredAt: new Date().toISOString(),
@@ -1645,31 +1851,75 @@ export async function acquireHeavyGate({
                 flag: 'wx',
                 mode: 0o600,
             });
-            return true;
-        });
-        if (acquired) {
             return {
+                acquired: true,
+                capacity: currentCapacity,
+                holders,
+                usedWeight,
+            };
+        }));
+        if (admission?.acquired) {
+            const waitedMs = blockedSinceMs === undefined
+                ? 0
+                : Math.max(0, Date.now() - blockedSinceMs);
+            if (waitedMs > 0) {
+                const admittedAdmission = {
+                    ...admission,
+                    usedWeight: admission.usedWeight + Math.min(requestedWeight, admission.capacity),
+                };
+                process.stderr.write(
+                    `[gate] ADMITTED heavy-gate: id=${formatHeavyGateLabel(id)}, waited=${String(waitedMs)}ms, ${describeHeavyGateAdmission(admittedAdmission, requestedWeight, admission.capacity)}, semaphore=${formatHeavyGateLabel(root)}\n`,
+                );
+            }
+            return {
+                capacity: admission.capacity,
                 coordinated: true,
                 release: async () => {
                     await unlink(holderPath).catch(() => undefined);
                 },
+                waitedMs,
             };
         }
-        await new Promise(resolve => setTimeout(resolve, 250));
+        const nowMs = Date.now();
+        blockedSinceMs ??= nowMs;
+        lastAdmission = admission;
+        lastObservedCapacity = admission?.capacity ?? resolveCurrentCapacity();
+        const state = heavyGateAdmissionState(admission);
+        if (
+            state !== lastReportedState
+            || nowMs - lastReportedAtMs >= heavyGateWaitReportIntervalMs
+        ) {
+            process.stderr.write(
+                `[gate] BLOCKED waiting for heavy-gate: id=${formatHeavyGateLabel(id)}, ${describeHeavyGateAdmission(admission, requestedWeight, lastObservedCapacity)}, waited=${String(nowMs - blockedSinceMs)}ms, semaphore=${formatHeavyGateLabel(root)}\n`,
+            );
+            lastReportedState = state;
+            lastReportedAtMs = nowMs;
+        }
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+            break;
+        }
+        await new Promise(resolve => setTimeout(resolve, Math.min(250, remainingMs)));
     }
 
+    const waitedMs = blockedSinceMs === undefined
+        ? 0
+        : Math.max(0, Date.now() - blockedSinceMs);
+    const timeoutDetails = describeHeavyGateAdmission(lastAdmission, requestedWeight, lastObservedCapacity);
+    const timeoutMessage = `[gate] Timed out waiting ${String(waitedMs)}ms for heavy-gate capacity for ${formatHeavyGateLabel(id)}; ${timeoutDetails}; semaphore=${formatHeavyGateLabel(root)}.`;
     if (failOpenOnTimeout) {
-        process.stderr.write(
-            `[gate] Timed out waiting ${waitMs}ms for heavy-gate capacity; continuing ${id} uncoordinated.\n`,
-        );
+        process.stderr.write(`${timeoutMessage} Continuing uncoordinated.\n`);
         return {
+            capacity: lastObservedCapacity,
             coordinated: false,
             release: async () => undefined,
+            waitedMs,
         };
     }
-    throw new Error(`Timed out waiting ${waitMs}ms for heavy-gate capacity for ${id}.`);
+    throw new Error(timeoutMessage);
 }
 
+/** @returns {Promise<void>} */
 async function reportRepoSessions() {
     const worktreeOutput = await gitOutput([
         'worktree',
@@ -1710,6 +1960,7 @@ async function reportRepoSessions() {
     }
 }
 
+/** @param {string} command @param {string[]} args @param {NodeJS.ProcessEnv} env @returns {Promise<void>} */
 async function spawnInherited(command, args, env) {
     return new Promise((resolve, reject) => {
         const child = spawn(command, args, {
@@ -1732,17 +1983,18 @@ async function spawnInherited(command, args, env) {
     });
 }
 
+/** @param {string} evidenceDir @returns {Promise<Map<string, string>>} */
 async function readLastPassingStageFingerprints(evidenceDir) {
     let entries;
     try {
         entries = await readdir(evidenceDir, {withFileTypes: true});
     } catch (error) {
-        if (error?.code === 'ENOENT') {
+        if (isNodeError(error) && error.code === 'ENOENT') {
             return new Map();
         }
         throw error;
     }
-    const evidenceFiles = (await Promise.all(entries
+    const evidenceFiles = /** @type {{filePath: string, modifiedAtMs: number}[]} */ ((await Promise.all(entries
         .filter(entry => entry.isFile() && entry.name.endsWith('.ndjson'))
         .map(async entry => {
             const filePath = path.join(evidenceDir, entry.name);
@@ -1754,10 +2006,12 @@ async function readLastPassingStageFingerprints(evidenceDir) {
             } catch {
                 return null;
             }
-        }))).filter(Boolean);
+        }))).filter(Boolean));
     evidenceFiles.sort((left, right) => right.modifiedAtMs - left.modifiedAtMs);
+    /** @type {Map<string, string>} */
     const fingerprints = new Map();
     for (const {filePath} of evidenceFiles) {
+        /** @type {Record<string, unknown>[]} */
         const stageResults = [];
         let runPassed = false;
         try {
@@ -1768,7 +2022,11 @@ async function readLastPassingStageFingerprints(evidenceDir) {
                 }
                 let event;
                 try {
-                    event = JSON.parse(line);
+                    const parsed = JSON.parse(line);
+                    if (!isRecord(parsed)) {
+                        continue;
+                    }
+                    event = parsed;
                 } catch {
                     continue;
                 }
@@ -1797,6 +2055,7 @@ async function readLastPassingStageFingerprints(evidenceDir) {
     return fingerprints;
 }
 
+/** @param {IValidationStage} stageDefinition @param {IValidationChanges | undefined} changes @returns {string} */
 function stageInputFingerprint(stageDefinition, changes) {
     if (stageDefinition.inputFingerprint) {
         return stageDefinition.inputFingerprint;
@@ -1821,6 +2080,7 @@ function stageInputFingerprint(stageDefinition, changes) {
         tools: inferValidationTools(stageDefinition),
     });
 }
+/** @param {IValidationStage} stageDefinition @param {{changes?: IValidationChanges, lastPassingFingerprints?: Map<string, string>, noCache?: boolean}} options @returns {IValidationCacheDecision} */
 export function getValidationStageCacheDecision(stageDefinition, {
     changes,
     lastPassingFingerprints = new Map(),
@@ -1846,15 +2106,20 @@ export function getValidationStageCacheDecision(stageDefinition, {
     };
 }
 
+/** @param {IValidationStage} stageDefinition @param {number} capacity @returns {number} */
 function stageResourceWeight(stageDefinition, capacity) {
-    const requested = Number.isFinite(stageDefinition.weight)
-        ? stageDefinition.weight
-        : (stageDefinition.heavyWeight > 0 ? stageDefinition.heavyWeight : 1);
+    const heavyWeight = stageDefinition.heavyWeight ?? 0;
+    const requestedWeight = stageDefinition.weight;
+    const requested = typeof requestedWeight === 'number' && Number.isFinite(requestedWeight)
+        ? requestedWeight
+        : (heavyWeight > 0 ? heavyWeight : 1);
     return Math.max(1, Math.min(Math.floor(requested), capacity));
 }
 
+/** @param {IValidationStage[]} stages @param {(stage: IValidationStage) => Promise<void>} runStage @param {{capacity?: number}} options @returns {Promise<IValidationStagePoolResult>} */
 export async function runStagePool(stages, runStage, {capacity = getDefaultGateCapacity()} = {}) {
     const effectiveCapacity = Math.max(1, Math.floor(capacity));
+    /** @type {Map<string, IValidationStage>} */
     const stageById = new Map();
     stages.forEach((stageDefinition, index) => {
         if (!stageDefinition.id || stageById.has(stageDefinition.id)) {
@@ -1875,12 +2140,16 @@ export async function runStagePool(stages, runStage, {capacity = getDefaultGateC
 
     const pending = new Set(stages.map(stageDefinition => stageDefinition.id));
     const completed = new Set();
+    /** @type {Map<string, {promise: Promise<IValidationStageOutcome>, stageDefinition: IValidationStage, weight: number}>} */
     const running = new Map();
+    /** @type {IValidationStageFailure[]} */
     const failures = [];
+    /** @type {IValidationStageSkip[]} */
     const skipped = [];
     let usedCapacity = 0;
     // A failed stage takes its transitive dependents out of the plan; every
     // independent stage still runs so one pass reports every failure.
+    /** @param {string} failedId */
     const skipDependents = (failedId) => {
         for (const stageDefinition of stages) {
             if (pending.has(stageDefinition.id) && (stageDefinition.dependsOn ?? []).includes(failedId)) {
@@ -1898,6 +2167,7 @@ export async function runStagePool(stages, runStage, {capacity = getDefaultGateC
         index,
     ]));
 
+    /** @returns {IValidationStage[]} */
     const sortedReadyStages = () => stages
         .filter(stageDefinition => (
             pending.has(stageDefinition.id)
@@ -1906,9 +2176,10 @@ export async function runStagePool(stages, runStage, {capacity = getDefaultGateC
         .sort((left, right) => (
             Number(right.priority ?? 0) - Number(left.priority ?? 0)
             || stageResourceWeight(right, effectiveCapacity) - stageResourceWeight(left, effectiveCapacity)
-            || stageIndex.get(left.id) - stageIndex.get(right.id)
+            || (stageIndex.get(left.id) ?? 0) - (stageIndex.get(right.id) ?? 0)
         ));
 
+    /** @param {IValidationStage} stageDefinition */
     const launch = (stageDefinition) => {
         const weight = stageResourceWeight(stageDefinition, effectiveCapacity);
         pending.delete(stageDefinition.id);
@@ -1979,8 +2250,9 @@ export async function runStagePool(stages, runStage, {capacity = getDefaultGateC
 }
 
 export class ValidationStagePoolError extends Error {
+    /** @param {IValidationStageFailure[]} failures @param {IValidationStageSkip[]} skipped */
     constructor(failures, skipped) {
-        const lines = failures.map(failure => `  ${failure.id}: ${failure.error?.message ?? failure.error}`);
+        const lines = failures.map(failure => `  ${failure.id}: ${getCliErrorMessage(failure.error)}`);
         if (skipped.length > 0) {
             lines.push(`  skipped (dependency failed): ${skipped.map(entry => `${entry.id} <- ${entry.dependency}`).join(', ')}`);
         }
@@ -1991,6 +2263,7 @@ export class ValidationStagePoolError extends Error {
     }
 }
 
+/** @param {IValidationStage[]} stages @param {string[]} [requestedIds] @returns {IValidationStage[]} */
 export function selectValidationStages(stages, requestedIds = []) {
     if (requestedIds.length === 0) {
         return stages;
@@ -2000,6 +2273,7 @@ export function selectValidationStages(stages, requestedIds = []) {
         stageDefinition,
     ]));
     const selectedIds = new Set();
+    /** @param {string} id */
     const include = id => {
         const stageDefinition = byId.get(id);
         if (!stageDefinition) {
@@ -2017,10 +2291,14 @@ export function selectValidationStages(stages, requestedIds = []) {
     return stages.filter(stageDefinition => selectedIds.has(stageDefinition.id));
 }
 
+/** @param {IValidationStage[]} stages @param {{changes?: IValidationChanges, noCache?: boolean, tier?: TValidationTier}} options @returns {Promise<void>} */
 async function runStages(stages, {
-    changes,
+    changes = {
+        files: [],
+        known: true,
+    },
     noCache = process.env.EVB_GATE_NO_CACHE === '1',
-    tier,
+    tier = 'heavy',
 } = {}) {
     const runId = `${new Date().toISOString().replaceAll(/[:.]/gu, '-')}-${process.pid}-${randomUUID().slice(0, 8)}`;
     const evidenceDir = path.join(projectRoot, '.devkit', 'analysis', 'gates');
@@ -2031,6 +2309,7 @@ async function runStages(stages, {
         flags: 'a',
         mode: 0o600,
     });
+    /** @type {IValidationStageResult[]} */
     const results = [];
     const runStarted = Date.now();
     evidence.write(`${JSON.stringify({
@@ -2043,7 +2322,7 @@ async function runStages(stages, {
     })}\n`);
 
     try {
-        if (stages.some(stageDefinition => stageDefinition.heavyWeight > 0)) {
+        if (stages.some(stageDefinition => (stageDefinition.heavyWeight ?? 0) > 0)) {
             await reportRepoSessions();
         }
         const lastPassingFingerprints = noCache
@@ -2054,7 +2333,9 @@ async function runStages(stages, {
             dependsOn: [...(stageDefinition.dependsOn ?? [])],
             inputFingerprint: stageInputFingerprint(stageDefinition, changes),
         }));
+        /** @param {IValidationStage} stageDefinition */
         const runStage = async stageDefinition => {
+            const dependsOn = stageDefinition.dependsOn ?? [];
             const cacheDecision = getValidationStageCacheDecision(stageDefinition, {
                 changes,
                 lastPassingFingerprints,
@@ -2068,12 +2349,14 @@ async function runStages(stages, {
             } = cacheDecision;
             if (cacheHit) {
                 const timestamp = new Date().toISOString();
+                /** @type {IValidationStageResult} */
                 const result = {
                     cache: cacheState,
                     cacheHit: true,
                     cacheReason,
-                    dependsOn: stageDefinition.dependsOn,
+                    dependsOn,
                     endedAt: timestamp,
+                    gateWaitMs: 0,
                     id: stageDefinition.id,
                     inputFingerprint,
                     loadAverage: os.loadavg(),
@@ -2090,9 +2373,10 @@ async function runStages(stages, {
                         stageDefinition.command,
                         ...stageDefinition.args,
                     ],
-                    dependsOn: stageDefinition.dependsOn,
+                    dependsOn,
                     event: 'stage-start',
                     heavyGateCoordinated: true,
+                    gateWaitMs: 0,
                     heavyWeight: stageDefinition.heavyWeight,
                     id: stageDefinition.id,
                     inputFingerprint,
@@ -2111,7 +2395,7 @@ async function runStages(stages, {
             }
             const gate = await acquireHeavyGate({
                 id: stageDefinition.id,
-                weight: stageDefinition.heavyWeight,
+                weight: stageDefinition.heavyWeight ?? 0,
             });
             const startedAtMs = Date.now();
             evidence.write(`${JSON.stringify({
@@ -2124,7 +2408,9 @@ async function runStages(stages, {
                 ],
                 event: 'stage-start',
                 heavyGateCoordinated: gate.coordinated,
-                heavyWeight: stageDefinition.heavyWeight,
+                gateCapacity: gate.capacity,
+                gateWaitMs: gate.waitedMs,
+                heavyWeight: stageDefinition.heavyWeight ?? 0,
                 id: stageDefinition.id,
                 inputFingerprint,
                 parallelPhase: stageDefinition.parallelPhase ?? null,
@@ -2132,6 +2418,7 @@ async function runStages(stages, {
                 dependsOn: stageDefinition.dependsOn,
                 weight: stageDefinition.weight ?? 1,
             })}\n`);
+            /** @type {'passed' | 'failed'} */
             let status = 'passed';
             try {
                 await spawnInherited(
@@ -2141,7 +2428,7 @@ async function runStages(stages, {
                         ...process.env,
                         ...stageDefinition.env,
                         ...(noCache ? {EVB_GATE_NO_CACHE: '1'} : {}),
-                        ...(stageDefinition.heavyWeight > 0
+                        ...((stageDefinition.heavyWeight ?? 0) > 0
                             ? {EVB_HEAVY_GATE_HELD: '1'}
                             : {}),
                     },
@@ -2157,7 +2444,9 @@ async function runStages(stages, {
                     cacheHit: false,
                     cacheReason,
                     endedAt: new Date(endedAtMs).toISOString(),
-                    dependsOn: stageDefinition.dependsOn,
+                    dependsOn,
+                    gateCapacity: gate.capacity,
+                    gateWaitMs: gate.waitedMs,
                     id: stageDefinition.id,
                     inputFingerprint,
                     loadAverage: os.loadavg(),
@@ -2191,7 +2480,11 @@ async function runStages(stages, {
                 : 'failed',
             wallMs: endedAtMs - runStarted,
         })}\n`);
-        await new Promise(resolve => evidence.end(resolve));
+        /** @type {Promise<void>} */
+        const evidenceClosed = new Promise(resolve => {
+            evidence.end(() => resolve());
+        });
+        await evidenceClosed;
         await pruneRetentionEntries({
             keep: 100,
             minimumAgeMs: 10 * 60_000,
@@ -2211,6 +2504,7 @@ async function runStages(stages, {
     }
 }
 
+/** @param {TValidationTier} tier @param {string[]} argv @returns {Promise<void>} */
 async function runTier(tier, argv) {
     const changes = await collectValidationChanges({
         base: readArg(argv, 'base'),
@@ -2251,12 +2545,13 @@ async function runTier(tier, argv) {
     });
 }
 
+/** @param {string[]} argv @returns {Promise<void>} */
 async function runHeavyCommand(argv) {
     const separatorIndex = argv.indexOf('--');
-    if (separatorIndex < 0 || !argv[separatorIndex + 1]) {
+    const command = separatorIndex >= 0 ? argv[separatorIndex + 1] : undefined;
+    if (typeof command !== 'string') {
         throw new Error('Usage: validation-gates.mjs heavy --id=<id> --weight=<n> -- <command> [args...]');
     }
-    const command = argv[separatorIndex + 1];
     const args = argv.slice(separatorIndex + 2);
     await runStages([stage(
         readArg(argv, 'id') ?? 'heavy',
@@ -2271,6 +2566,7 @@ async function runHeavyCommand(argv) {
     });
 }
 
+/** @returns {Promise<void>} */
 async function main() {
     const [
         command,
@@ -2284,7 +2580,7 @@ async function main() {
         await runHeavyCommand(argv);
         return;
     }
-    if (validationTiers.has(command)) {
+    if (isValidationTier(command)) {
         await runTier(command, argv);
         return;
     }
@@ -2297,7 +2593,7 @@ const isDirectRun = process.argv[1]
     && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectRun) {
     await main().catch(async (error) => {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.stderr.write(`${getCliErrorMessage(error)}\n`);
         process.exitCode = 1;
     });
 }

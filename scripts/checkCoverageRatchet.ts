@@ -1,4 +1,8 @@
-import {isRecord} from '@contracts/runtimeGuards';
+import {
+    isFiniteNumber,
+    isRecord,
+    isStringArray,
+} from '@contracts/runtimeGuards';
 import {
     readFile,
     readdir,
@@ -300,14 +304,35 @@ export function compareCoverageToBaseline(
     };
 }
 
+function isBaselineMetrics(value: unknown): value is Record<TCoverageMetric, number> {
+    return isRecord(value) && COVERAGE_METRICS.every(metric => isFiniteNumber(value[metric]));
+}
+
+function isCoverageAreaBaseline(value: unknown): value is ICoverageAreaBaseline {
+    return isRecord(value)
+        && isFiniteNumber(value.fileCount)
+        && isStringArray(value.include)
+        && isBaselineMetrics(value.metrics);
+}
+
+function isCoverageFileBaseline(value: unknown): value is ICoverageFileBaseline {
+    return isRecord(value) && isFiniteNumber(value.lines);
+}
+
+function isCoverageBaseline(value: unknown): value is ICoverageBaseline {
+    return isRecord(value)
+        && value.version === 2
+        && isFiniteNumber(value.tolerancePercentagePoints)
+        && isBaselineMetrics(value.metrics)
+        && isRecord(value.areas)
+        && Object.values(value.areas).every(isCoverageAreaBaseline)
+        && isRecord(value.files)
+        && Object.values(value.files).every(isCoverageFileBaseline);
+}
+
 function parseBaseline(source: string): ICoverageBaseline {
-    const parsed = JSON.parse(source) as ICoverageBaseline;
-    if (
-        parsed.version !== 2
-        || !isRecord(parsed.metrics)
-        || !isRecord(parsed.areas)
-        || !isRecord(parsed.files)
-    ) {
+    const parsed: unknown = JSON.parse(source);
+    if (!isCoverageBaseline(parsed)) {
         throw new TypeError('Coverage baseline is invalid or unsupported.');
     }
     return parsed;

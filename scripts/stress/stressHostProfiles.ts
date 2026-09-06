@@ -181,7 +181,7 @@ export function describeStressHostProfile(profile: IStressHostProfile) {
     ];
     const envKeys = Object.keys(profile.env);
     if (envKeys.length > 0) {
-        lines.push(`  env: ${envKeys.map(key => `${key}=${profile.env[key]}`).join(' ')}`);
+        lines.push(`  env: ${envKeys.map(key => `${key}=${profile.env[key] ?? '<missing>'}`).join(' ')}`);
     }
     if (profile.hostConstraint) {
         lines.push(`  host wrapper (${profile.hostConstraint.platform}): ${profile.hostConstraint.commandPrefix.join(' ')} <runner>`);

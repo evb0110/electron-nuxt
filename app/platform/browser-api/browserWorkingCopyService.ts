@@ -1,4 +1,7 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { normalizeNonEmptyStringPaths } from '@contracts/shared';
 import {
@@ -157,13 +160,22 @@ export async function openDocumentPaths(
     largeDocumentMessage?: string,
 ) {
     const startedAt = Date.now();
-    const normalizedPaths = normalizeNonEmptyStringPaths(paths);
+    const normalizedPaths = normalizeNonEmptyStringPaths(paths).map((path) => {
+        const parsed = parseDocumentRef(path);
+        if (parsed === null) {
+            throw new TypeError('Browser document paths must be document references');
+        }
+        return parsed;
+    });
 
     if (normalizedPaths.length === 0) {
         return null;
     }
 
-    const firstPath = normalizedPaths[0]!;
+    const firstPath = normalizedPaths[0];
+    if (!firstPath) {
+        return null;
+    }
     const firstFileName = getBrowserDocumentFileName(firstPath);
     const djvuPaths = normalizedPaths.filter((path) =>
         isDjvuFileName(getBrowserDocumentFileName(path)),
@@ -182,7 +194,7 @@ export async function openDocumentPaths(
     }
 
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
-        const sourcePath = normalizedPaths[0]!;
+        const sourcePath = firstPath;
         const { size } = await browserDocumentStore.stat(sourcePath);
         if (size > BROWSER_MAX_FULL_READ_BYTES) {
             throw buildBrowserLargeJobError(

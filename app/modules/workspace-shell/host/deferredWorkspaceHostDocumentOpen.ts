@@ -84,10 +84,11 @@ async function waitForDocumentOpenTask<T>(task: Promise<T>, signal: AbortSignal)
     if (signal.aborted) {
         return DOCUMENT_OPEN_ABORTED;
     }
-    let handleAbort: (() => void) | null = null;
+    const abortState: { handler: (() => void) | null } = {handler: null};
     const aborted = new Promise<typeof DOCUMENT_OPEN_ABORTED>((resolve) => {
-        handleAbort = () => resolve(DOCUMENT_OPEN_ABORTED);
-        signal.addEventListener('abort', handleAbort, {once: true});
+        const handler = () => resolve(DOCUMENT_OPEN_ABORTED);
+        abortState.handler = handler;
+        signal.addEventListener('abort', handler, {once: true});
     });
     try {
         return await Promise.race([
@@ -95,8 +96,9 @@ async function waitForDocumentOpenTask<T>(task: Promise<T>, signal: AbortSignal)
             aborted,
         ]);
     } finally {
-        if (handleAbort) {
-            signal.removeEventListener('abort', handleAbort);
+        const handler = abortState.handler;
+        if (handler) {
+            signal.removeEventListener('abort', handler);
         }
     }
 }
@@ -268,7 +270,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         const deadline = Date.now() + DEFERRED_WORKSPACE_HOST_POLICY.DOCUMENT_OPEN_SETTLE_TIMEOUT_MS;
         while (
             !openHost.isHostUnmounted()
-            && !signal.aborted
+            && !signal.aborted.valueOf()
             && openHost.getActiveTransactionId() === transaction.transactionId
             && Date.now() < deadline
         ) {
@@ -284,14 +286,14 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                             }),
                         ]);
                         if (
-                            signal.aborted
+                            signal.aborted.valueOf()
                             || openHost.getActiveTransactionId() !== transaction.transactionId
                         ) {
                             return false;
                         }
                     } catch (error) {
                         if (
-                            signal.aborted
+                            signal.aborted.valueOf()
                             || openHost.getActiveTransactionId() !== transaction.transactionId
                         ) {
                             return false;
@@ -315,7 +317,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             } else {
                 await delay(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_POLL_INTERVAL_MS);
                 if (
-                    signal.aborted
+                    signal.aborted.valueOf()
                     || openHost.getActiveTransactionId() !== transaction.transactionId
                 ) {
                     return false;
@@ -323,7 +325,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             }
         }
         if (
-            signal.aborted
+            signal.aborted.valueOf()
             || openHost.getActiveTransactionId() !== transaction.transactionId
         ) {
             return false;
@@ -390,12 +392,12 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             return false;
         }
         const deadline = Date.now() + DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_TIMEOUT_MS;
-        while (!openHost.isHostUnmounted() && !signal.aborted && Date.now() < deadline) {
+        while (!openHost.isHostUnmounted() && !signal.aborted.valueOf() && Date.now() < deadline) {
             if (openHost.isViewerOwnerMounted()) {
                 return true;
             }
             await delay(DEFERRED_WORKSPACE_HOST_POLICY.WORKSPACE_MOUNT_POLL_INTERVAL_MS);
-            if (signal.aborted) {
+            if (signal.aborted.valueOf()) {
                 return false;
             }
         }
@@ -425,7 +427,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                 return false;
             }
             const result = await waitForDocumentOpenTask(sourceOpen(signal), signal);
-            return signal.aborted || result === DOCUMENT_OPEN_ABORTED ? false : result;
+            return signal.aborted.valueOf() || result === DOCUMENT_OPEN_ABORTED ? false : result;
         }
         if (openHost.isHostUnmounted() || signal.aborted) {
             return false;
@@ -460,16 +462,16 @@ export function createWorkspaceDocumentOpenTransactions(options: {
             // Flush synchronous `beginPrepared()` ownership before source loading.
             if (openHost.documentOpenSurface.snapshot.value.presentation === 'page-shell') {
                 await nextTick();
-                if (signal.aborted || openHost.getActiveTransactionId() !== transaction.transactionId) {
+                if (signal.aborted.valueOf() || openHost.getActiveTransactionId() !== transaction.transactionId) {
                     return false;
                 }
             }
-            if (signal.aborted || openHost.getActiveTransactionId() !== transaction.transactionId) {
+            if (signal.aborted.valueOf() || openHost.getActiveTransactionId() !== transaction.transactionId) {
                 return false;
             }
             const sourceResult = await waitForDocumentOpenTask(sourceOpen(signal), signal);
             if (
-                signal.aborted
+                signal.aborted.valueOf()
                 || sourceResult === DOCUMENT_OPEN_ABORTED
                 || openHost.getActiveTransactionId() !== transaction.transactionId
             ) {
@@ -481,7 +483,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
                 sourceResult !== false,
                 signal,
             );
-            if (signal.aborted) {
+            if (signal.aborted.valueOf()) {
                 return false;
             }
             const settledResult = resolveDocumentOpenRunResult(
@@ -496,7 +498,7 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         } finally {
             pendingPreOwnerGoToPage = null;
             if (
-                !signal.aborted
+                !signal.aborted.valueOf()
                 || (signal.reason instanceof DOMException && signal.reason.name === 'TimeoutError')
             ) {
                 finishDocumentOpenPresentation(openHost, transaction, opened);

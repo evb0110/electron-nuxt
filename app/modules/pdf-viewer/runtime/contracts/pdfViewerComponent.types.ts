@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type {
@@ -102,5 +104,5 @@ export interface IPdfViewerEmit {
         clientY: number;
     }): void;
     (e: 'initial-visual-pending'): void;
-    (e: 'initial-visual-ready', payload: {pageNumber: number;}): void;
+    (e: 'initial-visual-ready', payload: {pageNumber: TPageNumber;}): void;
 }

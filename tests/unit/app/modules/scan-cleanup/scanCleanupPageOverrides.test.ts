@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import type {TScanCleanupOutputHalf} from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     attachScanCleanupPageOverrideDefaults,
     createScanCleanupPageOverride,
@@ -37,36 +38,36 @@ describe('scan cleanup page overrides', () => {
 
     it('merges sparse page values over stable defaults and removes reset entries', () => {
         const overrides = {};
-        expect(getScanCleanupPageOverride(overrides, 3)).toEqual({
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(3))).toEqual({
             rotationDegrees: 0,
             layoutOverride: 'auto',
             excluded: false,
             manualSplit: null,
         });
-        setScanCleanupPageOverride(overrides, 3, createScanCleanupPageOverride({
+        setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride({
             rotationDegrees: 90,
             manualSplit: {
                 xNormalized: 0.5,
                 rotationDegrees: 0,
             },
         }));
-        expect(getScanCleanupPageOverride(overrides, 3)).toMatchObject({
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(3))).toMatchObject({
             rotationDegrees: 90,
             manualSplit: {
                 xNormalized: 0.5,
                 rotationDegrees: 0,
             },
         });
-        setScanCleanupPageOverride(overrides, 3, createScanCleanupPageOverride());
+        setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride());
         expect(overrides).toEqual({});
     });
 
     it('preserves and resets a per-page manual deskew angle', () => {
         const overrides = {};
-        setScanCleanupPageOverride(overrides, 2, createScanCleanupPageOverride({manualSkewDegrees: -2.3}));
-        expect(getScanCleanupPageOverride(overrides, 2).manualSkewDegrees).toBe(-2.3);
+        setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride({manualSkewDegrees: -2.3}));
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(2)).manualSkewDegrees).toBe(-2.3);
 
-        setScanCleanupPageOverride(overrides, 2, createScanCleanupPageOverride());
+        setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride());
         expect(overrides).toEqual({});
     });
 
@@ -91,7 +92,7 @@ describe('scan cleanup page overrides', () => {
             bottomMm: 5,
         };
         const overrides = {};
-        setScanCleanupPageOverride(overrides, 3, createScanCleanupPageOverride({marginsMm: {...documentMargins}}), documentMargins);
+        setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride({marginsMm: {...documentMargins}}), documentMargins);
         expect(overrides).toEqual({});
 
         const asymmetricMargins = {
@@ -100,8 +101,8 @@ describe('scan cleanup page overrides', () => {
             rightMm: 6,
             bottomMm: 8,
         };
-        setScanCleanupPageOverride(overrides, 3, createScanCleanupPageOverride({marginsMm: asymmetricMargins}), documentMargins);
-        expect(resolveScanCleanupMarginsMm(documentMargins, getScanCleanupPageOverride(overrides, 3)))
+        setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride({marginsMm: asymmetricMargins}), documentMargins);
+        expect(resolveScanCleanupMarginsMm(documentMargins, getScanCleanupPageOverride(overrides, requirePageNumber(3))))
             .toEqual(asymmetricMargins);
     });
 
@@ -179,7 +180,7 @@ describe('scan cleanup page overrides', () => {
 describe('scan cleanup ink placement', () => {
     function sample(pageNumber: number, half: TScanCleanupOutputHalf, yNormalized: number) {
         return {
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber),
             half,
             yNormalized,
         };

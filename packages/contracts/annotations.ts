@@ -74,7 +74,13 @@ export function parseMarkupSubtype(value: unknown): TPdfAnnotationMarkupSubtype 
         return null;
     }
     const normalized = value.trim().toLowerCase();
-    return Object.hasOwn(MARKUP_SUBTYPE_ALIASES, normalized)
-        ? MARKUP_SUBTYPE_ALIASES[normalized as keyof typeof MARKUP_SUBTYPE_ALIASES]
-        : null;
+    for (const [
+        alias,
+        subtype,
+    ] of Object.entries(MARKUP_SUBTYPE_ALIASES)) {
+        if (alias === normalized) {
+            return subtype;
+        }
+    }
+    return null;
 }

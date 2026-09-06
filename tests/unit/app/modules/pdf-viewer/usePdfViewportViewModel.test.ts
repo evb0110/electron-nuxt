@@ -217,4 +217,86 @@ describe('usePdfViewportViewModel', () => {
             scope.stop();
         }
     });
+
+    it('skips horizontal clamping while the current page is outside the live document', () => {
+        const scope = effectScope();
+        const writePort = createTestPdfViewportWritePort();
+        const container = document.createElement('div');
+        Object.defineProperty(container, 'clientWidth', {
+            configurable: true,
+            value: 500,
+        });
+        Object.defineProperty(container, 'scrollWidth', {
+            configurable: true,
+            value: 700,
+        });
+        container.scrollLeft = 50;
+        const numPages = ref(6);
+        const currentPage = ref(5);
+
+        const viewModel = scope.run(() => usePdfViewportViewModel({
+            performancePolicy,
+            isActive: computed(() => true),
+            viewportWritePort: writePort.port,
+            viewerContainer: ref(container),
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single' as const),
+            numPages,
+            currentPage,
+            continuousScroll: computed(() => false),
+            basePageWidth: ref(600),
+            basePageHeight: ref(800),
+            pageMetrics: ref([{
+                width: 600,
+                height: 800,
+            }]),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            navigationAnchorPage: computed(() => null),
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+            scaleContainerStyle: computed(() => ({})),
+            selectionMarkupStyle: computed(() => null),
+            classState: {
+                isAnySaving: computed(() => false),
+                isDragging: ref(false),
+                isViewerPanDragModeActive: computed(() => false),
+                isPlacingComment: ref(false),
+                isSelectionMarkupToolActive: computed(() => false),
+                isTextSelectionModeActive: computed(() => false),
+                fitMode: computed(() => 'width' as const),
+                zoomMode: computed(() => 'fit-width' as const),
+                resizeTransitionVisible: ref(false),
+                zoomSnapSuppressed: ref(false),
+            },
+        }));
+        try {
+            if (!viewModel) {
+                throw new Error('Failed to create viewport view model');
+            }
+
+            expect(viewModel.syncHorizontalScrollForZoomMode()).toBe(false);
+
+            numPages.value = 0;
+            expect(() => viewModel.syncHorizontalScrollForZoomMode()).not.toThrow();
+            expect(viewModel.syncHorizontalScrollForZoomMode()).toBe(false);
+            expect(viewModel.viewerClass.value['pdfViewer--active-spread-fits-width']).toBe(false);
+
+            numPages.value = 3;
+            expect(() => viewModel.syncHorizontalScrollForZoomMode()).not.toThrow();
+            expect(viewModel.syncHorizontalScrollForZoomMode()).toBe(false);
+            expect(viewModel.viewerClass.value['pdfViewer--active-spread-fits-width']).toBe(false);
+
+            numPages.value = 6;
+            expect(viewModel.syncHorizontalScrollForZoomMode()).toBe(false);
+            expect(writePort.writes).toHaveLength(0);
+        } finally {
+            scope.stop();
+        }
+    });
 });

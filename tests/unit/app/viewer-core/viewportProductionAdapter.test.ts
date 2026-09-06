@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -46,12 +47,12 @@ describe('viewportSimulation production seams', () => {
 
     it('I10/I11 production render state clears replaced pixels through a failed successor', () => {
         const {renderState} = createProductionViewportAdapter();
-        renderState.renderedPages.add(56);
-        renderState.beginRender(56, 2, 9, 'document-1', 1);
-        renderState.markRenderFailed(56, 2, 9);
+        renderState.renderedPages.add(requirePageNumber(56));
+        renderState.beginRender(requirePageNumber(56), 2, 9, 'document-1', 1);
+        renderState.markRenderFailed(requirePageNumber(56), 2, 9);
 
-        expect(renderState.renderedPages.has(56)).toBe(false);
-        expect(renderState.getSlot(56)).toMatchObject({
+        expect(renderState.renderedPages.has(requirePageNumber(56))).toBe(false);
+        expect(renderState.getSlot(requirePageNumber(56))).toMatchObject({
             job: 'failed',
             visual: 'none',
         });

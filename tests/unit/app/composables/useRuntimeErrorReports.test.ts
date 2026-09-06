@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
 
@@ -31,7 +32,7 @@ function createFailure(eventId: string): FailureReceipt {
     return {
         eventId: eventId as FailureReceipt['eventId'],
         code: 'UNCLASSIFIED_RENDERER_ERROR',
-        occurredAt: Date.now(),
+        occurredAt: requireEpochMs(Date.now()),
         severity: 'error',
     };
 }

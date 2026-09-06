@@ -1,8 +1,10 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { TZoomMode } from '@contracts/shared';
 
 export interface IPdfOpeningPageFrameRecord {
     readonly generation: number;
-    readonly pageNumber: number;
+    readonly pageNumber: TPageNumber;
     readonly zoom: number;
     readonly zoomMode: TZoomMode;
     readonly style: Readonly<Record<string, string>>;

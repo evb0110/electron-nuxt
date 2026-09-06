@@ -37,7 +37,7 @@ export function assertNoSymlinkPathSegments(resolvedPath: string) {
     const segments: string[] = [];
     let currentPath = resolve(resolvedPath);
 
-    while (true) {
+    for (;;) {
         segments.push(currentPath);
         const parentPath = dirname(currentPath);
         if (parentPath === currentPath) {
@@ -63,4 +63,3 @@ export function assertNoSymlinkPathSegments(resolvedPath: string) {
         }
     }
 }
-

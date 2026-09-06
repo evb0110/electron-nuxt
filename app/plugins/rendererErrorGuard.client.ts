@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { ComponentPublicInstance } from 'vue';
 import type {TLocale} from '@i18n-app';
 import {isLocaleMessageSource} from '@i18n-core';
@@ -31,7 +32,7 @@ function readStringProperty(value: object, key: string) {
 function stringifyErrorValue(error: unknown) {
     if (error instanceof Error) {
         return [
-            `${error.name}: ${error.message}`,
+            `${error.name}: ${getErrorMessage(error)}`,
             error.stack,
         ].filter(Boolean).join('\n');
     }
@@ -46,7 +47,7 @@ function stringifyErrorValue(error: unknown) {
             if (value instanceof Error) {
                 return {
                     name: value.name,
-                    message: value.message,
+                    message: getErrorMessage(value),
                     stack: value.stack,
                 };
             }
@@ -74,7 +75,7 @@ function serializeError(error: unknown) {
     if (error instanceof Error) {
         return {
             name: error.name,
-            message: error.message,
+            message: getErrorMessage(error),
             stack: error.stack,
         };
     }
@@ -107,7 +108,7 @@ function getComponentTypeName(component: object) {
 }
 
 function getComponentName(instance: ComponentPublicInstance | null) {
-    const component = instance?.$?.type;
+    const component = instance?.$.type;
     if (!component || typeof component !== 'object') {
         return null;
     }

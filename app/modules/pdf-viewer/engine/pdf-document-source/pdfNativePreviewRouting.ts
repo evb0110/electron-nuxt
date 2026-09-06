@@ -13,7 +13,6 @@ export function isPathPdfSource(value: TPdfSource | null | undefined): value is 
         value
         && typeof value === 'object'
         && !(value instanceof Blob)
-        && value.kind === 'path'
         && typeof value.path === 'string',
     );
 }

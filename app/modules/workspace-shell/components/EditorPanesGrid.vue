@@ -185,9 +185,8 @@ function startResize(event: PointerEvent, splitId: string, orientation: TPaneOri
     upListener = clearResizeListeners;
     resizeWindowTarget.value = window;
     const sash = event.currentTarget;
-    if (sash instanceof Element && 'setPointerCapture' in sash) {
-        (sash as Element & {setPointerCapture?: (pointerId: number) => void;})
-            .setPointerCapture?.(event.pointerId);
+    if (sash instanceof Element) {
+        sash.setPointerCapture(event.pointerId);
     }
 }
 

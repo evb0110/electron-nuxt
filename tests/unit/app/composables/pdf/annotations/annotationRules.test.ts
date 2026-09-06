@@ -7,13 +7,15 @@ import { compareAnnotationCommentSummaries } from '@app/utils/pdfAnnotationComme
 import { isNoteEligible } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligible';
 import { isSelectionInteractionTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionInteractionTool';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'id',
         stableKey: 'ann:0:key',
         pageIndex: 0,
-        pageNumber: 1,
+        pageNumber: requirePageNumber(1),
         text: '',
         author: null,
         modifiedAt: null,
@@ -101,14 +103,14 @@ describe('compareAnnotationCommentSummaries', () => {
         const older = createComment({
             pageIndex: 1,
             sortIndex: 5,
-            createdAt: 100,
-            modifiedAt: 100,
+            createdAt: requireEpochMs(100),
+            modifiedAt: requireEpochMs(100),
         });
         const newer = createComment({
             pageIndex: 1,
             sortIndex: 1,
-            createdAt: 200,
-            modifiedAt: 200,
+            createdAt: requireEpochMs(200),
+            modifiedAt: requireEpochMs(200),
         });
         expect(compareAnnotationCommentSummaries(older, newer)).toBeLessThan(0);
     });
@@ -130,12 +132,12 @@ describe('compareAnnotationCommentSummaries', () => {
         const left = createComment({
             pageIndex: 0,
             sortIndex: 1,
-            modifiedAt: 100,
+            modifiedAt: requireEpochMs(100),
         });
         const right = createComment({
             pageIndex: 0,
             sortIndex: 0,
-            modifiedAt: 200,
+            modifiedAt: requireEpochMs(200),
         });
         expect(compareAnnotationCommentSummaries(left, right)).toBeGreaterThan(0);
     });
@@ -143,14 +145,14 @@ describe('compareAnnotationCommentSummaries', () => {
     it('keeps creation order stable when a note is edited later', () => {
         const createdFirstEditedLater = createComment({
             pageIndex: 0,
-            createdAt: 100,
-            modifiedAt: 1_000,
+            createdAt: requireEpochMs(100),
+            modifiedAt: requireEpochMs(1_000),
         });
         const createdSecond = createComment({
             pageIndex: 0,
             stableKey: 'ann:0:second',
-            createdAt: 200,
-            modifiedAt: 200,
+            createdAt: requireEpochMs(200),
+            modifiedAt: requireEpochMs(200),
         });
 
         expect(compareAnnotationCommentSummaries(createdFirstEditedLater, createdSecond)).toBeLessThan(0);
@@ -164,8 +166,8 @@ describe('compareAnnotationCommentSummaries', () => {
         const addedLater = createComment({
             pageIndex: 0,
             sortIndex: 0,
-            createdAt: 200,
-            modifiedAt: 200,
+            createdAt: requireEpochMs(200),
+            modifiedAt: requireEpochMs(200),
         });
         expect(compareAnnotationCommentSummaries(legacy, addedLater)).toBeLessThan(0);
     });

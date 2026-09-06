@@ -63,6 +63,7 @@ import {
     readWorkspaceStateValues,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
 const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
@@ -1991,7 +1992,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             secondCommit = await saveViaVisibleToolbar(page, 30_000);
         } catch (error) {
             throw new Error(`Second sticky-note save failed: ${JSON.stringify({
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
                 debug: await collectStickyNoteDebugState(page),
                 preSecondSaveDebug,
             })}`, {cause: error});

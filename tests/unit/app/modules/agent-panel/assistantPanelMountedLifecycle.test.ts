@@ -14,10 +14,16 @@ import {
     vi,
 } from 'vitest';
 import type {
+    IAgentAssistantChatScope,
     IAgentAssistantEvent,
     IAgentAssistantInstallResult,
     IAgentAssistantState,
 } from '@contracts/agent';
+import {
+    requireIsoTimestamp,
+    requireEpochMs,
+} from '@contracts/timestamps';
+import {requireTabId} from '@contracts/windowTabs';
 import { createEmptyAssistantState } from '@app/modules/agent-panel/utils/createEmptyAssistantState';
 import { useAgentAssistantPanelController } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
@@ -48,12 +54,12 @@ vi.mock('@app/utils/getAgentCapability', () => ({getAgentCapability: () => ({
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
 
-const scope = {
+const scope: IAgentAssistantChatScope = {
     kind: 'document',
     key: 'document-a',
     title: 'Document A',
-    tabId: 'tab-a',
-} as const;
+    tabId: requireTabId('tab-a'),
+};
 
 const steerImage = {
     type: 'image' as const,
@@ -72,43 +78,38 @@ function createReadyState(phase: IAgentAssistantState['status']['turn']['phase']
         selectedEffort: 'medium',
         selectedSpeedMode: 'standard',
     });
-    state.status = {
-        ...state.status,
-        installState: 'installed',
-        authState: 'signed-in',
-        runtimeState: phase === 'stalled' ? 'error' : 'busy',
-        turn: {
-            ...state.status.turn,
-            id: 'turn-1',
-            phase,
-            reasoning: 'Inspecting document',
-            lastEventAtMs: Date.now(),
-        },
-        ...(phase === 'stalled'
-            ? {
-                error: 'No assistant signal received.',
-                errorEnvelope: {
-                    code: 'INTERNAL' as const,
-                    message: 'No assistant signal received.',
-                    retryable: true,
-                    timestamp: Date.now(),
-                },
-            }
-            : {}),
+    state.status.installState = 'installed';
+    state.status.authState = 'signed-in';
+    state.status.runtimeState = phase === 'stalled' ? 'error' : 'busy';
+    state.status.turn = {
+        ...state.status.turn,
+        id: 'turn-1',
+        phase,
+        reasoning: 'Inspecting document',
+        lastEventAtMs: Date.now(),
     };
+    if (phase === 'stalled') {
+        state.status.error = 'No assistant signal received.';
+        state.status.errorEnvelope = {
+            code: 'INTERNAL',
+            message: 'No assistant signal received.',
+            retryable: true,
+            timestamp: requireEpochMs(Date.now()),
+        };
+    }
     state.messages = [
         {
             id: 'user-1',
             role: 'user',
             text: 'Summarize this document',
-            createdAt: new Date(0).toISOString(),
+            createdAt: requireIsoTimestamp(new Date(0).toISOString()),
         },
         {
             id: 'assistant-1',
             role: 'assistant',
             text: 'Initial',
             pending: phase !== 'stalled',
-            createdAt: new Date(1).toISOString(),
+            createdAt: requireIsoTimestamp(new Date(1).toISOString()),
         },
     ];
     return state;

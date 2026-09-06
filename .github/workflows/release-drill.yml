@@ -169,9 +169,13 @@ jobs:
       channel_key: evb-viewer/drill/${{ github.run_id }}/channels/stable.json
     secrets: inherit
 
+  # The supplemental mirror copies land beside the core objects the chain
+  # stages, so the drill runs the lanes in the order a real release does.
   supplemental_drill:
     name: Run supplemental attachment drill
-    needs: seed
+    needs:
+      - seed
+      - chain
     permissions:
       actions: read
       attestations: write
@@ -182,6 +186,8 @@ jobs:
       tag: v0.0.0-drill.${{ github.run_id }}
       workflow_sha: ${{ github.sha }}
       drill: true
+      mirror_prefix: evb-viewer/drill/${{ github.run_id }}/releases/
+      channel_key: evb-viewer/drill/${{ github.run_id }}/channels/stable.json
     secrets: inherit
 
   # A second pass against the same draft proves that a re-dispatch verifies
@@ -199,6 +205,8 @@ jobs:
       tag: v0.0.0-drill.${{ github.run_id }}
       workflow_sha: ${{ github.sha }}
       drill: true
+      mirror_prefix: evb-viewer/drill/${{ github.run_id }}/releases/
+      channel_key: evb-viewer/drill/${{ github.run_id }}/channels/stable.json
     secrets: inherit
 
   cleanup:

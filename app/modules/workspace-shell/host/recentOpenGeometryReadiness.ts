@@ -1,5 +1,6 @@
 import { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public/openGeometry';
 import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public/openGeometry';
+import { requirePageNumber } from '@contracts/pageNumbers';
 
 export type TRecentOpenGeometryState = 'pending' | 'ready' | 'cold-fallback';
 
@@ -25,7 +26,7 @@ export function beginRecentOpenGeometryPrewarm(paths: Iterable<string>) {
 
 function readCachedExactGeometry(path: string) {
     if (/\.pdf$/iu.test(path)) {
-        return readPrevalidatedTrustedPdfOpenGeometry(path, 1);
+        return readPrevalidatedTrustedPdfOpenGeometry(path, requirePageNumber(1));
     }
     if (/\.djvu?$/iu.test(path)) {
         return readPrevalidatedTrustedDjvuOpenGeometry(path, 1);

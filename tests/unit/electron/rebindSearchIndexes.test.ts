@@ -16,6 +16,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import * as searchIndexBuilder from '@electron/search/indexBuilder';
 import * as searchIndexSidecar from '@electron/search/searchIndexSidecar';
 import {
@@ -52,7 +53,7 @@ describe('search index revision rebind', () => {
             createdAt: 1,
             pageCount: 1,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'small',
             }],
         }));
@@ -60,7 +61,7 @@ describe('search index revision rebind', () => {
             documentRevision: OLD_TOKEN,
             pageCount: 1,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'small',
             }],
         });
@@ -70,7 +71,7 @@ describe('search index revision rebind', () => {
             documentRevision: {token: NEW_TOKEN},
             pageCount: 1,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'small',
             }],
         });
@@ -78,7 +79,7 @@ describe('search index revision rebind', () => {
             documentRevision: NEW_TOKEN,
             pageCount: 1,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'small',
             }],
         });
@@ -96,7 +97,7 @@ describe('search index revision rebind', () => {
             createdAt: 1,
             pageCount,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'sparse',
             }],
         }));
@@ -107,7 +108,7 @@ describe('search index revision rebind', () => {
                 pageCount,
             },
             [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'sparse',
             }],
         );
@@ -138,7 +139,7 @@ describe('search index revision rebind', () => {
             createdAt: 1,
             pageCount: 1,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'large source',
             }],
         }));
@@ -146,7 +147,7 @@ describe('search index revision rebind', () => {
             documentRevision: OLD_TOKEN,
             pageCount: 1,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'large source',
             }],
         });

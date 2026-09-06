@@ -50,7 +50,7 @@ export function createPdfjsDocumentTeardownCoordinator() {
     }
 
     async function waitForIdle(key: string, signal?: AbortSignal) {
-        while (true) {
+        for (;;) {
             const activeBarrier = lanes.get(key)?.barrier;
             if (!activeBarrier) {
                 return;

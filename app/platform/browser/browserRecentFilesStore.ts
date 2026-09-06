@@ -1,4 +1,7 @@
+import { getErrorMessage } from '@app/utils/error';
+import {parseDocumentRef} from '@contracts/documentRef';
 import type { IRecentFile } from '@contracts/shared';
+import { createEpochMs } from '@contracts/timestamps';
 import {
     readLocalStorageItem,
     safeSetLocalStorageItem,
@@ -21,7 +24,7 @@ import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/b
 
 export class BrowserRecentFilesStorageUnavailableError extends Error {
     public constructor(cause?: unknown) {
-        super(`Browser Recent Files storage is unavailable${cause instanceof Error ? `: ${cause.message}` : ''}`);
+        super(`Browser Recent Files storage is unavailable${cause instanceof Error ? `: ${getErrorMessage(cause)}` : ''}`);
         this.name = 'BrowserRecentFilesStorageUnavailableError';
         this.cause = cause;
     }
@@ -200,13 +203,17 @@ export class BrowserRecentFilesStore {
                 (candidate) => candidate.originalPath !== ref,
             );
 
+            const originalPath = parseDocumentRef(ref);
+            if (originalPath === null) {
+                throw new TypeError('Recent file reference is invalid');
+            }
             nextRecentFiles.unshift({
-                originalPath: ref,
+                originalPath,
                 backend: 'browser',
                 fileName: entry.saveName ?? entry.fileName,
-                timestamp: Date.now(),
+                timestamp: createEpochMs(),
                 fileSize: entry.fileSize,
-                modifiedAt: entry.updatedAt,
+                modifiedAt: createEpochMs(entry.updatedAt),
             });
 
             const {

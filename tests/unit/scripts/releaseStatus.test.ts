@@ -10,26 +10,46 @@ import {
 
 const TAG = 'v1.2.3';
 
+type TReleasePlatform = 'mac' | 'linux' | 'win';
+
+const NODE_PLATFORM_BY_RELEASE_PLATFORM = {
+    linux: 'linux',
+    mac: 'darwin',
+    win: 'win32',
+} as const satisfies Record<TReleasePlatform, NodeJS.Platform>;
+
+function toReleasePlatform(platform: NodeJS.Platform): TReleasePlatform {
+    switch (platform) {
+        case 'darwin':
+            return 'mac' as const;
+        case 'win32':
+            return 'win' as const;
+        default:
+            return 'linux' as const;
+    }
+}
+
 function createPolicyDeps() {
     return {
         getLocalReleaseTargetsFn: ({
-            arch,
-            platform,
+            arch = 'x64',
+            platform = 'linux',
         }: {
-            arch: string;
-            platform: string
-        }) => [{
+            arch?: string;
+            platform?: NodeJS.Platform;
+        } = {}) => [{
             arch,
             expectsUpdaterMetadata: true,
-            platform,
+            isPrimaryHostTarget: true,
+            platform: toReleasePlatform(platform),
         }],
         getRequiredArtifactPatternsFn: ({
             arch,
             platform,
         }: {
             arch: string;
-            platform: string
-        }) => [new RegExp(`${platform}-${arch}`, 'u')],
+            platform: TReleasePlatform;
+        }) => [new RegExp(`${NODE_PLATFORM_BY_RELEASE_PLATFORM[platform]}-${arch}`, 'u')],
         getSupplementalReleaseAssetNamesFn: () => [
             'intel-supplemental.zip',
             'arm-supplemental.exe',
@@ -167,7 +187,11 @@ describe('release-status', () => {
                 MIRROR_S3_ENDPOINT: 'https://mirror.example.test',
                 MIRROR_S3_SECRET_KEY: 'secret',
             },
-            readMirrorChannelFn: () => ({tag: TAG}),
+            readMirrorChannelFn: () => ({
+                checked: true,
+                error: null,
+                tag: TAG,
+            }),
         });
 
         expect(status.mirror).toEqual({
@@ -188,7 +212,11 @@ describe('release-status', () => {
                 MIRROR_S3_ENDPOINT: 'https://mirror.example.test',
                 MIRROR_S3_SECRET_KEY: 'secret',
             },
-            readMirrorChannelFn: () => ({tag: 'v1.2.2'}),
+            readMirrorChannelFn: () => ({
+                checked: true,
+                error: null,
+                tag: 'v1.2.2',
+            }),
         });
 
         expect(status.mirror.matchesTag).toBe(false);

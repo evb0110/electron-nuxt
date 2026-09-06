@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import {
     resolvePdfNavigationAnchor,
     resolveTextAnchorRect,
@@ -22,7 +25,7 @@ interface ICreatePdfNavigationCommitRefinerOptions {
     resolvedTargets: Map<string, IResolvedPdfNavigationTarget>;
     resolveAnchorForViewport: (
         snapshot: IPdfViewportGeometry,
-        pageNumber: number,
+        pageNumber: TPageNumber,
     ) => IPdfSemanticAnchor;
     resolveNavigationScrollForViewport: (
         snapshot: IPdfViewportGeometry,
@@ -64,7 +67,7 @@ export function createPdfNavigationCommitRefiner(
                     hasPage: pageElement !== null,
                     hasTextLayer: Boolean(pageElement && textLayer),
                     textLayerReady: textLayer?.dataset.pdfTextLayerReady ?? null,
-                    textLayerTextLength: textLayer?.textContent?.length ?? 0,
+                    textLayerTextLength: textLayer?.textContent.length ?? 0,
                     textLayerSpanCount: textLayer?.querySelectorAll('span').length ?? 0,
                     hasResolvedRect: rect !== null,
                     resolvedRect: rect,
@@ -90,7 +93,7 @@ export function createPdfNavigationCommitRefiner(
             if (visible) {
                 return Promise.resolve({
                     ...commit,
-                    anchor: options.resolveAnchorForViewport(snapshot, anchor.page),
+                    anchor: options.resolveAnchorForViewport(snapshot, requirePageNumber(anchor.page)),
                     left: container.scrollLeft,
                     top: container.scrollTop,
                 });

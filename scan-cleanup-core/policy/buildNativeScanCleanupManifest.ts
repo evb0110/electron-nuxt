@@ -16,6 +16,7 @@ import {
     SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW,
 } from '@contracts/scan-cleanup/stagedInputWindow';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {
     resolveEffectiveScanCleanupOptions,
@@ -400,7 +401,10 @@ function assembleNativeScanCleanupManifest({
             const resolvedOptions = {
                 ...resolveEffectiveScanCleanupOptions({
                     options,
-                    pageOverride: getScanCleanupPageOverride(options.pageOverrides, page.pageNumber),
+                    pageOverride: getScanCleanupPageOverride(
+                        options.pageOverrides,
+                        requirePageNumber(page.pageNumber),
+                    ),
                     dpi: page.dpi,
                     ...(page.sourceDpi === undefined ? {} : {sourceDpi: page.sourceDpi}),
                     ...(page.sourceHasBilevelLayer === undefined

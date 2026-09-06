@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 export interface IAnnotationContextMenuPayload {
@@ -6,7 +8,7 @@ export interface IAnnotationContextMenuPayload {
     clientY: number;
     hasSelection: boolean;
     selectionText: string;
-    pageNumber: number | null;
+    pageNumber: TPageNumber | null;
     pageX: number | null;
     pageY: number | null;
 }

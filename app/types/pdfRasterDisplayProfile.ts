@@ -44,7 +44,7 @@ export function resolvePdfRasterSourceMaxPixels(
     profile: TPdfRasterDisplayProfile | null | undefined,
     pageNumber: number,
 ) {
-    if (!profile || profile.kind !== 'trusted-raster-djvu') {
+    if (!profile) {
         return null;
     }
     if (!Number.isInteger(pageNumber) || pageNumber < 1) {

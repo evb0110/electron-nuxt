@@ -93,7 +93,7 @@ function buildTextLayerIndex(textLayerDiv: HTMLElement): {
             || mappedTextBySpan?.has(element)
         )) {
             const span = element;
-            const text = mappedTextBySpan?.get(span) ?? span.textContent ?? '';
+            const text = mappedTextBySpan?.get(span) ?? span.textContent;
             const textNode = span.firstChild && span.firstChild.nodeType === Node.TEXT_NODE
                 ? span.firstChild as Text
                 : null;
@@ -192,7 +192,10 @@ function createTextLayerRangeForSearchMatchFromIndex(
             remaining -= textNode.length;
         }
 
-        const lastTextNode = textNodes.at(-1)!;
+        const lastTextNode = textNodes.at(-1);
+        if (!lastTextNode) {
+            return null;
+        }
         return {
             node: lastTextNode,
             offset: lastTextNode.length,
@@ -281,19 +284,22 @@ export function createTextLayerRangeForSearchOccurrence(
     }
 
     const occurrences = [...assembled.text.matchAll(pattern)]
-        .filter(match => (match[0]?.length ?? 0) > 0 && match.index !== undefined);
+        .filter(match => match[0].length > 0);
+    const expectedPageMatchCount = options.expectedPageMatchCount;
     if (
-        Number.isSafeInteger(options.expectedPageMatchCount)
-        && options.expectedPageMatchCount! >= 0
-        && occurrences.length !== options.expectedPageMatchCount
+        typeof expectedPageMatchCount === 'number'
+        && Number.isSafeInteger(expectedPageMatchCount)
+        && expectedPageMatchCount >= 0
+        && occurrences.length !== expectedPageMatchCount
     ) {
         return null;
     }
-    const occurrenceIndex = Number.isSafeInteger(options.pageMatchIndex)
-        ? options.pageMatchIndex!
+    const pageMatchIndex = options.pageMatchIndex;
+    const occurrenceIndex = typeof pageMatchIndex === 'number' && Number.isSafeInteger(pageMatchIndex)
+        ? pageMatchIndex
         : 0;
     const occurrence = occurrences[occurrenceIndex];
-    if (!occurrence || occurrence.index === undefined) {
+    if (!occurrence) {
         return null;
     }
 
@@ -367,10 +373,11 @@ export function buildRunMatchOverlaps(
     let runIndex = 0;
 
     for (const match of matches) {
-        while (
-            runIndex < runs.length
-            && runs[runIndex]!.endOffset <= match.start
-        ) {
+        while (runIndex < runs.length) {
+            const run = runs[runIndex];
+            if (!run || run.endOffset > match.start) {
+                break;
+            }
             runIndex += 1;
         }
 
@@ -379,7 +386,10 @@ export function buildRunMatchOverlaps(
         }
 
         for (let i = runIndex; i < runs.length; i += 1) {
-            const run = runs[i]!;
+            const run = runs[i];
+            if (!run) {
+                continue;
+            }
             if (run.startOffset >= match.end) {
                 break;
             }
@@ -392,7 +402,10 @@ export function buildRunMatchOverlaps(
                 continue;
             }
 
-            overlaps[i]!.push(match);
+            const runOverlaps = overlaps[i];
+            if (runOverlaps) {
+                runOverlaps.push(match);
+            }
         }
     }
 

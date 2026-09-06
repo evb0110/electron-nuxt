@@ -6,6 +6,8 @@ import {
     vi,
 } from 'vitest';
 import { commitPdfTempFile } from '@electron/features/documents/main/commitPdfTempFile';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireLeaseId } from '@contracts/shared';
 
 const mocks = vi.hoisted(() => ({
     acquire: vi.fn(),
@@ -61,7 +63,7 @@ describe('commitPdfTempFile', () => {
             artifact: {
                 receiptVersion: 1,
                 artifactKind: 'pdf',
-                path: '/tmp/source.pdf',
+                path: requireDocumentRef('/tmp/source.pdf'),
                 size: 100,
                 sha256: 'a'.repeat(64),
                 fileIdentity: {
@@ -75,7 +77,7 @@ describe('commitPdfTempFile', () => {
                     semanticCheck: false,
                     fsynced: false,
                 },
-                leaseId: 'lease-1',
+                leaseId: requireLeaseId('lease-1'),
                 revision: null,
             },
             context: {senderId: 42},
@@ -87,7 +89,7 @@ describe('commitPdfTempFile', () => {
         const artifact = {
             receiptVersion: 1 as const,
             artifactKind: 'pdf' as const,
-            path: '/tmp/source.pdf',
+            path: requireDocumentRef('/tmp/source.pdf'),
             size: 100,
             sha256: 'a'.repeat(64),
             fileIdentity: {
@@ -101,7 +103,7 @@ describe('commitPdfTempFile', () => {
                 semanticCheck: false,
                 fsynced: false,
             },
-            leaseId: 'lease-1',
+            leaseId: requireLeaseId('lease-1'),
             revision: null,
         };
 
@@ -122,7 +124,7 @@ describe('commitPdfTempFile', () => {
         const artifact = {
             receiptVersion: 1 as const,
             artifactKind: 'pdf' as const,
-            path: '/tmp/source.pdf',
+            path: requireDocumentRef('/tmp/source.pdf'),
             size: 100,
             sha256: 'a'.repeat(64),
             fileIdentity: {
@@ -136,7 +138,7 @@ describe('commitPdfTempFile', () => {
                 semanticCheck: false,
                 fsynced: false,
             },
-            leaseId: 'lease-1',
+            leaseId: requireLeaseId('lease-1'),
             revision: null,
         };
         mocks.resolveTypedStagedArtifact.mockResolvedValueOnce({

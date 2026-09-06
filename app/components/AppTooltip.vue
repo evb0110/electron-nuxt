@@ -66,7 +66,7 @@ const tooltipProps = computed(() => {
     if (text !== undefined) props.text = text;
     if (content !== undefined) props.content = content;
     if (arrow !== undefined) props.arrow = arrow;
-    if (portal !== undefined) props.portal = portal;
+    props.portal = portal;
     if (tooltipClass !== undefined) props.class = tooltipClass;
     if (defaultOpen !== undefined) props.defaultOpen = defaultOpen;
     if (open !== undefined) props.open = open;

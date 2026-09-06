@@ -8,6 +8,7 @@
 // coarse pixel-grid oracle (~50 DPI), augmented with bounded local component
 // sampling, not a replacement for the finer word-loss audit.
 
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {execFile} from 'node:child_process';
 import {
     mkdtemp,
@@ -64,7 +65,7 @@ async function run(command, args) {
         });
         return stdout;
     } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = getCliErrorMessage(error);
         throw new Error(`${command} ${args.join(' ')} failed: ${detail}`);
     }
 }
@@ -1928,7 +1929,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
             process.exitCode = exitCode;
         },
         error => {
-            console.error(error instanceof Error ? error.message : error);
+            console.error(error instanceof Error ? getCliErrorMessage(error) : error);
             process.exitCode = 1;
         },
     );

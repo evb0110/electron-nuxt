@@ -1,3 +1,8 @@
+import {
+    pageNumberToPageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import {
     getLayoutPageTop,
@@ -15,20 +20,27 @@ import {
  */
 export function getInterSegmentSpacerHeight(
     layout: IPdfPageLayoutMetrics,
-    previousVisiblePage: number,
-    nextVisiblePage: number,
+    previousVisiblePage: TPageNumber,
+    nextVisiblePage: TPageNumber,
 ) {
     if (
         !Number.isFinite(previousVisiblePage)
         || !Number.isFinite(nextVisiblePage)
         || previousVisiblePage < 1
         || nextVisiblePage <= previousVisiblePage
+        || layout.base.totalPages <= 0
     ) {
         return 0;
     }
 
-    const previousPageIndex = Math.min(layout.base.totalPages, Math.floor(previousVisiblePage)) - 1;
-    const nextPageIndex = Math.min(layout.base.totalPages, Math.floor(nextVisiblePage)) - 1;
+    const previousPageIndex = pageNumberToPageIndex(requirePageNumber(
+        Math.min(layout.base.totalPages, Math.floor(previousVisiblePage)),
+        layout.base.totalPages,
+    ));
+    const nextPageIndex = pageNumberToPageIndex(requirePageNumber(
+        Math.min(layout.base.totalPages, Math.floor(nextVisiblePage)),
+        layout.base.totalPages,
+    ));
     const previousRowIndex = layout.base.pageRowIndices[previousPageIndex] ?? -1;
     const nextRowIndex = layout.base.pageRowIndices[nextPageIndex] ?? -1;
     if (previousRowIndex < 0 || nextRowIndex <= previousRowIndex) {

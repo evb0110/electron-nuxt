@@ -237,6 +237,38 @@ describe('pre-push gate', () => {
         ]);
     });
 
+    it('selects every project the workflow test files belong to', () => {
+        const runner = createRunner({
+            changedFiles: ['.github/workflows/ci.yml'],
+            ciRun: {
+                conclusion: 'success',
+                status: 'completed',
+                url: 'https://ci.example/run/1',
+            },
+        });
+
+        runPrePushGate({
+            fileExists: () => true,
+            input: pushInput(),
+            runCommand: runner.runCommand,
+            write: () => undefined,
+            writeError: () => undefined,
+        });
+
+        const workflowCall = runner.calls.find(call => call.args[1] === 'vitest' && call.args[2] === 'run');
+        expect(workflowCall?.args).toEqual([
+            'exec',
+            'vitest',
+            'run',
+            '--project',
+            'unit-scripts',
+            '--project',
+            'unit-policy',
+            'tests/unit/scripts/githubActionsSyntax.test.ts',
+            'tests/unit/scripts/ciTopologyPolicy.test.ts',
+        ]);
+    });
+
     it('runs changed-file checks in order and limits related tests to unit projects', () => {
         const runner = createRunner({
             changedFiles: [

@@ -101,6 +101,17 @@ export function describeNonInteractiveSession(probe: IGuestEnvironmentProbe) {
     return null;
 }
 
-export async function probeGuestEnvironment(powerShell: IGuestPowerShellRunner, executablePath: string) {
-    return parseGuestEnvironmentProbe(await powerShell.runJson('probe-identity.ps1', [executablePath]));
+export async function probeGuestEnvironment(
+    powerShell: IGuestPowerShellRunner,
+    executablePath: string,
+    workerPid?: number,
+) {
+    const arguments_ = workerPid === undefined
+        ? [executablePath]
+        : [
+            executablePath,
+            '-WorkerPid',
+            String(workerPid),
+        ];
+    return parseGuestEnvironmentProbe(await powerShell.runJson('probe-identity.ps1', arguments_));
 }

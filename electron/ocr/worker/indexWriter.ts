@@ -58,6 +58,11 @@ import {
 import type {IOcrIndexV3ManifestStreamMetadata} from '@electron/ocr/ocrIndexV3Stream';
 import {resolveCatalogPath} from '@electron/ocr/ocrCatalogV4';
 import {writeOcrIndexV4} from '@electron/ocr/worker/indexWriterV4';
+import {
+    createEpochMs,
+    requireEpochMs,
+} from '@contracts/timestamps';
+import { requirePageNumber } from '@contracts/pageNumbers';
 
 const OCR_V3_COMPATIBILITY_PAGE_LIMIT = 1_024;
 
@@ -96,7 +101,7 @@ async function readExistingOcrIndexV3Manifest(
     ocrDir: string,
 ): Promise<TExistingOcrIndexV3Manifest | null> {
     let metadata: IOcrIndexV3ManifestStreamMetadata | null;
-    const pages: IOcrIndexV3Manifest['pages'] = {};
+    const pages: Record<number, IOcrIndexV3Manifest['pages'][number]> = {};
     try {
         metadata = await readOcrIndexV3ManifestMetadata(join(ocrDir, 'manifest.json'));
         if (metadata === null) {
@@ -129,7 +134,7 @@ async function readExistingOcrIndexV3Manifest(
             manifest: {
                 version: 3,
                 documentRevision: metadata.documentRevision,
-                createdAt: metadata.createdAt,
+                createdAt: requireEpochMs(metadata.createdAt),
                 source: metadata.source,
                 pageCount: metadata.pageCount,
                 pageBox: metadata.pageBox,
@@ -170,7 +175,7 @@ function copyPreservedPageMappings(
         return {};
     }
 
-    const pages: IOcrIndexV3Manifest['pages'] = {};
+    const pages: Record<number, IOcrIndexV3Manifest['pages'][number]> = {};
     for (const [
         rawPageNumber,
         pageMapping,
@@ -442,7 +447,10 @@ async function writeCompactSearchIndexForOcr(
         await persistCompactSearchIndex(workingCopyPath, {
             documentRevision: manifest.documentRevision.token,
             pageCount: manifest.pageCount,
-            pages,
+            pages: pages.map(page => ({
+                ...page,
+                pageNumber: requirePageNumber(page.pageNumber, manifest.pageCount),
+            })),
             textSource: {
                 kind: COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
                 version: OCR_TEXT_LAYER_INDEX_VERSION,
@@ -550,10 +558,17 @@ export async function writeOcrIndexV3(
         ? await statMtimeMs(manifestPath)
         : undefined;
 
+    const pages = copyPreservedPageMappings(
+        existingManifest,
+        workingCopyPath,
+        pageCount,
+        ocrDir,
+        documentRevision,
+    );
     const manifest: IOcrIndexV3Manifest = {
         version: 3,
         documentRevision: {token: documentRevision.token},
-        createdAt: Date.now(),
+        createdAt: createEpochMs(),
         source: { pdfPath: workingCopyPath },
         pageCount,
         pageBox: 'crop',
@@ -562,7 +577,7 @@ export async function writeOcrIndexV3(
             languages,
             renderDpi: extractionDpi,
         },
-        pages: copyPreservedPageMappings(existingManifest, workingCopyPath, pageCount, ocrDir, documentRevision),
+        pages,
     };
     const generation = randomUUID();
 
@@ -621,7 +636,7 @@ export async function writeOcrIndexV3(
             tempPaths.delete(tempPath);
             writtenPagePaths.add(pagePath);
 
-            manifest.pages[pd.pageNumber] = {
+            pages[pd.pageNumber] = {
                 path: pageFile,
                 generation,
             };

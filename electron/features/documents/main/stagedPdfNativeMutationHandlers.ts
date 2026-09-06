@@ -3,6 +3,7 @@ import {
     rm,
 } from 'node:fs/promises';
 import type {IDocumentMutationRevisionOptions} from '@contracts/electronApiDocuments';
+import {parseDocumentRef} from '@contracts/documentRef';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {isAllowedOriginalSavePath} from '@electron/file-access/isAllowedOriginalSavePath';
 import {createDisposableWorkingCopyFromPath} from '@electron/file-access/workingCopyCreation';
@@ -65,6 +66,12 @@ async function cleanupStagedPath(path: string) {
     await rm(path, {force: true}).catch(() => undefined);
 }
 
+// The resolved receipt lease is the only admission for a staged path; no
+// renderer open-path capability is ever granted for it.
+function toStagedSourcePath(stagedOutput: ITypedStagedArtifact) {
+    return stagedOutput.path as string as TOpenPath;
+}
+
 /**
  * Consumes a lease-backed native mutation receipt into a disposable snapshot.
  * The receipt is the only authority used to read the staged path. It is
@@ -81,11 +88,16 @@ export async function handleCloneStagedPdfNativeMutationToWorkingCopy(
     try {
         assertConsumableStagedPdf(stagedOutput);
         const normalizedOriginalPath = normalizeOptionalOriginalPath(originalPath);
-        return await createDisposableWorkingCopyFromPath(
-            stagedOutput.path as TOpenPath,
+        const workingPath = await createDisposableWorkingCopyFromPath(
+            toStagedSourcePath(stagedOutput),
             normalizedOriginalPath,
             senderId,
         );
+        const documentRef = parseDocumentRef(workingPath);
+        if (documentRef === null) {
+            throw new Error('Staged working-copy creation returned an invalid document ref');
+        }
+        return documentRef;
     } finally {
         releaseManagedTempFileHandle(context, stagedOutput.leaseId);
         await cleanupStagedPath(stagedOutput.path);
@@ -133,7 +145,7 @@ export async function handleReplaceWorkingCopyFromStagedPdfNativeMutation(
             });
 
             const tempPath = `${makeSiblingTempPath(resolvedWorkingPath)}.pdf`;
-            let promoted = false;
+            let promoted = false as boolean;
             try {
                 await copyFileCopyOnWrite(stagedOutput.path, tempPath);
                 // The source lease can expire or be invalidated while the

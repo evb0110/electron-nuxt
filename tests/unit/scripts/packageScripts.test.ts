@@ -153,6 +153,7 @@ describe('package scripts', () => {
             'lint:clean',
             'typecheck',
             'typecheck:clean',
+            'check:tests:as-never',
             'test:unit',
             'validate:iteration',
             'validate',

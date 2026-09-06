@@ -42,6 +42,7 @@ import {
     waitForVisibleMountedPdfCanvases,
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 const PAGE_JUMP_PDF_ENV_VAR = 'EVB_E2E_PAGE_JUMP_PDF_PATH';
 const PAGE_JUMP_PDF_OVERRIDE = process.env[PAGE_JUMP_PDF_ENV_VAR]?.trim() ?? null;
@@ -1259,9 +1260,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             rapidNavigationDebug = await collectRapidNavigationDebug(session);
             trace = await collectTrace(session);
         } catch (error) {
-            failureMessage = error instanceof Error
-                ? error.message
-                : String(error);
+            failureMessage = getErrorMessage(error);
             throw error;
         } finally {
             if (visiblePages.length === 0) {

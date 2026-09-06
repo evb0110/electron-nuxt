@@ -556,6 +556,8 @@ export function extractPdfjsWordBoxesFromOperatorList(
                 nextLine(state);
                 activeWord = showTextArgument(args[2], state, ctm, pageBox, words, activeWord);
                 break;
+            case undefined:
+                break;
             default:
                 break;
         }

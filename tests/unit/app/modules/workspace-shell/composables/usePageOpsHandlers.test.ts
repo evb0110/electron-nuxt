@@ -10,12 +10,14 @@ import {
     type Ref,
 } from 'vue';
 import type { ICropMargins } from '@app/types/crop';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPageSelection } from '@contracts/pageNumbers';
 import {
     createAllPageSelection,
     createPageMoveRange,
     createPredicatePageSelection,
 } from '@contracts/pageNumbers';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 const operationMocks = vi.hoisted(() => ({
     deletePages: vi.fn(),
@@ -32,6 +34,7 @@ const operationMocks = vi.hoisted(() => ({
 
 vi.mock('@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations', () => ({ usePageOperations: () => ({
     isOperationInProgress: ref(false),
+    lastOutcome: ref(null),
     deletePages: operationMocks.deletePages,
     deletePageRanges: operationMocks.deletePageRanges,
     extractPages: operationMocks.extractPages,
@@ -69,7 +72,7 @@ function createHarness(options: {
     }));
 
     const handlers = usePageOpsHandlers({
-        workingCopyPath: ref('/tmp/work.pdf'),
+        workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/work.pdf')),
         pageLabels: ref(null),
         bookmarkItems: ref([]),
         currentPage: ref(4),
@@ -358,9 +361,9 @@ describe('usePageOpsHandlers crop reload strategy', () => {
         })).resolves.toBe(false);
         await expect(handlers.handleRemoveCrop([2])).resolves.toBe(false);
 
-        handlers.handlePageFileDrop({
+        await handlers.handlePageFileDrop({
             afterPage: 2,
-            filePaths: ['/tmp/extra.pdf'],
+            filePaths: [requireDocumentRef('/tmp/extra.pdf')],
         });
         pageContextMenu.value.pages = [2];
         handlers.handlePageContextMenuDelete();

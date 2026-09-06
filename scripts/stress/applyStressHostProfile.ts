@@ -14,7 +14,7 @@ export interface IAppliedStressHostProfile {
 const RELEASE_TIMEOUT_MS = 5_000;
 
 async function withTimeout<T>(label: string, timeoutMs: number, task: Promise<T>) {
-    let timer: NodeJS.Timeout | null = null;
+    let timer = null as NodeJS.Timeout | null;
     const timeout = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
     });

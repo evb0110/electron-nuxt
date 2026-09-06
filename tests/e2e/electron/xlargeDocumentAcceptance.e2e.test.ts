@@ -25,10 +25,15 @@ import {
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
     type IPdfAnnotationIndexEntry,
     type IPdfAnnotationIndexSession,
 } from '@contracts/electronApiDocuments';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {
@@ -1126,8 +1131,9 @@ async function installSaveReceiptProbe(page: Page) {
 }
 
 async function readPdfAnnotationIndex(page: Page, documentPath: string): Promise<IAnnotationIndexRead> {
+    const documentRef = requireDocumentRef(documentPath);
     const result = await page.evaluate(async (input: {
-        documentPath: string;
+        documentPath: TDocumentRef;
         chunkBytes: number;
         payloadBudget: number;
     }) => {
@@ -1196,7 +1202,7 @@ async function readPdfAnnotationIndex(page: Page, documentPath: string): Promise
             transportPayloadByteLengths,
         };
     }, {
-        documentPath,
+        documentPath: documentRef,
         chunkBytes: XLARGE_INDEX_CHUNK_BYTES,
         payloadBudget: XLARGE_IPC_PAYLOAD_MAX_BYTES,
     });
@@ -2010,7 +2016,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             assertMeasuredIpcPayloadBudget(telemetry);
         } catch (error) {
             telemetry.failure = {
-                message: error instanceof Error ? error.message : String(error),
+                message: getErrorMessage(error),
                 stack: error instanceof Error ? error.stack ?? null : null,
             };
             bodyFailure = error;

@@ -1,4 +1,7 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
@@ -14,11 +17,11 @@ export type TDocumentMutationErrorCode =
     | 'WORKING_COPY_SYNC_REQUIRED';
 
 export interface IDocumentMutationErrorPayload {
-    code: TDocumentMutationErrorCode;
-    message: string;
-    documentRef?: TDocumentRef;
-    expectedRevision?: TDocumentRevisionToken | null;
-    actualRevision?: TDocumentRevisionToken | null;
+    readonly code: TDocumentMutationErrorCode;
+    readonly message: string;
+    readonly documentRef?: TDocumentRef;
+    readonly expectedRevision?: TDocumentRevisionToken | null;
+    readonly actualRevision?: TDocumentRevisionToken | null;
 }
 
 export class DocumentMutationError extends Error {
@@ -67,12 +70,13 @@ function decodeDocumentMutationErrorMessage(message: string): IDocumentMutationE
         const actualRevision = parsed.actualRevision === null
             ? null
             : parseDocumentRevisionToken(parsed.actualRevision);
+        const documentRef = parseDocumentRef(parsed.documentRef);
         return {
             code: parsed.code,
             message: typeof parsed.message === 'string' && parsed.message.length > 0
                 ? parsed.message
                 : fallbackMessage,
-            ...(typeof parsed.documentRef === 'string' ? {documentRef: parsed.documentRef} : {}),
+            ...(documentRef === null ? {} : {documentRef}),
             ...(expectedRevision !== null || parsed.expectedRevision === null
                 ? {expectedRevision}
                 : {}),
@@ -110,10 +114,11 @@ export function getDocumentMutationErrorPayload(error: unknown): IDocumentMutati
             const actualRevision = error.actualRevision === null
                 ? null
                 : parseDocumentRevisionToken(error.actualRevision);
+            const documentRef = parseDocumentRef(error.documentRef);
             return {
                 code: error.code,
                 message: error.message,
-                ...(typeof error.documentRef === 'string' ? {documentRef: error.documentRef} : {}),
+                ...(documentRef === null ? {} : {documentRef}),
                 ...(expectedRevision !== null || error.expectedRevision === null
                     ? {expectedRevision}
                     : {}),

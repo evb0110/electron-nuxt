@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     IDocumentOpenSurfaceRenderFence,
     IDocumentOpenSurfaceSession,
@@ -13,8 +16,8 @@ export type TPdfOpeningViewportRejectionReason =
 
 interface IPdfOpeningViewportReconcileOptions {
     activeIntent: Readonly<Pick<IPdfViewportIntent, 'documentRevision' | 'id' | 'kind'>> | null;
-    applyReloadViewport(pageNumber: number): boolean;
-    commitCurrentViewportIfSettled(pageNumber: number): boolean;
+    applyReloadViewport(pageNumber: TPageNumber): boolean;
+    commitCurrentViewportIfSettled(pageNumber: TPageNumber): boolean;
     currentDocumentRevision: number;
     surface: IDocumentOpenSurfaceSession;
     suspendActiveIntent(): void;
@@ -92,9 +95,10 @@ export function reconcilePdfOpeningViewportCommit(
             : null);
         return null;
     }
-    const observedCommit = options.commitCurrentViewportIfSettled(committedRender.pageNumber);
+    const pageNumber = requirePageNumber(committedRender.pageNumber);
+    const observedCommit = options.commitCurrentViewportIfSettled(pageNumber);
     const reloadCommit = !observedCommit && viewport.lifecycle === 'opening'
-        ? options.applyReloadViewport(committedRender.pageNumber)
+        ? options.applyReloadViewport(pageNumber)
         : false;
     if (!observedCommit && !reloadCommit) {
         observeRejection(viewport.lifecycle === 'opening' ? 'viewport-commit-rejected' : null);

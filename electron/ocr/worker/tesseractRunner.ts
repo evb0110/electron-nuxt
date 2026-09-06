@@ -266,7 +266,7 @@ export async function runOcrFileBased(
             if (code !== 0) {
                 return stderrSummary || (closeSignal
                     ? `Tesseract exited after signal ${closeSignal}`
-                    : `Tesseract exited with code ${code}`);
+                    : `Tesseract exited with code ${code ?? '<unknown>'}`);
             }
             return null;
         };

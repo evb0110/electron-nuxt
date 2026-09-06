@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     afterEach,
     beforeEach,
@@ -123,7 +124,7 @@ describe('usePdfImagePlacement', () => {
 
     it('clamps the initial placement rect to page bounds', () => {
         expect(getInitialImagePlacementRect({
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             pageX: 0,
             pageY: 1,
             pageWidthPx: 600,

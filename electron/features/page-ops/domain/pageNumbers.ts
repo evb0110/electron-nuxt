@@ -14,6 +14,7 @@ import {
     pageMoveRangeLength,
     pageMoveRestInsertIndex,
 } from '@contracts/pageNumbers';
+import {stringifyJson} from '@contracts/stringifyJson';
 
 export type { IPageMoveRange } from '@contracts/pageNumbers';
 export type {
@@ -135,10 +136,10 @@ export function validatePageNumbers(
     const pageCandidates: unknown[] = pages;
     for (const p of pageCandidates) {
         if (!isValidPageNumber(p)) {
-            throw new Error(`${label}: invalid page number ${p}`);
+            throw new Error(`${label}: invalid page number ${stringifyJson(p) ?? '<invalid>'}`);
         }
         if (!isPageWithinTotalPages(p, options.totalPages)) {
-            throw new Error(`${label}: page number ${p} is out of range 1-${options.totalPages}`);
+            throw new Error(`${label}: page number ${p} is out of range 1-${options.totalPages ?? '<unknown>'}`);
         }
         if (options.requireUnique && pageSet.has(p)) {
             throw new Error(`${label}: duplicate page number ${p}`);
@@ -240,7 +241,7 @@ export function formatPageMoveRanges(move: IPageMoveRanges) {
     };
     let nextSourcePage = 1;
     let restIndex = 0;
-    let inserted = false;
+    let inserted = false as boolean;
 
     const appendRestRange = (startPage: number, endPage: number) => {
         if (startPage > endPage) {

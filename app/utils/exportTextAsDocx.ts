@@ -40,7 +40,7 @@ function isAbortError(error: unknown) {
 }
 
 function* getNonEmptyPageTexts(
-    catalogPages: Array<{text: string}> | null,
+    catalogPages: ReadonlyArray<{text: string}> | null,
 ): Generator<string> {
     for (const page of catalogPages ?? []) {
         const pageText = page.text.trim();
@@ -50,7 +50,7 @@ function* getNonEmptyPageTexts(
     }
 }
 
-function hasNonEmptyPage(catalogPages: Array<{text: string}> | null) {
+function hasNonEmptyPage(catalogPages: ReadonlyArray<{text: string}> | null) {
     return (catalogPages ?? []).some(page => page.text.trim().length > 0);
 }
 
@@ -72,6 +72,9 @@ export async function exportTextAsDocx(params: {
         throwIfAborted(params.signal);
         const documentFiles = getDocumentFilesCapability();
         const documentWorkingCopy = getDocumentWorkingCopyCapability();
+        if (!params.workingCopyPath) {
+            return false;
+        }
         const workingPath = params.workingCopyPath ?? '';
         const outPath = await documentFiles.saveDocxAs(workingPath);
         if (!outPath) {

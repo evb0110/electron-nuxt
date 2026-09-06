@@ -13,6 +13,8 @@ import {
     getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import { createRequestId } from '@contracts/shared';
+import { parseDocumentRef } from '@contracts/documentRef';
 import type { TTranslateFn } from '@i18n-app';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
@@ -84,8 +86,12 @@ export async function openScanCleanupGeneratedPdf(
     signal: AbortSignal,
     handleOpenInNewTab: (result: TOpenFileResult) => Promise<boolean>,
 ) {
+    const documentRef = parseDocumentRef(path);
+    if (documentRef === null) {
+        return false;
+    }
     const documentOpen = getDocumentOpenCapability();
-    const requestId = `scan-cleanup-open-${crypto.randomUUID()}`;
+    const requestId = createRequestId('scan-cleanup-open');
     const cancelOpen = () => {
         void documentOpen.cancelOpenDocumentDirectBatch?.(requestId).catch(() => undefined);
     };
@@ -96,17 +102,18 @@ export async function openScanCleanupGeneratedPdf(
     // Both listeners are detached on every exit, including a synchronous throw
     // from the open call: the signal outlives this open, so anything left
     // attached to it accumulates for the rest of the handoff.
-    let abandonOpen: (() => void) | null = null;
+    const abandonOpen: { handler: (() => void) | null } = { handler: null };
     try {
-        const open = documentOpen.openDocumentDirectBatch([path], requestId);
+        const open = documentOpen.openDocumentDirectBatch([documentRef], requestId);
         // Main-process cancellation is optional and a copy already in flight
         // cannot be interrupted, so the abort is also raced locally. The open
         // promise is still consumed either way, both to avoid an unhandled
         // rejection and to release a working copy that arrives with no tab left
         // to claim it.
         const abandoned = new Promise<typeof ABANDONED_OPEN>((resolve) => {
-            abandonOpen = () => resolve(ABANDONED_OPEN);
-            signal.addEventListener('abort', abandonOpen, {once: true});
+            const handler = () => resolve(ABANDONED_OPEN);
+            abandonOpen.handler = handler;
+            signal.addEventListener('abort', handler, {once: true});
         });
         const settled = await Promise.race([
             open.then(result => ({result}), (error: unknown) => ({error})),
@@ -119,7 +126,7 @@ export async function openScanCleanupGeneratedPdf(
         if ('error' in settled) {
             throw settled.error;
         }
-        if (signal.aborted) {
+        if (signal.aborted.valueOf()) {
             discardUnclaimedGeneratedOpen(settled.result);
             return false;
         }
@@ -128,8 +135,8 @@ export async function openScanCleanupGeneratedPdf(
             : false;
     } finally {
         signal.removeEventListener('abort', cancelOpen);
-        if (abandonOpen) {
-            signal.removeEventListener('abort', abandonOpen);
+        if (abandonOpen.handler) {
+            signal.removeEventListener('abort', abandonOpen.handler);
         }
     }
 }

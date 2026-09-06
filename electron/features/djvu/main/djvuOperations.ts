@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import type { WebContents } from 'electron';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
@@ -48,6 +49,7 @@ import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { isAbortError } from '@electron/utils/abort';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import { pageIndexToPageNumber } from '@contracts/pageNumbers';
 import type {
     IDjvuConvertOptions,
     IDjvuOutlineItem,
@@ -56,6 +58,13 @@ import type {
     IDjvuTextSearchOptions,
     IDjvuTextSearchProgress,
 } from '@contracts/electronApiDjvu';
+import {
+    createRequestId,
+    parseRequestId,
+    requireJobId,
+    type TJobId,
+    type TRequestId,
+} from '@contracts/shared';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 
@@ -75,7 +84,7 @@ interface IDjvuPreviewSenderState {
 interface IDjvuPreviewRequest {
     documentKey: string;
     priority: number;
-    requestId: string;
+    requestId: TRequestId;
     requestKey: string;
 }
 
@@ -180,8 +189,9 @@ function parsePreviewRequestGeneration(requestId: string | undefined) {
     return Number.isSafeInteger(generation) ? generation : null;
 }
 
-function createPreviewRequestId(requestId: string | undefined) {
-    return requestId ?? `djvu-preview-${randomUUID()}`;
+function createPreviewRequestId(requestId: unknown): TRequestId {
+    const parsedRequestId = parseRequestId(requestId);
+    return parsedRequestId ?? createRequestId('djvu-preview');
 }
 
 function normalizePreviewPriority(priority: number | undefined) {
@@ -417,7 +427,7 @@ async function runCoalescedPreviewRequest<TResult>(
     sender: WebContents,
     documentKey: string,
     requestKey: string,
-    requestId: string,
+    requestId: TRequestId,
     priority: number,
     render: (
         operation: {
@@ -469,7 +479,7 @@ async function runCoalescedPreviewRequest<TResult>(
     });
     state.pendingRequests.delete(requestId);
     try {
-        if (sender.isDestroyed?.() === true) {
+        if (sender.isDestroyed()) {
             throw new Error('DjVu preview operation canceled');
         }
         if (!hasImmediateReservation && isPreviewRequestSuperseded(state, request)) {
@@ -596,10 +606,10 @@ function normalizeDjvuReleasePath(path: unknown, owner?: WebContents) {
 export function handleDjvuStartOpenForViewingOperation(
     context: IDjvuOperationContext,
     djvuPath: string,
-    requestId: string,
+    requestId: TRequestId,
 ) {
     const path = requireDjvuOpenPath(djvuPath, context.sender);
-    const jobId = `djvu-open-${context.senderId}-${requestId}`;
+    const jobId = requireJobId(`djvu-open-${context.senderId}-${requestId}`);
     startDurableDjvuOpenJob(
         context,
         jobId,
@@ -612,8 +622,8 @@ export function handleDjvuStartOpenForViewingOperation(
     });
 }
 
-export function handleDjvuAwaitOpenJobOperation(context: IDjvuOperationContext, jobId: string) {
-    return awaitDurableDjvuOpenJob(context, jobId.trim());
+export function handleDjvuAwaitOpenJobOperation(context: IDjvuOperationContext, jobId: TJobId) {
+    return awaitDurableDjvuOpenJob(context, jobId);
 }
 
 export function handleDjvuReleaseViewingPath(
@@ -633,7 +643,7 @@ export function handleDjvuStartConvertToPdfOperation(
     options: IDjvuConvertOptions,
 ) {
     const requestId = options.requestId!;
-    const jobId = `djvu-convert-${context.senderId}-${requestId}`;
+    const jobId = requireJobId(`djvu-convert-${context.senderId}-${requestId}`);
     const path = requireDjvuOpenPath(djvuPath, context.sender);
     startDurableDjvuConvertJob(
         context,
@@ -650,8 +660,8 @@ export function handleDjvuStartConvertToPdfOperation(
     });
 }
 
-export function handleDjvuAwaitConvertJobOperation(context: IDjvuOperationContext, jobId: string) {
-    return awaitDurableDjvuConvertJob(context, jobId.trim());
+export function handleDjvuAwaitConvertJobOperation(context: IDjvuOperationContext, jobId: TJobId) {
+    return awaitDurableDjvuConvertJob(context, jobId);
 }
 
 export function handleDjvuPrintPathOperation(
@@ -668,14 +678,14 @@ export function handleDjvuPrintPathOperation(
 
 export async function handleDjvuCancelOperation(
     context: IDjvuOperationContext,
-    jobId: string,
+    jobId: TJobId,
 ) {
     return handleDjvuCancel(context, jobId);
 }
 
 export async function handleDjvuCancelPagePreview(
     context: IDjvuOperationContext,
-    requestId: string,
+    requestId: TRequestId,
 ) {
     const pending = previewStateBySender.get(context.senderId)?.pendingRequests.get(requestId);
     if (pending && !pending.abortController.signal.aborted) {
@@ -791,7 +801,7 @@ export async function handleDjvuSearchText(
             processed: lastProcessedPage,
             total: options.pageCount,
             status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         });
         throw error;
     } finally {
@@ -805,7 +815,7 @@ export async function handleDjvuSearchText(
 
 export function handleDjvuCancelTextSearch(
     context: IDjvuOperationContext,
-    requestId: string,
+    requestId: TRequestId,
 ) {
     const operation = activeTextSearchesBySenderRequestKey.get(
         getActiveTextSearchKey(context.senderId, requestId),
@@ -927,7 +937,7 @@ export async function handleDjvuGetPageText(
 function mapDjvuOutlineItem(item: IPdfBookmarkEntry): IDjvuOutlineItem {
     return {
         title: item.title,
-        pageNumber: item.pageIndex === null ? null : item.pageIndex + 1,
+        pageNumber: item.pageIndex === null ? null : pageIndexToPageNumber(item.pageIndex),
         children: item.items.map(mapDjvuOutlineItem),
     };
 }

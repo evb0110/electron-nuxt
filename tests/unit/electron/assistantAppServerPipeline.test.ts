@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import type { IAgentAssistantEvent } from '@contracts/agent';
 import { FakeAssistantAppServerProcess } from '@tests/unit/electron/helpers/fakeAssistantAppServerProcess';
+import { requireTabId } from '@contracts/windowTabs';
 import { createAssistantChatSessionStore } from '@electron/features/agent/assistantChatSessionStore';
 import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
 import { createAssistantAppServerNotificationController } from '@electron/features/agent/createAssistantAppServerNotificationController';
@@ -38,7 +39,7 @@ const scope = {
     kind: 'document',
     key: 'document-a',
     title: 'Document A',
-    tabId: 'tab-a',
+    tabId: requireTabId('tab-a'),
 } as const;
 const selection = {
     provider: 'codex',

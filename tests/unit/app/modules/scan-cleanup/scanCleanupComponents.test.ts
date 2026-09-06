@@ -29,6 +29,8 @@ import type {
     TScanCleanupPageAlignment,
     TScanCleanupPageLayoutOverride,
 } from '@contracts/electronApiScanCleanup';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
@@ -180,6 +182,7 @@ vi.mock('@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession', 
             result: session.previewResult,
             resultCurrent: session.previewResultCurrent ?? computed(() => true),
             resultPresentationKey: session.previewResultPresentationKey ?? computed(() => ''),
+            metadataByPage: session.previewMetadataByPage ?? reactive(new Map()),
             retry: session.retryPreview,
             totalPages: session.previewTotalPages,
             viewMode: session.previewViewMode,
@@ -575,7 +578,7 @@ const activeUnmounts = new Set<() => void>();
 
 function rawPreviewResult(pageNumber: number): IScanCleanupRawPreviewResult {
     return {
-        pageNumber,
+        pageNumber: requirePageNumber(pageNumber),
         totalPages: 3,
         rawImageData: new Uint8Array([1]),
         rawWidthPx: 1000,
@@ -636,7 +639,7 @@ function spreadPreviewResult(pageNumber = 1): IScanCleanupPreviewResult {
         },
     });
     return {
-        pageNumber,
+        pageNumber: requirePageNumber(pageNumber),
         totalPages: 3,
         rawImageData: new Uint8Array([1]),
         rawWidthPx: 1000,
@@ -711,7 +714,7 @@ function rotatedSinglePreviewResult(): IScanCleanupPreviewResult {
 function previewPageSource(widthPoints: number, heightPoints: number): IDocumentPageSource {
     return {
         kind: 'pdf',
-        documentRef: '/preview.pdf',
+        documentRef: requireDocumentRef('/preview.pdf'),
         pageCount: 1,
         getPageMetrics: vi.fn(async () => ({
             widthPoints,
@@ -2090,7 +2093,7 @@ describe('Scan cleanup components', () => {
             cancelRequested: ref(false),
             canDetectAll: ref(false),
             canRun: ref(false),
-            currentPageOverride: ref(getScanCleanupPageOverride(pageOverrides, 2)),
+            currentPageOverride: ref(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2))),
             detectionCancelRequested: ref(false),
             detectionError: ref(''),
             detectionPending: ref(false),
@@ -2271,8 +2274,8 @@ describe('Scan cleanup components', () => {
         layout.value = 'keep-right';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
-        expect(getScanCleanupPageOverride(pageOverrides, 1).layoutOverride).toBe('keep-right');
-        expect(getScanCleanupPageOverride(pageOverrides, 2).layoutOverride).toBe('keep-right');
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(1)).layoutOverride).toBe('keep-right');
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2)).layoutOverride).toBe('keep-right');
         expect({
             layoutMode: settings.layoutMode,
             outputMode: settings.outputMode,
@@ -2290,8 +2293,8 @@ describe('Scan cleanup components', () => {
         layout.value = 'keep-left';
         layout.dispatchEvent(new Event('change', {bubbles: true}));
         await nextTick();
-        expect(getScanCleanupPageOverride(pageOverrides, 1).layoutOverride).toBe('keep-right');
-        expect(getScanCleanupPageOverride(pageOverrides, 2).layoutOverride).toBe('keep-left');
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(1)).layoutOverride).toBe('keep-right');
+        expect(getScanCleanupPageOverride(pageOverrides, requirePageNumber(2)).layoutOverride).toBe('keep-left');
         settings.preserveOriginalQuality = true;
         await nextTick();
         expect(harness.host.querySelector<HTMLSelectElement>(
@@ -2353,7 +2356,7 @@ describe('Scan cleanup components', () => {
             matchPageSize: true,
             layoutDetectionComplete: terminalStatus.value === 'completed',
             alignment: 'top-center',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             totalPages: 3,
             manualSplit: null,
             readingOrder: 'ltr',
@@ -2446,7 +2449,7 @@ describe('Scan cleanup components', () => {
             viewMode: 'cleaned',
             matchPageSize: true,
             alignment: 'top-center',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             totalPages: 3,
             manualSplit: null,
             readingOrder: 'ltr',
@@ -2507,7 +2510,7 @@ describe('Scan cleanup components', () => {
             viewMode: 'cleaned',
             matchPageSize: true,
             alignment: 'top-center',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             totalPages: 3,
             manualSplit: null,
             readingOrder: 'ltr',
@@ -3596,7 +3599,7 @@ describe('Scan cleanup components', () => {
 
     it('keeps wheel and double-click zoom available while only the original raster is ready', async () => {
         const rawResult: IScanCleanupRawPreviewResult = {
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             totalPages: 3,
             rawImageData: new Uint8Array([1]),
             rawWidthPx: 1_000,

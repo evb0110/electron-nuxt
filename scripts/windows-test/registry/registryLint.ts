@@ -31,7 +31,7 @@ function checkIdentity(
     if (!isWindowsTestId(capabilityCase.id)) {
         problems.push({
             caseId: capabilityCase.id,
-            message: `Test ID "${capabilityCase.id}" does not match WIN-[A-Z]+-\\d{2}.`,
+            message: `Test ID ${JSON.stringify(capabilityCase.id)} does not match WIN-[A-Z]+-\\d{2}.`,
         });
     }
     if (seen.has(capabilityCase.id)) {

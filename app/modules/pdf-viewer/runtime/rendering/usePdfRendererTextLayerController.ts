@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import type {
@@ -32,15 +34,15 @@ interface ITextLayerRenderContext {
 
 interface IUsePdfRendererTextLayerControllerOptions {
     textLayerRenderer: ReturnType<typeof usePdfTextLayerRenderer>;
-    activeTextLayerAbortControllers: Map<number, IActivePdfTextLayerTask>;
-    textLayerCleanupFns: Map<number, TPdfTextLayerCleanup>;
+    activeTextLayerAbortControllers: Map<TPageNumber, IActivePdfTextLayerTask>;
+    textLayerCleanupFns: Map<TPageNumber, TPdfTextLayerCleanup>;
     getRenderVersion: () => number;
-    cleanupTextLayer: (pageNumber: number) => void;
-    cleanupPageIfCurrentRender: (pageNumber: number, version: number, requestId?: number) => void;
-    cancelActiveTextLayerRender: (pageNumber: number) => void;
-    cancelActiveTextLayerRenderIfCurrent: (pageNumber: number, version: number, requestId: number) => void;
+    cleanupTextLayer: (pageNumber: TPageNumber) => void;
+    cleanupPageIfCurrentRender: (pageNumber: TPageNumber, version: number, requestId?: number) => void;
+    cancelActiveTextLayerRender: (pageNumber: TPageNumber) => void;
+    cancelActiveTextLayerRenderIfCurrent: (pageNumber: TPageNumber, version: number, requestId: number) => void;
     clearSelectionBeforePageLayerTeardown: TClearSelectionBeforePageLayerTeardown;
-    logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
+    logNonCriticalStageError: (pageNumber: TPageNumber, stage: string, error: unknown) => void;
 }
 
 export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLayerControllerOptions) => {
@@ -58,7 +60,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
     } = options;
 
     async function renderTextLayerForPage(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         version: number,
         requestId: number,
         context: ITextLayerRenderContext,
@@ -97,7 +99,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         // A pure scale or rotation step reuses the mounted spans, so the
         // selection and the interaction handlers that hang off them survive.
         // Only a content rebuild may tear them down.
-        let didRebuildTextLayer = false;
+        let didRebuildTextLayer = false as boolean;
         const teardownBeforeTextLayerRebuild = () => {
             didRebuildTextLayer = true;
             clearSelectionBeforePageLayerTeardown(pageNumber);

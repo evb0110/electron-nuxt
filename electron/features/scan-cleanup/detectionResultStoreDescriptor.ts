@@ -12,6 +12,7 @@ import {
     join,
 } from 'node:path';
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import {isRecord} from '@contracts/runtimeGuards';
 import {createFileBackedScanCleanupDetectionResultStore} from '@scan-cleanup-core/fileBackedResultStore';
 import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
 
@@ -19,6 +20,10 @@ const DESCRIPTOR_FORMAT = 'evb-scan-cleanup-detection-result-store';
 const DESCRIPTOR_SCHEMA_VERSION = 1;
 const RESULT_RECORD_MAX_BYTES = 4 * 1024 * 1024;
 const HANDOFF_DIRECTORY_PREFIX = 'scan-cleanup-detection-handoff-';
+
+function isSafeInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value);
+}
 
 /** Plain data safe to pass through workerData. */
 export interface IScanCleanupDetectionResultStoreDescriptor {
@@ -37,15 +42,17 @@ function serialize(result: IScanCleanupDetectionResult) {
     return line;
 }
 
-function assertDescriptor(descriptor: IScanCleanupDetectionResultStoreDescriptor) {
+function assertDescriptor(descriptor: unknown): asserts descriptor is IScanCleanupDetectionResultStoreDescriptor {
     if (
-        descriptor.format !== DESCRIPTOR_FORMAT
+        !isRecord(descriptor)
+        || descriptor.format !== DESCRIPTOR_FORMAT
         || descriptor.schemaVersion !== DESCRIPTOR_SCHEMA_VERSION
-        || !Number.isSafeInteger(descriptor.pageCount)
+        || !isSafeInteger(descriptor.pageCount)
         || descriptor.pageCount < 1
-        || !Number.isSafeInteger(descriptor.resultCount)
+        || !isSafeInteger(descriptor.resultCount)
         || descriptor.resultCount !== descriptor.pageCount
-        || !descriptor.recordsPath
+        || typeof descriptor.recordsPath !== 'string'
+        || descriptor.recordsPath.length === 0
     ) {
         throw new Error('Invalid scan cleanup detection result-store descriptor');
     }

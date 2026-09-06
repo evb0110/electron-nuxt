@@ -1,4 +1,5 @@
 import {NATIVE_ERROR_CODES} from '@contracts/nativeErrors';
+import type {TPageNumber} from '@contracts/pageNumbers';
 import {
     runtimeSchema,
     type TInferSchema,
@@ -29,8 +30,8 @@ import type {
     IScanCleanupSplitSeamPolyline,
 } from '@contracts/scan-cleanup/geometry';
 import {
+    decodeScanCleanupPageNumber,
     SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
-    SCAN_CLEANUP_INPUT_MAX_PAGE_NUMBER,
 } from '@contracts/scan-cleanup/inputLimits';
 
 export const SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION = 3 as const;
@@ -345,10 +346,10 @@ export function legacyNativeScanCleanupFoldBandV3(): TNativeScanCleanupFoldBandV
 }
 
 export function isNativeScanCleanupFoldBandV3(value: unknown): value is TNativeScanCleanupFoldBandV3 {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    if (!isRecord(value)) {
         return false;
     }
-    const candidate = value as Record<string, unknown>;
+    const candidate = value;
     if (candidate.status === 'measured') {
         return Object.keys(candidate).every(key => (
             key === 'status' || key === 'leftXPx' || key === 'rightXPx'
@@ -364,8 +365,8 @@ export function isNativeScanCleanupFoldBandV3(value: unknown): value is TNativeS
         && Object.keys(candidate).every(key => (
             key === 'status' || key === 'reason' || key === 'nominalHalfWidthPx'
         ))
-        && NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3.includes(
-            candidate.reason as TNativeScanCleanupFoldBandUnmeasuredReasonV3,
+        && NATIVE_SCAN_CLEANUP_FOLD_BAND_UNMEASURED_REASONS_V3.some(
+            reason => reason === candidate.reason,
         )
         && typeof candidate.nominalHalfWidthPx === 'number'
         && Number.isFinite(candidate.nominalHalfWidthPx)
@@ -649,6 +650,10 @@ export interface INativeScanCleanupManifestV3 {
 }
 
 const s = runtimeSchema;
+const pageNumber = s.fromParser<TPageNumber>(
+    value => decodeScanCleanupPageNumber(value, 'page number'),
+    () => decodeScanCleanupPageNumber(1, 'page number'),
+);
 const nonNegativeInteger = (message: string) => s.number({
     integer: true,
     min: 0,
@@ -821,11 +826,7 @@ const progress = s.refine(s.refine(s.object({
     ] as const, 'Invalid evb-scan-cleanup progress envelope'),
     completedPages: nonNegativeInteger('Invalid evb-scan-cleanup progress envelope'),
     totalPages: nonNegativeInteger('Invalid evb-scan-cleanup progress envelope'),
-    pageNumber: s.optional(s.number({
-        integer: true,
-        min: 1,
-        message: 'Invalid evb-scan-cleanup progress page number',
-    })),
+    pageNumber: s.optional(pageNumber),
     outputPaths: s.optional(s.array(s.string())),
     classification: s.optional(classification),
     confidence: s.optional(s.number({message: 'Invalid evb-scan-cleanup progress confidence'})),
@@ -989,12 +990,7 @@ const warningEventScalePercentTenths = s.number({
     max: MAX_SCAN_CLEANUP_WARNING_EVENT_SCALE_PERCENT_TENTHS,
     message: warningEventMessage,
 });
-const warningEventPageNumber = s.number({
-    integer: true,
-    min: 1,
-    max: SCAN_CLEANUP_INPUT_MAX_PAGE_NUMBER,
-    message: warningEventMessage,
-});
+const warningEventPageNumber = pageNumber;
 /**
  * A page list is a set the producer already deduplicated, kept in the order it
  * discovered the pages in — source order carries meaning, so the contract

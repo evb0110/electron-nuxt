@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {spawn} from 'node:child_process';
 import {
     mkdtemp,
@@ -10,6 +11,7 @@ import {
     resolve,
 } from 'node:path';
 import {fileURLToPath} from 'node:url';
+import { stringifyJson } from '@contracts/stringifyJson';
 
 export interface IQuarantineSummary {
     failed: number;
@@ -50,7 +52,7 @@ function readCounters(report: Record<string, unknown>) {
     return Object.fromEntries(QUARANTINE_COUNTER_KEYS.map(key => {
         const value = report[key];
         if (value !== undefined && (!Number.isSafeInteger(value) || (value as number) < 0)) {
-            throw new Error(`invalid quarantine counter ${key}: ${String(value)}`);
+            throw new Error(`invalid quarantine counter ${key}: ${stringifyJson(value) ?? '<invalid>'}`);
         }
         return [
             key,
@@ -113,7 +115,7 @@ export function summarizeQuarantineReport(report: unknown): IQuarantineSummary {
         throw new Error('Quarantine JSON reporter output must be an object');
     }
     if (report.success !== undefined && typeof report.success !== 'boolean') {
-        throw new Error(`Quarantine report success must be boolean: ${String(report.success)}`);
+        throw new Error(`Quarantine report success must be boolean: ${stringifyJson(report.success) ?? '<invalid>'}`);
     }
     const counters = readCounters(report);
     const nested = countNestedAssertions(report);
@@ -316,7 +318,7 @@ export async function runElectronQuarantine({
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
     runElectronQuarantine().catch(error => {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getErrorMessage(error));
         process.exitCode = 1;
     });
 }

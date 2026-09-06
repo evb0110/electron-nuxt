@@ -11,6 +11,7 @@ import {
     cast,
     FakeIndexedDbFactory,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {requireRequestId} from '@contracts/shared';
 
 interface ISearchConformanceCase {
     id: string;
@@ -646,10 +647,10 @@ describe('createBrowserSearchCapability', () => {
         const arrayFrom = vi.spyOn(Array, 'from');
         capability.onProgress(progress => {
             if (progress.processed === 1) {
-                void capability.cancel('legacy-million');
+                void capability.cancel(requireRequestId('legacy-million'));
             }
         });
-        await expect(capability.warmIndex(path, {requestId: 'legacy-million'})).resolves.toBe(false);
+        await expect(capability.warmIndex(path, {requestId: requireRequestId('legacy-million')})).resolves.toBe(false);
         await vi.waitFor(() => {
             const migrated = cast<Record<string, unknown>>(
                 database?.getStoreRecords('document-text').get(path),
@@ -692,10 +693,10 @@ describe('createBrowserSearchCapability', () => {
         const { capability } = createBrowserSearchCapability();
         capability.onProgress(progress => {
             if (progress.processed === 1) {
-                void capability.cancel('million-direct');
+                void capability.cancel(requireRequestId('million-direct'));
             }
         });
-        await expect(capability.run('/tmp/million-direct.pdf', 'needle', {requestId: 'million-direct'})).resolves.toEqual({
+        await expect(capability.run('/tmp/million-direct.pdf', 'needle', {requestId: requireRequestId('million-direct')})).resolves.toEqual({
             results: [],
             truncated: false,
         });
@@ -760,7 +761,7 @@ describe('createBrowserSearchCapability', () => {
                     : {resultsStartIndex: progress.resultsStartIndex}),
             });
         });
-        const result = await capability.run('/tmp/test.pdf', 'sign', { requestId: 'stream-search' });
+        const result = await capability.run('/tmp/test.pdf', 'sign', {requestId: requireRequestId('stream-search')});
 
         expect(result.results).toEqual([
             expect.objectContaining({ pageNumber: 1 }),
@@ -868,7 +869,7 @@ describe('createBrowserSearchCapability', () => {
         const { capability } = createBrowserSearchCapability();
         const truncatedProgress: boolean[] = [];
         capability.onProgress(progress => truncatedProgress.push(Boolean(progress.truncated)));
-        const result = await capability.run('/tmp/test.pdf', 'foo', {requestId: 'exact-limit'});
+        const result = await capability.run('/tmp/test.pdf', 'foo', {requestId: requireRequestId('exact-limit')});
 
         expect(result.truncated).toBe(false);
         expect(result.results.map(match => Number(match.pageNumber))).toEqual([
@@ -922,7 +923,7 @@ describe('createBrowserSearchCapability', () => {
             truncated: Boolean(progress.truncated),
             pageNumbers: (progress.results ?? []).map(match => Number(match.pageNumber)),
         }));
-        const result = await capability.run('/tmp/test.pdf', 'foo', {requestId: 'over-limit'});
+        const result = await capability.run('/tmp/test.pdf', 'foo', {requestId: requireRequestId('over-limit')});
 
         expect(result.truncated).toBe(true);
         expect(result.results.map(match => Number(match.pageNumber))).toEqual([
@@ -1095,12 +1096,12 @@ describe('createBrowserSearchCapability', () => {
 
         const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
         const { capability } = createBrowserSearchCapability();
-        const runPromise = capability.run('/tmp/test.pdf', 'foo', { requestId: 'cancel-me' });
+        const runPromise = capability.run('/tmp/test.pdf', 'foo', {requestId: requireRequestId('cancel-me')});
 
         await vi.waitFor(() => {
             expect(firstPageRead).toBe(true);
         });
-        await capability.cancel('cancel-me');
+        await capability.cancel(requireRequestId('cancel-me'));
         releaseFirstPageRead();
 
         await expect(runPromise).resolves.toEqual({
@@ -1109,7 +1110,7 @@ describe('createBrowserSearchCapability', () => {
         });
         expect(getPage.mock.calls.length).toBeLessThan(3);
 
-        const nextRun = await capability.run('/tmp/test.pdf', 'foo', { requestId: 'cancel-me' });
+        const nextRun = await capability.run('/tmp/test.pdf', 'foo', {requestId: requireRequestId('cancel-me')});
 
         expect(nextRun.results.length).toBeGreaterThan(0);
     });

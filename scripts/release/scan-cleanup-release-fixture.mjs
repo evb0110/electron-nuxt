@@ -7,6 +7,9 @@ import path from 'node:path';
 export const DEFAULT_PACKAGED_SCAN_CLEANUP_FIXTURE = 'tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf';
 export const DEFAULT_PACKAGED_SCAN_CLEANUP_EXPECTED_PAGES = 4;
 
+/** @typedef {{expectedPages?: number, source?: string}} IFixtureConfig */
+
+/** @param {unknown} value @param {string} label @returns {number} */
 function positivePageCount(value, label) {
     const normalized = String(value).trim();
     if (!/^[1-9]\d*$/u.test(normalized)) {
@@ -15,7 +18,9 @@ function positivePageCount(value, label) {
     return Number(normalized);
 }
 
+/** @param {string} configPath @returns {{expectedPages: number, source: string}} */
 function parseFixtureConfig(configPath) {
+    /** @type {IFixtureConfig} */
     const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         throw new Error(`Packaged scan-cleanup fixture config must be an object: ${configPath}`);

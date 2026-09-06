@@ -18,6 +18,8 @@ import {
 } from '@scripts/windows-test/fixtures/generateNumberedFixture';
 import {METADATA_FIXTURE_PAGE_COUNT} from '@scripts/windows-test/fixtures/generateMetadataFixture';
 import {findOracleDescriptor} from '@scripts/windows-test/oracles/oracleRegistry';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import type { TOcrProcessRunner } from '@scripts/windows-test/oracles/ocrPageMarkerOracle';
 import {
     combineOracleStatuses,
     type IOracleResult,
@@ -41,7 +43,7 @@ import {
     type TVerifyProcessRunner,
 } from '@scripts/windows-test/oracles/verifyGeneratedPdfWrapper';
 
-export const WINDOWS_HOST_ORACLE_DISPATCHER_VERSION = 'windows-host-oracles@1';
+export const WINDOWS_HOST_ORACLE_DISPATCHER_VERSION = 'windows-host-oracles@2';
 
 export const WINDOWS_HOST_ORACLE_RESULTS_FILE = 'oracle-results.json';
 
@@ -50,6 +52,7 @@ export interface IWindowsHostOracleTarget {
     oracleIds: readonly string[];
     expectedPageCount?: number;
     expectedMarkers?: readonly string[];
+    pageMarkerMode?: 'text' | 'ocr';
     structure?: IPdfStructureExpectation;
     render?: Omit<IRenderBlankExpectation, 'repositoryRoot'>;
     verifier?: {
@@ -107,6 +110,8 @@ export interface IWindowsHostOracleDispatchInput {
     result: IWindowsTestResult;
     /** Tests can supply a deterministic process runner; production uses Python. */
     verifyProcessRunner?: TVerifyProcessRunner;
+    /** Tests can supply deterministic OCR output; production invokes host tesseract. */
+    ocrProcessRunner?: TOcrProcessRunner;
 }
 
 export interface IWindowsHostOracleDispatchResult {
@@ -175,6 +180,7 @@ export const windowsHostOraclePlans: readonly IWindowsHostOraclePlan[] = [
                 ],
                 expectedPageCount: NUMBERED_FIXTURE_PAGE_COUNT,
                 expectedMarkers: numberedFixtureMarkers(),
+                pageMarkerMode: 'ocr',
                 structure: structure(NUMBERED_FIXTURE_PAGE_COUNT, NUMBERED_PAGE_GEOMETRY),
             },
             {
@@ -188,6 +194,7 @@ export const windowsHostOraclePlans: readonly IWindowsHostOraclePlan[] = [
                 ],
                 expectedPageCount: NUMBERED_FIXTURE_PAGE_COUNT,
                 expectedMarkers: numberedFixtureMarkers(),
+                pageMarkerMode: 'ocr',
                 structure: structure(NUMBERED_FIXTURE_PAGE_COUNT, NUMBERED_PAGE_GEOMETRY),
             },
         ],
@@ -405,7 +412,7 @@ function decorateResult(
 
 function unsupportedOracleError(caseId: string, oracleId: string) {
     const descriptor = findOracleDescriptor(oracleId);
-    if (descriptor === undefined || descriptor === null) {
+    if (descriptor === null) {
         return `Case ${caseId} requires unknown host oracle ${oracleId}.`;
     }
     if (descriptor.side !== 'host') {
@@ -452,7 +459,7 @@ function checkPlanShape(plan: IWindowsHostOraclePlan) {
             errors.push(`Case ${plan.caseId} declares host oracle ${oracleId} without a target.`);
         }
         const descriptor = findOracleDescriptor(oracleId);
-        if (descriptor === undefined || descriptor === null || descriptor.side !== 'host') {
+        if (descriptor === null || descriptor.side !== 'host') {
             errors.push(unsupportedOracleError(plan.caseId, oracleId));
         } else if (!IMPLEMENTED_HOST_ORACLE_IDS.has(oracleId)) {
             errors.push(unsupportedOracleError(plan.caseId, oracleId));
@@ -472,6 +479,12 @@ function appendInvalidExpectationErrors(
         }
         if (target.expectedMarkers !== undefined && !oracleIds.has('page-markers')) {
             errors.push(`Case ${plan.caseId} has unused page-marker expectations for ${target.artifactPath}.`);
+        }
+        const isAllowedOcrTarget = plan.caseId === 'WIN-PRINT-01'
+            && (target.artifactPath === 'artifacts/WIN-PRINT-01/cold.pdf'
+                || target.artifactPath === 'artifacts/WIN-PRINT-01/warm.pdf');
+        if (target.pageMarkerMode === 'ocr' && !isAllowedOcrTarget) {
+            errors.push(`Case ${plan.caseId} uses OCR page markers outside the WIN-PRINT-01 cold and warm print targets.`);
         }
         if (target.structure !== undefined && !oracleIds.has('pdf-structure')) {
             errors.push(`Case ${plan.caseId} has an unused PDF structure expectation for ${target.artifactPath}.`);
@@ -519,7 +532,7 @@ async function evaluatePdfTarget(
     try {
         bytes = new Uint8Array(await readFile(absolutePath));
     } catch (error) {
-        return [`Case ${plan.caseId} artifact ${target.artifactPath} could not be read: ${error instanceof Error ? error.message : String(error)}.`];
+        return [`Case ${plan.caseId} artifact ${target.artifactPath} could not be read: ${getErrorMessage(error)}.`];
     }
     const oracleIds = new Set(target.oracleIds);
     if (oracleIds.has('page-count')) {
@@ -536,6 +549,8 @@ async function evaluatePdfTarget(
             await evaluatePageMarkers(bytes, {
                 repositoryRoot: input.repositoryRoot,
                 expectedMarkers: target.expectedMarkers!,
+                ...(target.pageMarkerMode === undefined ? {} : {mode: target.pageMarkerMode}),
+                ...(input.ocrProcessRunner === undefined ? {} : {processRunner: input.ocrProcessRunner}),
             }),
         ));
     }
@@ -594,7 +609,7 @@ async function evaluateSourceIsolationTarget(
         const baseline = new Uint8Array(await readFile(baselinePath));
         expectedSourceSha256 = createHash('sha256').update(baseline).digest('hex');
     } catch (error) {
-        return [`Case ${plan.caseId} could not hash source baseline ${target.baselineArtifactPath}: ${error instanceof Error ? error.message : String(error)}.`];
+        return [`Case ${plan.caseId} could not hash source baseline ${target.baselineArtifactPath}: ${getErrorMessage(error)}.`];
     }
     const expectation = {
         expectedSourceSha256,

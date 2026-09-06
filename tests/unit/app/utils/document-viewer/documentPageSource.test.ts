@@ -13,6 +13,7 @@ import {
     ensurePdfProjection,
 } from '@app/utils/document-viewer/session/documentSession';
 import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 describe('document page sources', () => {
     it('exposes one cancellable full-document DjVu search provider with the known page count', async () => {
@@ -43,7 +44,7 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const source = await createDjvuPageSource(
-            'book.djvu',
+            requireDocumentRef('/book.djvu'),
             previewSource,
             createWorkspaceSurfaceBudgetController(),
         );
@@ -88,7 +89,7 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const source = await createDjvuPageSource(
-            'book.djvu',
+            requireDocumentRef('/book.djvu'),
             previewSource,
             createWorkspaceSurfaceBudgetController(),
         );
@@ -131,7 +132,7 @@ describe('document page sources', () => {
         } satisfies IPagePreviewSource;
 
         const source = await createDjvuPageSource(
-            'book.djvu',
+            requireDocumentRef('/book.djvu'),
             previewSource,
             createWorkspaceSurfaceBudgetController(),
             {initialPageNumber: 2},
@@ -179,7 +180,7 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const source = await createDjvuPageSource(
-            'book.djvu',
+            requireDocumentRef('/book.djvu'),
             previewSource,
             createWorkspaceSurfaceBudgetController(),
         );
@@ -224,7 +225,7 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const source = await createDjvuPageSource(
-            'book.djvu',
+            requireDocumentRef('/book.djvu'),
             previewSource,
             createWorkspaceSurfaceBudgetController(100),
         );
@@ -258,7 +259,7 @@ describe('document page sources', () => {
         const tryReserve = vi.fn()
             .mockReturnValueOnce({release: transientRelease})
             .mockReturnValueOnce(null);
-        const source = await createDjvuPageSource('book.djvu', previewSource, {
+        const source = await createDjvuPageSource(requireDocumentRef('/book.djvu'), previewSource, {
             reserve: vi.fn(),
             tryReserve,
             releaseScope: vi.fn(),
@@ -292,7 +293,7 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const source = await createDjvuPageSource(
-            'book.djvu',
+            requireDocumentRef('/book.djvu'),
             previewSource,
             createWorkspaceSurfaceBudgetController(),
         );
@@ -334,7 +335,7 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const budget = createWorkspaceSurfaceBudgetController();
-        const source = await createDjvuPageSource('book.djvu', previewSource, budget);
+        const source = await createDjvuPageSource(requireDocumentRef('/book.djvu'), previewSource, budget);
         const controller = new AbortController();
         const render = source.renderPage({
             pageNumber: 1,
@@ -384,7 +385,7 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const budget = createWorkspaceSurfaceBudgetController();
-        const source = await createDjvuPageSource('book.djvu', previewSource, budget);
+        const source = await createDjvuPageSource(requireDocumentRef('/book.djvu'), previewSource, budget);
         const controller = new AbortController();
         const render = source.renderPage({
             pageNumber: 1,
@@ -421,7 +422,7 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const budget = createWorkspaceSurfaceBudgetController(800_000);
-        const source = await createDjvuPageSource('book.djvu', previewSource, budget);
+        const source = await createDjvuPageSource(requireDocumentRef('/book.djvu'), previewSource, budget);
         const surface = await source.renderPage({
             pageNumber: 1,
             widthPx: 200,
@@ -453,7 +454,7 @@ describe('document page sources', () => {
             terminate: vi.fn(),
         } satisfies IPagePreviewSource;
         const budget = createWorkspaceSurfaceBudgetController(800_000);
-        const source = await createDjvuPageSource('book.djvu', previewSource, budget);
+        const source = await createDjvuPageSource(requireDocumentRef('/book.djvu'), previewSource, budget);
         const surface = await source.renderPage({
             pageNumber: 1,
             widthPx: 200,
@@ -489,8 +490,8 @@ describe('document page sources', () => {
         }) satisfies IPagePreviewSource;
         const firstPreviewSource = createPreviewSource();
         const secondPreviewSource = createPreviewSource();
-        const firstSource = await createDjvuPageSource('first.djvu', firstPreviewSource, budget);
-        const secondSource = await createDjvuPageSource('second.djvu', secondPreviewSource, budget);
+        const firstSource = await createDjvuPageSource(requireDocumentRef('/first.djvu'), firstPreviewSource, budget);
+        const secondSource = await createDjvuPageSource(requireDocumentRef('/second.djvu'), secondPreviewSource, budget);
         const firstSurface = await firstSource.renderPage({
             pageNumber: 1,
             widthPx: 10,
@@ -546,7 +547,7 @@ describe('document page sources', () => {
                 release: vi.fn(),
             };
         });
-        const source = await createDjvuPageSource('book.djvu', previewSource, {
+        const source = await createDjvuPageSource(requireDocumentRef('/book.djvu'), previewSource, {
             reserve,
             releaseScope: vi.fn(),
         });
@@ -575,7 +576,7 @@ describe('document page sources', () => {
     it('atomically swaps a session source after a projection is ready', async () => {
         const oldSource = {
             kind: 'djvu' as const,
-            documentRef: 'book.djvu',
+            documentRef: requireDocumentRef('/book.djvu'),
             pageCount: 1,
             getPageMetrics: vi.fn(),
             renderPage: vi.fn(),
@@ -584,7 +585,7 @@ describe('document page sources', () => {
         const pdfSource = {
             ...oldSource,
             kind: 'pdf' as const,
-            documentRef: 'book.pdf',
+            documentRef: requireDocumentRef('/book.pdf'),
         };
         const capabilities = {
             annotations: false,
@@ -596,13 +597,13 @@ describe('document page sources', () => {
         };
         const session = createDocumentSession({
             id: 'session',
-            originalRef: 'book.djvu',
+            originalRef: requireDocumentRef('/book.djvu'),
             source: oldSource,
             capabilities,
         });
 
         await ensurePdfProjection(session, {build: vi.fn().mockResolvedValue({
-            documentRef: 'book.pdf',
+            documentRef: requireDocumentRef('/book.pdf'),
             source: pdfSource,
             capabilities: {
                 ...capabilities,
@@ -619,7 +620,7 @@ describe('document page sources', () => {
     it('passes the print projection reason through the builder before swapping sources', async () => {
         const oldSource = {
             kind: 'djvu' as const,
-            documentRef: 'book.djvu',
+            documentRef: requireDocumentRef('/book.djvu'),
             pageCount: 1,
             getPageMetrics: vi.fn(),
             renderPage: vi.fn(),
@@ -628,7 +629,7 @@ describe('document page sources', () => {
         const pdfSource = {
             ...oldSource,
             kind: 'pdf' as const,
-            documentRef: 'print.pdf',
+            documentRef: requireDocumentRef('/print.pdf'),
         };
         const capabilities = {
             annotations: false,
@@ -640,12 +641,12 @@ describe('document page sources', () => {
         };
         const session = createDocumentSession({
             id: 'print-session',
-            originalRef: 'book.djvu',
+            originalRef: requireDocumentRef('/book.djvu'),
             source: oldSource,
             capabilities,
         });
         const build = vi.fn().mockResolvedValue({
-            documentRef: 'print.pdf',
+            documentRef: requireDocumentRef('/print.pdf'),
             source: pdfSource,
             capabilities: {
                 ...capabilities,
@@ -664,7 +665,7 @@ describe('document page sources', () => {
         expect(session.projection).toEqual({
             status: 'ready',
             reason: 'print',
-            documentRef: 'print.pdf',
+            documentRef: requireDocumentRef('/print.pdf'),
         });
         expect(session.source).toBe(pdfSource);
     });

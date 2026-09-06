@@ -9,6 +9,7 @@
 // reporting real late CI failures as timeouts. The budgets here are policy:
 // tests/unit/scripts/waitForExactShaCi.test.ts asserts the completion budget
 // stays ahead of the blocking CI job timeouts declared in ci.yml.
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,11 @@ import {
     getCommitParentSha,
     isVersionOnlyPackageCommit,
 } from './shared.mjs';
+
+/** @typedef {{id: number, html_url?: string, status?: string, conclusion?: string | null}} IWorkflowRun */
+/** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
+/** @typedef {{write: (chunk: string) => unknown}} IWritable */
+/** @typedef {{appearanceTimeoutMs?: number, completionTimeoutMs?: number, pollIntervalMs?: number, nowFn?: () => number, sleepFn?: (milliseconds: number) => Promise<unknown>, runCommand?: TCommandRunner, stderr?: IWritable}} IWaitOptions */
 
 // Release commits use [skip ci], so the target may have no push run. The
 // short window leaves enough time for an ordinary run to appear before the
@@ -29,6 +35,7 @@ export const EXACT_SHA_CI_POLL_INTERVAL_MS = 30_000;
 
 // Exported for its own contract test: every caller in this module invokes
 // the runner as (command, args), so the default adapter must too.
+/** @param {string} command @param {string[]} args @param {object} [options] @returns {string} */
 export function defaultCommandRunner(command, args, options = {}) {
     const output = execFileSync(command, args, {
         encoding: 'utf8',
@@ -43,6 +50,7 @@ export function defaultCommandRunner(command, args, options = {}) {
     return output == null ? '' : String(output).trim();
 }
 
+/** @param {string} targetSha @param {TCommandRunner} [runCommand] @returns {IWorkflowRun | null} */
 export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunner) {
     const payload = runCommand('gh', [
         'api',
@@ -68,6 +76,7 @@ export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunn
         .at(-1) ?? null;
 }
 
+/** @param {number} runId @param {TCommandRunner} [runCommand] @returns {string | undefined} */
 export function readGatesOkConclusion(runId, runCommand = defaultCommandRunner) {
     return runCommand('gh', [
         'api',
@@ -80,15 +89,18 @@ export function readGatesOkConclusion(runId, runCommand = defaultCommandRunner) 
     ]).split('\n').filter(Boolean).at(-1);
 }
 
+/** @param {IWorkflowRun} runInfo @returns {string} */
 function describeRun(runInfo) {
     return `run ${runInfo.id} (${runInfo.html_url ?? 'no url'})`;
 }
 
+/** @param {string} targetSha @param {unknown} error @returns {string} */
 function describeParentVerificationFailure(targetSha, error) {
     return `No accepted CI run appeared for exact target ${targetSha} within 1 minute; verified-by-parent acceptance failed: ${
-        error instanceof Error ? error.message : String(error)}`;
+        getCliErrorMessage(error)}`;
 }
 
+/** @param {string} targetSha @param {TCommandRunner} runCommand @returns {{id: number, parentSha: string, url: string, verifiedByParent: true}} */
 function verifyByParent(targetSha, runCommand) {
     let parentSha;
     try {
@@ -96,7 +108,7 @@ function verifyByParent(targetSha, runCommand) {
     } catch (error) {
         throw new Error(
             `Could not inspect the parent of release target ${targetSha}: ${
-                error instanceof Error ? error.message : String(error)}`,
+                getCliErrorMessage(error)}`,
         );
     }
 
@@ -133,7 +145,7 @@ function verifyByParent(targetSha, runCommand) {
     } catch (error) {
         throw new Error(
             `Release parent ${parentSha} ${describeRun(parentRun)} succeeded but the gates_ok lookup failed: ${
-                error instanceof Error ? error.message : String(error)}`,
+                getCliErrorMessage(error)}`,
         );
     }
     if (gatesConclusion !== 'success') {
@@ -159,6 +171,7 @@ function verifyByParent(targetSha, runCommand) {
  * A poll always immediately precedes a deadline decision, so a run that
  * turns terminal at the boundary is still observed.
  */
+/** @param {string} targetSha @param {IWaitOptions} [options] @returns {Promise<{id: number, url: string}>} */
 export async function waitForExactShaCiGates(targetSha, {
     appearanceTimeoutMs = EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS,
     completionTimeoutMs = EXACT_SHA_CI_COMPLETION_TIMEOUT_MS,
@@ -183,7 +196,7 @@ export async function waitForExactShaCiGates(targetSha, {
             // Transient API failures must not abort the wait; the deadlines
             // below keep the loop bounded and fail-closed.
             stderr.write(`Transient CI lookup failure for ${targetSha}; retrying: ${
-                error instanceof Error ? error.message.split('\n')[0] : String(error)}\n`);
+                error instanceof Error ? getCliErrorMessage(error).split('\n')[0] : String(error)}\n`);
         }
 
         if (knownRun && knownRun.status === 'completed') {
@@ -198,7 +211,7 @@ export async function waitForExactShaCiGates(targetSha, {
             } catch (error) {
                 throw new Error(
                     `Exact-SHA CI ${describeRun(knownRun)} succeeded but the gates_ok lookup failed: ${
-                        error instanceof Error ? error.message.split('\n')[0] : String(error)}`,
+                        error instanceof Error ? getCliErrorMessage(error).split('\n')[0] : String(error)}`,
                 );
             }
             if (gatesConclusion !== 'success') {
@@ -242,7 +255,7 @@ const isDirectCliRun = process.argv[1]
 
 if (isDirectCliRun) {
     const targetSha = process.argv[2];
-    if (!/^[0-9a-f]{40}$/u.test(targetSha ?? '')) {
+    if (typeof targetSha !== 'string' || !/^[0-9a-f]{40}$/u.test(targetSha)) {
         process.stderr.write('Usage: wait-for-exact-sha-ci.mjs <40-char target sha>\n');
         process.exit(1);
     }
@@ -251,7 +264,7 @@ if (isDirectCliRun) {
             process.stdout.write(`::notice::Release target ${targetSha} passed exact-SHA CI run ${id}.\n`);
         })
         .catch((error) => {
-            process.stderr.write(`::error::${error instanceof Error ? error.message : String(error)}\n`);
+            process.stderr.write(`::error::${getCliErrorMessage(error)}\n`);
             process.exit(1);
         });
 }

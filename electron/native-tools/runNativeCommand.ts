@@ -1,5 +1,7 @@
 import { spawn } from 'child_process';
+import type { ChildProcessByStdio } from 'child_process';
 import { StringDecoder } from 'string_decoder';
+import type { Readable } from 'stream';
 import {
     formatArgForLog,
     formatCommandFailureMessage,
@@ -152,7 +154,7 @@ export function acquireNativeCommandAdmission(signal?: AbortSignal) {
     });
 }
 
-type TNativeProcess = ReturnType<typeof spawn>;
+type TNativeProcess = ChildProcessByStdio<null, Readable, Readable>;
 type TCancelGroupHandler = () => void;
 
 const activeCancelGroups = new Map<string, Set<TCancelGroupHandler>>();
@@ -267,14 +269,6 @@ function spawnNativeProcess(
     return spawn(command, args, spawnOptions);
 }
 
-function killProcessBestEffort(proc: TNativeProcess) {
-    try {
-        proc.kill('SIGKILL');
-    } catch {
-        // Process may already be gone.
-    }
-}
-
 // Reports whether the process tree was proven dead, not whether the request was
 // sent. A rejected or non-affirmative termination is treated as "still alive"
 // because that is the only assumption that cannot lose a user's file.
@@ -350,9 +344,9 @@ export async function runNativeCommand(
         const stderrDecoder = new StringDecoder('utf8');
         let timeoutHandle: NodeJS.Timeout | null = null;
         let forceRejectHandle: NodeJS.Timeout | null = null;
-        let pendingTerminationError: Error | null = null;
+        let pendingTerminationError = null as Error | null;
         let terminationPromise: Promise<boolean> | null = null;
-        let settled = false;
+        let settled = false as boolean;
         let processAdmitted = false;
         const startedAt = performance.now();
         let stdoutDataHandler: ((data: Buffer) => void) | null = null;
@@ -373,10 +367,10 @@ export async function runNativeCommand(
             if (!destroyStreams) {
                 return;
             }
-            targetProc.stdout?.unpipe?.();
-            targetProc.stderr?.unpipe?.();
-            targetProc.stdout?.destroy?.();
-            targetProc.stderr?.destroy?.();
+            targetProc.stdout.unpipe();
+            targetProc.stderr.unpipe();
+            targetProc.stdout.destroy();
+            targetProc.stderr.destroy();
         };
 
         const cleanupProcessHandlers = () => {
@@ -441,6 +435,8 @@ export async function runNativeCommand(
             }, terminationGraceMs + 2_000);
             forceRejectHandle.unref?.();
         };
+
+        const getPendingTerminationError = () => pendingTerminationError;
 
         const finalize = (complete: () => void) => {
             if (settled) {
@@ -533,11 +529,6 @@ export async function runNativeCommand(
                 return;
             }
         }
-        if (settled) {
-            killProcessBestEffort(proc);
-            return;
-        }
-
         const appendDecodedStdout = (text: string) => {
             if (!text) {
                 return;
@@ -606,10 +597,9 @@ export async function runNativeCommand(
 
             appendDecodedStdout(stdoutDecoder.end());
             appendDecodedStderr(stderrDecoder.end());
-            if (pendingTerminationError) {
+            if (getPendingTerminationError()) {
                 return;
             }
-
             const exitCode = typeof code === 'number' ? code : -1;
             const outputSnapshot = output.snapshot();
             if (!allowedExitCodes.includes(exitCode)) {

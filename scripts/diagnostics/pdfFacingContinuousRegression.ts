@@ -4,6 +4,7 @@ import {
 } from 'node:fs';
 import {resolve} from 'node:path';
 import {delay} from 'es-toolkit/promise';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {readSessionLogTail} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {startHostVisiblePdfDiagnosticsElectronSession} from '@scripts/diagnostics/startPdfDiagnosticsElectronSession';
 import {openPdfInApp} from '@tests/e2e/electron/helpers/viewerCore';
@@ -193,7 +194,7 @@ await page.setViewport({
 });
 page.on('console', message => consoleLines.push(`[${message.type()}] ${message.text()}`));
 page.on('pageerror', (error: unknown) => consoleLines.push(
-    `[pageerror] ${error instanceof Error ? error.stack ?? error.message : String(error)}`,
+    `[pageerror] ${error instanceof Error ? error.stack ?? getErrorMessage(error) : getErrorMessage(error)}`,
 ));
 
 try {

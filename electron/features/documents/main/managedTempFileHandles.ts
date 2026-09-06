@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {realpathSync} from 'node:fs';
 import {
     lstat,
@@ -12,6 +11,13 @@ import {
     isAbsolute,
 } from 'node:path';
 import type { IManagedTempFileHandle } from '@contracts/electronApiDocuments';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {
+    createLeaseId,
+    parseLeaseId,
+    requireLeaseId,
+    type TLeaseId,
+} from '@contracts/shared';
 import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
 import {
     decodeTypedStagedArtifact,
@@ -53,8 +59,8 @@ interface IArtifactStatWitness {
     linkCount: bigint;
 }
 
-const leases = new Map<string, IMainManagedTempFileLease | IMainStagedArtifactLease>();
-const leaseIdsByCanonicalPath = new Map<string, string>();
+const leases = new Map<TLeaseId, IMainManagedTempFileLease | IMainStagedArtifactLease>();
+const leaseIdsByCanonicalPath = new Map<string, TLeaseId>();
 let leaseSweepTimer: ReturnType<typeof setTimeout> | null = null;
 
 function canonicalizeLeasePath(path: string) {
@@ -65,11 +71,11 @@ function canonicalizeLeasePath(path: string) {
     }
 }
 
-function registerLeasePath(leaseId: string, path: string) {
+function registerLeasePath(leaseId: TLeaseId, path: string) {
     leaseIdsByCanonicalPath.set(canonicalizeLeasePath(path), leaseId);
 }
 
-function unregisterLease(leaseId: string) {
+function unregisterLease(leaseId: TLeaseId) {
     leases.delete(leaseId);
     for (const [
         canonicalPath,
@@ -113,12 +119,20 @@ export function assertManagedTempPathAccess(
 setManagedTempPathAccessValidator(assertManagedTempPathAccess);
 
 function registerLease(
-    leaseId: string,
+    leaseId: TLeaseId,
     lease: IMainManagedTempFileLease | IMainStagedArtifactLease,
 ) {
     leases.set(leaseId, lease);
     registerLeasePath(leaseId, lease.path);
     ensureLeaseSweep();
+}
+
+function requireDocumentRef(value: unknown) {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
 }
 
 function cloneTypedStagedArtifact(artifact: ITypedStagedArtifact): ITypedStagedArtifact {
@@ -203,7 +217,7 @@ async function statRegularArtifact(path: string) {
     return fileStat;
 }
 
-function invalidateStagedArtifactLease(leaseId: string) {
+function invalidateStagedArtifactLease(leaseId: TLeaseId) {
     const lease = leases.get(leaseId);
     if (lease?.cleanupOnRelease) {
         lease.invalidated = true;
@@ -221,7 +235,7 @@ function clearLeaseSweepIfIdle() {
     }
 }
 
-function cleanupLeaseFile(leaseId: string, lease: IMainManagedTempFileLease) {
+function cleanupLeaseFile(leaseId: TLeaseId, lease: IMainManagedTempFileLease) {
     if (lease.cleanupPending) {
         return;
     }
@@ -274,16 +288,16 @@ export async function createManagedTempFileHandle(
         fingerprintFileWithUtilityProcess(path),
         readWorkingCopyRevisionSidecar(path),
     ]);
-    const leaseId = randomUUID();
+    const leaseId = createLeaseId('managed-temp');
     registerLease(leaseId, {
         ownerId: context.senderId,
-        path,
+        path: requireDocumentRef(path),
         expiresAt: Date.now() + MANAGED_HANDLE_TTL_MS,
         cleanupOnRelease: options.cleanupOnRelease === true,
     });
     ensureLeaseSweep();
     return {
-        path,
+        path: requireDocumentRef(path),
         size: inspection.bytes,
         sha256: inspection.sha256,
         leaseId,
@@ -387,11 +401,11 @@ async function createTypedStagedArtifactAtPath(
         throw new Error('Staged artifact changed while its receipt was being created');
     }
     const fileIdentity = createArtifactFileIdentity(fileStat);
-    const leaseId = randomUUID();
+    const leaseId = createLeaseId('staged-artifact');
     return registerTypedStagedArtifact(context, {
         receiptVersion: 1,
         artifactKind: 'pdf',
-        path,
+        path: requireDocumentRef(path),
         size: inspection.bytes,
         sha256: inspection.sha256,
         fileIdentity,
@@ -453,11 +467,11 @@ export async function createOpaqueNativePdfStagedArtifact(
     if (!Number.isSafeInteger(size) || size < 0) {
         throw new Error('Native staged artifact size exceeds the supported integer range');
     }
-    const leaseId = randomUUID();
+    const leaseId = createLeaseId('staged-artifact');
     return registerTypedStagedArtifact(context, {
         receiptVersion: 2,
         artifactKind: 'pdf',
-        path,
+        path: requireDocumentRef(path),
         size,
         fileIdentity,
         validations,
@@ -499,18 +513,19 @@ export function releaseManagedTempFileHandle(
     context: IDocumentsSenderIdContext,
     leaseId: unknown,
 ) {
-    if (typeof leaseId !== 'string' || leaseId.length === 0) {
+    const parsedLeaseId = parseLeaseId(leaseId);
+    if (parsedLeaseId === null) {
         return false;
     }
-    const lease = leases.get(leaseId);
+    const lease = leases.get(parsedLeaseId);
     if (!lease || lease.ownerId !== context.senderId) {
         return false;
     }
     if (lease.cleanupOnRelease) {
         lease.invalidated = true;
-        cleanupLeaseFile(leaseId, lease);
+        cleanupLeaseFile(parsedLeaseId, lease);
     } else {
-        unregisterLease(leaseId);
+        unregisterLease(parsedLeaseId);
     }
     sweepExpiredLeases();
     return true;
@@ -648,7 +663,7 @@ export async function rebindTypedStagedArtifactPath(
     }
     const reboundArtifact = cloneTypedStagedArtifact({
         ...lease.artifact,
-        path: nextPath,
+        path: requireDocumentRef(nextPath),
     });
     lease.path = nextPath;
     registerLeasePath(artifact.leaseId, nextPath);
@@ -686,7 +701,7 @@ export function revokeManagedTempFileHandlesForSender(senderId: number) {
 }
 
 export function getManagedTempFileCleanupStateForTests(leaseId: string) {
-    const lease = leases.get(leaseId);
+    const lease = leases.get(requireLeaseId(leaseId));
     return lease
         ? {
             exists: true,

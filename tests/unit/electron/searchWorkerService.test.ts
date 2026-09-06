@@ -9,6 +9,7 @@ import {
 import type { SearchWorkerService } from '@electron/features/search/main/searchWorkerService';
 import type { ISearchResourcePolicy } from '@electron/features/search/main/searchResourcePolicy';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireRequestId} from '@contracts/shared';
 
 const workerMocks = vi.hoisted(() => ({instances: [] as Array<{
     options: {workerData?: unknown};
@@ -131,7 +132,7 @@ function dispatchSearch(
             resolvedPdfPath: options.pdfPath ?? '/tmp/work.pdf',
             documentRevision: requireDocumentRevisionToken('revision-token'),
             query: options.warmup ? '' : 'term',
-            requestId,
+            requestId: requireRequestId(requestId),
             requestIdPrefix: 'search',
             ...(options.warmup === undefined ? {} : {warmup: options.warmup}),
         },
@@ -223,7 +224,7 @@ describe('SearchWorkerService', () => {
         expect(service.cancel({
             sender,
             senderId: 42,
-        }, 'search-1')).toEqual({canceled: true});
+        }, requireRequestId('search-1'))).toEqual({canceled: true});
         await vi.advanceTimersByTimeAsync(99);
         expect(settled).not.toHaveBeenCalled();
 

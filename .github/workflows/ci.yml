@@ -118,6 +118,10 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run lint
 
+      - name: Test assertion ratchet
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:tests:as-never
+
       - name: Typecheck
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run typecheck
@@ -758,6 +762,10 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run lint:clean
 
+      - name: Test assertion ratchet
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:tests:as-never
+
       - name: Static reports
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run check:static:reports
@@ -906,6 +914,10 @@ jobs:
       - name: Lint
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run lint
+
+      - name: Test assertion ratchet
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        run: pnpm run check:tests:as-never
 
       - name: Static reports
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}

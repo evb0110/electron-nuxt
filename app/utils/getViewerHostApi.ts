@@ -1,4 +1,5 @@
 import type { IViewerHostApi } from '@contracts/viewerHost';
+import { parseDocumentRef } from '@contracts/documentRef';
 import { hasElectronAPI } from '@app/utils/platform';
 import { getViewerAssetResolver } from '@app/utils/viewerAssets';
 import {
@@ -47,8 +48,12 @@ function createViewerDocumentsCapability(): IViewerHostApi['documents'] {
             if (!target) {
                 return null;
             }
-            const ok = await documentFiles.writeFile(target, bytes);
-            return ok ? target : null;
+            const documentRef = parseDocumentRef(target);
+            if (documentRef === null) {
+                return null;
+            }
+            const ok = await documentFiles.writeFile(documentRef, bytes);
+            return ok ? documentRef : null;
         },
     };
 }

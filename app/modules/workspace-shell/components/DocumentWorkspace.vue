@@ -1453,13 +1453,11 @@ fileLifecycle.bindWorkspaceProjection({
     toolbarSnapshot: workspaceToolbarSnapshot,
     currentViewState: computed(() => {
         const retainedState = documentSession.snapshot.value.viewState ?? initialViewState;
-        return retainedState
-            ? {
-                ...retainedState,
-                surfaceMode: surfaceMode.value,
-                ...(scanCleanupSessionState.value ? {scanCleanup: scanCleanupSessionState.value} : {}),
-            }
-            : null;
+        return {
+            ...retainedState,
+            surfaceMode: surfaceMode.value,
+            ...(scanCleanupSessionState.value ? {scanCleanup: scanCleanupSessionState.value} : {}),
+        };
     }),
     formatPendingBatchLabel: values => t('tabs.preparingBatch', values),
     publishRecord: record => emit('update-document-record', record),

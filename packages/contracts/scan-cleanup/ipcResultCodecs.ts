@@ -1,4 +1,5 @@
 import {isRecord} from '@contracts/runtimeGuards';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {decodeFailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
     decodeScanCleanupScratchShortfall,
@@ -14,7 +15,17 @@ import type {
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
     TScanCleanupJobState,
+    TScanCleanupCanvasPolicy,
+    TScanCleanupContentTrimSide,
 } from '@contracts/scan-cleanup/ipc';
+import type {
+    TScanCleanupBinarizationMethod,
+    TScanCleanupOutputHalf,
+} from '@contracts/scan-cleanup/domain';
+import type {
+    TNativeScanCleanupSpreadBinarizationPlanDecisionV3,
+    TNativeScanCleanupTextToneRuleV3,
+} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
     decodeDocumentPrior,
     decodeFiniteNumber,
@@ -34,10 +45,76 @@ import {
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
 } from '@contracts/scan-cleanup/inputLimits';
 import {SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
+import {
+    parseJobId,
+    parseRequestId,
+} from '@contracts/shared';
+import {parseEpochMs} from '@contracts/timestamps';
 export {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
+const PREVIEW_HALVES = [
+    'full',
+    'left',
+    'right',
+] as const;
+const PREVIEW_CANVAS_POLICIES = [
+    'intrinsic',
+    'strict-maximum',
+] as const;
+const PREVIEW_BINARIZATION_ROUTES = [
+    'auto',
+    'otsu',
+    'sauvola',
+    'wolf',
+] as const;
+const PREVIEW_TEXT_TONE_RULES = [
+    'applied',
+    'picture-evidence',
+    'insufficient-text',
+    'tonal-mass-outside-text',
+    'already-dark',
+] as const;
+const PREVIEW_TRIM_SIDES = [
+    'left',
+    'top',
+    'right',
+    'bottom',
+] as const;
+const PREVIEW_SPREAD_DECISIONS = [
+    'sharedJoint',
+    'perLeafRouteMismatch',
+    'perLeafAnchorDrift',
+    'perLeafRadiusDrift',
+    'perLeafFaintInkDrift',
+] as const;
+
+function isPreviewHalf(value: unknown): value is TScanCleanupOutputHalf {
+    return PREVIEW_HALVES.some(half => half === value);
+}
+
+function isPreviewCanvasPolicy(value: unknown): value is TScanCleanupCanvasPolicy {
+    return PREVIEW_CANVAS_POLICIES.some(policy => policy === value);
+}
+
+function isPreviewBinarizationRoute(value: unknown): value is TScanCleanupBinarizationMethod {
+    return PREVIEW_BINARIZATION_ROUTES.some(route => route === value);
+}
+
+function isPreviewTextToneRule(value: unknown): value is TNativeScanCleanupTextToneRuleV3 {
+    return PREVIEW_TEXT_TONE_RULES.some(rule => rule === value);
+}
+
+function isPreviewTrimSide(value: unknown): value is TScanCleanupContentTrimSide {
+    return PREVIEW_TRIM_SIDES.some(side => side === value);
+}
+
+function isPreviewSpreadDecision(
+    value: unknown,
+): value is TNativeScanCleanupSpreadBinarizationPlanDecisionV3 {
+    return PREVIEW_SPREAD_DECISIONS.some(decision => decision === value);
+}
 
 function decodePreviewBytes(value: unknown, label: string) {
     if (!(value instanceof Uint8Array) || value.byteLength === 0 || value.byteLength > PREVIEW_MAX_IMAGE_BYTES) {
@@ -106,18 +183,17 @@ function decodePreviewAffine(value: unknown) {
     if (value === null) {
         return null;
     }
-    if (
-        !isRecord(value)
-        || !Array.isArray(value.matrix)
-        || value.matrix.length !== 3
-        || value.matrix.some(row => !Array.isArray(row)
-            || row.length !== 3
-            || row.some(item => typeof item !== 'number' || !Number.isFinite(item)))
-    ) throw new Error('invalid scan-cleanup preview affine');
-    const rows = value.matrix as unknown[];
-    return {matrix: rows.map((row, rowIndex) => (row as unknown[]).map((item, columnIndex) => (
-        decodeSafeFiniteNumber(item, `affine ${rowIndex}:${columnIndex}`)
-    )))};
+    if (!isRecord(value) || !Array.isArray(value.matrix) || value.matrix.length !== 3) {
+        throw new Error('invalid scan-cleanup preview affine');
+    }
+    const matrix = value.matrix.map((row, rowIndex) => {
+        if (!Array.isArray(row) || row.length !== 3) {
+            throw new Error('invalid scan-cleanup preview affine');
+        }
+        return row.map((item, columnIndex) =>
+            decodeSafeFiniteNumber(item, `affine ${rowIndex}:${columnIndex}`));
+    });
+    return {matrix};
 }
 
 function decodeContentDiagnostics(
@@ -154,20 +230,11 @@ function decodeContentDiagnostics(
                 throw new Error('invalid scan-cleanup preview accepted trims');
             }
             return value.acceptedTrims.map((trim, index) => {
-                if (
-                    !isRecord(trim)
-                    || ![
-                        'left',
-                        'top',
-                        'right',
-                        'bottom',
-                    ].includes(String(trim.side))
-                    || !Array.isArray(trim.removedBlocks)
-                ) {
+                if (!isRecord(trim) || !isPreviewTrimSide(trim.side) || !Array.isArray(trim.removedBlocks)) {
                     throw new Error(`invalid scan-cleanup preview accepted trim ${index}`);
                 }
                 return {
-                    side: trim.side as 'left' | 'top' | 'right' | 'bottom',
+                    side: trim.side,
                     iteration: decodePositiveInteger(trim.iteration, `accepted trim ${index} iteration`),
                     score: decodeUnitInterval(trim.score, `accepted trim ${index} score`),
                     threshold: decodeUnitInterval(trim.threshold, `accepted trim ${index} threshold`),
@@ -228,25 +295,14 @@ function decodeContentSideConfidence(value: unknown) {
 function decodeBinarizationDiagnostics(
     value: unknown,
 ): NonNullable<IScanCleanupPreviewMetadata['binarizationDiagnostics']> {
-    if (
-        !isRecord(value)
-        || ![
-            'auto',
-            'otsu',
-            'sauvola',
-            'wolf',
-        ].includes(String(value.route))
-    ) throw new Error('invalid scan-cleanup preview binarization diagnostics');
-    const decodeRoute = (candidate: unknown, label: string) => {
-        if (![
-            'auto',
-            'otsu',
-            'sauvola',
-            'wolf',
-        ].includes(String(candidate))) {
+    if (!isRecord(value) || !isPreviewBinarizationRoute(value.route)) {
+        throw new Error('invalid scan-cleanup preview binarization diagnostics');
+    }
+    const decodeRoute = (candidate: unknown, label: string): TScanCleanupBinarizationMethod => {
+        if (!isPreviewBinarizationRoute(candidate)) {
             throw new Error(`invalid scan-cleanup preview ${label}`);
         }
-        return candidate as NonNullable<IScanCleanupPreviewMetadata['binarizationMode']>;
+        return candidate;
     };
     const spreadPlan = value.spreadPlan === undefined
         ? undefined
@@ -256,13 +312,7 @@ function decodeBinarizationDiagnostics(
             const thresholdAnchor = decodeNonNegativeInteger(plan.thresholdAnchor, 'spread threshold anchor');
             if (thresholdAnchor > 255) throw new Error('invalid scan-cleanup preview spread threshold anchor');
             if (typeof plan.documentAnchor !== 'boolean') throw new Error('invalid scan-cleanup preview spread document anchor');
-            if (![
-                'sharedJoint',
-                'perLeafRouteMismatch',
-                'perLeafAnchorDrift',
-                'perLeafRadiusDrift',
-                'perLeafFaintInkDrift',
-            ].includes(String(plan.decision))) {
+            if (!isPreviewSpreadDecision(plan.decision)) {
                 throw new Error('invalid scan-cleanup preview spread decision');
             }
             return {
@@ -275,11 +325,11 @@ function decodeBinarizationDiagnostics(
                 jointCandidateRoute: decodeRoute(plan.jointCandidateRoute, 'spread joint candidate route'),
                 leftCandidateRoute: decodeRoute(plan.leftCandidateRoute, 'spread left candidate route'),
                 rightCandidateRoute: decodeRoute(plan.rightCandidateRoute, 'spread right candidate route'),
-                decision: plan.decision as 'sharedJoint' | 'perLeafRouteMismatch' | 'perLeafAnchorDrift' | 'perLeafRadiusDrift' | 'perLeafFaintInkDrift',
+                decision: plan.decision,
             };
         })();
     return {
-        route: value.route as NonNullable<IScanCleanupPreviewMetadata['binarizationMode']>,
+        route: value.route,
         robustContrast: decodeFiniteNumber(value.robustContrast, 'binarization robust contrast'),
         illuminationDeviation: decodeFiniteNumber(value.illuminationDeviation, 'binarization illumination deviation'),
         edgeDensity: decodeFiniteNumber(value.edgeDensity, 'binarization edge density'),
@@ -293,17 +343,9 @@ function decodeBinarizationDiagnostics(
 function decodeTextToneDiagnostics(
     value: unknown,
 ): NonNullable<IScanCleanupPreviewMetadata['textToneDiagnostics']> {
-    if (
-        !isRecord(value)
-        || typeof value.applied !== 'boolean'
-        || ![
-            'applied',
-            'picture-evidence',
-            'insufficient-text',
-            'tonal-mass-outside-text',
-            'already-dark',
-        ].includes(String(value.rule))
-    ) throw new Error('invalid scan-cleanup preview text-tone diagnostics');
+    if (!isRecord(value) || typeof value.applied !== 'boolean' || !isPreviewTextToneRule(value.rule)) {
+        throw new Error('invalid scan-cleanup preview text-tone diagnostics');
+    }
     const inkAnchor = value.inkAnchor === null
         ? null
         : decodeNonNegativeInteger(value.inkAnchor, 'text-tone ink anchor');
@@ -322,7 +364,7 @@ function decodeTextToneDiagnostics(
     ) throw new Error('inconsistent scan-cleanup preview text-tone diagnostics');
     return {
         applied: value.applied,
-        rule: value.rule as NonNullable<IScanCleanupPreviewMetadata['textToneDiagnostics']>['rule'],
+        rule: value.rule,
         textLineCount: decodeNonNegativeInteger(value.textLineCount, 'text-tone line count'),
         textInkPixels: decodeNonNegativeInteger(value.textInkPixels, 'text-tone ink pixels'),
         pictureFraction: decodeUnitInterval(value.pictureFraction, 'text-tone picture fraction'),
@@ -363,25 +405,19 @@ function decodeSplitSeam(value: unknown) {
 
 function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
     if (!isRecord(value)) throw new Error('invalid scan-cleanup preview metadata');
+    const half = PREVIEW_HALVES.find(candidate => candidate === value.half)
+        ?? (() => { throw new Error('invalid scan-cleanup preview half'); })();
+    const layoutClassification = isLayoutClassification(value.layoutClassification)
+        ? value.layoutClassification
+        : (() => { throw new Error('invalid scan-cleanup preview layout classification'); })();
+    const canvasPolicy = value.canvasPolicy;
+    const binarizationMode = value.binarizationMode;
     if (
-        ![
-            'full',
-            'left',
-            'right',
-        ].includes(String(value.half))
-        || ![
-            'single-uncut-page',
-            'page-with-offcut',
-            'two-page-spread',
-        ].includes(String(value.layoutClassification))
-        || !isRecord(value.appliedMargins)
+        !isRecord(value.appliedMargins)
         || !Array.isArray(value.warnings)
         || value.warnings.some(item => typeof item !== 'string')
         || !isScanCleanupRotation(value.rotationDegrees)
-        || (value.canvasPolicy !== undefined && ![
-            'intrinsic',
-            'strict-maximum',
-        ].includes(String(value.canvasPolicy)))
+        || (canvasPolicy !== undefined && !isPreviewCanvasPolicy(canvasPolicy))
         || (value.canvasOverflow !== undefined && typeof value.canvasOverflow !== 'boolean')
         || (value.matchedCanvasOpticalPlacement !== undefined && typeof value.matchedCanvasOpticalPlacement !== 'boolean')
         || (value.intrinsicRasterWidthPx !== undefined && (!Number.isSafeInteger(value.intrinsicRasterWidthPx) || Number(value.intrinsicRasterWidthPx) < 1))
@@ -400,19 +436,14 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         || (value.manualSkew !== undefined && typeof value.manualSkew !== 'boolean')
         || (value.splitAbstained !== undefined && typeof value.splitAbstained !== 'boolean')
         || (value.dewarpApplied !== undefined && typeof value.dewarpApplied !== 'boolean')
-        || (value.binarizationMode !== undefined
-            && value.binarizationMode !== null
-            && ![
-                'auto',
-                'otsu',
-                'sauvola',
-                'wolf',
-            ].includes(String(value.binarizationMode)))
+        || (binarizationMode !== undefined
+            && binarizationMode !== null
+            && !isPreviewBinarizationRoute(binarizationMode))
         || (value.rasterScaleLimited !== undefined && typeof value.rasterScaleLimited !== 'boolean')
     ) throw new Error('invalid scan-cleanup preview metadata');
     const metadata: IScanCleanupPreviewMetadata = {
-        half: value.half as IScanCleanupPreviewMetadata['half'],
-        layoutClassification: value.layoutClassification as IScanCleanupPreviewMetadata['layoutClassification'],
+        half,
+        layoutClassification,
         layoutConfidence: value.layoutConfidence === undefined
             ? 0
             : decodeUnitInterval(value.layoutConfidence, 'layout confidence'),
@@ -456,9 +487,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             : {renderRegion: decodePreviewRect(value.renderRegion, 'render region')}),
         canvasWidthPx: decodePositiveInteger(value.canvasWidthPx, 'canvas width'),
         canvasHeightPx: decodePositiveInteger(value.canvasHeightPx, 'canvas height'),
-        canvasPolicy: (value.canvasPolicy ?? 'intrinsic') as NonNullable<
-            IScanCleanupPreviewMetadata['canvasPolicy']
-        >,
+        canvasPolicy: isPreviewCanvasPolicy(canvasPolicy) ? canvasPolicy : 'intrinsic',
         canvasOverflow: value.canvasOverflow === true,
         matchedCanvasTargetWidthPx: value.matchedCanvasTargetWidthPx === null
             || value.matchedCanvasTargetWidthPx === undefined
@@ -532,11 +561,11 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
         ...(value.outputMode === undefined
             ? {}
             : {outputMode: value.outputMode}),
-        ...(value.binarizationMode === undefined
+        ...(binarizationMode === undefined
             ? {}
-            : {binarizationMode: value.binarizationMode as NonNullable<
-                IScanCleanupPreviewMetadata['binarizationMode']
-            > | null}),
+            : {binarizationMode: isPreviewBinarizationRoute(binarizationMode)
+                ? binarizationMode
+                : null}),
         ...(value.binarizationDiagnostics === undefined
             ? {}
             : {binarizationDiagnostics: value.binarizationDiagnostics === null
@@ -561,7 +590,7 @@ function decodePreviewMetadata(value: unknown): IScanCleanupPreviewMetadata {
             ? {}
             : {requestedRenderDpi: decodePositiveFiniteNumber(value.requestedRenderDpi, 'requested render dpi')}),
         rasterScaleLimited: value.rasterScaleLimited === true,
-        warnings: value.warnings as string[],
+        warnings: value.warnings.filter((item): item is string => typeof item === 'string'),
     };
     // What is placed on the canvas is the *content* box: the size the intrinsic
     // raster takes once the page has been normalized to the document's scale. A
@@ -645,10 +674,12 @@ export function decodeScanCleanupPreviewResult(value: unknown): TScanCleanupPrev
     if (isRecord(value) && value.canceled === true) {
         return {canceled: true};
     }
+    const requestId = isRecord(value) && value.requestId !== undefined
+        ? parseRequestId(value.requestId)
+        : undefined;
     if (
         !isRecord(value)
-        || (value.requestId !== undefined
-            && (typeof value.requestId !== 'string' || value.requestId.trim().length === 0))
+        || requestId === null
         || !Array.isArray(value.outputs)
         || value.outputs.length > 2
     ) throw new Error('invalid scan-cleanup preview result');
@@ -667,11 +698,14 @@ export function decodeScanCleanupPreviewResult(value: unknown): TScanCleanupPrev
         };
     });
     if (totalBytes > PREVIEW_MAX_TOTAL_BYTES) throw new Error('invalid scan-cleanup preview total image bytes');
-    const pageNumber = decodePositiveInteger(value.pageNumber, 'page number');
     const totalPages = decodePositiveInteger(value.totalPages, 'total pages');
+    const pageNumber = requirePageNumber(
+        decodePositiveInteger(value.pageNumber, 'page number'),
+        totalPages,
+    );
     if (pageNumber > totalPages) throw new Error('invalid scan-cleanup preview page number');
     return {
-        ...(value.requestId === undefined ? {} : {requestId: value.requestId}),
+        ...(requestId === undefined ? {} : {requestId}),
         pageNumber,
         totalPages,
         ...(rawImageData === undefined ? {} : {rawImageData}),
@@ -683,22 +717,25 @@ export function decodeScanCleanupPreviewResult(value: unknown): TScanCleanupPrev
 }
 
 export function decodeScanCleanupRawPreviewEvent(value: unknown): IScanCleanupRawPreviewEvent {
+    const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
     if (
         !isRecord(value)
         || typeof value.ownerId !== 'string'
         || value.ownerId.trim().length === 0
         || typeof value.documentRevision !== 'string'
         || value.documentRevision.trim().length === 0
-        || typeof value.requestId !== 'string'
-        || value.requestId.trim().length === 0
+        || requestId === null
     ) throw new Error('invalid scan-cleanup raw preview result');
-    const pageNumber = decodePositiveInteger(value.pageNumber, 'raw page number');
     const totalPages = decodePositiveInteger(value.totalPages, 'raw total pages');
+    const pageNumber = requirePageNumber(
+        decodePositiveInteger(value.pageNumber, 'raw page number'),
+        totalPages,
+    );
     if (pageNumber > totalPages) throw new Error('invalid scan-cleanup raw preview page number');
     return {
         ownerId: value.ownerId,
         documentRevision: value.documentRevision,
-        requestId: value.requestId,
+        requestId,
         pageNumber,
         totalPages,
         rawImageData: decodePreviewBytes(value.rawImageData, 'raw image'),
@@ -708,14 +745,17 @@ export function decodeScanCleanupRawPreviewEvent(value: unknown): IScanCleanupRa
 }
 
 function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['pageMetadata'] {
+    if (!isRecord(value)) throw new Error('invalid scan-cleanup preview page metadata');
+    const layoutClassification = isLayoutClassification(value.layoutClassification)
+        ? value.layoutClassification
+        : (() => { throw new Error('invalid scan-cleanup preview page layout classification'); })();
+    const binarizationMode = value.binarizationMode === undefined || value.binarizationMode === null
+        ? value.binarizationMode
+        : isPreviewBinarizationRoute(value.binarizationMode)
+            ? value.binarizationMode
+            : (() => { throw new Error('invalid scan-cleanup preview page binarization mode'); })();
     if (
-        !isRecord(value)
-        || ![
-            'single-uncut-page',
-            'page-with-offcut',
-            'two-page-spread',
-        ].includes(String(value.layoutClassification))
-        || !(value.cutterXPx === null || typeof value.cutterXPx === 'number'
+        !(value.cutterXPx === null || typeof value.cutterXPx === 'number'
             && Number.isFinite(value.cutterXPx)
             && Math.abs(value.cutterXPx) <= Number.MAX_SAFE_INTEGER)
         || !isScanCleanupRotation(value.rotationDegrees)
@@ -739,14 +779,6 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
         || (value.autoDewarpAttempted !== undefined && typeof value.autoDewarpAttempted !== 'boolean')
         || (value.manualSkew !== undefined && typeof value.manualSkew !== 'boolean')
         || (value.dewarpApplied !== undefined && typeof value.dewarpApplied !== 'boolean')
-        || (value.binarizationMode !== undefined
-            && value.binarizationMode !== null
-            && ![
-                'auto',
-                'otsu',
-                'sauvola',
-                'wolf',
-            ].includes(String(value.binarizationMode)))
         || (value.recommendedOutputMode !== undefined
             && !isScanCleanupOutputMode(value.recommendedOutputMode))
         || (value.recommendedOutputModeConfidence !== undefined && (
@@ -764,16 +796,12 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
             || value.outputDiagnostics.length > 2
             || value.outputDiagnostics.some(output => (
                 !isRecord(output)
-                || ![
-                    'full',
-                    'left',
-                    'right',
-                ].includes(String(output.half))
+                || !isPreviewHalf(output.half)
             ))
         ))
     ) throw new Error('invalid scan-cleanup preview page metadata');
     return {
-        layoutClassification: value.layoutClassification as IScanCleanupPreviewResult['pageMetadata']['layoutClassification'],
+        layoutClassification,
         ...(value.layoutConfidence === undefined
             ? {}
             : {layoutConfidence: decodeUnitInterval(value.layoutConfidence, 'page layout confidence')}),
@@ -790,7 +818,7 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
         blankOutputsSkipped: decodeNonNegativeInteger(value.blankOutputsSkipped, 'blank outputs skipped'),
         tier1Verdict: isLayoutClassification(value.tier1Verdict)
             ? value.tier1Verdict
-            : value.layoutClassification as IScanCleanupPreviewResult['pageMetadata']['tier1Verdict'],
+            : layoutClassification,
         reconciled: value.reconciled === true,
         clusterAgreement: value.clusterAgreement === undefined
             ? 0
@@ -806,11 +834,9 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
             ? {}
             : {skewConfidence: decodeNonNegativeFiniteNumber(value.skewConfidence, 'page skew confidence')}),
         ...(value.manualSkew === undefined ? {} : {manualSkew: value.manualSkew}),
-        ...(value.binarizationMode === undefined
+        ...(binarizationMode === undefined
             ? {}
-            : {binarizationMode: value.binarizationMode as NonNullable<
-                IScanCleanupPreviewResult['pageMetadata']['binarizationMode']
-            > | null}),
+            : {binarizationMode}),
         ...(value.binarizationDiagnostics === undefined
             ? {}
             : {binarizationDiagnostics: value.binarizationDiagnostics === null
@@ -837,10 +863,11 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
             ? {}
             : {outputDiagnostics: value.outputDiagnostics.map((output: unknown) => {
                 if (!isRecord(output)) throw new Error('invalid scan-cleanup preview output diagnostics');
+                const half = isPreviewHalf(output.half)
+                    ? output.half
+                    : (() => { throw new Error('invalid scan-cleanup preview output half'); })();
                 return {
-                    half: output.half as NonNullable<
-                        IScanCleanupPreviewResult['pageMetadata']['outputDiagnostics']
-                    >[number]['half'],
+                    half,
                     ...(output.contentDiagnostics === undefined
                         ? {}
                         : {contentDiagnostics: decodeContentDiagnostics(output.contentDiagnostics)}),
@@ -867,12 +894,13 @@ function decodePreviewPageMetadata(value: unknown): IScanCleanupPreviewResult['p
 }
 
 export function decodeStartResult(value: unknown) {
-    if (!isRecord(value) || typeof value.started !== 'boolean' || typeof value.jobId !== 'string') throw new Error('invalid scan-cleanup start result');
+    const jobId = isRecord(value) ? parseJobId(value.jobId) : null;
+    if (!isRecord(value) || typeof value.started !== 'boolean' || jobId === null) throw new Error('invalid scan-cleanup start result');
     if (value.started) {
         if (typeof value.outputPdfPath !== 'string') throw new Error('successful scan-cleanup start requires outputPdfPath');
         return {
             started: true as const,
-            jobId: value.jobId,
+            jobId,
             outputPdfPath: value.outputPdfPath,
         };
     }
@@ -881,20 +909,21 @@ export function decodeStartResult(value: unknown) {
     }
     return {
         started: false as const,
-        jobId: value.jobId,
+        jobId,
         error: value.error,
         errorCode: value.errorCode,
     };
 }
 
 export function decodeDetectionStartResult(value: unknown) {
-    if (!isRecord(value) || typeof value.started !== 'boolean' || typeof value.jobId !== 'string') {
+    const jobId = isRecord(value) ? parseJobId(value.jobId) : null;
+    if (!isRecord(value) || typeof value.started !== 'boolean' || jobId === null) {
         throw new Error('invalid scan-cleanup detection start result');
     }
     if (value.started) {
         return {
             started: true as const,
-            jobId: value.jobId,
+            jobId,
         };
     }
     if (typeof value.error !== 'string' || !isScanCleanupErrorCode(value.errorCode)) {
@@ -902,14 +931,14 @@ export function decodeDetectionStartResult(value: unknown) {
     }
     return {
         started: false as const,
-        jobId: value.jobId,
+        jobId,
         error: value.error,
         errorCode: value.errorCode,
     };
 }
 
 function isScanCleanupErrorCode(value: unknown): value is TScanCleanupErrorCode {
-    return SCAN_CLEANUP_ERROR_CODES.includes(value as TScanCleanupErrorCode);
+    return SCAN_CLEANUP_ERROR_CODES.some(code => code === value);
 }
 
 function decodeNonNegativeInteger(value: unknown, fieldName: string) {
@@ -923,18 +952,19 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
     if (value === null) {
         return null;
     }
+    const jobId = isRecord(value) ? parseJobId(value.jobId) : null;
+    const updatedAtMs = isRecord(value) ? parseEpochMs(value.updatedAtMs) : null;
     if (
         !isRecord(value)
-        || typeof value.jobId !== 'string'
-        || typeof value.updatedAtMs !== 'number'
-        || !Number.isFinite(value.updatedAtMs)
+        || jobId === null
+        || updatedAtMs === null
     ) {
         throw new Error('invalid scan-cleanup job state');
     }
     const base = {
-        jobId: value.jobId,
+        jobId,
         progress: SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress),
-        updatedAtMs: value.updatedAtMs,
+        updatedAtMs,
     };
     if (value.status === 'queued' || value.status === 'running' || value.status === 'canceling' || value.status === 'handoff' || value.status === 'canceled') {
         return {
@@ -981,13 +1011,14 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
     if (value === null) {
         return null;
     }
+    const jobId = isRecord(value) ? parseJobId(value.jobId) : null;
+    const updatedAtMs = isRecord(value) ? parseEpochMs(value.updatedAtMs) : null;
     if (
         !isRecord(value)
-        || typeof value.jobId !== 'string'
+        || jobId === null
         || (value.documentCanvasSignature !== undefined
             && typeof value.documentCanvasSignature !== 'string')
-        || typeof value.updatedAtMs !== 'number'
-        || !Number.isFinite(value.updatedAtMs)
+        || updatedAtMs === null
         || !isRecord(value.progress)
         || !Array.isArray(value.results)
         || (value.resultCount !== undefined && (
@@ -1021,11 +1052,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
     const results = resultsToDecode.map(result => {
         if (
             !isRecord(result)
-            || ![
-                'single-uncut-page',
-                'page-with-offcut',
-                'two-page-spread',
-            ].includes(String(result.classification))
+            || !isLayoutClassification(result.classification)
             || (result.revision !== undefined && (
                 typeof result.revision !== 'number'
                 || !Number.isInteger(result.revision)
@@ -1064,7 +1091,22 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             || (result.softAlphaForegroundRecommendation !== undefined
                 && typeof result.softAlphaForegroundRecommendation !== 'boolean')
         ) throw new Error('invalid scan-cleanup detection result');
-        const pageNumber = decodePositiveInteger(result.pageNumber, 'detection page number');
+        const classification = isLayoutClassification(result.classification)
+            ? result.classification
+            : (() => { throw new Error('invalid scan-cleanup detection classification'); })();
+        const textAxis = result.textAxis === undefined
+            ? undefined
+            : !isRecord(result.textAxis)
+                || typeof result.textAxis.sideways !== 'boolean'
+                || typeof result.textAxis.confidence !== 'number'
+                ? (() => { throw new Error('invalid scan-cleanup detection text axis'); })()
+                : {
+                    sideways: result.textAxis.sideways,
+                    confidence: result.textAxis.confidence,
+                };
+        const pageNumber = requirePageNumber(
+            decodePositiveInteger(result.pageNumber, 'detection page number'),
+        );
         const sourcePageMetadata = isLargeDetectionState || result.sourcePageMetadata === undefined
             ? undefined
             : decodeSourcePageMetadata(result.sourcePageMetadata);
@@ -1083,14 +1125,14 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         return {
             pageNumber,
             ...(result.revision === undefined ? {} : {revision: result.revision}),
-            classification: result.classification as TScanCleanupDetectionJobState['results'][number]['classification'],
+            classification,
             confidence: decodeUnitInterval(result.confidence, 'detection confidence'),
             cutterXPx: result.cutterXPx === null
                 ? null
                 : decodeSafeFiniteNumber(result.cutterXPx, 'detection cutter x'),
             tier1Verdict: isLayoutClassification(result.tier1Verdict)
                 ? result.tier1Verdict
-                : result.classification as TScanCleanupDetectionJobState['results'][number]['tier1Verdict'],
+                : classification,
             reconciled: result.reconciled === true,
             clusterAgreement: result.clusterAgreement === undefined
                 ? 0
@@ -1102,10 +1144,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             documentPrior: result.documentPrior === null || result.documentPrior === undefined
                 ? null
                 : decodeDocumentPrior(result.documentPrior),
-            ...(isRecord(result.textAxis) ? {textAxis: {
-                sideways: result.textAxis.sideways as boolean,
-                confidence: result.textAxis.confidence as number,
-            }} : {}),
+            ...(textAxis === undefined ? {} : {textAxis}),
             ...(isScanCleanupOutputMode(result.recommendedOutputMode)
                 ? {recommendedOutputMode: result.recommendedOutputMode}
                 : {}),
@@ -1129,7 +1168,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         || (value.status === 'completed' && resultCount !== progress.completedUnits)
     ) throw new Error('invalid scan-cleanup detection result count');
     const base = {
-        jobId: value.jobId,
+        jobId,
         ...(typeof value.documentCanvasSignature === 'string'
             ? {documentCanvasSignature: value.documentCanvasSignature}
             : {}),
@@ -1148,7 +1187,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 value.placementAnchorSummary,
             )}),
         results,
-        updatedAtMs: value.updatedAtMs,
+        updatedAtMs,
     };
     if (value.status === 'queued' || value.status === 'running' || value.status === 'canceling' || value.status === 'completed' || value.status === 'canceled') {
         return {

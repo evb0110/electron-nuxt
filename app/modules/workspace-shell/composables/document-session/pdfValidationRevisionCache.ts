@@ -1,9 +1,11 @@
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TEpochMs } from '@contracts/timestamps';
 
 export interface IPdfValidationSourceRevision {
-    readonly documentId: string;
+    readonly documentId: TDocumentRef;
     readonly size: number;
-    readonly modifiedAt: number;
+    readonly modifiedAt: TEpochMs;
 }
 
 export type TPdfValidationCacheResult = 'hit' | 'miss' | 'coalesced';

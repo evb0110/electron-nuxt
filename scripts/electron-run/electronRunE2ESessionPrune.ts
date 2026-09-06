@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     readdirSync,
     rmSync,
@@ -187,7 +188,7 @@ export async function pruneStaleE2ESessions(options: ISelectStaleE2ESessionsOpti
         } catch (error) {
             result.refused.push({
                 name: candidate.name,
-                reason: error instanceof Error ? error.message : String(error),
+                reason: getErrorMessage(error),
             });
         }
     }

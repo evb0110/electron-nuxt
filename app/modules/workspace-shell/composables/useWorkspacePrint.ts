@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { Ref } from 'vue';
 import {
     getFailureReceipt,
@@ -5,7 +6,11 @@ import {
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
 import { uniq } from 'es-toolkit/array';
-import type { TPdfViewMode } from '@contracts/shared';
+import {
+    createRequestId,
+    type TPdfViewMode,
+    type TRequestId,
+} from '@contracts/shared';
 import type {
     IPdfPageMetric,
     TPdfSource,
@@ -24,6 +29,7 @@ import {
 import type { TPageSelection } from '@contracts/pageNumbers';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
+import { parseDocumentRef } from '@contracts/documentRef';
 import {
     createExplicitPageSelection,
     materializePageSelection,
@@ -34,6 +40,7 @@ import {
     useFailureToast,
     type FailurePresentation,
 } from '@app/composables/useFailureToast';
+import { isPathPdfSource } from '@app/modules/pdf-viewer/public';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -45,11 +52,8 @@ const NATIVE_PRINT_REQUIRED_REASON = 'requires-native-backend' as const;
 const PDF_LIB_PRINT_PAGE_COUNT_LIMIT = 5_000;
 const PRINT_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 const HIGH_PAGE_COUNT_PRINT_LAYOUT_ERROR_KEY = 'print.highPageCountAdvancedLayout' as const;
-let nextNativePrintRequestId = 0;
-
 function createNativePrintRequestId() {
-    nextNativePrintRequestId += 1;
-    return `print-${Date.now()}-${nextNativePrintRequestId}`;
+    return createRequestId('print');
 }
 
 class NativePrintRequiredError extends Error {
@@ -62,22 +66,14 @@ class NativePrintRequiredError extends Error {
     }
 }
 
-function isPathPdfSource(value: TPdfSource | null): value is Extract<TPdfSource, {kind: 'path'}> {
-    return typeof value === 'object'
-        && value !== null
-        && 'kind' in value
-        && value.kind === 'path'
-        && typeof value.path === 'string';
-}
-
 function isCrossOriginFrameAccessError(error: unknown) {
     if (!(error instanceof Error)) {
         return false;
     }
 
     return error.name === 'SecurityError'
-        || error.message.includes('cross-origin frame')
-        || error.message.includes('Blocked a frame with origin');
+        || getErrorMessage(error).includes('cross-origin frame')
+        || getErrorMessage(error).includes('Blocked a frame with origin');
 }
 
 function createPrintAbortError() {
@@ -105,8 +101,8 @@ function createPrintSignalOptions(signal: AbortSignal | undefined) {
 }
 
 function registerNativePrintCancellation(
-    cancelPdfPrint: ((requestId: string) => Promise<{canceled: boolean}>) | undefined,
-    requestId: string,
+    cancelPdfPrint: ((requestId: TRequestId) => Promise<{canceled: boolean}>) | undefined,
+    requestId: TRequestId,
     signal: AbortSignal | undefined,
 ) {
     if (!cancelPdfPrint || !signal) {
@@ -175,7 +171,8 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     let removeAfterPrintListener: (() => void) | null = null;
     let browserPrintCleanupTimer: number | null = null;
     let activePrintAbortController: AbortController | null = null;
-    let preparationFailureReceipt: FailureReceipt | undefined;
+    const preparationFailureReceipt = ref<FailureReceipt | undefined>();
+    const readPreparationFailureReceipt = () => preparationFailureReceipt.value;
     let activePrintResourceOwner: number | null = null;
     let nextPrintRunId = 0;
     let closeDialogForSystemPrint = false;
@@ -595,12 +592,13 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         signal?: AbortSignal,
         owner = 0,
     ) {
-        if (!deps.renderLoadedPdfPagesForBrowserPrint) {
+        const renderLoadedPdfPagesForBrowserPrint = deps.renderLoadedPdfPagesForBrowserPrint;
+        if (!renderLoadedPdfPagesForBrowserPrint) {
             throw new Error('Loaded PDF printing is unavailable');
         }
 
         await printRenderedContentInHiddenFrame(
-            (targetDocument, renderSignal) => deps.renderLoadedPdfPagesForBrowserPrint!(
+            (targetDocument, renderSignal) => renderLoadedPdfPagesForBrowserPrint(
                 targetDocument,
                 pageNumbers,
                 createPrintSignalOptions(renderSignal),
@@ -763,7 +761,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             const freshPath = await deps.ensureWorkingCopyFreshForRead();
             throwIfPrintAborted(signal);
             if (freshPath === false || freshPath === null) {
-                preparationFailureReceipt = deps.getLastFailurePresentation?.()?.failure;
+                preparationFailureReceipt.value = deps.getLastFailurePresentation?.()?.failure;
                 throw new NativePrintRequiredError(
                     'Native PDF printing is required because the dirty working copy could not be saved as a path',
                 );
@@ -790,6 +788,12 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         throwIfPrintAborted(signal);
+        const documentRef = parseDocumentRef(printPath);
+        if (documentRef === null) {
+            throw new NativePrintRequiredError(
+                'Native PDF printing is required because the print path is invalid',
+            );
+        }
         closePrintDialogForSystemDialog();
         showPreparingPrintToast();
         const requestId = createNativePrintRequestId();
@@ -806,7 +810,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         let result;
         try {
             try {
-                result = await printPdfPath(printPath, deps.fileName.value ?? undefined, {
+                result = await printPdfPath(documentRef, deps.fileName.value ?? undefined, {
                     viewMode: payload.viewMode,
                     orientation: payload.orientation,
                     requestId,
@@ -858,7 +862,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         isPreparingPrint.value = true;
         activePrintAction.value = options.action ?? 'default';
         resetPrintError();
-        preparationFailureReceipt = undefined;
+        preparationFailureReceipt.value = undefined;
         if (!printDialogOpen.value) {
             schedulePreparingPrintToast();
         }
@@ -902,16 +906,16 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
             if (canPrintDjvuSource() && deps.printDjvuSource) {
                 throwIfPrintAborted(signal);
-                let didStartNativePrintHandoff = false;
+                const nativePrintHandoff: { started: boolean } = { started: false };
                 await deps.printDjvuSource(payload, {
                     signal,
                     onNativePrintHandoffStart: () => {
-                        didStartNativePrintHandoff = true;
+                        nativePrintHandoff.started = true;
                         closePrintDialogForSystemDialog();
                     },
                 });
                 throwIfPrintAborted(signal);
-                if (!didStartNativePrintHandoff) {
+                if (nativePrintHandoff.started !== true) {
                     closePrintDialogForSystemDialog();
                 }
                 return;
@@ -982,10 +986,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             if (isPrintAbortError(error)) {
                 return;
             }
-            const localizedError = error instanceof Error && error.message
-                ? t('print.failedWithReason', { reason: error.message })
+            const localizedError = error instanceof Error && getErrorMessage(error)
+                ? t('print.failedWithReason', { reason: getErrorMessage(error) })
                 : t('print.failed');
-            if (isNativePrintRequiredError(error) && preparationFailureReceipt === undefined) {
+            if (isNativePrintRequiredError(error) && readPreparationFailureReceipt() === undefined) {
                 BrowserLogger.warn('workspace-print', 'Print needs an unavailable native backend', {
                     kind: 'expected',
                     code: 'temporarily-unavailable',
@@ -1001,7 +1005,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 'workspace-print',
                 'Document print failed',
                 error,
-                getFailureReceipt(error) ?? preparationFailureReceipt ?? {
+                getFailureReceipt(error) ?? readPreparationFailureReceipt() ?? {
                     code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
                     context: {},
                 },
@@ -1024,7 +1028,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 isPreparingPrint.value = false;
                 activePrintAction.value = null;
                 closeDialogForSystemPrint = false;
-                preparationFailureReceipt = undefined;
+                preparationFailureReceipt.value = undefined;
             }
         }
     }

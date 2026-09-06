@@ -260,10 +260,10 @@ function normalizeIconToken(
 
     // Handle collections like "simple-icons" even when not present in local deps.
     if (segments.length >= 3 && segments[1] === 'icons') {
-        return `${segments[0]}-${segments[1]}:${segments.slice(2).join('-')}`;
+        return `${segments[0] ?? ''}-icons:${segments.slice(2).join('-')}`;
     }
 
-    return `${segments[0]}:${segments.slice(1).join('-')}`;
+    return `${segments[0] ?? ''}:${segments.slice(1).join('-')}`;
 }
 
 function addUsage(

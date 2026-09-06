@@ -17,6 +17,8 @@ import {
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import { getAgentOptionalPageNumberInput } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
 import { isOneOf } from '@contracts/runtimeGuards';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 
 const AGENT_PAGE_IMAGE_REGIONS = [
     'full',
@@ -119,7 +121,7 @@ function getAgentPageImageSelection(input: Record<string, unknown>, pageRect: IC
     }
 }
 
-function findAgentRenderedPageElement(viewerContainer: HTMLElement, pageNumber: number) {
+function findAgentRenderedPageElement(viewerContainer: HTMLElement, pageNumber: TPageNumber) {
     const pageElement = findPdfPageContainer(viewerContainer, pageNumber);
     const canvas = pageElement?.querySelector<HTMLCanvasElement>(pdfViewerDomSelectors.pageCanvasElement) ?? null;
     if (!pageElement || !canvas || canvas.width <= 0 || canvas.height <= 0) {
@@ -128,7 +130,7 @@ function findAgentRenderedPageElement(viewerContainer: HTMLElement, pageNumber: 
     return pageElement;
 }
 
-async function waitForAgentRenderedPageElement(viewerContainer: HTMLElement, pageNumber: number) {
+async function waitForAgentRenderedPageElement(viewerContainer: HTMLElement, pageNumber: TPageNumber) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < AGENT_PAGE_IMAGE_RENDER_TIMEOUT_MS) {
         const pageElement = findAgentRenderedPageElement(viewerContainer, pageNumber);
@@ -175,12 +177,12 @@ export function createDocumentAgentPageImageCapture(options: ICreateDocumentAgen
     } = options;
 
     async function captureAgentPageImage(input: Record<string, unknown>, actionId: string) {
-        const pageNumber = getAgentOptionalPageNumberInput(
+        const pageNumber = requirePageNumber(getAgentOptionalPageNumberInput(
             input,
             totalPages.value,
             currentPage.value,
             actionId,
-        );
+        ), totalPages.value);
         const viewer = pdfViewerRef.value;
         const viewerContainer = viewer?.getViewerContainer?.() ?? null;
         if (!viewer || !viewerContainer) {

@@ -1,4 +1,9 @@
-export function toPdfDateString(date: Date = new Date()) {
+import {
+    isPdfDateString,
+    type TPdfDateString,
+} from '@contracts/pdfDateString';
+
+export function toPdfDateString(date: Date = new Date()): TPdfDateString {
     const year = String(date.getFullYear()).padStart(4, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -12,7 +17,11 @@ export function toPdfDateString(date: Date = new Date()) {
     const offsetHours = String(Math.floor(absOffset / 60)).padStart(2, '0');
     const offsetMinutes = String(absOffset % 60).padStart(2, '0');
 
-    return `D:${year}${month}${day}${hours}${minutes}${seconds}${sign}${offsetHours}'${offsetMinutes}'`;
+    const value = `D:${year}${month}${day}${hours}${minutes}${seconds}${sign}${offsetHours}'${offsetMinutes}'`;
+    if (!isPdfDateString(value)) {
+        throw new Error(`Formatted PDF date is not a valid PDF date string: ${value}`);
+    }
+    return value;
 }
 
 function toDatePart(value: string | undefined, fallback: number) {

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     spawn,
     type ChildProcess,
@@ -88,7 +89,7 @@ function runStep(step: ICommandStep): Promise<number> {
         }
 
         child.on('error', (error) => {
-            tee.writeLine(step.source, 'stderr', error instanceof Error ? error.message : String(error));
+            tee.writeLine(step.source, 'stderr', getErrorMessage(error));
             resolve(1);
         });
         child.on('exit', (code, signal) => {
@@ -185,7 +186,7 @@ async function main() {
 }
 
 void main().catch((error) => {
-    tee.writeLine('pnpm-dev-wrapper', 'stderr', error instanceof Error ? error.message : String(error));
+    tee.writeLine('pnpm-dev-wrapper', 'stderr', getErrorMessage(error));
     tee.close();
     console.error(error);
     process.exit(1);

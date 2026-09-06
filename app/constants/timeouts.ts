@@ -1,4 +1,5 @@
-export const SEARCH_DEBOUNCE_MS = 0;
+// Widened so the debounce branch in usePdfSearch stays reachable when this is tuned above zero.
+export const SEARCH_DEBOUNCE_MS = 0 as number;
 
 export const FOCUS_PULSE_MS = 900;
 

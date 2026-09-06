@@ -19,6 +19,7 @@ import {
     SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE,
 } from '@contracts/scan-cleanup/inputLimits';
 import {assertSimpleScanCleanupPolygon} from '@contracts/scan-cleanup/assertSimpleScanCleanupPolygon';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {
     IScanCleanupOutputMapping,
     TScanCleanupAssemblerBackend,
@@ -370,7 +371,7 @@ export function verifyScanCleanupProvenanceStampHex(
     } catch (error) {
         return {
             status: 'invalid',
-            reason: error instanceof Error ? error.message : String(error),
+            reason: getErrorMessage(error),
         };
     }
 }

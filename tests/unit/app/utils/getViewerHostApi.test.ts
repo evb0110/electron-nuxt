@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const mocks = vi.hoisted(() => {
     const documentOpen = {openDocumentDirect: vi.fn()};
@@ -35,7 +36,6 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentOpenCapability: () => mocks.documentOpen,
     getDocumentPickerCapability: () => mocks.documentPicker,
 }));
-
 vi.mock('@app/utils/getSearchCapability', () => ({getSearchCapability: () => mocks.search}));
 vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => mocks.settings}));
 vi.mock('@app/utils/getShellCapability', () => ({getShellCapability: () => mocks.shell}));
@@ -65,12 +65,12 @@ describe('getViewerHostApi', () => {
     it('routes viewer host stat and raw reads through documentFiles when available', async () => {
         const hostApi = getViewerHostApi();
 
-        await expect(hostApi.documents.stat('/tmp/source.pdf')).resolves.toEqual({size: 123});
-        await expect(hostApi.documents.read('/tmp/source.pdf')).resolves.toEqual(Uint8Array.from([
+        await expect(hostApi.documents.stat(requireDocumentRef('/tmp/source.pdf'))).resolves.toEqual({size: 123});
+        await expect(hostApi.documents.read(requireDocumentRef('/tmp/source.pdf'))).resolves.toEqual(Uint8Array.from([
             1,
             2,
         ]));
-        await expect(hostApi.documents.readRange('/tmp/source.pdf', 10, 5)).resolves.toEqual(Uint8Array.from([3]));
+        await expect(hostApi.documents.readRange(requireDocumentRef('/tmp/source.pdf'), 10, 5)).resolves.toEqual(Uint8Array.from([3]));
 
         expect(mocks.documentFiles.statFile).toHaveBeenCalledWith('/tmp/source.pdf');
         expect(mocks.documentFiles.readFile).toHaveBeenCalledWith('/tmp/source.pdf');
@@ -95,12 +95,12 @@ describe('getViewerHostApi', () => {
         }
 
         await expect(pickDocument()).resolves.toBeNull();
-        await expect(openRecent('/tmp/recent.pdf')).resolves.toEqual({
+        await expect(openRecent(requireDocumentRef('/tmp/recent.pdf'))).resolves.toEqual({
             kind: 'pdf',
             originalPath: '/tmp/recent.pdf',
             workingPath: '/tmp/recent-working.pdf',
         });
-        await expect(save('/tmp/output.pdf', bytes)).resolves.toBe('/tmp/output.pdf');
+        await expect(save(requireDocumentRef('/tmp/output.pdf'), bytes)).resolves.toBe('/tmp/output.pdf');
         await expect(saveAs('output.pdf', bytes)).resolves.toBe('/tmp/saved.pdf');
 
         expect(mocks.documentPicker.openDocumentDialog).toHaveBeenCalledOnce();

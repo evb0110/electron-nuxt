@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type { IAgentAssistantErrorEnvelope } from '@contracts/agent';
+import { requireEpochMs } from '@contracts/timestamps';
 import {
     classifyAssistantError,
     createAssistantErrorEnvelope,
@@ -112,7 +113,7 @@ describe('agent assistant error envelope', () => {
             code: 'INTERNAL',
             message: 'Original error.',
             retryable: false,
-            timestamp: 10,
+            timestamp: requireEpochMs(10),
         };
         const value = {
             ok: false,

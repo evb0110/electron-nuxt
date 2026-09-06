@@ -1,6 +1,8 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
 
 
-export function getPageContainer(containerRoot: HTMLElement, pageIndex: number) {
+
+export function getPageContainer(containerRoot: HTMLElement, pageIndex: TPageIndex) {
     if (pageIndex < 0) {
         return null;
     }

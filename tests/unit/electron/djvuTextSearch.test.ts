@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireRequestId} from '@contracts/shared';
 
 const mocks = vi.hoisted(() => ({runNativeCommand: vi.fn()}));
 
@@ -134,7 +135,7 @@ describe('DjVu native streamed text search', () => {
         const onPageProcessed = vi.fn();
 
         const response = await searchDjvuText('/library/book.djvu', {
-            requestId: 'late-page-search',
+            requestId: requireRequestId('late-page-search'),
             pageCount: 2,
             query: 'needle',
             matchOptions,
@@ -197,7 +198,7 @@ describe('DjVu native streamed text search', () => {
         const onPageProcessed = vi.fn();
 
         const response = await searchDjvuText('/library/book.djvu', {
-            requestId: 'bounded-search',
+            requestId: requireRequestId('bounded-search'),
             pageCount: 10_000,
             query: 'hit',
             matchOptions,
@@ -227,7 +228,7 @@ describe('DjVu native streamed text search', () => {
         }));
         const controller = new AbortController();
         const pending = searchDjvuText('/library/book.djvu', {
-            requestId: 'cancel-search',
+            requestId: requireRequestId('cancel-search'),
             pageCount: 800,
             query: 'needle',
             matchOptions,

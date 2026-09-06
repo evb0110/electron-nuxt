@@ -104,7 +104,7 @@ export function buildSentrySourceMapDebugImages(
         }
         seenModules.add(frame.module);
         const suffixes = moduleSuffixes(frame.module);
-        const matchingDebugIds = new Set(candidates.flatMap(candidate => (
+        const matchingDebugIds = [...new Set(candidates.flatMap(candidate => (
             candidate.canonicalModule === frame.module
             || suffixes.some(suffix => (
                 candidate.runtimePath === suffix
@@ -112,12 +112,13 @@ export function buildSentrySourceMapDebugImages(
             ))
                 ? [candidate.debugId]
                 : []
-        )));
-        if (matchingDebugIds.size === 1) {
+        )))];
+        const [debugId] = matchingDebugIds;
+        if (debugId !== undefined && matchingDebugIds.length === 1) {
             images.push({
                 type: 'sourcemap',
                 code_file: frame.module,
-                debug_id: [...matchingDebugIds][0]!,
+                debug_id: debugId,
             });
         }
     }

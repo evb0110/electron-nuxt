@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {formatArtifactGroupList} from './artifact-groups.mjs';
@@ -37,6 +38,51 @@ import {
 
 const WORKFLOW_HANDOFF_POLL_INTERVAL_MS = 5_000;
 
+/** @typedef {'patch' | 'minor' | 'major'} TReleaseLevel */
+/** @typedef {{branch: string, ref: string, remote: string}} IUpstream */
+/** @typedef {{headSha?: string, status?: string, conclusion?: string | null, html_url?: string, url?: string}} ICiRun */
+/** @typedef {{headSha: string, upstreamSha: string}} IReleaseTip */
+/** @typedef {{isDraft: boolean, publishedAt: string | null, tagName: string, assets: unknown[]}} IGitHubRelease */
+/** @typedef {{status?: string, conclusion?: string | null, url: string}} IWorkflowRun */
+/** @typedef {{write: (chunk: string) => unknown}} IWritable */
+/** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
+/** @typedef {(headSha: string, runCommand: TCommandRunner) => ICiRun | null} TFindCiRun */
+/** @typedef {(headSha: string, runCommand: TCommandRunner) => Promise<unknown>} TWaitForCi */
+/** @typedef {{branch: string, tag: string, targetSha: string}} IReleaseDispatch */
+/** @typedef {{dispatchStartedAt: string, tag: string, targetSha: string}} IReleaseHandoff */
+/** @typedef {{tag: string, targetSha?: string | undefined, upstream: IUpstream}} IReleaseCommitInput */
+/** @typedef {{dispatchWorkflow?: (dispatch: IReleaseDispatch, runCommand: TCommandRunner) => void, printHandoff?: (handoff: IReleaseHandoff) => Promise<void>, push?: boolean, pushReleaseTag?: typeof pushReleaseTag, runCommand?: TCommandRunner}} IPublishReleaseOptions */
+/** @typedef {{nowFn?: () => number, readHandoffTimeoutMs?: () => number, sleepFn?: (milliseconds: number) => Promise<void>, stdout?: IWritable, waitForRun?: typeof waitForWorkflowRunStart}} IReleaseHandoffOptions */
+/** @typedef {{
+ *   assertChangedFilesMatchFn?: (expectedFiles: string[], options?: object) => void,
+ *   assertCleanWorktreeFn?: (options: {ignoredPathPrefixes: string[]}) => void,
+ *   assertCurrentReleaseIsNotDraftFn?: (tag: string) => void,
+ *   assertGitHubCliReadyFn?: (context: string, options?: object) => Promise<void>,
+ *   assertMainTipFn?: (upstream: IUpstream) => IReleaseTip | string,
+ *   assertNodeBaselineFn?: (context: string) => void,
+ *   assertReleaseIsNotDraftFn?: (tag: string) => void,
+ *   assertTagAbsentFn?: (tag: string, remote: string) => Promise<void>,
+ *   context?: string,
+ *   fetchReleaseMainFn?: (upstream: IUpstream) => void,
+ *   findCiRunFn?: TFindCiRun,
+ *   getUpstreamFn?: (context: string) => IUpstream,
+ *   level?: TReleaseLevel,
+ *   publishOptions?: object,
+ *   publishReleaseCommitFn?: typeof publishReleaseCommit,
+ *   readReleaseFn?: (tag: string) => IGitHubRelease | null,
+ *   readVersionFn?: () => string,
+ *   runCommand?: TCommandRunner,
+ *   stageFilesFn?: (files: string[], options?: object) => void,
+ *   waitForCiFn?: TWaitForCi,
+ *   writeVersionFn?: (version: string) => void,
+ * }} IReleaseOptions */
+
+/** @param {string | undefined} value @returns {value is TReleaseLevel} */
+function isReleaseLevel(value) {
+    return value !== undefined && VALID_RELEASE_LEVELS.has(value);
+}
+
+/** @param {string[]} argv @returns {{level: TReleaseLevel | null, resume: boolean}} */
 export function parseCutReleaseArgs(argv) {
     const knownFlags = new Set(['--resume']);
     const unknownFlags = argv.filter(arg => arg.startsWith('--') && !knownFlags.has(arg));
@@ -66,7 +112,7 @@ export function parseCutReleaseArgs(argv) {
         throw new Error(`Unexpected release argument(s): ${extraArgs.join(', ')}`);
     }
 
-    if (!VALID_RELEASE_LEVELS.has(level)) {
+    if (!isReleaseLevel(level)) {
         throw new Error(
             `Expected release level to be one of: ${Array.from(VALID_RELEASE_LEVELS).join(', ')}`,
         );
@@ -78,6 +124,7 @@ export function parseCutReleaseArgs(argv) {
     };
 }
 
+/** @param {string} tag */
 function getReleaseWorkflowDisplayTitles(tag) {
     return [
         `Release ${tag}`,
@@ -85,6 +132,7 @@ function getReleaseWorkflowDisplayTitles(tag) {
     ];
 }
 
+/** @param {IReleaseDispatch} dispatch */
 export function getReleaseWorkflowDispatchArgs({
     branch,
     tag,
@@ -103,6 +151,7 @@ export function getReleaseWorkflowDispatchArgs({
     ];
 }
 
+/** @param {IReleaseDispatch} dispatch @param {TCommandRunner} [runCommand] */
 function dispatchReleaseWorkflow({
     branch,
     tag,
@@ -118,6 +167,7 @@ function dispatchReleaseWorkflow({
     }
 }
 
+/** @param {unknown} error */
 function isMissingReleaseError(error) {
     const status = getExitStatus(error);
     const message = errorMessage(error);
@@ -128,6 +178,7 @@ function isMissingReleaseError(error) {
     );
 }
 
+/** @param {string} tag @param {{runCommand?: TCommandRunner}} [options] @returns {IGitHubRelease | null} */
 export function readGitHubRelease(tag, {runCommand = run} = {}) {
     try {
         const payload = runCommand('gh', [
@@ -154,6 +205,7 @@ export function readGitHubRelease(tag, {runCommand = run} = {}) {
     }
 }
 
+/** @param {string} tag @param {TCommandRunner} runCommand */
 function assertCurrentReleaseIsNotDraft(tag, runCommand) {
     const release = readGitHubRelease(tag, {runCommand});
     if (release?.isDraft) {
@@ -164,6 +216,7 @@ function assertCurrentReleaseIsNotDraft(tag, runCommand) {
     }
 }
 
+/** @param {{headSha: string, runCommand: TCommandRunner, findCiRunFn: TFindCiRun, waitForCiFn: TWaitForCi}} options */
 async function assertHeadCiGreen({
     headSha,
     runCommand,
@@ -184,6 +237,7 @@ async function assertHeadCiGreen({
 // Both entry points share the same first checks, in an order that answers
 // the cheapest question first: branch and upstream (two local git reads)
 // before the network round trip to `gh auth status` and the worktree scan.
+/** @param {IReleaseOptions} options @param {string} context */
 async function assertReleaseEntryPreconditions(options, context) {
     const runCommand = options.runCommand ?? run;
     const assertNodeBaselineFn = options.assertNodeBaselineFn ?? assertNodeProjectBaseline;
@@ -201,7 +255,7 @@ async function assertReleaseEntryPreconditions(options, context) {
     assertNodeBaselineFn(context);
     const upstream = getUpstreamFn(context);
     await assertGitHubCliReadyFn(context, {runCommand});
-    assertCleanWorktreeFn({ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES});
+    assertCleanWorktreeFn({ignoredPathPrefixes: [...MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES]});
 
     return {
         runCommand,
@@ -209,6 +263,7 @@ async function assertReleaseEntryPreconditions(options, context) {
     };
 }
 
+/** @param {IReleaseOptions} [options] */
 export async function assertReleaseCutPreconditions(options = {}) {
     const context = options.context ?? 'Release cut';
     const {
@@ -233,7 +288,10 @@ export async function assertReleaseCutPreconditions(options = {}) {
     const readVersionFn = options.readVersionFn ?? readVersion;
 
     const tip = assertMainTipFn(upstream);
-    const headSha = tip.headSha ?? tip;
+    const headSha = typeof tip === 'string' ? tip : tip.headSha;
+    if (!headSha) {
+        throw new Error('Release main-tip verification did not return a commit SHA');
+    }
     const currentVersion = readVersionFn();
 
     await assertHeadCiGreen({
@@ -264,6 +322,7 @@ export async function assertReleaseCutPreconditions(options = {}) {
  * undone. The tag is pushed here because the workflow's own token cannot
  * create it once a later commit changed `.github/workflows/` on main.
  */
+/** @param {IReleaseCommitInput} input @param {IPublishReleaseOptions} [options] @returns {Promise<string>} */
 export async function publishReleaseCommit({
     tag,
     targetSha: requestedTargetSha,
@@ -303,6 +362,7 @@ export async function publishReleaseCommit({
     return targetSha;
 }
 
+/** @param {{runUrl: string, tag: string}} options */
 function getReleaseUrl({
     runUrl,
     tag,
@@ -316,6 +376,7 @@ function getReleaseUrl({
     return `${repositoryUrl}/releases/tag/${encodeURIComponent(tag)}`;
 }
 
+/** @param {IReleaseHandoff} handoff @param {IReleaseHandoffOptions} [options] @returns {Promise<void>} */
 export async function printReleaseWorkflowHandoff({
     dispatchStartedAt,
     tag,
@@ -374,10 +435,12 @@ export async function printReleaseWorkflowHandoff({
     stdout.write(`Check status: pnpm run release:status ${tag}\n`);
 }
 
+/** @param {number} milliseconds */
 function runSleep(milliseconds) {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
+/** @param {{currentVersion: string, targetSha: string, upstream: IUpstream, runCommand: TCommandRunner}} options */
 function assertReleaseCommitForCurrentVersion({
     currentVersion,
     targetSha,
@@ -421,6 +484,7 @@ function assertReleaseCommitForCurrentVersion({
     }
 }
 
+/** @param {IReleaseOptions} [options] @returns {Promise<void>} */
 export async function resumeRelease(options = {}) {
     const context = options.context ?? 'Release resume';
     const {
@@ -477,6 +541,7 @@ export async function resumeRelease(options = {}) {
     });
 }
 
+/** @param {TReleaseLevel} level @param {IReleaseOptions} [options] @returns {Promise<void>} */
 export async function cutRelease(level, options = {}) {
     const preconditions = await assertReleaseCutPreconditions({
         ...options,
@@ -502,7 +567,7 @@ export async function cutRelease(level, options = {}) {
         assertChangedFilesMatchFn(
             ['package.json'],
             {
-                ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES,
+                ignoredPathPrefixes: [...MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES],
                 runCommand,
             },
         );
@@ -533,6 +598,7 @@ export async function cutRelease(level, options = {}) {
     }
 }
 
+/** @returns {Promise<void>} */
 async function main() {
     const args = parseCutReleaseArgs(process.argv.slice(2));
     if (args.resume) {
@@ -540,6 +606,9 @@ async function main() {
         return;
     }
 
+    if (args.level === null) {
+        throw new Error('Release level is required unless --resume is used');
+    }
     await cutRelease(args.level);
 }
 
@@ -548,7 +617,7 @@ const isDirectCliRun = process.argv[1]
 
 if (isDirectCliRun) {
     main().catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getCliErrorMessage(error);
         process.stderr.write(`${message}\n`);
         process.exit(1);
     });

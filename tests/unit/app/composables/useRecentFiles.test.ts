@@ -14,6 +14,8 @@ import {
 import { BROWSER_PLATFORM_MANIFEST } from '@contracts/platformApi';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
 import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
@@ -91,9 +93,9 @@ function recentFile(path: string, timestamp = 1): IRecentFile {
     const fileName = path.split('/').at(-1) ?? path;
 
     return {
-        originalPath: path,
+        originalPath: requireDocumentRef(path),
         fileName,
-        timestamp,
+        timestamp: requireEpochMs(timestamp),
         fileSize: timestamp * 42,
     };
 }

@@ -168,7 +168,7 @@ async function broadcastToRenderers(data: ILogMessage) {
         const { BrowserWindow } = await import('electron');
         const windows = BrowserWindow.getAllWindows();
         for (const win of windows) {
-            if (!win.isDestroyed() && win.webContents) {
+            if (!win.isDestroyed()) {
                 win.webContents.send(CORE_IPC_EVENT_CHANNELS.debugLog, data);
             }
         }

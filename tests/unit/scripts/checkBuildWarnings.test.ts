@@ -78,6 +78,34 @@ describe('check-build-warnings', () => {
         expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
     });
 
+    it('allows the paginated Fontshare listing URL the font module now requests', async () => {
+        const result = await runWarningCheck([
+            '[warn] Could not fetch from `https://api.fontshare.com/v2/fonts?offset=0&limit=100`. Will retry in `1000ms`. `3` retries left.',
+            '',
+        ].join('\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
+    it('allows transient Nuxt Fonts Bunny retry warnings', async () => {
+        const result = await runWarningCheck([
+            '[warn] Could not fetch from `https://fonts.bunny.net/list`. Will retry in `1000ms`. `3` retries left.',
+            '',
+        ].join('\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
+    it('still rejects fetch failures from hosts outside the font providers', async () => {
+        await expect(runWarningCheck([
+            '[warn] Could not fetch from `https://registry.npmjs.org/evb-viewer`. Will retry in `1000ms`. `3` retries left.',
+            '',
+        ].join('\n'))).rejects.toMatchObject({
+            code: 1,
+            stderr: expect.stringContaining('registry.npmjs.org'),
+        });
+    });
+
     it('allows known Rollup warnings even when the build output colorizes paths', async () => {
         const result = await runWarningCheck([
             'WARN \u001B[33mnode_modules/.pnpm/@vueuse+core@14.3.0_vue@3.5.33_typescript@5.9.3_/node_modules/@vueuse/core/dist/index.js (3362:0): A comment',

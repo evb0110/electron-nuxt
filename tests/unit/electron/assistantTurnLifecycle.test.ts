@@ -17,16 +17,18 @@ import {
     type IAssistantSessionScopeBinding,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import {requireDocumentInstanceId} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireTabId} from '@contracts/windowTabs';
 
 const scopeBinding = {
     sessionKey: 'codex:document:/tmp/a.pdf',
     scopeKey: 'document:/tmp/a.pdf',
     provider: 'codex',
     windowId: 42,
-    tabId: 'tab-a',
+    tabId: requireTabId('tab-a'),
     documentSessionKey: 'document:/tmp/a.pdf',
     documentInstanceId: requireDocumentInstanceId('instance-a'),
-    documentRef: '/tmp/a.pdf',
+    documentRef: requireDocumentRef('/tmp/a.pdf'),
     documentIdentity: null,
 } satisfies Omit<IAssistantSessionScopeBinding, 'turnGeneration'>;
 

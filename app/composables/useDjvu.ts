@@ -1,4 +1,10 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { parseDocumentRef } from '@contracts/documentRef';
+import {
+    createRequestId,
+    type TJobId,
+} from '@contracts/shared';
 import {
     decodeFailureReceipt,
     isExpectedOutcome,
@@ -73,7 +79,7 @@ export interface IOpenDjvuFileOptions {
 }
 
 export type TOpenDjvuFile = (
-    djvuPath: TDocumentRef,
+    djvuPath: string,
     options?: IOpenDjvuFileOptions,
 ) => Promise<boolean>;
 
@@ -117,7 +123,7 @@ function classifyDjvuConversionExpectedOutcome(error: unknown): ExpectedOutcome 
         };
     }
 
-    if (error instanceof Error && error.message.trim().toLowerCase() === 'djvu conversion canceled') {
+    if (error instanceof Error && getErrorMessage(error).trim().toLowerCase() === 'djvu conversion canceled') {
         return {
             kind: 'expected',
             code: 'canceled',
@@ -219,13 +225,12 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
     const sourceError = ref<string | null>(null);
     const openingPath = ref<TDocumentRef | null>(null);
     const sourceSizeBytes = ref<number | null>(null);
-    const activeViewingJobId = ref<string | null>(null);
-    const activeConvertJobId = ref<string | null>(null);
+    const activeViewingJobId = ref<TJobId | null>(null);
+    const activeConvertJobId = ref<TJobId | null>(null);
 
     let unsubProgress: (() => void) | null = null;
     let openDjvuGeneration = 0;
     let conversionGeneration = 0;
-    let conversionRequestSequence = 0;
     let activeConversionGeneration: number | null = null;
     let isUnmounted = false;
     let activeProjectionSession: IDocumentSession | null = null;
@@ -265,7 +270,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
         }
     }
 
-    async function cancelJobWhenAdmitted(jobId: string) {
+    async function cancelJobWhenAdmitted(jobId: TJobId) {
         try {
             await getDjvuCapability().cancel(jobId);
         } catch (error) {
@@ -324,8 +329,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
     }
 
     function createConversionRequestId() {
-        conversionRequestSequence += 1;
-        return `djvu-convert:${conversionGeneration}:${conversionRequestSequence}`;
+        return createRequestId('djvu-convert');
     }
 
     function toConversionPhase(phase: IDjvuProgress['phase']): IDjvuConversionState['phase'] {
@@ -437,9 +441,13 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
     });
 
     async function openDjvuFile(
-        djvuPath: TDocumentRef,
+        inputPath: string,
         options: IOpenDjvuFileOptions = {},
     ) {
+        const djvuPath = parseDocumentRef(inputPath);
+        if (djvuPath === null) {
+            throw new TypeError('DjVu path must be a valid document reference');
+        }
         const generation = ++openDjvuGeneration;
         const djvu = getDjvuCapability();
         const previousDjvuPath = djvuSourcePath.value;
@@ -460,7 +468,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
         try {
             const openHandle = await djvu.startOpenForViewing(
                 djvuPath,
-                `open:${generation}:${Date.now()}`,
+                createRequestId('djvu-open'),
             );
             BrowserLogger.info('djvu-open-generation', 'Native job admitted', {
                 generation,
@@ -639,8 +647,8 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
         const suggestedName = sourceBaseName
             ? ensurePdfSuggestedName(sourceBaseName.replace(/\.djvu?$/i, ''))
             : ensurePdfSuggestedName(t('djvu.documentFallback'));
-        const savePath = await documentFiles.savePdfDialog(suggestedName);
-        if (!savePath || generation !== conversionGeneration || djvuSourcePath.value !== sourcePath) {
+        const savePath = parseDocumentRef(await documentFiles.savePdfDialog(suggestedName));
+        if (savePath === null || generation !== conversionGeneration || djvuSourcePath.value !== sourcePath) {
             return null;
         }
 
@@ -759,7 +767,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             if (!isCurrentConversion(generation, sourcePath)) {
                 return null;
             }
-            if (openResult && openResult.status === 'failed') {
+            if (openResult.status === 'failed') {
                 sourceError.value = openResult.error || t('errors.file.open');
                 return null;
             }
@@ -768,8 +776,8 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             if (!isCurrentConversion(generation, sourcePath)) {
                 return null;
             }
-            const message = error instanceof Error && error.message.trim().length > 0
-                ? error.message
+            const message = error instanceof Error && getErrorMessage(error).trim().length > 0
+                ? getErrorMessage(error)
                 : t('errors.djvu.convert');
             const expected = getDjvuExpectedOutcome(error)
                 ?? classifyDjvuConversionExpectedOutcome(error);
@@ -858,7 +866,7 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
                 percent: 0,
             };
         }
-        const ids = new Set<string>();
+        const ids = new Set<TJobId>();
         if (activeViewingJobId.value) {
             ids.add(activeViewingJobId.value);
         }

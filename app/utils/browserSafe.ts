@@ -4,7 +4,10 @@ interface IStorageLike {
 }
 
 function getBrowserCrypto() {
-    return globalThis.crypto ?? null;
+    const cryptoProvider: unknown = Reflect.get(globalThis, 'crypto');
+    return typeof cryptoProvider === 'object' && cryptoProvider !== null
+        ? cryptoProvider as Crypto
+        : null;
 }
 
 function createRandomHexFromCrypto(byteCount: number) {
@@ -34,7 +37,10 @@ function getSessionStorageSafe(): IStorageLike | null {
     }
 
     try {
-        return (window as Window & { sessionStorage?: IStorageLike }).sessionStorage ?? null;
+        const storage: unknown = Reflect.get(window, 'sessionStorage');
+        return typeof storage === 'object' && storage !== null
+            ? storage
+            : null;
     } catch {
         return null;
     }

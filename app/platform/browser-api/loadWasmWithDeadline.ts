@@ -18,9 +18,9 @@ export async function loadWasmWithDeadline(
     timeoutMs = DEFAULT_WASM_LOAD_TIMEOUT_MS,
 ) {
     const abortController = new AbortController();
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeoutState: { handle: ReturnType<typeof setTimeout> | null } = {handle: null};
     const timeout = new Promise<never>((_resolve, reject) => {
-        timeoutHandle = setTimeout(() => {
+        timeoutState.handle = setTimeout(() => {
             abortController.abort(createWasmLoadTimeoutError(timeoutMs));
             reject(createWasmLoadTimeoutError(timeoutMs));
         }, timeoutMs);
@@ -45,6 +45,7 @@ export async function loadWasmWithDeadline(
             timeout,
         ]);
     } finally {
+        const timeoutHandle = timeoutState.handle;
         if (timeoutHandle) {
             clearTimeout(timeoutHandle);
         }

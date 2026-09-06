@@ -19,6 +19,12 @@ import {
     sendSentrySourcemapCanaries,
 } from '@scripts/release/send-sentry-sourcemap-canaries.mjs';
 import {getPrivateSourcemapManifestPath} from '@scripts/release/stage-private-sourcemaps.mjs';
+import { makeDsn } from '@sentry/core';
+
+const canaryDsn = makeDsn('https://public@o123.ingest.de.sentry.io/42');
+if (canaryDsn === undefined) {
+    throw new Error('Canary DSN fixture failed to parse');
+}
 
 const roots: string[] = [];
 const identity = {
@@ -46,7 +52,7 @@ async function setup() {
         debug_id: '12345678-1234-5678-9abc-123456789abc',
     }));
     await writeFile(manifestPath, JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         identity,
         bundles: [{
             bundle: 'dist-electron/main.js',
@@ -89,7 +95,7 @@ describe('Sentry source-map canaries', () => {
         const fetchImpl = vi.fn(async () => responses.shift() ?? new Response(null, {status: 500}));
         const sleep = vi.fn(async () => undefined);
 
-        await sendEnvelope({event_id: 'a'.repeat(32)}, 'https://public@o123.ingest.de.sentry.io/42', {
+        await sendEnvelope({event_id: 'a'.repeat(32)}, canaryDsn, {
             fetchImpl,
             sleep,
         });
@@ -105,7 +111,7 @@ describe('Sentry source-map canaries', () => {
 
         await expect(sendEnvelope(
             {event_id: 'a'.repeat(32)},
-            'https://public@o123.ingest.de.sentry.io/42',
+            canaryDsn,
             {
                 fetchImpl,
                 sleep,
@@ -123,7 +129,7 @@ describe('Sentry source-map canaries', () => {
 
         await expect(sendEnvelope(
             {event_id: 'a'.repeat(32)},
-            'https://public@o123.ingest.de.sentry.io/42',
+            canaryDsn,
             {
                 fetchImpl,
                 sleep,
@@ -166,6 +172,8 @@ describe('Sentry source-map canaries', () => {
         });
         expect(receipt.events).toEqual([expect.objectContaining({
             bundle: 'dist-electron/main.js',
+            codeFile: 'dist-electron/main.js',
+            debugId: '12345678-1234-5678-9abc-123456789abc',
             eventId: 'c5172bffbb9b5d21a3f35cb54c0f4b5b',
             expectedFunction: 'start',
             expectedLine: 1,
@@ -237,7 +245,7 @@ describe('Sentry source-map canaries', () => {
             debug_id: '12345678-1234-5678-9abc-123456789abc',
         }));
         await writeFile(manifestPath, JSON.stringify({
-            schemaVersion: 1,
+            schemaVersion: 2,
             identity: webIdentity,
             bundles: [{
                 bundle: '.vercel/output/static/_nuxt/app.js',

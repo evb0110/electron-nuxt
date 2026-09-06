@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -46,7 +47,7 @@ describe('usePdfRendererAnnotationLayerController', () => {
     it('aborts active annotation work when a page is released', async () => {
         const harness = createHarness();
         const render = harness.controller(
-            1,
+            requirePageNumber(1),
             1,
             1,
             cast<Parameters<typeof harness.controller>[3]>({
@@ -70,7 +71,7 @@ describe('usePdfRendererAnnotationLayerController', () => {
         });
         expect(harness.renderSignals[0]?.aborted).toBe(false);
 
-        harness.controller.cancel(1);
+        harness.controller.cancel(requirePageNumber(1));
 
         expect(harness.renderSignals[0]?.aborted).toBe(true);
         harness.renderDeferred.resolve(null);
@@ -81,7 +82,7 @@ describe('usePdfRendererAnnotationLayerController', () => {
         const harness = createHarness();
         const editorController = new AbortController();
 
-        const unregister = harness.controller.register(7, editorController);
+        const unregister = harness.controller.register(requirePageNumber(7), editorController);
         harness.controller.dispose();
 
         expect(editorController.signal.aborted).toBe(true);
@@ -93,8 +94,8 @@ describe('usePdfRendererAnnotationLayerController', () => {
         const first = new AbortController();
         const second = new AbortController();
 
-        harness.controller.register(1, first);
-        harness.controller.register(2, second);
+        harness.controller.register(requirePageNumber(1), first);
+        harness.controller.register(requirePageNumber(2), second);
         harness.controller.cancelAll();
 
         expect(first.signal.aborted).toBe(true);

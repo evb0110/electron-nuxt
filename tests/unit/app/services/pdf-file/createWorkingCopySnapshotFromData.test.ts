@@ -5,7 +5,9 @@ import {
     vi,
 } from 'vitest';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
+import { requireEpochMs } from '@contracts/timestamps';
 import { createWorkingCopySnapshotFromData } from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
 import type {
     IDocumentsFileIoCapability,
@@ -16,20 +18,20 @@ function createHarness() {
     const workingCopies = {
         cleanupFile: vi.fn<IDocumentsWorkingCopyCapability['cleanupFile']>(async () => undefined),
         createWorkingCopyFromData: vi.fn<IDocumentsWorkingCopyCapability['createWorkingCopyFromData']>(
-            async () => '/tmp/direct.pdf',
+            async () => requireDocumentRef('/tmp/direct.pdf'),
         ),
         createWorkingCopyFromPath: vi.fn<IDocumentsWorkingCopyCapability['createWorkingCopyFromPath']>(
-            async () => '/tmp/staged.pdf',
+            async () => requireDocumentRef('/tmp/staged.pdf'),
         ),
     };
     const files = {
         getDocumentRevision: vi.fn<IDocumentsFileIoCapability['getDocumentRevision']>(async () => ({
             version: 1,
-            documentRef: '/tmp/staged.pdf',
+            documentRef: requireDocumentRef('/tmp/staged.pdf'),
             token: requireDocumentRevisionToken('stage-revision'),
             contentRevision: 1,
             authority: 'electron-working-copy' as const,
-            mintedAt: 1,
+            mintedAt: requireEpochMs(1),
         })),
         savePdfData: vi.fn<IDocumentsFileIoCapability['savePdfData']>(async () => ({
             isValid: true,
@@ -75,7 +77,7 @@ describe('createWorkingCopySnapshotFromData', () => {
         await expect(createWorkingCopySnapshotFromData({
             data,
             fileName: 'snapshot.pdf',
-            sourcePath: '/tmp/source.pdf',
+            sourcePath: requireDocumentRef('/tmp/source.pdf'),
             files: harness.files,
             workingCopies: harness.workingCopies,
         })).resolves.toBe('/tmp/direct.pdf');
@@ -95,8 +97,8 @@ describe('createWorkingCopySnapshotFromData', () => {
         await expect(createWorkingCopySnapshotFromData({
             data,
             fileName: 'snapshot.pdf',
-            sourcePath: '/tmp/source.pdf',
-            originalPath: '/tmp/original.pdf',
+            sourcePath: requireDocumentRef('/tmp/source.pdf'),
+            originalPath: requireDocumentRef('/tmp/original.pdf'),
             files: harness.files,
             workingCopies: harness.workingCopies,
         })).resolves.toBe('/tmp/staged.pdf');
@@ -128,7 +130,7 @@ describe('createWorkingCopySnapshotFromData', () => {
         await expect(createWorkingCopySnapshotFromData({
             data: new Uint8Array(IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1),
             fileName: 'snapshot.pdf',
-            sourcePath: '/tmp/source.pdf',
+            sourcePath: requireDocumentRef('/tmp/source.pdf'),
             files: harness.files,
             workingCopies: harness.workingCopies,
         })).rejects.toThrow('invalid snapshot');

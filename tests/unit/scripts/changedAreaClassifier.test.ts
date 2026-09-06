@@ -126,6 +126,7 @@ describe('changed-area classifier', () => {
             'scripts/afterPack.cjs',
             'scripts/afterSign.cjs',
             'scripts/build-minimal-ffmpeg-for-unpaper.sh',
+            'scripts/build-warning-allowlist.json',
             'scripts/cargo-artifacts.mjs',
             'scripts/checkSearchNativeParity.ts',
             'scripts/ci/classify-changed-areas.mjs',

@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     ExpectedOutcome,
     FailureReceipt,
@@ -71,7 +73,7 @@ export type TAnnotationCreationOutcome =
 interface IAnnotationCreationReportBase {
     operationId: string;
     reason: TAnnotationCreationFailureReason;
-    pageNumber: number | null;
+    pageNumber: TPageNumber | null;
 }
 
 /** A handled selection, geometry, or readiness state. It never owns an occurrence. */

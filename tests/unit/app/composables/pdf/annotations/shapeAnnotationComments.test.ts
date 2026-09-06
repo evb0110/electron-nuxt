@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
+import {requireEpochMs} from '@contracts/timestamps';
 
 function expectMarkerRect(
     markerRect: ReturnType<typeof toShapeAnnotationCommentSummary>['markerRect'],
@@ -90,8 +91,8 @@ describe('shapeAnnotationComments', () => {
 
     it('carries drawing timestamps into sidebar summaries', () => {
         const summary = toShapeAnnotationCommentSummary(createShape({
-            createdAt: 100,
-            modifiedAt: 200,
+            createdAt: requireEpochMs(100),
+            modifiedAt: requireEpochMs(200),
         }));
 
         expect(summary.createdAt).toBe(100);

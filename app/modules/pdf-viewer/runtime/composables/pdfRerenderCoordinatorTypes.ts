@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     ComputedRef,
     Ref,
@@ -100,7 +102,7 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
     ) => boolean;
     syncHorizontalScrollForZoomMode?: (() => boolean) | undefined;
     setupPagePlaceholders: () => void;
-    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => unknown;
+    scrollToPage: (pageNumber: TPageNumber, options?: IScrollToPageOptions) => unknown;
     getMostVisiblePage: (container: HTMLElement | null, numPages: number) => number;
     resetContinuousScrollState: () => void;
     cancelDestinationNavigationTarget?: (() => void) | undefined;

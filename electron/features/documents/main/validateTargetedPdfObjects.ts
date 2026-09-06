@@ -11,7 +11,9 @@ function qpdfObjectArgument(ref: string) {
     if (!match) {
         throw new Error(`Invalid changed PDF object reference: ${ref}`);
     }
-    return `--show-object=${match[1]},${match[2]}`;
+    const objectNumber = match[1] ?? '<missing>';
+    const generation = match[2] ?? '<missing>';
+    return `--show-object=${objectNumber},${generation}`;
 }
 
 export async function validateTargetedPdfObjects(

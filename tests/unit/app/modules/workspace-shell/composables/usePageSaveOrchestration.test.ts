@@ -14,6 +14,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { cast } from '@tests/helpers/cast';
 
 const saveMocks = vi.hoisted(() => ({
@@ -107,7 +108,7 @@ describe('usePageSaveOrchestration', () => {
         const dependencies = cast<IWorkspaceSaveDependencies>(saveMocks.capturedDeps);
 
         await expect(
-            dependencies.persistence.getWorkingCopySize?.('/tmp/document.pdf'),
+            dependencies.persistence.getWorkingCopySize?.(requireDocumentRef('/tmp/document.pdf')),
         ).resolves.toBe(1);
         expect(platformMocks.statFile).toHaveBeenCalledWith('/tmp/document.pdf');
     });

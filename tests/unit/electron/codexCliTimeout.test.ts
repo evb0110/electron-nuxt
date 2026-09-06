@@ -60,19 +60,26 @@ describe('Codex CLI timeout cleanup', () => {
         });
     });
 
-    it('fails cleanly when the spawned process has no output pipes', async () => {
-        const process = {
-            stderr: null,
-            stdout: null,
-        };
+    it('requests piped output from the spawned process', async () => {
+        const process = new FakeAssistantAppServerProcess(() => true);
         mocks.spawn.mockReturnValue(process);
         const {runCodexCli} = await import('@electron/features/agent/codexCli');
 
-        await expect(runCodexCli('/usr/bin/codex', ['--version'])).resolves.toMatchObject({
+        const resultPromise = runCodexCli('/usr/bin/codex', ['--version']);
+        process.emit('close', 1);
+        await expect(resultPromise).resolves.toMatchObject({
             ok: false,
-            stderr: 'Codex command output pipes were not created.',
+            exitCode: 1,
         });
-        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(process, 1_000);
+        expect(mocks.spawn).toHaveBeenCalledWith(
+            '/usr/bin/codex',
+            ['--version'],
+            expect.objectContaining({stdio: [
+                'pipe',
+                'pipe',
+                'pipe',
+            ]}),
+        );
     });
 
     it('reports when timeout cleanup cannot confirm process-tree termination', async () => {

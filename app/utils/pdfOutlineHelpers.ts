@@ -11,6 +11,7 @@ import type {
     TCreateBookmarkId,
 } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import { parsePageIndex } from '@contracts/pageNumbers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getOptionalArray,
@@ -265,6 +266,8 @@ function getDestinationTopValue(destinationArray: unknown[], destinationKind: st
             return getFiniteDestinationNumber(destinationArray[2]);
         case 'FitR':
             return getFiniteDestinationNumber(destinationArray[5]);
+        case null:
+            return null;
         default:
             return null;
     }
@@ -433,7 +436,11 @@ async function resolveDestinationTarget(
         return null;
     }
 
-    const pageIndex = await resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache);
+    const rawPageIndex = await resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache);
+    if (rawPageIndex === null) {
+        return null;
+    }
+    const pageIndex = parsePageIndex(rawPageIndex);
     if (pageIndex === null) {
         return null;
     }
@@ -565,7 +572,7 @@ export function buildOutlineFromBookmarkEntries(
         }
         const children: IBookmarkItem[] = [];
         const pageIndex = typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
-            ? Math.max(0, Math.trunc(frame.entry.pageIndex))
+            ? parsePageIndex(Math.max(0, Math.trunc(frame.entry.pageIndex)))
             : null;
         const id = createId({
             parentId: frame.parentId,
@@ -829,9 +836,9 @@ function normalizeExplicitBookmarkColor(color: string | null | undefined) {
             return null;
         }
         const [
-            r,
-            g,
-            b,
+            r = '',
+            g = '',
+            b = '',
         ] = triple.split('');
         return `#${r}${r}${g}${g}${b}${b}`;
     }

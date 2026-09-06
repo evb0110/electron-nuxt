@@ -4,6 +4,7 @@ import type {
     IPdfOpeningGeometry,
 } from '@contracts/electronApiDocuments';
 import {PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT} from '@contracts/electronApiDocuments';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IPdfPathSource } from '@app/types/pdfUi';
 import type {
     IDocumentOpenSurfaceSession,
@@ -16,6 +17,10 @@ import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/sour
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import { shouldStageNativePdfOpeningPreview } from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import type { IPdfValidationSourceRevision } from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
+import {
+    createRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 
 type TNativePreviewFiles = Parameters<typeof createNativePdfPreviewSourceFromPath>[1];
 
@@ -50,12 +55,16 @@ function resolveTargetWidth(
 }
 
 function isValidPageSize(value: unknown): value is IPdfNativePageSize {
-    return typeof value === 'object'
-        && value !== null
-        && Number.isFinite((value as IPdfNativePageSize).width)
-        && (value as IPdfNativePageSize).width > 0
-        && Number.isFinite((value as IPdfNativePageSize).height)
-        && (value as IPdfNativePageSize).height > 0;
+    if (typeof value !== 'object' || value === null) {
+        return false;
+    }
+    const record = value as Record<string, unknown>;
+    return typeof record.width === 'number'
+        && Number.isFinite(record.width)
+        && record.width > 0
+        && typeof record.height === 'number'
+        && Number.isFinite(record.height)
+        && record.height > 0;
 }
 
 function isCompactPageSizes(value: unknown): value is IPdfNativePageSizes {
@@ -63,23 +72,35 @@ function isCompactPageSizes(value: unknown): value is IPdfNativePageSizes {
         typeof value !== 'object'
         || value === null
         || Array.isArray(value)
-        || !Number.isSafeInteger((value as IPdfNativePageSizes).pageCount)
-        || (value as IPdfNativePageSizes).pageCount < 1
-        || !isValidPageSize((value as IPdfNativePageSizes).defaultPageSize)
-        || !Array.isArray((value as IPdfNativePageSizes).overrides)
-        || (value as IPdfNativePageSizes).overrides.length > PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT
+        || !('pageCount' in value)
+        || !('defaultPageSize' in value)
+        || !('overrides' in value)
     ) {
         return false;
     }
-    const pageCount = (value as IPdfNativePageSizes).pageCount;
-    return (value as IPdfNativePageSizes).overrides.every((override) => (
-        typeof override === 'object'
-        && override !== null
-        && Number.isSafeInteger(override.pageNumber)
-        && override.pageNumber >= 1
-        && override.pageNumber <= pageCount
-        && isValidPageSize(override)
-    ));
+    const pageCount = value.pageCount;
+    const overrides = value.overrides;
+    if (
+        typeof pageCount !== 'number'
+        || !Number.isSafeInteger(pageCount)
+        || pageCount < 1
+        || !isValidPageSize(value.defaultPageSize)
+        || !Array.isArray(overrides)
+        || overrides.length > PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT
+    ) {
+        return false;
+    }
+    return overrides.every((override) => {
+        if (typeof override !== 'object' || override === null || !('pageNumber' in override)) {
+            return false;
+        }
+        const pageNumber: unknown = (override as Record<string, unknown>).pageNumber;
+        return typeof pageNumber === 'number'
+            && Number.isSafeInteger(pageNumber)
+            && pageNumber >= 1
+            && pageNumber <= pageCount
+            && isValidPageSize(override);
+    });
 }
 
 export function stagePdfOpeningPreview(options: {
@@ -90,8 +111,13 @@ export function stagePdfOpeningPreview(options: {
     readonly source: IPdfPathSource;
     readonly traceContext?: Readonly<Record<string, unknown>>;
 }): IStagedPdfOpeningPreview {
-    let canceled = false;
-    let disposed = false;
+    const lifecycle: {
+        canceled: boolean;
+        disposed: boolean;
+    } = {
+        canceled: false,
+        disposed: false,
+    };
     let objectUrl: string | null = null;
     let source: ReturnType<typeof createNativePdfPreviewSourceFromPath> | null = null;
     let pageSource: IDocumentPageSource | null = null;
@@ -112,10 +138,10 @@ export function stagePdfOpeningPreview(options: {
     }
 
     function dispose(reason: string, clearPreview = true) {
-        if (disposed) {
+        if (lifecycle.disposed) {
             return;
         }
-        disposed = true;
+        lifecycle.disposed = true;
         cancelOpeningFrameWait();
         stopWatchingSurface?.();
         stopWatchingSurface = null;
@@ -156,8 +182,8 @@ export function stagePdfOpeningPreview(options: {
         let boundGeneration: number | null = null;
         const inspect = (snapshot: IDocumentOpenSurfaceSnapshot) => {
             if (
-                canceled
-                || disposed
+                lifecycle.canceled
+                || lifecycle.disposed
                 || !options.isCurrent()
             ) {
                 return null;
@@ -233,7 +259,7 @@ export function stagePdfOpeningPreview(options: {
         const resolvedSnapshot = options.openSurface.snapshot.value;
         logPdfRenderTrace('pdf-open-native-preview-resolution-end', {
             ...options.traceContext,
-            canceled,
+            canceled: lifecycle.canceled,
             current: options.isCurrent(),
             documentId: resolvedSnapshot.identity?.documentId ?? null,
             hasOpeningGeometry: resolution.openingGeometry !== null,
@@ -246,7 +272,7 @@ export function stagePdfOpeningPreview(options: {
             shouldStage,
         });
         if (
-            canceled
+            lifecycle.canceled
             || !options.isCurrent()
             || resolution.openingGeometry === null
             || resolution.sourceRevision === null
@@ -276,7 +302,7 @@ export function stagePdfOpeningPreview(options: {
             pageNumber: resolution.openingGeometry.pageNumber,
             sourceRevisionKey,
         });
-        if (snapshot === null || canceled || !options.isCurrent()) {
+        if (snapshot === null || Boolean(lifecycle.canceled) || !options.isCurrent()) {
             return;
         }
         const activeGeneration = snapshot.generation;
@@ -284,7 +310,7 @@ export function stagePdfOpeningPreview(options: {
         const previewSource = createNativePdfPreviewSourceFromPath(options.source.path, options.documentFiles);
         source = previewSource;
         const loadedPageSizes = await Promise.resolve(previewSource.getPageSizes()).catch(() => null);
-        if (disposed || canceled || !options.isCurrent()) {
+        if (Boolean(lifecycle.disposed) || Boolean(lifecycle.canceled) || !options.isCurrent()) {
             dispose('surface-retired-during-page-sizes', false);
             return;
         }
@@ -312,7 +338,9 @@ export function stagePdfOpeningPreview(options: {
                     override,
                 ] as const),
             );
-            getPageSize = pageNumber => overrides.get(pageNumber) ?? loadedPageSizes.defaultPageSize;
+            getPageSize = pageNumber => overrides.get(
+                requirePageNumber(pageNumber, pageCount),
+            ) ?? loadedPageSizes.defaultPageSize;
         }
         pageSource = pageSizes === null
             ? createPagePreviewDocumentSource({
@@ -341,11 +369,11 @@ export function stagePdfOpeningPreview(options: {
         let activeRender: {
             key: string;
             pageNumber: number;
-            requestId: string;
+            requestId: TRequestId;
         } | null = null;
         let committedRenderKey: string | null = null;
         async function renderPreview(pageNumber: number, reason: string) {
-            if (disposed || canceled || !options.isCurrent()) {
+            if (lifecycle.disposed || lifecycle.canceled || !options.isCurrent()) {
                 return false;
             }
             const boundedPage = Math.min(
@@ -374,13 +402,7 @@ export function stagePdfOpeningPreview(options: {
                     activeRender.requestId,
                 );
             }
-            const requestId = [
-                'pdf-opening',
-                activeGeneration,
-                sourceRevisionKey,
-                boundedPage,
-                renderRevision,
-            ].join(':');
+            const requestId = createRequestId('pdf-opening');
             const pendingRender = {
                 key: renderKey,
                 pageNumber: boundedPage,
@@ -403,8 +425,8 @@ export function stagePdfOpeningPreview(options: {
                 });
             } catch (error) {
                 if (
-                    disposed
-                    || canceled
+                    Boolean(lifecycle.disposed)
+                    || Boolean(lifecycle.canceled)
                     || !options.isCurrent()
                     || renderRevision !== nextRenderRevision
                 ) {
@@ -417,8 +439,8 @@ export function stagePdfOpeningPreview(options: {
                 }
             }
             if (
-                disposed
-                || canceled
+                Boolean(lifecycle.disposed)
+                || Boolean(lifecycle.canceled)
                 || !options.isCurrent()
                 || renderRevision !== nextRenderRevision
             ) {
@@ -503,7 +525,7 @@ export function stagePdfOpeningPreview(options: {
 
         function requestPreviewRender(pageNumber: number, reason: string) {
             void renderPreview(pageNumber, reason).catch((error: unknown) => {
-                if (disposed || canceled) {
+                if (lifecycle.disposed || lifecycle.canceled) {
                     return;
                 }
                 logPdfRenderTrace('pdf-open-native-preview-failed', {
@@ -555,13 +577,12 @@ export function stagePdfOpeningPreview(options: {
         );
         if (
             !initialRendered
-            && !disposed
-            && activeRender === null
+            && lifecycle.disposed !== true
             && options.openSurface.snapshot.value.openingPageFrame?.preview === undefined
         ) {
             dispose('initial-render-rejected', false);
         }
-        if (disposed) {
+        if (lifecycle.disposed === true) {
             return;
         }
         stopWatchingTargetWidth = watch(
@@ -577,17 +598,17 @@ export function stagePdfOpeningPreview(options: {
             {flush: 'post'},
         );
     })().catch((error: unknown) => {
-        if (!canceled) {
+        if (!lifecycle.canceled) {
             logPdfRenderTrace('pdf-open-native-preview-failed', {
                 ...options.traceContext,
                 error: getErrorMessage(error),
             });
         }
-        dispose(canceled ? 'canceled' : 'render-failed');
+        dispose(lifecycle.canceled ? 'canceled' : 'render-failed');
     });
 
     return Object.freeze({cancel(reason: string) {
-        canceled = true;
+        lifecycle.canceled = true;
         dispose(reason);
     }});
 }

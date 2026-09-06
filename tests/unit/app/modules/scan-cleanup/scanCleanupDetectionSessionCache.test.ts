@@ -4,6 +4,8 @@ import {
     expect,
     it,
 } from 'vitest';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireJobId} from '@contracts/shared';
 import {
     createScanCleanupDetectionSessionCache,
     discardScanCleanupDetectionStateForAliases,
@@ -20,7 +22,7 @@ function entry(ownerId = 'owner') {
         results: [],
         signatures: new Map<number, string>(),
         state: {
-            jobId: 'detect-1',
+            jobId: requireJobId('detect-1'),
             status: 'completed' as const,
             progress: {
                 stage: 'detecting' as const,
@@ -30,7 +32,7 @@ function entry(ownerId = 'owner') {
                 completedPageNumbers: [1],
             },
             results: [],
-            updatedAtMs: 0,
+            updatedAtMs: requireEpochMs(0),
         },
         totalPages: 1,
     };

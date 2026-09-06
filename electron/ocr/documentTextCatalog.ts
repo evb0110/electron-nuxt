@@ -39,7 +39,9 @@ import {
     OCR_SCALAR_PAGE_LIMIT,
 } from '@contracts/ocrIndex';
 import {assembleSearchablePageText} from '@contracts/search';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {buildOcrTextLayerIndexText} from '@contracts/ocrText';
+import {requireEpochMs} from '@contracts/timestamps';
 import {extractTextFromPdf} from '@electron/search/extractTextFromPdf';
 import type {IPageTextWithWordBoxes} from '@electron/search/extractTextWithPdfjs';
 import {loadPdfjsTextExtractor} from '@electron/search/loadPdfjsTextExtractor';
@@ -223,7 +225,7 @@ export async function rebindDocumentTextCatalogRevision(
             }
             return;
         }
-        const pages: IOcrIndexV3Manifest['pages'] = {};
+        const pages: Record<number, IOcrIndexV3Manifest['pages'][number]> = {};
         const streamedMetadata = await streamOcrIndexV3ManifestMappings(manifestPath, mapping => {
             pages[mapping.pageNumber] = {
                 path: mapping.path,
@@ -240,7 +242,7 @@ export async function rebindDocumentTextCatalogRevision(
         const manifest: IOcrIndexV3Manifest = {
             version: 3,
             documentRevision: {token: nextRevision},
-            createdAt: metadata.createdAt,
+            createdAt: requireEpochMs(metadata.createdAt),
             source: {pdfPath: workingCopyPath},
             pageCount: metadata.pageCount,
             pageBox: metadata.pageBox,
@@ -304,8 +306,8 @@ function createOcrCatalogPage(
     ) {
         return null;
     }
-    const page: IDocumentTextCatalogPage = {
-        pageNumber,
+    const pageWithoutDigest: Omit<IDocumentTextCatalogPage, 'contentDigest'> = {
+        pageNumber: requirePageNumber(pageNumber),
         text: ocrPage.words.length > 0
             ? buildOcrTextLayerIndexText(ocrPage.words)
             : assembleSearchablePageText([{text: ocrPage.text}]).text,
@@ -314,10 +316,14 @@ function createOcrCatalogPage(
         ...(ocrPage.canonicalText?.generation ? {generation: ocrPage.canonicalText.generation} : {}),
         render: ocrPage.render,
         ...(languages === undefined ? {} : {languages: [...languages]}),
-        contentDigest: ocrPage.canonicalText?.contentDigest ?? '',
     };
-    page.contentDigest ||= digestCanonicalPage(page);
-    return page;
+    const contentDigest = ocrPage.canonicalText?.contentDigest ?? '';
+    return {
+        ...pageWithoutDigest,
+        contentDigest: contentDigest === ''
+            ? digestCanonicalPage(pageWithoutDigest)
+            : contentDigest,
+    };
 }
 
 type TEmbeddedTextPage = Awaited<ReturnType<typeof extractTextFromPdf>>[number] | IPageTextWithWordBoxes;
@@ -326,8 +332,8 @@ function createEmbeddedCatalogPage(embedded: TEmbeddedTextPage): IDocumentTextCa
     if (!embedded.text.trim()) {
         return null;
     }
-    const page: IDocumentTextCatalogPage = {
-        pageNumber: embedded.pageNumber,
+    const pageWithoutDigest: Omit<IDocumentTextCatalogPage, 'contentDigest'> = {
+        pageNumber: requirePageNumber(embedded.pageNumber),
         text: 'words' in embedded
             ? buildOcrTextLayerIndexText(embedded.words)
             : embedded.text,
@@ -335,10 +341,11 @@ function createEmbeddedCatalogPage(embedded: TEmbeddedTextPage): IDocumentTextCa
         source: 'hasInvisibleText' in embedded && embedded.hasInvisibleText
             ? 'foreign-ocr'
             : 'pdf-native',
-        contentDigest: '',
     };
-    page.contentDigest = digestCanonicalPage(page);
-    return page;
+    return {
+        ...pageWithoutDigest,
+        contentDigest: digestCanonicalPage(pageWithoutDigest),
+    };
 }
 
 interface ITextBudget {
@@ -385,7 +392,10 @@ function asTextOnlyCatalogPage(page: IDocumentTextCatalogPage): IDocumentTextCat
 }
 
 function appendPageToRanges(
-    ranges: IDocumentOcrPageRange[],
+    ranges: Array<{
+        firstPage: number;
+        lastPage: number
+    }>,
     pageNumber: number,
 ): boolean {
     const lastRange = ranges.at(-1);

@@ -1,5 +1,8 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type { IOcrLanguage } from '@contracts/shared';
+import {requireRequestId} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import {
     afterEach,
@@ -150,15 +153,15 @@ type TOcrMock = ReturnType<typeof createOcrMock>;
 function setSearchableResult(
     ocr: TOcrMock,
     requestId: string,
-    pdfPath: TDocumentRef,
+    pdfPath: string,
 ) {
     ocr.results.value = {
         pages: new Map(),
         languages: [...ocr.settings.value.selectedLanguages],
-        completedAt: 1,
+        completedAt: requireEpochMs(1),
         searchablePdfResult: {
-            requestId,
-            pdfPath,
+            requestId: requireRequestId(requestId),
+            pdfPath: requireDocumentRef(pdfPath),
             sourceDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token'),
             requiresCleanupAck: true,
         },
@@ -171,7 +174,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     const isOpen = ref(false);
     const currentPage = ref(3);
     const totalPages = ref(12);
-    const workingCopyPath = ref<TDocumentRef | null>('/tmp/source.pdf');
+    const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.pdf'));
     const pdfDocument = shallowRef<PDFDocumentProxy | null>({} as PDFDocumentProxy);
     const disabled = ref(false);
     const externalError = ref<string | null | undefined>(null);
@@ -370,7 +373,7 @@ describe('useOcrPopupPresenter', () => {
             };
             await nextTick();
 
-            harness.workingCopyPath.value = '/tmp/other.pdf';
+            harness.workingCopyPath.value = requireDocumentRef('/tmp/other.pdf');
             await nextTick();
             setSearchableResult(harness.ocr, 'req-stale', '/tmp/stale.pdf');
             await nextTick();

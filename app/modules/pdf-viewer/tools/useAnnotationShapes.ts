@@ -1,3 +1,6 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+import { createEpochMs } from '@contracts/timestamps';
+
 import type {
     ComputedRef,
     Ref,
@@ -29,8 +32,8 @@ export interface IShapeContextProvide {
     isSelectionToolActive: ComputedRef<boolean>;
     activeShapeTool: ComputedRef<TDrawableShapeType | null>;
     settings: Ref<IAnnotationSettings>;
-    getShapesForPage: (pageIndex: number) => IShapeAnnotation[];
-    handleStartDrawing: (pageIndex: number, coords: {
+    getShapesForPage: (pageIndex: TPageIndex) => IShapeAnnotation[];
+    handleStartDrawing: (pageIndex: TPageIndex, coords: {
         x: number;
         y: number
     }) => void;
@@ -153,7 +156,7 @@ export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShape
     ));
     const hasShapes = computed(() => shapeEntities.value.some(entity => !entity.deleted));
 
-    function getShapesForPage(pageIndex: number): IShapeAnnotation[] {
+    function getShapesForPage(pageIndex: TPageIndex): IShapeAnnotation[] {
         return shapesByPage.value.get(pageIndex) ?? [];
     }
 
@@ -196,7 +199,7 @@ export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShape
     }
 
     function startDrawing(
-        pageIndex: number,
+        pageIndex: TPageIndex,
         tool: TDrawableShapeType,
         x: number,
         y: number,
@@ -228,7 +231,7 @@ export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShape
 
         const shape = cloneShape({
             ...drawingShape.value,
-            modifiedAt: Date.now(),
+            modifiedAt: createEpochMs(),
         });
         resetDrawingState();
         return isDrawableFinishedShape(shape) ? shape : null;

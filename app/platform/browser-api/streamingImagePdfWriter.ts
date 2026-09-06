@@ -98,7 +98,7 @@ function buildPageTree(pageCount: number, rootRef: number, firstNodeRef: number)
     let pageSpan = PAGE_TREE_FANOUT;
     let intermediateNodeCount = 0;
 
-    while (true) {
+    for (;;) {
         levels.push({
             firstNodeRef: firstNodeRef + intermediateNodeCount,
             nodeCount,
@@ -156,7 +156,7 @@ function resolveBookmarkDestinationTop(pageHeight: number, pageYRatio: number | 
     return pageHeight - normalizedRatio * Math.max(0, pageHeight);
 }
 
-function createBookmarkNodes(items: IPdfBookmarkEntry[], parentRef: number) {
+function createBookmarkNodes(items: readonly IPdfBookmarkEntry[], parentRef: number) {
     return items.map((item) => ({
         ref: 0,
         item,
@@ -191,7 +191,7 @@ function linkBookmarkSiblings(nodes: IBookmarkNodeBuild[]) {
 }
 
 function flattenBookmarkLevel(
-    items: IPdfBookmarkEntry[],
+    items: readonly IPdfBookmarkEntry[],
     parentRef: number,
     nextRef: number,
 ): {

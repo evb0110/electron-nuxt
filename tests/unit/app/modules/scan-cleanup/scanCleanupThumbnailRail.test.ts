@@ -23,6 +23,7 @@ import type {
     IScanCleanupTextAxis,
     TScanCleanupPageOverrides,
 } from '@contracts/electronApiScanCleanup';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
 import {
     createScanCleanupSparsePageOrder,
@@ -349,7 +350,7 @@ function createSource(pageCount = 5): IDocumentPageSource {
     }));
     return {
         kind: 'pdf',
-        documentRef: '/document.pdf',
+        documentRef: requireDocumentRef('/document.pdf'),
         pageCount,
         getPageMetrics: vi.fn(async () => ({
             widthPoints: 500,

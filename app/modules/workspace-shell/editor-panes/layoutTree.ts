@@ -2,6 +2,7 @@ import type {
     IEditorLayoutLeafNode,
     IEditorLayoutSplitNode,
     TEditorLayoutNode,
+    TPaneId,
 } from '@contracts/editorPanes';
 
 export function collectLayoutPaneIds(node: TEditorLayoutNode, target: Set<string>) {
@@ -48,7 +49,7 @@ export function pruneLayoutToExistingPanes(
 
 export function appendPaneToLayout(
     currentLayout: TEditorLayoutNode | null,
-    paneId: string,
+    paneId: TPaneId,
 ): TEditorLayoutNode {
     const nextLeaf: IEditorLayoutLeafNode = {
         type: 'leaf',
@@ -70,7 +71,7 @@ export function appendPaneToLayout(
 
 export function removeLeafNode(
     node: TEditorLayoutNode,
-    paneId: string,
+    paneId: TPaneId,
 ): TEditorLayoutNode | null {
     if (node.type === 'leaf') {
         return node.paneId === paneId ? null : node;
@@ -98,7 +99,7 @@ export function removeLeafNode(
 
 export function replaceLeafWithSplit(
     node: TEditorLayoutNode,
-    sourcePaneId: string,
+    sourcePaneId: TPaneId,
     splitNode: IEditorLayoutSplitNode,
 ): TEditorLayoutNode {
     if (node.type === 'leaf') {

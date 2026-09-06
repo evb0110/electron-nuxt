@@ -1,4 +1,5 @@
 import type { LiteralUnion } from 'type-fest';
+import type {TIsoTimestamp} from '@contracts/timestamps';
 
 export const RELEASE_PLATFORMS = [
     'macos',
@@ -26,7 +27,8 @@ export interface IReleaseInstaller {
     downloadUrl: string;
     mirrorDownloadUrl?: string;
     size: number;
-    updatedAt: string;
+    // Release manifests are consumed as an external ISO timestamp wire format.
+    updatedAt: TIsoTimestamp;
     contentType: string;
     extension: TReleaseInstallerExtension;
     platform: TReleasePlatform;
@@ -37,7 +39,8 @@ export interface IReleaseInstaller {
 export interface IReleaseSummary {
     tag: string;
     name: string;
-    publishedAt: string;
+    // Release manifests are consumed as an external ISO timestamp wire format.
+    publishedAt: TIsoTimestamp;
     htmlUrl: string;
 }
 

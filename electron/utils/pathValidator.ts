@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {
     dirname,
     isAbsolute,
@@ -198,7 +199,7 @@ export function describeReadPathValidationForDiagnostics(filePath: string) {
     try {
         baseDirs = getTempBaseDirsSync();
     } catch (error) {
-        return `baseDirs=error:${error instanceof Error ? error.message : String(error)}`;
+        return `baseDirs=error:${getErrorMessage(error)}`;
     }
     let lstatOutcome = 'ok';
     try {

@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -26,9 +27,9 @@ describe('resolvePdfViewerPortalTargets', () => {
         const viewerContainer = toElement({ querySelector: (selector: string) => targetsBySelector.get(selector) ?? null });
 
         const targets = resolvePdfViewerPortalTargets(viewerContainer, [
-            1,
-            2,
-            3,
+            requirePageNumber(1),
+            requirePageNumber(2),
+            requirePageNumber(3),
         ]);
 
         expect(targets.get(1)).toBe(pageOne);
@@ -38,8 +39,8 @@ describe('resolvePdfViewerPortalTargets', () => {
 
     it('returns an empty map when the viewer container is missing', () => {
         expect(resolvePdfViewerPortalTargets(null, [
-            1,
-            2,
+            requirePageNumber(1),
+            requirePageNumber(2),
         ])).toEqual(new Map());
     });
 });

@@ -19,6 +19,7 @@ import {
     buildOcrTextLayerIndexText,
 } from '@contracts/ocrText';
 import { assembleSearchablePageText } from '@contracts/search';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { extractTextFromPdf } from '@electron/search/extractTextFromPdf';
 import type { IExtractPdfjsTextOptions } from '@electron/search/extractTextWithPdfjs';
 import {loadPdfjsTextExtractor} from '@electron/search/loadPdfjsTextExtractor';
@@ -312,7 +313,7 @@ async function persistIndexBestEffort(
         if (isAbortError(err)) {
             throw err;
         }
-        if (err instanceof Error && err.message === 'Document revision is stale') {
+        if (err instanceof Error && getErrorMessage(err) === 'Document revision is stale') {
             throw err;
         }
         const errMsg = getErrorMessage(err);
@@ -349,7 +350,10 @@ async function buildIndexFromOcrPages(
     await persistCompactSearchIndexBestEffort(pdfPath, {
         documentRevision,
         pageCount: index.pageCount ?? pages.length,
-        pages,
+        pages: pages.map(page => ({
+            pageNumber: requirePageNumber(page.pageNumber),
+            text: page.text,
+        })),
         textSource: {
             kind: COMPACT_SEARCH_INDEX_SOURCE_KIND_OCR_TEXT_LAYER,
             version: OCR_TEXT_LAYER_INDEX_VERSION,
@@ -361,7 +365,7 @@ async function buildIndexFromOcrPages(
 function seedFromExistingIndex(
     existing: IPdfSearchIndex | null,
 ): Map<number, IPageIndex> {
-    if (!existing?.pages?.length) {
+    if (!existing || existing.pages.length === 0) {
         return new Map();
     }
     return new Map(existing.pages.map((page) => [
@@ -689,7 +693,7 @@ export async function buildSearchIndex(
             const indexedPage = applySearchGeometryBudget({
                 pageNumber: page.pageNumber,
                 text: page.text,
-                ...(page.words && page.words.length > 0 ? {words: page.words} : {}),
+                ...(page.words && page.words.length > 0 ? {words: [...page.words]} : {}),
                 ...(page.render ? {
                     pageWidth: page.render.imagePx.w,
                     pageHeight: page.render.imagePx.h,

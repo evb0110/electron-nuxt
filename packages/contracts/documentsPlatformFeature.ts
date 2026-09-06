@@ -116,6 +116,11 @@ import {
     releasePdfEmbeddedShapeIndexArgs,
 } from '@contracts/pdfEmbeddedShapeIndexSchemas';
 import {pdfValidationPathArgs} from '@contracts/pdfValidationPathArgs';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {parseRequestId} from '@contracts/shared';
 export {decodeOpenFileResult} from '@contracts/documentsPlatformFeatureSchemas';
 
 const optionalEverywhere = {
@@ -139,20 +144,24 @@ const electronImplementedOptional = {
 } as const;
 const noArgs = s.tuple([]);
 const voidResult = s.undefined();
-const stringResult = s.string('/tmp/document.pdf');
-const stringArrayResult = s.array(stringResult, ['/tmp/document.pdf']);
-const fileArgs = s.trustedDirect<[file: File]>(() => [{} as File]);
-const filesArgs = s.trustedDirect<[files: File[]]>(() => [[{} as File]]);
+const documentRefResult = s.branded(
+    s.string('/tmp/document.pdf'),
+    (value): value is TDocumentRef => parseDocumentRef(value) !== null,
+    'invalid document reference',
+);
+const documentRefArrayResult = s.array<TDocumentRef>(documentRefResult, [parseDocumentRef('/tmp/document.pdf') ?? fail('invalid fixture document reference')]);
+const fileArgs = s.trustedDirect<[file: File]>(() => [new File([], 'fixture.pdf')]);
+const filesArgs = s.trustedDirect<[files: File[]]>(() => [[new File([], 'fixture.pdf')]]);
 const combinedFilesArgs = s.trustedDirect<[
     files: File[],
     options?: ICreateCombinedPdfFromFilesOptions,
-]>(() => [[{} as File]]);
+]>(() => [[new File([], 'fixture.pdf')]]);
 const combinedPdfResult = s.trustedDirect<Uint8Array>(() => new Uint8Array());
 const workingCopyBackingStatusArgs = pathArgs('path');
 const workingCopyBackingStatus = s.fromParser<IWorkingCopyBackingStatus>(
     value => decodeWorkingCopyBackingStatus(value) ?? fail('invalid working-copy backing status'),
     () => ({
-        documentRef: '/tmp/document.pdf',
+        documentRef: parseDocumentRef('/tmp/document.pdf') ?? fail('invalid fixture document reference'),
         failure: null,
         progress: 0.5,
         state: 'materializing',
@@ -270,19 +279,19 @@ export const DOCUMENT_PICKER_PLATFORM_FEATURE = definePlatformFeature({
         getPathForFile: {
             kind: 'sync',
             args: fileArgs,
-            result: stringResult,
+            result: documentRefResult,
             browser: {method: 'getPathForFile'},
             lazy: 'direct',
         },
         getPathsForFiles: {
             kind: 'sync',
             args: filesArgs,
-            result: stringArrayResult,
+            result: documentRefArrayResult,
             browser: {method: 'getPathsForFiles'},
             lazy: 'direct',
         },
         registerFilesForOpen: defineLocalMethod(
-            'registerFilesForOpen', 'async', filesArgs, stringArrayResult,
+            'registerFilesForOpen', 'async', filesArgs, documentRefArrayResult,
         ),
         createCombinedPdfFromFiles: {
             ...defineLocalMethod('createCombinedPdfFromFiles', 'async', combinedFilesArgs, combinedPdfResult),
@@ -342,7 +351,7 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
             'createWorkingCopyFromData',
             'working-copy:createFromData',
             createWorkingCopyFromDataArgs,
-            stringResult,
+            documentRefResult,
             'createWorkingCopyFromData',
             'sender',
         ),
@@ -350,7 +359,7 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
             'createWorkingCopyFromPath',
             'working-copy:createFromPath',
             createWorkingCopyFromPathArgs,
-            stringResult,
+            documentRefResult,
             'createWorkingCopyFromPath',
             'sender',
         ),
@@ -382,9 +391,12 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
             'file:cleanupOcrTemp',
             pathArgs('path'),
             s.declared<undefined>()(s.fromParser(
-                value => value === undefined || typeof value === 'boolean'
-                    ? undefined as never
-                    : fail('expected a void IPC result'),
+                value => {
+                    if (value === undefined || typeof value === 'boolean') {
+                        return undefined;
+                    }
+                    return fail('expected a void IPC result');
+                },
                 () => undefined,
             )),
             'cleanupOcrTemp',
@@ -395,7 +407,7 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
 });
 
 const readFileChunksArgs = s.trustedDirect<TDocumentMethodArgs<'readFileChunks'>>(() => [
-    '/tmp/document.pdf',
+    parseDocumentRef('/tmp/document.pdf') ?? fail('invalid fixture document reference'),
     {},
     () => undefined,
 ]);
@@ -405,22 +417,22 @@ const readFileChunksResult = s.trustedDirect<IDocumentChunkReadResult>(() => ({
     chunks: 1,
 }));
 const savePdfDataAsLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfDataAs'>>(() => [
-    '/tmp/working.pdf',
+    parseDocumentRef('/tmp/working.pdf') ?? fail('invalid fixture document reference'),
     Uint8Array.of(1),
     undefined,
     fixtureRevisionOptions,
 ]);
 const savePdfDataAsLocalResult = s.trustedDirect<TDocumentMethodResult<'savePdfDataAs'>>(() => ({
-    path: '/tmp/saved.pdf',
+    path: parseDocumentRef('/tmp/saved.pdf') ?? fail('invalid fixture document reference'),
     validation: null,
 }));
 const savePdfDataLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfData'>>(() => [
-    '/tmp/working.pdf',
+    parseDocumentRef('/tmp/working.pdf') ?? fail('invalid fixture document reference'),
     Uint8Array.of(1),
     fixtureRevisionOptions,
 ]);
 const savePdfDataChunksLocalArgs = s.trustedDirect<TDocumentMethodArgs<'savePdfDataChunks'>>(() => [
-    '/tmp/working.pdf',
+    parseDocumentRef('/tmp/working.pdf') ?? fail('invalid fixture document reference'),
     1,
     [Uint8Array.of(1)] satisfies TDocumentChunkSource,
     fixtureRevisionOptions,
@@ -758,13 +770,13 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 'cloneStagedPdfNativeMutationToWorkingCopy',
                 'file:cloneStagedPdfNativeMutationToWorkingCopy',
                 cloneStagedNativeMutationArgs,
-                stringResult,
+                documentRefResult,
                 'cloneStagedPdfNativeMutationToWorkingCopy',
                 'sender',
             ),
             ipc: {
                 args: cloneStagedNativeMutationArgs,
-                result: stringResult,
+                result: documentRefResult,
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,
@@ -885,7 +897,7 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
             'pdf:print:native-dialog-opened',
             s.fromParser(
                 decodePdfNativePrintDialogOpenedEvent,
-                () => ({requestId: 'print-request'}),
+                () => ({requestId: parseRequestId('print-request') ?? fail('invalid fixture request ID')}),
             ),
         ),
         ...electronImplementedOptional,
@@ -908,10 +920,10 @@ export const DOCUMENT_RECENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             'get', 'recentFiles:get', noArgs, recentFilesResult, 'getRecentFiles', 'sender',
         ),
         remove: defineIpcMethod(
-            'remove', 'recentFiles:remove', s.tuple([stringResult]), voidResult, 'removeRecentFile', 'none',
+            'remove', 'recentFiles:remove', s.tuple([documentRefResult]), voidResult, 'removeRecentFile', 'none',
         ),
         removeIfMissing: defineIpcMethod(
-            'removeIfMissing', 'recentFiles:removeIfMissing', s.tuple([stringResult]),
+            'removeIfMissing', 'recentFiles:removeIfMissing', s.tuple([documentRefResult]),
             s.boolean(), 'removeRecentFileIfMissing', 'none',
         ),
         clear: defineIpcMethod(
@@ -930,12 +942,12 @@ export const DOCUMENT_WINDOW_PLATFORM_FEATURE = definePlatformFeature({
             voidResult, 'setWindowTitle', 'sender',
         ),
         showItemInFolder: defineIpcMethod(
-            'showItemInFolder', 'shell:showItemInFolder', s.tuple([stringResult]),
+            'showItemInFolder', 'shell:showItemInFolder', s.tuple([documentRefResult]),
             s.boolean(), 'showItemInFolder', 'sender',
         ),
         showItemInFolderStructured: {
             ...defineLocalMethod(
-                'showItemInFolderStructured', 'async', s.tuple([stringResult]), showItemResult,
+                'showItemInFolderStructured', 'async', s.tuple([documentRefResult]), showItemResult,
             ),
             ...browserImplementedOptional,
         },
@@ -996,8 +1008,8 @@ export const DOCUMENT_MENU_PLATFORM_FEATURE = definePlatformFeature({
         onMenuRotateCw: defineEvent('onMenuRotateCw', 'menu:rotateCw', noPayload),
         onMenuRotateCcw: defineEvent('onMenuRotateCcw', 'menu:rotateCcw', noPayload),
         onMenuInsertPages: defineEvent('onMenuInsertPages', 'menu:insertPages', noPayload),
-        onMenuOpenRecentFile: defineEvent('onMenuOpenRecentFile', 'menu:openRecentFile', stringResult),
-        onMenuOpenExternalPaths: defineEvent('onMenuOpenExternalPaths', 'menu:openExternalPaths', stringArrayResult),
+        onMenuOpenRecentFile: defineEvent('onMenuOpenRecentFile', 'menu:openRecentFile', documentRefResult),
+        onMenuOpenExternalPaths: defineEvent('onMenuOpenExternalPaths', 'menu:openExternalPaths', documentRefArrayResult),
         onMenuClearRecentFiles: defineEvent('onMenuClearRecentFiles', 'menu:clearRecentFiles', noPayload),
     },
 });

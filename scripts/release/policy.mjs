@@ -10,6 +10,11 @@ const SUPPLEMENTAL_RELEASE_ASSET_PATTERNS = [
     /^EVB-Viewer-.+-win-arm64-provenance\.json$/u,
 ];
 
+/** @typedef {{arch: string, expectsUpdaterMetadata: boolean, isPrimaryHostTarget: boolean, platform: 'mac' | 'linux' | 'win'}} IReleaseTarget */
+/** @typedef {{args: string[], command: string}} IGateCommand */
+/** @typedef {(metadataFileName: string) => string} TReadMetadata */
+
+/** @param {string} version @returns {string[]} */
 export function getSupplementalReleaseAssetNames(version) {
     return [
         `EVB-Viewer-${version}-x64.zip`,
@@ -18,6 +23,7 @@ export function getSupplementalReleaseAssetNames(version) {
     ];
 }
 
+/** @param {string} fileName @param {string | undefined} version @returns {boolean} */
 export function isSupplementalReleaseAsset(fileName, version) {
     if (version !== undefined) {
         if (typeof version !== 'string' || version.trim() === '') {
@@ -188,6 +194,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'tsconfig.base.json',
                 'tsconfig.json',
                 'tsconfig.scripts.json',
+                'tsconfig.scripts-js.json',
                 'tsconfig.workspace-paths.json',
             ],
         },
@@ -292,6 +299,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'scripts/bundle-*.sh',
                 'scripts/build-*.mjs',
                 'scripts/build-*.sh',
+                'scripts/build-warning-allowlist.json',
                 'scripts/cargo-artifacts.mjs',
                 'scripts/check-build-*.mjs',
                 'scripts/check-drizzle-schema.mjs',
@@ -475,6 +483,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
     schemaVersion: 2,
 });
 
+/** @param {IGateCommand} gate @returns {IGateCommand} */
 function cloneGateCommand(gate) {
     return {
         args: [...gate.args],
@@ -556,6 +565,7 @@ export function getLocalReleaseVerifyGateCommands() {
     return GATE_POLICY_MANIFEST.release.localVerify.gates.map(cloneGateCommand);
 }
 
+/** @param {IReleaseTarget} target @param {NodeJS.ProcessEnv} [env] @returns {boolean} */
 export function expectsUpdaterMetadata(target, env = process.env) {
     if (!target.expectsUpdaterMetadata) {
         return false;
@@ -571,6 +581,7 @@ export function expectsUpdaterMetadata(target, env = process.env) {
     return true;
 }
 
+/** @param {NodeJS.Platform} [nodePlatform] @returns {'mac' | 'linux' | 'win'} */
 export function detectHostReleasePlatform(nodePlatform = process.platform) {
     switch (nodePlatform) {
         case 'darwin':
@@ -584,6 +595,7 @@ export function detectHostReleasePlatform(nodePlatform = process.platform) {
     }
 }
 
+/** @param {{platform?: NodeJS.Platform, arch?: string}} [options] @returns {IReleaseTarget[]} */
 export function getLocalReleaseTargets(options = {}) {
     const platform = detectHostReleasePlatform(options.platform ?? process.platform);
     const arch = options.arch ?? process.arch;
@@ -608,6 +620,7 @@ export function getLocalReleaseTargets(options = {}) {
     }));
 }
 
+/** @param {IReleaseTarget} target @param {NodeJS.ProcessEnv} [env] @returns {RegExp[]} */
 export function getRequiredArtifactPatterns(target, env = process.env) {
     switch (target.platform) {
         case 'mac':
@@ -635,6 +648,7 @@ export function getRequiredArtifactPatterns(target, env = process.env) {
     }
 }
 
+/** @param {IReleaseTarget} target @param {NodeJS.ProcessEnv} [env] @returns {boolean} */
 export function shouldVerifyPackagedStartup(target, env = process.env) {
     return target.platform === 'mac' && hasDeveloperIdSigningCredentials(env);
 }
@@ -659,6 +673,7 @@ export function hasWindowsPublishUpdaterMetadataPolicy(env = process.env) {
     return hasWindowsSigningCredentials(env);
 }
 
+/** @param {Iterable<string>} artifactNames @param {NodeJS.ProcessEnv} [env] */
 export function assertPublishUpdaterMetadataPolicy(artifactNames, env = process.env) {
     const files = [...artifactNames];
     const hasMacPolicy = hasMacPublishUpdaterMetadataPolicy(env);
@@ -690,10 +705,12 @@ export function assertPublishUpdaterMetadataPolicy(artifactNames, env = process.
     }
 }
 
+/** @param {Iterable<string>} artifactNames @returns {string[]} */
 export function getUpdaterMetadataFileNames(artifactNames) {
     return [...artifactNames].filter(fileName => /^latest.*\.yml$/u.test(fileName));
 }
 
+/** @param {string} metadataFileName @param {string} metadataText @returns {string} */
 export function parseUpdaterMetadataVersion(metadataFileName, metadataText) {
     const versionLine = metadataText
         .split(/\r?\n/u)
@@ -705,9 +722,14 @@ export function parseUpdaterMetadataVersion(metadataFileName, metadataText) {
     if (!match) {
         throw new Error(`Unsupported version entry in ${metadataFileName}: ${versionLine}`);
     }
-    return match[1] ?? match[2] ?? match[3];
+    const version = match[1] ?? match[2] ?? match[3];
+    if (version === undefined) {
+        throw new Error(`Missing version value in ${metadataFileName}`);
+    }
+    return version;
 }
 
+/** @param {Iterable<string>} artifactNames @param {TReadMetadata} readMetadataText @param {string} expectedVersion */
 export function assertUpdaterMetadataVersion(artifactNames, readMetadataText, expectedVersion) {
     for (const metadataFileName of getUpdaterMetadataFileNames(artifactNames)) {
         const actualVersion = parseUpdaterMetadataVersion(metadataFileName, readMetadataText(metadataFileName));
@@ -719,6 +741,7 @@ export function assertUpdaterMetadataVersion(artifactNames, readMetadataText, ex
     }
 }
 
+/** @param {string} metadataFileName @param {string} artifactPath @returns {string} */
 function assertSafeArtifactReference(metadataFileName, artifactPath) {
     if (
         artifactPath.startsWith('/')
@@ -731,6 +754,7 @@ function assertSafeArtifactReference(metadataFileName, artifactPath) {
     return artifactPath;
 }
 
+/** @param {string} metadataFileName @param {string} metadataText @returns {string} */
 export function parseUpdaterMetadataPath(metadataFileName, metadataText) {
     const pathLine = metadataText
         .split(/\r?\n/u)
@@ -745,9 +769,14 @@ export function parseUpdaterMetadataPath(metadataFileName, metadataText) {
         throw new Error(`Unsupported path entry in ${metadataFileName}: ${pathLine}`);
     }
 
-    return assertSafeArtifactReference(metadataFileName, match[1] ?? match[2] ?? match[3]);
+    const artifactPath = match[1] ?? match[2] ?? match[3];
+    if (artifactPath === undefined) {
+        throw new Error(`Missing path value in ${metadataFileName}`);
+    }
+    return assertSafeArtifactReference(metadataFileName, artifactPath);
 }
 
+/** @param {string} metadataFileName @param {string} metadataText @returns {string[]} */
 export function parseUpdaterMetadataFileUrls(metadataFileName, metadataText) {
     const urls = [];
 
@@ -756,12 +785,16 @@ export function parseUpdaterMetadataFileUrls(metadataFileName, metadataText) {
         if (!match) {
             continue;
         }
-        urls.push(assertSafeArtifactReference(metadataFileName, match[1] ?? match[2] ?? match[3]));
+        const artifactPath = match[1] ?? match[2] ?? match[3];
+        if (artifactPath !== undefined) {
+            urls.push(assertSafeArtifactReference(metadataFileName, artifactPath));
+        }
     }
 
     return urls;
 }
 
+/** @param {Iterable<string>} artifactNames @param {TReadMetadata} readMetadataText @returns {boolean} */
 export function assertPublishUpdaterMetadataReferences(artifactNames, readMetadataText) {
     const files = [...artifactNames];
     const artifactSet = new Set(files);
@@ -807,10 +840,12 @@ export function createReleaseVerificationEnvs(baseEnv = process.env) {
     };
 }
 
+/** @param {NodeJS.ProcessEnv} [baseEnv] @returns {NodeJS.ProcessEnv} */
 export function getReleaseCiEnv(baseEnv = process.env) {
     return createReleaseVerificationEnvs(baseEnv).releaseCiEnv;
 }
 
+/** @param {NodeJS.ProcessEnv} [baseEnv] @returns {NodeJS.ProcessEnv} */
 export function getReleaseAutomationEnv(baseEnv = process.env) {
     return createReleaseVerificationEnvs(baseEnv).releaseAutomationEnv;
 }

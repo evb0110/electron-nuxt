@@ -9,6 +9,7 @@ import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 import { DEFAULT_DOCUMENT_SEARCH_OPTIONS } from '@app/utils/document-viewer/providers/documentSearch';
 import { createDocumentPageSourceSearchBackend } from '@app/utils/document-viewer/search/createDocumentPageSourceSearchBackend';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+import {requireRequestId} from '@contracts/shared';
 
 function asSource(source: Partial<IDocumentPageSource>) {
     return source as IDocumentPageSource;
@@ -18,7 +19,7 @@ describe('createDocumentPageSourceSearchBackend', () => {
     it('prefers the source search provider and maps wire results to document matches', async () => {
         const search = vi.fn(async (request: Parameters<NonNullable<IDocumentPageSource['searchProvider']>['search']>[0]) => {
             request.onProgress?.({
-                requestId: request.requestId,
+                requestId: requireRequestId(request.requestId),
                 processed: 1,
                 total: 3,
             });

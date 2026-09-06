@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import { createPageRenderTimeoutError } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/createPageRenderTimeoutError';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 import {
@@ -26,7 +27,7 @@ function logPageStageDeadlineCallbackFailure(
 ) {
     logPdfRenderTrace('pdf-page-stage-deadline-callback-failed', {
         callback,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         key: options.key,
         pageNumber: options.payload.pageNumber,
         stage: options.payload.stage,

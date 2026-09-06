@@ -1,4 +1,6 @@
-export function resolvePdfViewerPortalTargets(viewerContainer: HTMLElement | null, pageNumbers: readonly number[]) {
+import type { TPageNumber } from '@contracts/pageNumbers';
+
+export function resolvePdfViewerPortalTargets(viewerContainer: HTMLElement | null, pageNumbers: readonly TPageNumber[]) {
     if (!viewerContainer) {
         return new Map<number, HTMLElement>();
     }

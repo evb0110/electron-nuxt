@@ -87,21 +87,23 @@ names and their runtime purpose here, never their values.
 | `evb-viewer-web` project | Keys named `web-browser` and `web-nitro` | Owner verified 2026-09-04 |
 | Browser allowed origins | Canonical production viewer and two viewer Vercel aliases | Owner verified 2026-09-04 |
 | Source-map upload token | One token with `org:ci` only | Owner verified by successful strict upload 2026-09-04 |
+| Source-map verification token | Separate read-only token with `project:read` and event-read access; never used for upload | Owner verified 2026-09-05; GitHub secret and local Keychain entry present, and the EU project API returned HTTP 200 |
 | Desktop runtime secret | `SENTRY_DESKTOP_DSN` in GitHub Actions | Owner verified 2026-09-04 |
 | Browser runtime secret | `SENTRY_BROWSER_DSN` in Vercel Preview and Production | Owner verified by exact production deployment 2026-09-05 |
 | Browser canary secret | `SENTRY_BROWSER_DSN` in GitHub Actions | Owner verified 2026-09-04 |
 | Nitro runtime secret | `SENTRY_NITRO_DSN` in Vercel Preview; runtime remains disabled | Owner verified 2026-09-04 |
 | Release upload settings | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_DESKTOP_PROJECT`, and `SENTRY_WEB_PROJECT` in GitHub Actions | Owner verified 2026-09-04 |
+| Release verification setting | `SENTRY_VERIFICATION_TOKEN` in GitHub Actions and the local private Sentry environment | Owner verified 2026-09-05; the local CLI loads the token from the `evb-viewer-sentry-verification-token` Keychain service |
 
 ## Retention and operations
 
 | Control | Required value | Verification |
 | --- | --- | --- |
 | Platform event retention | Business-plan platform period is 90 days | Documented platform value; no shorter account control found 2026-09-04 |
-| Resolved-issue deletion | Weekly operator procedure | Pending |
-| Quota alerts | Enabled with pay-as-you-go still disabled | Pending |
+| Resolved-issue deletion | Weekly operator procedure | First cycle found zero resolved issues to delete, verified 2026-09-05 |
+| Quota alerts | Personal error-quota notifications at 80 and 100 percent; pay-as-you-go disabled | Owner verified 2026-09-05; the account UI offers only `100% and 80%` or `100%` |
 | Source-map access review | Debug-file access Owner; source fetching disabled after upload | Owner verified 2026-09-04 |
-| Removal procedure | Tested without sending a production event | Partial macOS arm64 rehearsal verified 2026-09-04; omitted packaged behaviors remain recorded in the runbook |
+| Removal procedure | Tested without sending a production event | Full macOS arm64 source-and-package removal rehearsal verified 2026-09-05; the runbook records the separate pre-existing renderer-settle test failure reproduced on the untouched baseline |
 
 Sentry derived a user geography from ingress metadata on the first closed test
 events even though IP storage was prevented and no user or request field was
@@ -118,9 +120,11 @@ removal rehearsal are in `sentry-runbook.md`.
 Release `v0.1.452` is the first production viewer release with consent-gated
 client diagnostics. The exact prebuilt output is deployed at the canonical
 viewer alias. Its public JavaScript matches the private manifest and contains
-no source maps. Sentry accepted all 256 mapped production canaries for the web
-release and resolved the sampled browser and Nitro-build frames to their EVB
-source files. Nitro runtime reporting remains disabled.
+no source maps. The live Sentry feed contains 256 unresolved deterministic
+source-map canary issues for this release. A sampled issue reported
+`missing_source_content`, so the previous upload-only acceptance claim is
+retracted. A new exact release must pass the CLI/API verifier before this
+control can be considered complete. Nitro runtime reporting remains disabled.
 
 The live browser check on 2026-09-05 recorded no Sentry request before consent,
 one event after the user granted the still-live report, no later event after

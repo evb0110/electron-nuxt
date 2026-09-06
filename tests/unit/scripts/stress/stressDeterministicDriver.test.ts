@@ -1,6 +1,9 @@
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type * as TViewerAnnotations from '@tests/e2e/electron/helpers/viewerAnnotations';
+import type * as TViewerCore from '@tests/e2e/electron/helpers/viewerCore';
 import type * as TWorkspaceExpose from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -12,12 +15,30 @@ import {
     runStressDeterministicSteps,
 } from '@scripts/stress/stressDeterministicDriver';
 
-const mocks = vi.hoisted(() => ({ callWorkspaceCommand: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+    callWorkspaceCommand: vi.fn(),
+    createFreeTextAnnotationWithPointer: vi.fn(),
+    getWorkspaceToolbarSnapshot: vi.fn(),
+    scrollViewerToPage: vi.fn(),
+}));
 vi.mock('@tests/e2e/electron/helpers/workspaceExpose', async importOriginal => ({
     ...await importOriginal<typeof TWorkspaceExpose>(),
     callWorkspaceCommand: mocks.callWorkspaceCommand,
+    getWorkspaceToolbarSnapshot: mocks.getWorkspaceToolbarSnapshot,
     waitForWorkspaceToolbarIdle: vi.fn(async () => undefined),
 }));
+vi.mock('@tests/e2e/electron/helpers/viewerAnnotations', async importOriginal => ({
+    ...await importOriginal<typeof TViewerAnnotations>(),
+    createFreeTextAnnotationWithPointer: mocks.createFreeTextAnnotationWithPointer,
+}));
+vi.mock('@tests/e2e/electron/helpers/viewerCore', async importOriginal => ({
+    ...await importOriginal<typeof TViewerCore>(),
+    scrollViewerToPage: mocks.scrollViewerToPage,
+}));
+
+afterEach(() => {
+    vi.clearAllMocks();
+});
 
 describe('stress deterministic driver randomness', () => {
     it('replays the same sequence for the same seed', () => {
@@ -109,5 +130,58 @@ describe('stress deterministic deadline cancellation', () => {
             await new Promise(resolve => setTimeout(resolve, 0));
         }
         expect(mocks.callWorkspaceCommand).toHaveBeenCalledOnce();
+    });
+});
+
+describe('stress deterministic free-text page targeting', () => {
+    it('scrolls each target page before creating its text box', async () => {
+        const calls: string[] = [];
+        const logs: string[] = [];
+        mocks.getWorkspaceToolbarSnapshot.mockResolvedValue({totalPages: 3});
+        mocks.scrollViewerToPage.mockImplementation(async (_page, pageNumber) => {
+            calls.push(`scroll:${pageNumber}`);
+        });
+        mocks.createFreeTextAnnotationWithPointer.mockImplementation(async (_page, _text, _position, pageNumber) => {
+            calls.push(`create:${pageNumber}`);
+        });
+        const detach = vi.fn(async () => undefined);
+        const session = Object.assign(Object.create(null) as IElectronE2ESession, {page: {createCDPSession: async () => ({detach})}});
+
+        const records = await runStressDeterministicSteps([{
+            kind: 'freeText',
+            count: 3,
+            text: 'stress',
+        }], {
+            session,
+            fixtures: new Map(),
+            stepTimeoutMs: 1_000,
+            log: line => logs.push(line),
+        });
+
+        expect(records).toMatchObject([{
+            status: 'succeeded',
+            detail: {created: 3},
+        }]);
+        expect(calls).toEqual([
+            'scroll:1',
+            'create:1',
+            'scroll:2',
+            'create:2',
+            'scroll:3',
+            'create:3',
+        ]);
+        expect(logs).toEqual([
+            'step 0 freeText',
+            'freeText 1/3 page 1 scroll',
+            'freeText 1/3 page 1 create',
+            'freeText 1/3 page 1 created',
+            'freeText 2/3 page 2 scroll',
+            'freeText 2/3 page 2 create',
+            'freeText 2/3 page 2 created',
+            'freeText 3/3 page 3 scroll',
+            'freeText 3/3 page 3 create',
+            'freeText 3/3 page 3 created',
+        ]);
+        expect(detach).toHaveBeenCalledOnce();
     });
 });

@@ -486,7 +486,7 @@ export async function promoteStagedFiles(
         }
         const retainedBackups = backupPaths.filter(backupPath => !restoredBackups.has(backupPath));
         if (rollbackFailures.length > 0 || retainedBackups.length > 0) {
-            const primaryMessage = error instanceof Error ? error.message : String(error);
+            const primaryMessage = getErrorMessage(error);
             const backupMessage = retainedBackups.length > 0
                 ? ` Recovery backup(s) retained at: ${retainedBackups.join(', ')}`
                 : '';

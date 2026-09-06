@@ -69,7 +69,7 @@ let localMcpTokenPromise: Promise<string> | null = null;
 let localMcpTokenEnvOwned = false;
 let localMcpStartPromise: Promise<void> | null = null;
 let localMcpStopPromise: Promise<void> | null = null;
-let localMcpDesiredRunning = false;
+let localMcpDesiredRunning = false as boolean;
 let localMcpGeneration = 0;
 let embeddedMcpServer: Server | null = null;
 const activeMcpRequestsByServer = new WeakMap<Server, Map<AbortController, IAssistantSessionScopeBinding | null>>();
@@ -78,8 +78,24 @@ let embeddedMcpServerDescriptor: ILocalMcpServerDescriptor | null = null;
 let embeddedMcpToken: string | null = null;
 let embeddedMcpStartPromise: Promise<IEmbeddedMcpServerHandle> | null = null;
 let embeddedMcpStopPromise: Promise<void> | null = null;
-let embeddedMcpDesiredRunning = false;
+let embeddedMcpDesiredRunning = false as boolean;
 let embeddedMcpGeneration = 0;
+
+function isLocalMcpStartCurrent(generation: number) {
+    return localMcpDesiredRunning && localMcpGeneration === generation;
+}
+
+function isLocalMcpStopCurrent(generation: number) {
+    return !localMcpDesiredRunning && localMcpGeneration === generation;
+}
+
+function isEmbeddedMcpStartCurrent(generation: number) {
+    return embeddedMcpDesiredRunning && embeddedMcpGeneration === generation;
+}
+
+function isEmbeddedMcpStopCurrent(generation: number) {
+    return !embeddedMcpDesiredRunning && embeddedMcpGeneration === generation;
+}
 
 function getDefaultAgentWindow() {
     const focusedWindow = BrowserWindow.getFocusedWindow();
@@ -225,9 +241,9 @@ function createCodexSetupSnippet(
         '--env',
         shellQuote(`${LOCAL_MCP_PROXY_ENV.runAsNode}=1`),
         '--env',
-        shellQuote(`${LOCAL_MCP_PROXY_ENV.url}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.url]}`),
+        shellQuote(`${LOCAL_MCP_PROXY_ENV.url}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.url] ?? '<missing>'}`),
         '--env',
-        shellQuote(`${LOCAL_MCP_PROXY_ENV.token}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.token]}`),
+        shellQuote(`${LOCAL_MCP_PROXY_ENV.token}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.token] ?? '<missing>'}`),
         '--',
         shellQuote(launchConfig.command),
         ...launchConfig.args.map(shellQuote),
@@ -248,9 +264,9 @@ function createClaudeSetupSnippet(
         '-e',
         shellQuote(`${LOCAL_MCP_PROXY_ENV.runAsNode}=1`),
         '-e',
-        shellQuote(`${LOCAL_MCP_PROXY_ENV.url}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.url]}`),
+        shellQuote(`${LOCAL_MCP_PROXY_ENV.url}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.url] ?? '<missing>'}`),
         '-e',
-        shellQuote(`${LOCAL_MCP_PROXY_ENV.token}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.token]}`),
+        shellQuote(`${LOCAL_MCP_PROXY_ENV.token}=${launchConfig.env[LOCAL_MCP_PROXY_ENV.token] ?? '<missing>'}`),
         '--',
         shellQuote(launchConfig.command),
         ...launchConfig.args.map(shellQuote),
@@ -469,9 +485,6 @@ function createDefaultMcpRequestOptions(
                     binding,
                     window,
                 } = resolveInternalAssistantWindow(windowId, requestBinding);
-                if (!window) {
-                    throw new Error('No live renderer window is available for document text inspection.');
-                }
                 assertInternalInputTabMatchesBinding(input.tab, binding);
                 return inspectAgentDocumentText(window, input, signal);
             },
@@ -480,9 +493,6 @@ function createDefaultMcpRequestOptions(
                     binding,
                     window,
                 } = resolveInternalAssistantWindow(windowId, requestBinding);
-                if (!window) {
-                    throw new Error('No live renderer window is available for document search.');
-                }
                 assertInternalInputTabMatchesBinding(input.tab, binding);
                 return searchAgentDocument(window, input, signal);
             },
@@ -491,9 +501,6 @@ function createDefaultMcpRequestOptions(
                     binding,
                     window,
                 } = resolveInternalAssistantWindow(windowId, requestBinding);
-                if (!window) {
-                    throw new Error('No live renderer window is available for document page text reading.');
-                }
                 assertInternalInputTabMatchesBinding(input.tab, binding);
                 return readAgentDocumentPages(window, input, signal);
             },
@@ -547,11 +554,11 @@ export function startLocalMcpServer() {
     const precedingStop = localMcpStopPromise;
     const startPromise = (async () => {
         await precedingStop;
-        if (!localMcpDesiredRunning || localMcpGeneration !== generation) {
+        if (!isLocalMcpStartCurrent(generation)) {
             throw createStartupCanceledError('Local');
         }
         const bearerToken = await ensureLocalMcpServerBearerToken();
-        if (!localMcpDesiredRunning || localMcpGeneration !== generation) {
+        if (!isLocalMcpStartCurrent(generation)) {
             throw createStartupCanceledError('Local');
         }
         const port = resolveConfiguredLocalMcpPort();
@@ -640,7 +647,7 @@ export function shutdownLocalMcpServer() {
             ...(pendingStart ? [pendingStart] : []),
             ...(pendingToken ? [pendingToken] : []),
         ]);
-        if (!localMcpDesiredRunning && localMcpGeneration === generation) {
+        if (isLocalMcpStopCurrent(generation)) {
             clearGeneratedLocalMcpTokenEnv();
             localMcpToken = null;
         }
@@ -718,7 +725,7 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
     const precedingStop = embeddedMcpStopPromise;
     const startPromise = (async () => {
         await precedingStop;
-        if (!embeddedMcpDesiredRunning || embeddedMcpGeneration !== generation) {
+        if (!isEmbeddedMcpStartCurrent(generation)) {
             throw createStartupCanceledError('Embedded');
         }
         const token = embeddedMcpToken ?? randomBytes(32).toString('hex');
@@ -838,7 +845,7 @@ export function shutdownEmbeddedMcpServer() {
             closeHttpServer(server),
             ...(pendingStart ? [pendingStart] : []),
         ]);
-        if (!embeddedMcpDesiredRunning && embeddedMcpGeneration === generation) {
+        if (isEmbeddedMcpStopCurrent(generation)) {
             embeddedMcpToken = null;
         }
     })().finally(() => {

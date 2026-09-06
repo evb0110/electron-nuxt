@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {
     readFile,
     unlink,
@@ -137,7 +138,7 @@ function recordLegacyMigrationFailure(
     error: unknown,
 ) {
     diagnostics[kind] += 1;
-    diagnostics.firstCause ??= error instanceof Error ? error.message : String(error);
+    diagnostics.firstCause ??= getErrorMessage(error);
 }
 
 function parseLegacyStorageValue(
@@ -154,7 +155,7 @@ function parseLegacyStorageValue(
         recordLegacyMigrationFailure(
             diagnostics,
             'invalidEnvelopes',
-            new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`),
+            new Error(`${label}: ${getErrorMessage(error)}`),
         );
         return null;
     }

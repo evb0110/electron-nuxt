@@ -21,6 +21,9 @@ import {
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getBrowserWindowRecoveryOwnerId } from '@app/platform/browserWindowTabs';
+import type { TDocumentRef } from '@contracts/documentRef';
+import { createEpochMs } from '@contracts/timestamps';
+import type { TTabId } from '@contracts/windowTabs';
 
 interface IUseBrowserWorkspaceRecoveryOptions {
     enabled: Ref<boolean>;
@@ -112,13 +115,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             // claim CAS decide whether the lease was actually lost.
             BrowserLogger.warn('workspace-recovery', 'Failed to heartbeat browser recovery snapshot', error);
         } finally {
-            if (
-                activeOwnerId === ownerId
-                && generation === expectedGeneration
-                && !fenced
-                && !disposed
-                && options.enabled.value
-            ) {
+            if (activeOwnerId === ownerId && generation === expectedGeneration) {
                 scheduleHeartbeat();
             }
         }
@@ -235,9 +232,9 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             );
             return;
         }
-        const createdRefs: string[] = [];
+        const createdRefs: TDocumentRef[] = [];
         try {
-            const replacements = new Map<string, string>();
+            const replacements = new Map<TTabId, TDocumentRef>();
             const retainedRecoveryTabs = new Map(
                 (previous?.checkpoint.tabs ?? [])
                     .filter(tab => tab.isDirty && tab.workingCopyRef)
@@ -246,9 +243,9 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                         tab,
                     ]),
             );
-            const retainedRefs = new Set<string>();
-            const refreshedTabIds = new Set<string>();
-            const unavailableRecoveryTabIds = new Set<string>();
+            const retainedRefs = new Set<TDocumentRef>();
+            const refreshedTabIds = new Set<TTabId>();
+            const unavailableRecoveryTabIds = new Set<TTabId>();
             let shouldRetry = false;
             for (const tab of allDirtyTabs) {
                 const capturedRevision = capturedTabMutationRevisions.get(tab.tabId) ?? 0;
@@ -349,7 +346,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             });
             const recoveryCheckpoint = {
                 ...checkpoint,
-                capturedAt: Date.now(),
+                capturedAt: createEpochMs(),
                 activeTabId: checkpoint.activeTabId && recoveryTabIds.has(checkpoint.activeTabId)
                     ? checkpoint.activeTabId
                     : (recoveryTabs[0]?.tabId ?? null),

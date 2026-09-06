@@ -33,6 +33,7 @@ import type {
     IOcrSearchablePdfOptions,
     TOcrProgressPhase,
 } from '@contracts/electronApiOcr';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     getOcrConcurrency,
     getSequentialProgressPage,
@@ -102,10 +103,16 @@ import {
     normalizeOcrPageSelection,
 } from '@electron/ocr/worker/ocrPageSelectionStream';
 import {writeOcrIndexes} from '@electron/ocr/worker/writeOcrIndexes';
+import {
+    createRequestId,
+    requireRequestId,
+    type TJobId,
+    type TRequestId,
+} from '@contracts/shared';
 
 const initialWorkerData: unknown = workerData;
 const paths = resolveWorkerPaths(initialWorkerData);
-const activeJobControllers = new Map<string, AbortController>();
+const activeJobControllers = new Map<TJobId, AbortController>();
 const activeSharedCheckpointFingerprints = new Set<string>();
 const OCR_RESOURCE_ACQUIRE_TIMEOUT_MS = (() => {
     const parsed = Number.parseInt(process.env.EVB_OCR_RESOURCE_ACQUIRE_TIMEOUT_MS ?? '30000', 10);
@@ -118,7 +125,7 @@ interface IOcrResourceSlotLease {
     token: string;
     effectiveDpi: number;
 }
-const pendingResourceAcquires = new Map<string, {
+const pendingResourceAcquires = new Map<TRequestId, {
     resolve: (lease: IOcrResourceSlotLease) => void;
     reject: (error: Error) => void;
 }>();
@@ -135,7 +142,7 @@ const log: TWorkerLog = (level, message) => {
 };
 
 function sendProgress(
-    jobId: string,
+    jobId: TJobId,
     currentPage: number,
     processedCount: number,
     totalPages: number,
@@ -148,7 +155,7 @@ function sendProgress(
         type: 'progress',
         jobId,
         progress: {
-            requestId: jobId,
+            requestId: requireRequestId(jobId),
             currentPage,
             processedCount,
             totalPages,
@@ -159,7 +166,7 @@ function sendProgress(
 }
 
 function sendStageProgress(
-    jobId: string,
+    jobId: TJobId,
     selection: TOcrPdfPageSelection,
     phase: TOcrProgressPhase,
 ) {
@@ -181,7 +188,7 @@ function sendStageProgress(
     );
 }
 
-function sendComplete(jobId: string, result: TOcrWorkerCompleteResult) {
+function sendComplete(jobId: TJobId, result: TOcrWorkerCompleteResult) {
     const payload: TOcrWorkerOutboundMessage = {
         type: 'complete',
         jobId,
@@ -190,7 +197,7 @@ function sendComplete(jobId: string, result: TOcrWorkerCompleteResult) {
     parentPort?.postMessage(payload);
 }
 
-function sendCleanupComplete(jobId: string) {
+function sendCleanupComplete(jobId: TJobId) {
     const payload: TOcrWorkerOutboundMessage = {
         type: 'cleanup-complete',
         jobId,
@@ -199,24 +206,24 @@ function sendCleanupComplete(jobId: string) {
 }
 
 async function acquireOcrResourceSlot(
-    jobId: string,
+    jobId: TJobId,
     pageNumber: number,
     requestedDpi: number,
     pageSizeInches: IOcrPageSizeInches | undefined,
     signal: AbortSignal,
 ) {
-    const requestId = randomUUID();
-    const payload: TOcrWorkerOutboundMessage = {
+    const requestId = createRequestId('ocr-resource');
+    const payload: Extract<TOcrWorkerOutboundMessage, {type: 'resource-acquire'}> = {
         type: 'resource-acquire',
         jobId,
         requestId,
         pageNumber,
         requestedDpi,
+        ...(pageSizeInches === undefined ? {} : {
+            pageWidthIn: pageSizeInches.width,
+            pageHeightIn: pageSizeInches.height,
+        }),
     };
-    if (pageSizeInches !== undefined) {
-        payload.pageWidthIn = pageSizeInches.width;
-        payload.pageHeightIn = pageSizeInches.height;
-    }
 
     throwIfAborted(signal);
     const leasePromise = new Promise<IOcrResourceSlotLease>((resolve, reject) => {
@@ -252,7 +259,7 @@ async function acquireOcrResourceSlot(
     }
 }
 
-function releaseOcrResourceSlot(jobId: string, token: string) {
+function releaseOcrResourceSlot(jobId: TJobId, token: string) {
     const payload: TOcrWorkerOutboundMessage = {
         type: 'resource-release',
         jobId,
@@ -282,7 +289,7 @@ async function readPngDimensions(imagePath: string) {
 }
 
 interface IOcrPageProcessingContext {
-    jobId: string;
+    jobId: TJobId;
     sessionId: string;
     popplerSourcePdfPath: string;
     extractionDpi: number;
@@ -376,7 +383,7 @@ async function processOcrPage(
             diagnostics.push({
                 code: 'OCR_SOURCE_DPI_LIMITED',
                 severity: 'info',
-                pageNumber: page.pageNumber,
+                pageNumber: requirePageNumber(page.pageNumber),
                 message: `Used ${effectiveDpi} DPI instead of ${context.extractionDpi} DPI ${reason}`,
             });
         }
@@ -407,7 +414,7 @@ async function processOcrPage(
                 context.signal,
                 diagnostic => diagnostics.push({
                     ...diagnostic,
-                    pageNumber: page.pageNumber,
+                    pageNumber: requirePageNumber(page.pageNumber),
                 }),
                 paths.scanCleanupBinary,
                 preprocessMetadataPath,
@@ -429,7 +436,7 @@ async function processOcrPage(
                     diagnostics.push({
                         code: 'OCR_PREPROCESSING_GEOMETRY_CHANGED',
                         severity: 'warning',
-                        pageNumber: page.pageNumber,
+                        pageNumber: requirePageNumber(page.pageNumber),
                         message: `Preprocessing changed image dimensions from ${rawSize} to ${cleanSize}; used raw render to preserve alignment`,
                     });
                 }
@@ -452,7 +459,7 @@ async function processOcrPage(
         if (!ocrResult.success || !ocrResult.pageData) {
             await context.storageBudget.assertFailureWithinBudget(ocrResult.error);
             return {
-                error: `Page ${page.pageNumber}: ${ocrResult.error}`,
+                error: `Page ${page.pageNumber}: ${ocrResult.error ?? 'Unknown OCR error'}`,
                 checkpointJsonPath,
                 checkpointPdfPath,
             };
@@ -528,7 +535,7 @@ async function processOcrPage(
 }
 
 export async function processOcrPages(
-    jobId: string,
+    jobId: TJobId,
     targetPages: readonly IOcrPdfPageRequest[],
     concurrency: number,
     context: IOcrPageProcessingContext,
@@ -629,7 +636,7 @@ export async function processOcrPages(
 
 export {iterateCheckpointPageResults} from '@electron/ocr/worker/ocrPageSelectionStream';
 
-async function validateSourcePdf(jobId: string, sourcePdfPath: string, pageCount: number) {
+async function validateSourcePdf(jobId: TJobId, sourcePdfPath: string, pageCount: number) {
     const sourceStat = await stat(sourcePdfPath);
     if (sourceStat.size <= 0) {
         throw new Error(`Source PDF is empty: ${sourcePdfPath}`);
@@ -707,7 +714,7 @@ async function buildOcrPageProcessingPlan(
 }
 
 function sendEmptyOcrResultFailure(
-    jobId: string,
+    jobId: TJobId,
     errors: string[],
 ) {
     log('error', `OCR failed to produce searchable output. errors=${errors.join(' | ') || 'none'}`);
@@ -718,7 +725,7 @@ function sendEmptyOcrResultFailure(
 }
 
 async function assembleMergedOcrPdf(
-    jobId: string,
+    jobId: TJobId,
     sourcePdfPath: string,
     ocrPdfEntries: Map<number, string> | AsyncIterable<readonly [number, string]>,
     pageCount: number,
@@ -754,7 +761,7 @@ async function assembleMergedOcrPdf(
 }
 
 async function processOcrJob(
-    jobId: string,
+    jobId: TJobId,
     sourcePdfPath: string,
     documentRevision: IDocumentRevisionInfo,
     pages: TOcrPdfPageSelection,
@@ -902,21 +909,22 @@ async function processOcrJob(
         for (const requestBatch of iterateOcrPageRequestBatches(requestedSelection)) {
             throwIfAborted(abortController.signal);
             let targetPages = requestBatch;
-            if (supersessionPolicy) {
-                const selection = await selectOcrPagesForSupersession({
-                    sourcePdfPath,
-                    documentRevisionToken: documentRevision.token,
-                    pages: requestBatch,
-                    supersessionPolicy,
-                    ...(paths.pdftotextBinary ? {pdftotextBinary: paths.pdftotextBinary} : {}),
-                    qpdfBinary: paths.qpdfBinary,
-                    log,
-                    signal: abortController.signal,
-                });
-                appendMessages(jobWarnings, selection.warnings);
-                appendDiagnostics(selection.diagnostics);
-                targetPages = selection.pages;
-            }
+            const selection = await selectOcrPagesForSupersession({
+                sourcePdfPath,
+                documentRevisionToken: documentRevision.token,
+                pages: requestBatch,
+                supersessionPolicy,
+                ...(paths.pdftotextBinary ? {pdftotextBinary: paths.pdftotextBinary} : {}),
+                qpdfBinary: paths.qpdfBinary,
+                log,
+                signal: abortController.signal,
+            });
+            appendMessages(jobWarnings, selection.warnings);
+            appendDiagnostics(selection.diagnostics);
+            targetPages = selection.pages.map(page => ({
+                ...page,
+                pageNumber: requirePageNumber(page.pageNumber),
+            }));
 
             if (targetPages.length === 0) {
                 processedPageCount += requestBatch.length;

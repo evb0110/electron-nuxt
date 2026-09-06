@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     spawn,
     spawnSync,
@@ -256,7 +257,7 @@ const isDirectRun = process.argv[1]
 
 if (isDirectRun) {
     main().catch(error => {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getErrorMessage(error));
         process.exitCode = 1;
     });
 }

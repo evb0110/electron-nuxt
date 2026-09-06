@@ -36,6 +36,8 @@ import type {
 const mocks = vi.hoisted(() => ({
     ensureStressFixtures: vi.fn(),
     startStressSession: vi.fn(),
+    startE2ESharedRenderer: vi.fn(),
+    stopRenderer: vi.fn(async () => undefined),
     probeStressCalibration: vi.fn(),
     buildStressCalibrationRecord: vi.fn(),
     startStressMetricsSampler: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock('@scripts/stress/stressFixtures', async importOriginal => ({
     ensureStressFixtures: mocks.ensureStressFixtures,
 }));
 vi.mock('@scripts/stress/stressSessionLifecycle', () => ({startStressSession: mocks.startStressSession}));
+vi.mock('@scripts/electron-run/electronRunE2ESharedRenderer', () => ({startE2ESharedRenderer: mocks.startE2ESharedRenderer}));
 vi.mock('@scripts/stress/stressCalibration', async importOriginal => ({
     ...await importOriginal<typeof TStressCalibration>(),
     probeStressCalibration: mocks.probeStressCalibration,
@@ -185,6 +188,11 @@ describe('runStress main', () => {
             },
         ])));
         mocks.startStressSession.mockImplementation(async () => createHandle());
+        mocks.startE2ESharedRenderer.mockResolvedValue({
+            sessionName: 'e2e-unit-shared-renderer',
+            port: 43210,
+            stop: mocks.stopRenderer,
+        });
         mocks.probeStressCalibration.mockResolvedValue(calibrationRecord().throttled);
         mocks.buildStressCalibrationRecord.mockReturnValue(calibrationRecord());
         mocks.startStressMetricsSampler.mockResolvedValue({
@@ -483,6 +491,8 @@ describe('runStress main', () => {
         expect(run.verdict).toBe('failed');
         expect(run.scenarios).toEqual([]);
         expect(mocks.runStressDeterministicSteps).not.toHaveBeenCalled();
+        expect(mocks.startE2ESharedRenderer).toHaveBeenCalledOnce();
+        expect(mocks.stopRenderer).toHaveBeenCalledOnce();
     });
 
     it('exits 0 after a calibrate-only run and refuses to update the baseline after an infra failure', async () => {

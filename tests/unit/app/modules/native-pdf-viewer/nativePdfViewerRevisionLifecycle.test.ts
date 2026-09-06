@@ -16,6 +16,7 @@ import {
     ref,
 } from 'vue';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IPagePreviewRenderedObjectUrl,
     IPagePreviewSource,
@@ -352,7 +353,7 @@ describe('NativePdfViewer revision lifecycle', () => {
                 height: 800,
             },
             overrides: [{
-                pageNumber: pageCount,
+                pageNumber: requirePageNumber(pageCount),
                 width: 600,
                 height: 900,
             }],

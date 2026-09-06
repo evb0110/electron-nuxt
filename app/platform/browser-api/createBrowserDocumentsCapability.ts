@@ -55,6 +55,7 @@ import {
     normalizeTranslationParams,
 } from '@i18n-core';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
+import type { TDocumentRef } from '@contracts/documentRef';
 
 interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void | Promise<void>;}
 
@@ -148,12 +149,12 @@ export function createBrowserDocumentsCapability(
         openDocumentDialog: fileCapability.openDocumentDialog,
         openCombineDialog: fileCapability.openCombineDialog,
         openFolderDialog: fileCapability.openFolderDialog,
-        openFolderDialogStructured: fileCapability.openFolderDialogStructured!,
+        openFolderDialogStructured: fileCapability.openFolderDialogStructured,
         openImageDialog: fileCapability.openImageDialog,
         getPathForFile: fileCapability.getPathForFile,
         getPathsForFiles: fileCapability.getPathsForFiles,
         registerFilesForOpen: fileCapability.registerFilesForOpen,
-        createCombinedPdfFromFiles: fileCapability.createCombinedPdfFromFiles!,
+        createCombinedPdfFromFiles: fileCapability.createCombinedPdfFromFiles,
     } satisfies IDocumentsPickerCapability
         & TFeatureBrowserBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
     const documentOpen = {
@@ -222,7 +223,7 @@ export function createBrowserDocumentsCapability(
     } satisfies IDocumentsPdfCapability;
     const recentFiles = {
         get: fileCapability.recentFiles.get,
-        remove: async (path: string) => {
+        remove: async (path: TDocumentRef) => {
             await fileCapability.recentFiles.remove(path);
             return undefined;
         },
@@ -240,7 +241,7 @@ export function createBrowserDocumentsCapability(
             return undefined;
         },
         showItemInFolder: fileCapability.showItemInFolder,
-        showItemInFolderStructured: fileCapability.showItemInFolderStructured!,
+        showItemInFolderStructured: fileCapability.showItemInFolderStructured,
     } satisfies IDocumentsWindowCapability
         & TFeatureBrowserBindings<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
     const documentMenu = {...browserDocumentsMenuCapability} satisfies IDocumentsMenuCapability

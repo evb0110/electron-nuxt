@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type { WebContents } from 'electron';
 import { Worker } from 'worker_threads';
 import { minBy } from 'es-toolkit/array';
@@ -16,6 +15,10 @@ import {
     toSearchIpcError,
 } from '@electron/features/search/main/searchErrors';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    createRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import {
     isSearchErrorEnvelope,
     type IPdfSearchProgress,
@@ -41,7 +44,6 @@ import {
 } from '@electron/features/search/main/searchResourcePolicy';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
 
-type TSearchMatch = ISearchResponse['results'][number];
 type TSearchJobContext = IMainJobRunContext<IPdfSearchProgress, ISearchResponse, ISearchErrorEnvelope>;
 type TSearchJobHandle = IMainJobHandle<IPdfSearchProgress, ISearchResponse, ISearchErrorEnvelope>;
 
@@ -56,7 +58,7 @@ export interface ISearchSenderContext {
 }
 
 interface IWorkerSearchRequest {
-    requestId: string;
+    requestId: TRequestId;
     pdfPath: string;
     pageCount: number | undefined;
     registry: TSearchJobContext | null;
@@ -71,8 +73,8 @@ interface IWorkerSearchRequest {
 interface ISenderSearchState {
     senderId: number;
     worker: Worker;
-    activeRequestId: string | null;
-    requests: Map<string, IWorkerSearchRequest>;
+    activeRequestId: TRequestId | null;
+    requests: Map<TRequestId, IWorkerSearchRequest>;
     idleCleanupTimer: NodeJS.Timeout | null;
     lastActivityAtMs: number;
     shutdownAcknowledged: boolean;
@@ -80,7 +82,7 @@ interface ISenderSearchState {
 }
 
 interface IWarmupSingleflight {
-    requestId: string;
+    requestId: TRequestId;
     promise: Promise<ISearchResponse>;
 }
 
@@ -89,7 +91,7 @@ interface IDispatchSearchRequestPayload {
     documentRevision: TDocumentRevisionToken;
     query: string;
     pageCount?: number;
-    requestId?: string;
+    requestId?: TRequestId;
     warmup?: boolean;
     matchCase?: boolean;
     wholeWord?: boolean;
@@ -99,7 +101,7 @@ interface IDispatchSearchRequestPayload {
 
 function buildSearchWorkerRequest(
     payload: IDispatchSearchRequestPayload,
-    requestId: string,
+    requestId: TRequestId,
 ): TSearchWorkerInboundMessage {
     return {
         type: 'search',
@@ -178,7 +180,7 @@ function createSearchJobRegistry() {
 }
 
 function createWorkerSettlement(
-    requestId: string,
+    requestId: TRequestId,
     pdfPath: string,
     pageCount: number | undefined,
 ): IWorkerSearchRequest {
@@ -311,7 +313,7 @@ export class SearchWorkerService {
         const operationContext = this.normalizeOperationContext(context);
         const requestId = payload.requestId && payload.requestId.length > 0
             ? payload.requestId
-            : `${payload.requestIdPrefix}-${randomUUID()}`;
+            : createRequestId(payload.requestIdPrefix);
         const documentBuildKey = getSearchDocumentBuildKey(payload.resolvedPdfPath, payload.documentRevision);
         if (payload.warmup) {
             const existingWarmup = this.warmupSingleflightsByDocument.get(documentBuildKey);
@@ -390,7 +392,7 @@ export class SearchWorkerService {
         return requestPromise;
     }
 
-    cancel(context: ISearchOperationContext, requestId?: string) {
+    cancel(context: ISearchOperationContext, requestId?: TRequestId) {
         const state = this.senderSearchStates.get(context.senderId);
         const targetRequestId = requestId ?? state?.activeRequestId;
         if (!targetRequestId) {
@@ -603,7 +605,7 @@ export class SearchWorkerService {
 
     private settleWorkerRequest(
         state: ISenderSearchState,
-        requestId: string,
+        requestId: TRequestId,
         settle: (request: IWorkerSearchRequest) => void,
     ) {
         const request = state.requests.get(requestId);
@@ -614,7 +616,7 @@ export class SearchWorkerService {
         settle(request);
     }
 
-    private postCancelMessage(state: ISenderSearchState, requestId: string) {
+    private postCancelMessage(state: ISenderSearchState, requestId: TRequestId) {
         try {
             state.worker.postMessage({
                 type: 'cancel',
@@ -820,28 +822,15 @@ export class SearchWorkerService {
         this.markStateActivity(state);
         switch (message.type) {
             case 'progress': {
-                const progress: {
-                    requestId: string;
-                    processed: number;
-                    total: number;
-                    results?: TSearchMatch[];
-                    resultsStartIndex?: number;
-                    truncated?: boolean;
-                    canceled?: boolean;
-                } = {
+                const progress: IPdfSearchProgress = {
                     requestId: message.requestId,
                     processed: message.processed,
                     total: message.total,
+                    ...(message.results === undefined ? {} : {results: message.results}),
+                    ...(message.resultsStartIndex === undefined ? {} : {resultsStartIndex: message.resultsStartIndex}),
+                    ...(message.truncated === undefined ? {} : {truncated: message.truncated}),
+                    ...(message.canceled === undefined ? {} : {canceled: message.canceled}),
                 };
-                if (message.results !== undefined) {
-                    progress.results = message.results;
-                }
-                if (message.resultsStartIndex !== undefined) {
-                    progress.resultsStartIndex = message.resultsStartIndex;
-                }
-                if (message.truncated !== undefined) {
-                    progress.truncated = message.truncated;
-                }
                 this.publishWorkerProgress(request, progress);
                 return;
             }
@@ -875,7 +864,7 @@ export class SearchWorkerService {
 
     private handleMalformedWorkerMessage(
         state: ISenderSearchState,
-        requestId: string | null,
+        requestId: TRequestId | null,
     ) {
         log.warn(`Search worker sent malformed message for sender ${state.senderId}`);
         if (requestId === null || !state.requests.has(requestId)) {

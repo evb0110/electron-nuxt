@@ -1,4 +1,5 @@
 import { useTimeoutFn } from '@vueuse/core';
+import { createDisposalFlag } from '@app/utils/createDisposalFlag';
 import { getErrorMessage } from '@app/utils/error';
 
 interface IUsePlatformHydratedStateOptions<T> {
@@ -57,9 +58,9 @@ export const usePlatformHydratedState = <T>(
     const isResolved = useState(`${options.key}:is-resolved`, () => options.initialResolved);
     const error = useState<string | null>(`${options.key}:error`, () => null);
     const loadRecord = getLoadRecord(options.key);
-    let isDisposed = false;
+    const lifecycle = createDisposalFlag();
     const retry = useTimeoutFn(() => {
-        if (isDisposed) {
+        if (lifecycle.isDisposed()) {
             return;
         }
         void load();
@@ -71,7 +72,7 @@ export const usePlatformHydratedState = <T>(
 
     function scheduleRetry() {
         if (
-            isDisposed
+            lifecycle.isDisposed()
             || retry.isPending.value
             || typeof options.retryDelayMs !== 'number'
             || options.retryDelayMs <= 0
@@ -126,12 +127,12 @@ export const usePlatformHydratedState = <T>(
     }
 
     async function load() {
-        if (isDisposed) {
+        if (lifecycle.isDisposed()) {
             return null;
         }
 
         const result = await startSharedLoad();
-        if (isDisposed) {
+        if (lifecycle.isDisposed()) {
             return null;
         }
 
@@ -166,7 +167,7 @@ export const usePlatformHydratedState = <T>(
     }
 
     async function retryNow() {
-        if (isDisposed) {
+        if (lifecycle.isDisposed()) {
             return null;
         }
         clearRetryTimer();
@@ -179,7 +180,7 @@ export const usePlatformHydratedState = <T>(
 
     if (getCurrentScope()) {
         onScopeDispose(() => {
-            isDisposed = true;
+            lifecycle.dispose();
             clearRetryTimer();
         });
     }

@@ -25,9 +25,9 @@ const mocks = vi.hoisted(() => {
 class MockProcess extends EventEmitter {
     readonly pid = 12345;
 
-    readonly stdout = new EventEmitter();
+    readonly stdout = Object.assign(new EventEmitter(), {destroy: vi.fn()});
 
-    readonly stderr = new EventEmitter();
+    readonly stderr = Object.assign(new EventEmitter(), {destroy: vi.fn()});
 
     readonly kill = vi.fn();
 }

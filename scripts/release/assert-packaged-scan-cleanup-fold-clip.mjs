@@ -29,9 +29,11 @@ const INK_LEVEL = 20;
 
 // A P6 raster is written rather than committed so the input stays reviewable
 // as source: two inked leaves with a white fold tail on each side of the cut.
+/** @param {string} path */
 function writeSyntheticSpread(path) {
     const pixels = Buffer.alloc(SPREAD_WIDTH_PX * SPREAD_HEIGHT_PX * 3, PAPER_LEVEL);
-    const inkLeaf = (startX, endX) => {
+    /** @param {number} startX @param {number} endX */
+    function inkLeaf(startX, endX) {
         for (let line = 0; line < 4; line += 1) {
             const topY = 12 + line * 24;
             for (let y = topY; y < topY + 8; y += 1) {
@@ -46,7 +48,7 @@ function writeSyntheticSpread(path) {
                 }
             }
         }
-    };
+    }
     inkLeaf(20, 156);
     inkLeaf(244, 380);
     const header = Buffer.from(`P6\n${SPREAD_WIDTH_PX} ${SPREAD_HEIGHT_PX}\n255\n`);
@@ -60,6 +62,7 @@ function writeSyntheticSpread(path) {
 // boxes, and the margins are given, so the smoke measures serialization and not
 // the tuning of the spread heuristics. The margins are what shrink the canvas
 // below the placed leaf, which is the condition the fold-tail clip answers to.
+/** @param {string} workDir @param {string} inputPath */
 function buildManifest(workDir, inputPath) {
     const fullBox = {
         xNormalized: 0,
@@ -118,6 +121,7 @@ function buildManifest(workDir, inputPath) {
     };
 }
 
+/** @param {string} metadataPath @param {string} field */
 function assertPositiveFoldClip(metadataPath, field) {
     const metadata = JSON.parse(readFileSync(metadataPath, 'utf8'));
     const value = metadata[field];
@@ -130,6 +134,7 @@ function assertPositiveFoldClip(metadataPath, field) {
     }
 }
 
+/** @returns {void} */
 function main() {
     const [toolPath] = process.argv.slice(2);
     if (!toolPath) {

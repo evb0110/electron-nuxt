@@ -22,6 +22,9 @@ import {
 import type { ITab } from '@app/types/tabs';
 import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { cast } from '@tests/helpers/cast';
 
 const routingMocks = vi.hoisted(() => ({
@@ -235,7 +238,7 @@ describe('useAppShellWorkspaceRouting', () => {
         routingOptions.getTabById = vi.fn(() => activeTab);
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await expect(routing.openPathInAppropriateTab('/docs/cold.pdf')).resolves.toBe(true);
+        await expect(routing.openPathInAppropriateTab(requireDocumentRef('/docs/cold.pdf'))).resolves.toBe(true);
 
         expect(routingMocks.openDocumentDirect).toHaveBeenCalledWith('/docs/cold.pdf');
         expect(routingMocks.getPdfOpeningGeometry).toHaveBeenCalledWith('/managed/cold.pdf');
@@ -274,7 +277,7 @@ describe('useAppShellWorkspaceRouting', () => {
             routingOptions.getTabById = vi.fn(() => activeTab);
             const routing = useAppShellWorkspaceRouting(routingOptions);
 
-            const opening = routing.openPathInAppropriateTab('/docs/slow-geometry.pdf');
+            const opening = routing.openPathInAppropriateTab(requireDocumentRef('/docs/slow-geometry.pdf'));
             await vi.advanceTimersByTimeAsync(750);
 
             await expect(opening).resolves.toBe(true);
@@ -308,7 +311,7 @@ describe('useAppShellWorkspaceRouting', () => {
         routingOptions.getTabById = vi.fn(() => activeTab);
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        const trace = withPdfRenderTrace(() => routing.openPathInAppropriateTab('/docs/cold.pdf'));
+        const trace = withPdfRenderTrace(() => routing.openPathInAppropriateTab(requireDocumentRef('/docs/cold.pdf')));
         await trace.settled;
 
         const span = readCapabilitySpan(trace.entries(), '/docs/cold.pdf');
@@ -340,7 +343,7 @@ describe('useAppShellWorkspaceRouting', () => {
 
         // A refused preflight still has to close the span it opened. Left open,
         // the next open measures its phases from an origin that never ended.
-        const trace = withPdfRenderTrace(() => routing.openPathInAppropriateTab('/docs/refused.pdf'));
+        const trace = withPdfRenderTrace(() => routing.openPathInAppropriateTab(requireDocumentRef('/docs/refused.pdf')));
         await expect(trace.settled).rejects.toThrow('preflight refused');
 
         const span = readCapabilitySpan(trace.entries(), '/docs/refused.pdf');
@@ -369,7 +372,7 @@ describe('useAppShellWorkspaceRouting', () => {
         routingOptions.getTabById = vi.fn(() => activeTab);
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await expect(routing.openPathInAppropriateTab('/docs/prepared.pdf')).resolves.toBe(true);
+        await expect(routing.openPathInAppropriateTab(requireDocumentRef('/docs/prepared.pdf'))).resolves.toBe(true);
 
         expect(routingMocks.openDocumentDirect).not.toHaveBeenCalled();
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/prepared.pdf');
@@ -405,8 +408,8 @@ describe('useAppShellWorkspaceRouting', () => {
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
         await routing.openPathsInAppropriateTab([
-            '/docs/first.pdf',
-            '/docs/second.pdf',
+            requireDocumentRef('/docs/first.pdf'),
+            requireDocumentRef('/docs/second.pdf'),
         ]);
 
         expect(initialWorkspace.openPath).not.toHaveBeenCalled();
@@ -442,8 +445,8 @@ describe('useAppShellWorkspaceRouting', () => {
         }));
 
         await routing.openPathsInAppropriateTab([
-            '/docs/first.pdf',
-            '/docs/second.pdf',
+            requireDocumentRef('/docs/first.pdf'),
+            requireDocumentRef('/docs/second.pdf'),
         ]);
 
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/first.pdf');
@@ -477,7 +480,7 @@ describe('useAppShellWorkspaceRouting', () => {
 
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await routing.openPathInAppropriateTab('/docs/cold-start.pdf');
+        await routing.openPathInAppropriateTab(requireDocumentRef('/docs/cold-start.pdf'));
 
         expect(routingOptions.updateTab).toHaveBeenCalledWith('tab-1', expect.objectContaining({
             fileName: 'cold-start.pdf',
@@ -521,7 +524,7 @@ describe('useAppShellWorkspaceRouting', () => {
 
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await routing.openPathInAppropriateTab('/docs/cold-start.pdf');
+        await routing.openPathInAppropriateTab(requireDocumentRef('/docs/cold-start.pdf'));
 
         expect(routingOptions.createTab).not.toHaveBeenCalled();
         expect(routingOptions.updateTab).toHaveBeenCalledWith('tab-1', expect.objectContaining({
@@ -559,7 +562,7 @@ describe('useAppShellWorkspaceRouting', () => {
             },
         }));
 
-        await routing.openPathInAppropriateTab('/docs/retry-in-new-tab.pdf');
+        await routing.openPathInAppropriateTab(requireDocumentRef('/docs/retry-in-new-tab.pdf'));
 
         expect(initialWorkspace.openPath).toHaveBeenCalledTimes(1);
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/retry-in-new-tab.pdf');
@@ -590,7 +593,7 @@ describe('useAppShellWorkspaceRouting', () => {
         });
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await routing.openPathsInAppropriateTab(['/docs/cold-start.pdf']);
+        await routing.openPathsInAppropriateTab([requireDocumentRef('/docs/cold-start.pdf')]);
 
         expect(routingOptions.createTab).not.toHaveBeenCalled();
         expect(initialWorkspace.openPath).toHaveBeenCalledWith('/docs/cold-start.pdf');
@@ -623,7 +626,7 @@ describe('useAppShellWorkspaceRouting', () => {
             },
         }));
 
-        await routing.openPathsInAppropriateTab(['/docs/replacement.pdf']);
+        await routing.openPathsInAppropriateTab([requireDocumentRef('/docs/replacement.pdf')]);
 
         expect(initialWorkspace.openPath).not.toHaveBeenCalled();
         expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/replacement.pdf');
@@ -656,7 +659,7 @@ describe('useAppShellWorkspaceRouting', () => {
             },
         }));
 
-        await routing.openPathsInAppropriateTab(['/docs/replacement.pdf']);
+        await routing.openPathsInAppropriateTab([requireDocumentRef('/docs/replacement.pdf')]);
 
         expect(initialWorkspace.openPath).not.toHaveBeenCalled();
         expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/replacement.pdf');
@@ -707,7 +710,7 @@ describe('useAppShellWorkspaceRouting', () => {
 
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await routing.openPathInAppropriateTab('/docs/replacement.pdf');
+        await routing.openPathInAppropriateTab(requireDocumentRef('/docs/replacement.pdf'));
 
         expect(initialWorkspace.openPath).not.toHaveBeenCalled();
         expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/replacement.pdf');
@@ -746,8 +749,8 @@ describe('useAppShellWorkspaceRouting', () => {
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
         await routing.openPathsInAppropriateTab([
-            '/docs/first.pdf',
-            '/docs/second.pdf',
+            requireDocumentRef('/docs/first.pdf'),
+            requireDocumentRef('/docs/second.pdf'),
         ]);
 
         expect(createdWorkspaces.get('tab-2')?.openPath).toHaveBeenCalledWith('/docs/first.pdf');
@@ -785,8 +788,8 @@ describe('useAppShellWorkspaceRouting', () => {
         }));
 
         await routing.openPathsInAppropriateTab([
-            '/docs/first.pdf',
-            '/docs/second.pdf',
+            requireDocumentRef('/docs/first.pdf'),
+            requireDocumentRef('/docs/second.pdf'),
         ]);
 
         expect(initialWorkspace.openPath).toHaveBeenCalledTimes(1);
@@ -835,7 +838,7 @@ describe('useAppShellWorkspaceRouting', () => {
         });
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await routing.openPathInAppropriateTab('/docs/launch-opened.pdf');
+        await routing.openPathInAppropriateTab(requireDocumentRef('/docs/launch-opened.pdf'));
 
         expect(routingOptions.createTab).toHaveBeenCalledWith({
             paneId: 'pane-1',
@@ -879,7 +882,7 @@ describe('useAppShellWorkspaceRouting', () => {
         });
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        const opening = routing.openPathInAppropriateTab('/docs/generated.pdf');
+        const opening = routing.openPathInAppropriateTab(requireDocumentRef('/docs/generated.pdf'));
         await vi.waitFor(() => expect(routingOptions.presentationFallbackTabId.value).toBe('tab-1'));
 
         open.resolve(true);
@@ -929,7 +932,7 @@ describe('useAppShellWorkspaceRouting', () => {
         const result = {
             kind: 'djvu' as const,
             workingPath: '' as const,
-            originalPath: '/docs/reference.djvu',
+            originalPath: requireDocumentRef('/docs/reference.djvu'),
         };
 
         const opened = await routing.openResultInAppropriateTab(result);
@@ -972,7 +975,7 @@ describe('useAppShellWorkspaceRouting', () => {
         });
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        const failedPaths = await routing.beginOpenPathsInAppropriateTab(['/docs/startup-failed.pdf']);
+        const failedPaths = await routing.beginOpenPathsInAppropriateTab([requireDocumentRef('/docs/startup-failed.pdf')]);
 
         expect(routingOptions.removeTabFromState).toHaveBeenCalledWith('tab-2');
         expect(failedPaths).toEqual(['/docs/startup-failed.pdf']);
@@ -1016,7 +1019,7 @@ describe('useAppShellWorkspaceRouting', () => {
         ));
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await expect(routing.openPathInAppropriateTab('/docs/opened.pdf')).resolves.toBe(true);
+        await expect(routing.openPathInAppropriateTab(requireDocumentRef('/docs/opened.pdf'))).resolves.toBe(true);
 
         expect(routingOptions.removeTabFromState).not.toHaveBeenCalled();
     });
@@ -1029,16 +1032,16 @@ describe('useAppShellWorkspaceRouting', () => {
         workspaceRefs.value.set('tab-1', initialWorkspace.workspace);
         const result = {
             kind: 'pdf' as const,
-            workingPath: '/managed/generated.pdf',
-            originalPath: '/docs/generated.pdf',
+            workingPath: requireDocumentRef('/managed/generated.pdf'),
+            originalPath: requireDocumentRef('/docs/generated.pdf'),
             openingGeometry: {
-                pageNumber: 1 as const,
+                pageNumber: requirePageNumber(1),
                 pageCount: 17,
                 width: 612,
                 height: 792,
                 rotation: 0 as const,
                 size: 2_000_000,
-                modifiedAt: 1_720_000_000_000,
+                modifiedAt: requireEpochMs(1_720_000_000_000),
             },
         };
 
@@ -1121,7 +1124,7 @@ describe('useAppShellWorkspaceRouting', () => {
         ));
 
         await expect(useAppShellWorkspaceRouting(routingOptions)
-            .openPathInAppropriateTab('/docs/seeded.pdf')).resolves.toBe(false);
+            .openPathInAppropriateTab(requireDocumentRef('/docs/seeded.pdf'))).resolves.toBe(false);
         expect(routingOptions.removeTabFromState).toHaveBeenCalledWith('tab-2');
     });
 
@@ -1148,7 +1151,7 @@ describe('useAppShellWorkspaceRouting', () => {
         });
 
         await expect(useAppShellWorkspaceRouting(routingOptions)
-            .openPathInAppropriateTab('/docs/rejected.pdf')).resolves.toBe(false);
+            .openPathInAppropriateTab(requireDocumentRef('/docs/rejected.pdf'))).resolves.toBe(false);
 
         expect(routingOptions.createTab).toHaveBeenCalledWith(expect.objectContaining({
             activate: true,
@@ -1198,7 +1201,7 @@ describe('useAppShellWorkspaceRouting', () => {
             });
 
             const openPromise = useAppShellWorkspaceRouting(routingOptions)
-                .openPathInAppropriateTab('/docs/fallback-failed.pdf');
+                .openPathInAppropriateTab(requireDocumentRef('/docs/fallback-failed.pdf'));
             await vi.advanceTimersByTimeAsync(1_000);
             await expect(openPromise).resolves.toBe(false);
             expect(routingOptions.updateTab).not.toHaveBeenCalled();
@@ -1221,7 +1224,7 @@ describe('useAppShellWorkspaceRouting', () => {
             const reservedTab: ITab = {
                 ...createTabStub('tab-reserved'),
                 fileName: 'Previous.pdf',
-                originalPath: '/docs/previous.pdf',
+                originalPath: requireDocumentRef('/docs/previous.pdf'),
             };
             const workspace = createWorkspace(false);
             workspace.openPath.mockResolvedValueOnce(false);
@@ -1242,7 +1245,7 @@ describe('useAppShellWorkspaceRouting', () => {
             });
 
             const openPromise = useAppShellWorkspaceRouting(routingOptions)
-                .openPathInReservedTab(reservedTab.id, '/docs/restore-failed.pdf');
+                .openPathInReservedTab(reservedTab.id, requireDocumentRef('/docs/restore-failed.pdf'));
             await vi.advanceTimersByTimeAsync(1_000);
             await expect(openPromise).resolves.toBe(false);
             expect(reservedTab).toEqual(expect.objectContaining({
@@ -1297,7 +1300,7 @@ describe('useAppShellWorkspaceRouting', () => {
             ));
 
             const openPromise = useAppShellWorkspaceRouting(routingOptions)
-                .openPathInAppropriateTab('/docs/large.pdf');
+                .openPathInAppropriateTab(requireDocumentRef('/docs/large.pdf'));
             await vi.advanceTimersByTimeAsync(100);
             documentAccepted = true;
             await vi.advanceTimersByTimeAsync(100);
@@ -1343,7 +1346,7 @@ describe('useAppShellWorkspaceRouting', () => {
             }));
 
             const openPromise = useAppShellWorkspaceRouting(routingOptions)
-                .openPathInReservedTab(reservedTab.id, '/docs/new.pdf');
+                .openPathInReservedTab(reservedTab.id, requireDocumentRef('/docs/new.pdf'));
             await vi.advanceTimersByTimeAsync(1_000);
 
             await expect(openPromise).resolves.toBe(false);
@@ -1393,7 +1396,7 @@ describe('useAppShellWorkspaceRouting', () => {
             ));
 
             const openPromise = useAppShellWorkspaceRouting(routingOptions)
-                .openPathInReservedTab(reservedTab.id, '/docs/restored.pdf');
+                .openPathInReservedTab(reservedTab.id, requireDocumentRef('/docs/restored.pdf'));
             await vi.advanceTimersByTimeAsync(100);
             visuallySettled = true;
             await vi.advanceTimersByTimeAsync(100);
@@ -1446,7 +1449,7 @@ describe('useAppShellWorkspaceRouting', () => {
         ));
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await expect(routing.beginOpenPathsInAppropriateTab(['/docs/startup.pdf'])).resolves.toEqual([]);
+        await expect(routing.beginOpenPathsInAppropriateTab([requireDocumentRef('/docs/startup.pdf')])).resolves.toEqual([]);
 
         expect(routingOptions.removeTabFromState).not.toHaveBeenCalled();
     });
@@ -1473,7 +1476,7 @@ describe('useAppShellWorkspaceRouting', () => {
 
         let beginSettled = false;
         const beginPromise = routing
-            .beginOpenPathsInAppropriateTab(['/docs/startup.pdf'])
+            .beginOpenPathsInAppropriateTab([requireDocumentRef('/docs/startup.pdf')])
             .then(() => {
                 beginSettled = true;
             });
@@ -1508,7 +1511,7 @@ describe('useAppShellWorkspaceRouting', () => {
         ));
         const routing = useAppShellWorkspaceRouting(routingOptions);
 
-        await expect(routing.beginOpenPathsInAppropriateTab(['/docs/unavailable.pdf'])).resolves.toEqual(['/docs/unavailable.pdf']);
+        await expect(routing.beginOpenPathsInAppropriateTab([requireDocumentRef('/docs/unavailable.pdf')])).resolves.toEqual(['/docs/unavailable.pdf']);
 
         expect(routingOptions.updateTab).not.toHaveBeenCalled();
         expect(activeTab.originalPath).toBeNull();
@@ -1543,7 +1546,7 @@ describe('useAppShellWorkspaceRouting', () => {
             });
             const routing = useAppShellWorkspaceRouting(routingOptions);
 
-            const openPromise = routing.beginOpenPathsInAppropriateTab(['/docs/failed-startup.pdf']);
+            const openPromise = routing.beginOpenPathsInAppropriateTab([requireDocumentRef('/docs/failed-startup.pdf')]);
             await Promise.resolve();
 
             expect(activeTab.originalPath).toBeNull();

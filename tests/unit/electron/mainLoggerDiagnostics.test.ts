@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import {parseDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const mocks = vi.hoisted(() => ({
     appended: [] as string[],
@@ -40,7 +41,7 @@ vi.mock('fs/promises', () => ({
 const receipt = {
     eventId: parseDiagnosticEventId('a'.repeat(32))!,
     code: 'UNCLASSIFIED_MAIN_ERROR' as const,
-    occurredAt: 1_757_000_000_000,
+    occurredAt: requireEpochMs(1_757_000_000_000),
     severity: 'error' as const,
 };
 

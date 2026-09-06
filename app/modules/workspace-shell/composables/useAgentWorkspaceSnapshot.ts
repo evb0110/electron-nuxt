@@ -57,7 +57,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     let unsubscribeWorkspaceSnapshotRequest: (() => void) | null = null;
     let unsubscribeCommandRequest: (() => void) | null = null;
     let unsubscribeCommandCancelRequest: (() => void) | null = null;
-    let isDisposed = false;
+    const lifecycle: { isDisposed: boolean } = { isDisposed: false };
     let cachedSnapshotRevision = 0;
     let cachedSnapshotSignature = '';
     let cachedSnapshot: IAgentWorkspaceSnapshot | null = null;
@@ -183,7 +183,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             requestId: request.requestId,
             ...(request.windowId === undefined ? {} : { windowId: request.windowId }),
             ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         };
     }
 
@@ -606,10 +606,10 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
 
     async function waitForAgentCapability() {
         let hasLoggedBridgeWait = false;
-        while (!isDisposed) {
+        while (lifecycle.isDisposed !== true) {
             const shouldWaitForAgentBridge = options.shouldWaitForDesktopBridge() || isElectronUserAgent();
             const bridgeReady = await waitForDesktopPlatformBridge({ shouldWait: shouldWaitForAgentBridge });
-            if (isDisposed) {
+            if (lifecycle.isDisposed.valueOf()) {
                 return null;
             }
             if (!shouldWaitForAgentBridge || bridgeReady) {
@@ -627,17 +627,17 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     }
 
     onMounted(() => {
-        isDisposed = false;
+        lifecycle.isDisposed = false;
         guardAsync(
             (async () => {
                 const agent = await waitForAgentCapability();
-                if (isDisposed || !agent) {
+                if (lifecycle.isDisposed === true || !agent) {
                     return;
                 }
                 const unsubscribeSnapshot = agent.onWorkspaceSnapshotRequest(submitSnapshot);
                 const unsubscribeCommand = agent.onCommandRequest(submitCommandResult);
                 const unsubscribeCommandCancel = agent.onCommandCancelRequest(cancelCommandRequest);
-                if (isDisposed) {
+                if (lifecycle.isDisposed.valueOf()) {
                     unsubscribeSnapshot();
                     unsubscribeCommand();
                     unsubscribeCommandCancel();
@@ -656,7 +656,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     });
 
     onUnmounted(() => {
-        isDisposed = true;
+        lifecycle.isDisposed = true;
         for (const abortController of activeCommandAbortControllers.values()) {
             abortController.abort();
         }

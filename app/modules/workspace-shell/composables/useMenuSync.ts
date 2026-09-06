@@ -108,9 +108,6 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         }
         lastSyncedMenuDocumentState = state;
         const setMenuDocumentState = getDocumentMenuCapability().setMenuDocumentState;
-        if (!setMenuDocumentState) {
-            return;
-        }
         guardAsync(setMenuDocumentState(state), {
             category: 'background-diagnostic',
             scope: 'menu-sync',
@@ -126,9 +123,6 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
 
         lastSyncedMenuTabCount = tabCount;
         const setMenuTabCount = getDocumentMenuCapability().setMenuTabCount;
-        if (!setMenuTabCount) {
-            return;
-        }
         guardAsync(setMenuTabCount(tabCount), {
             category: 'background-diagnostic',
             scope: 'menu-sync',

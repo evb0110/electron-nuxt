@@ -5,11 +5,18 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type { TPdfViewMode } from '@contracts/shared';
-import { createRangePageSelection } from '@contracts/pageNumbers';
+import {
+    createRangePageSelection,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
+import { requireEpochMs } from '@contracts/timestamps';
 import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/agentCapabilityTemplates';
 import { validateJsonObjectAgainstSchema } from '@electron/features/agent/mcp/mcpToolDefinitions';
 import type {
@@ -97,10 +104,10 @@ function createDocumentIdentity(
     return {
         version: 1,
         token: requireDocumentRevisionToken(token),
-        documentRef: '/tmp/document.pdf',
+        documentRef: requireDocumentRef('/tmp/document.pdf'),
         authority: 'browser-document-store',
         contentRevision,
-        mintedAt: contentRevision,
+        mintedAt: requireEpochMs(contentRevision),
     };
 }
 
@@ -600,7 +607,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('adds child bookmarks on the parent page when pageYRatio anchors distinguish them', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
             ...createBookmark('Lesson 5'),
-            pageIndex: 9,
+            pageIndex: requirePageIndex(9),
         }]);
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
@@ -647,7 +654,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('refuses newly unsafe child bookmarks that all reuse the parent destination', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
             ...createBookmark('Lesson 5'),
-            pageIndex: 9,
+            pageIndex: requirePageIndex(9),
         }]);
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
@@ -1104,8 +1111,8 @@ describe('useDocumentWorkspaceAgent', () => {
         const agent = useDocumentWorkspaceAgent(createAgentOptions({
             canSave: ref(false),
             handleSave,
-            workingCopyPath: ref('/tmp/working.pdf'),
-            originalPath: ref('/tmp/original.pdf'),
+            workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
+            originalPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/original.pdf')),
         }));
 
         await expect(agent.runAgentAction('file.save')).resolves.toMatchObject({
@@ -1143,8 +1150,8 @@ describe('useDocumentWorkspaceAgent', () => {
         const agent = useDocumentWorkspaceAgent(createAgentOptions({
             handleRepairSave,
             handleOptimizePdfForInteraction,
-            workingCopyPath: ref('/tmp/working.pdf'),
-            originalPath: ref('/tmp/original.pdf'),
+            workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
+            originalPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/original.pdf')),
         }));
 
         await expect(agent.runAgentAction('file.repair_save')).resolves.toMatchObject({

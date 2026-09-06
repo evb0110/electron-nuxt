@@ -1,4 +1,7 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
+import type {TDocumentRef} from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type {
     ExpectedOutcome,
     FailureReceipt,
@@ -8,7 +11,13 @@ import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import type {
     TPdfViewMode,
     TPrintOrientation,
+    TJobId,
+    TRequestId,
 } from '@contracts/shared';
+import {
+    parseEpochMs,
+    type TEpochMs,
+} from '@contracts/timestamps';
 import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
@@ -28,15 +37,15 @@ import {
 export type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
 
 export interface IDjvuProgress {
-    jobId: string;
-    requestId?: string;
-    documentRef?: TDocumentRef;
-    phase: 'converting' | 'bookmarks' | 'optimizing' | 'loading' | 'printing';
-    status?: 'running' | 'success' | 'canceled' | 'failed';
-    current?: number;
-    total?: number;
-    percent: number;
-    error?: string;
+    readonly jobId: TJobId;
+    readonly requestId?: TRequestId;
+    readonly documentRef?: TDocumentRef;
+    readonly phase: 'converting' | 'bookmarks' | 'optimizing' | 'loading' | 'printing';
+    readonly status?: 'running' | 'success' | 'canceled' | 'failed';
+    readonly current?: number;
+    readonly total?: number;
+    readonly percent: number;
+    readonly error?: string;
 }
 
 export const DJVU_DOCUMENT_OUTPUT_OPERATIONS = [
@@ -55,75 +64,77 @@ export type TDocumentOutputOperation = TDjvuDocumentOutputOperation;
 
 export type TDocumentOutputJobState =
     | {
-        jobId: string;
-        operation: TDocumentOutputOperation;
-        status: 'queued' | 'running';
-        progress: IDjvuProgress;
-        updatedAtMs: number;
+        readonly jobId: TJobId;
+        readonly operation: TDocumentOutputOperation;
+        readonly status: 'queued' | 'running';
+        readonly progress: IDjvuProgress;
+        readonly updatedAtMs: TEpochMs;
     }
     | {
-        jobId: string;
-        operation: TDocumentOutputOperation;
-        status: 'handoff';
-        artifactPath: TDocumentRef;
-        progress: IDjvuProgress;
-        updatedAtMs: number;
+        readonly jobId: TJobId;
+        readonly operation: TDocumentOutputOperation;
+        readonly status: 'handoff';
+        readonly artifactPath: TDocumentRef;
+        readonly progress: IDjvuProgress;
+        readonly updatedAtMs: TEpochMs;
     }
     | {
-        jobId: string;
-        operation: TDocumentOutputOperation;
-        status: 'completed';
-        artifactPath?: TDocumentRef;
-        progress: IDjvuProgress;
-        updatedAtMs: number;
+        readonly jobId: TJobId;
+        readonly operation: TDocumentOutputOperation;
+        readonly status: 'completed';
+        readonly artifactPath?: TDocumentRef;
+        readonly progress: IDjvuProgress;
+        readonly updatedAtMs: TEpochMs;
     }
     | {
-        jobId: string;
-        operation: TDocumentOutputOperation;
-        status: 'canceled' | 'failed';
-        error?: string;
-        failure?: FailureReceipt;
-        expected?: ExpectedOutcome;
-        progress: IDjvuProgress;
-        updatedAtMs: number;
+        readonly jobId: TJobId;
+        readonly operation: TDocumentOutputOperation;
+        readonly status: 'canceled' | 'failed';
+        readonly error?: string;
+        readonly failure?: FailureReceipt;
+        readonly expected?: ExpectedOutcome;
+        readonly progress: IDjvuProgress;
+        readonly updatedAtMs: TEpochMs;
     };
 
 export interface IDjvuInfo {
-    pageCount: number;
-    sourceDpi: number;
-    hasBookmarks: boolean;
-    hasText: boolean;
-    metadata: Record<string, string>;
+    readonly pageCount: number;
+    readonly sourceDpi: number;
+    readonly hasBookmarks: boolean;
+    readonly hasText: boolean;
+    readonly metadata: Readonly<Record<string, string>>;
 }
 
 export interface IDjvuSizeEstimate {
-    subsample: number;
-    label: string;
-    description: string;
-    resultingDpi: number;
-    estimatedBytes: number;
+    readonly subsample: number;
+    readonly label: string;
+    readonly description: string;
+    readonly resultingDpi: number;
+    readonly estimatedBytes: number;
 }
 
 export interface IDjvuPageSize {
-    width: number;
-    height: number;
-    dpi: number;
+    readonly width: number;
+    readonly height: number;
+    readonly dpi: number;
 }
 
 export interface IDjvuPageSourceInfo {
-    pageCount: number;
-    pageNumber: number;
-    pageSize: IDjvuPageSize;
+    readonly pageCount: number;
+    readonly pageNumber: TPageNumber;
+    readonly pageSize: IDjvuPageSize;
     /** Native source revision used to fence trusted pre-open geometry. */
-    sourceSize?: number;
-    sourceModifiedAt?: number;
+    readonly sourceSize?: number;
+    readonly sourceModifiedAt?: TEpochMs;
 }
 
 export interface IDjvuOutlineItem {
-    title: string;
-    pageNumber: number | null;
-    children: IDjvuOutlineItem[];
+    readonly title: string;
+    readonly pageNumber: TPageNumber | null;
+    readonly children: readonly IDjvuOutlineItem[];
 }
+
+type TMutableDjvuOutlineItem = Omit<IDjvuOutlineItem, 'children'> & {children: TMutableDjvuOutlineItem[];};
 
 export function decodeDjvuPageText(value: unknown) {
     if (typeof value !== 'string') {
@@ -139,12 +150,12 @@ export function decodeDjvuOutline(value: unknown): IDjvuOutlineItem[] {
     if (!Array.isArray(value)) {
         throw new Error('DjVu outline must be an array');
     }
-    const result: IDjvuOutlineItem[] = [];
+    const result: TMutableDjvuOutlineItem[] = [];
     const items = value as unknown[];
     const stack: Array<{
         depth: number;
         item: unknown;
-        target: IDjvuOutlineItem[];
+        target: TMutableDjvuOutlineItem[];
     }> = items.toReversed().map(item => ({
         depth: 1,
         item,
@@ -152,8 +163,7 @@ export function decodeDjvuOutline(value: unknown): IDjvuOutlineItem[] {
     }));
     let nodeCount = 0;
     let titleChars = 0;
-    while (stack.length > 0) {
-        const entry = stack.pop()!;
+    for (let entry = stack.pop(); entry !== undefined; entry = stack.pop()) {
         if (
             !isRecord(entry.item)
             || typeof entry.item.title !== 'string'
@@ -177,9 +187,11 @@ export function decodeDjvuOutline(value: unknown): IDjvuOutlineItem[] {
         ) {
             throw new Error('DjVu outline exceeds the supported limit');
         }
-        const mapped: IDjvuOutlineItem = {
+        const mapped: TMutableDjvuOutlineItem = {
             title: entry.item.title,
-            pageNumber: entry.item.pageNumber === null ? null : Number(entry.item.pageNumber),
+            pageNumber: entry.item.pageNumber === null
+                ? null
+                : requirePageNumber(Number(entry.item.pageNumber)),
             children: [],
         };
         entry.target.push(mapped);
@@ -229,16 +241,20 @@ export function decodeDjvuPageSourceInfo(value: unknown): IDjvuPageSourceInfo {
     ) {
         throw new Error('invalid DjVu page source info');
     }
+    const sourceModifiedAt = value.sourceModifiedAt === undefined
+        ? undefined
+        : parseEpochMs(value.sourceModifiedAt);
+    if (sourceModifiedAt === null) {
+        throw new Error('invalid DjVu page source info');
+    }
     return {
         pageCount: Number(value.pageCount),
-        pageNumber: Number(value.pageNumber),
+        pageNumber: requirePageNumber(Number(value.pageNumber), Number(value.pageCount)),
         pageSize: decodeDjvuPageSize(value.pageSize),
         ...(Number.isSafeInteger(value.sourceSize) && Number(value.sourceSize) >= 0
             ? {sourceSize: Number(value.sourceSize)}
             : {}),
-        ...(Number.isSafeInteger(value.sourceModifiedAt) && Number(value.sourceModifiedAt) >= 0
-            ? {sourceModifiedAt: Number(value.sourceModifiedAt)}
-            : {}),
+        ...(sourceModifiedAt === undefined ? {} : {sourceModifiedAt}),
     };
 }
 
@@ -266,13 +282,13 @@ export function decodeDjvuPagePreview(value: unknown): IDjvuPagePreview {
 
 export interface IDjvuPagePreviewOptions {
     previewPriority?: number;
-    previewRequestId?: string;
+    previewRequestId?: TRequestId;
     subsample?: number;
     targetWidthPx?: number;
 }
 
 export interface IDjvuTextSearchOptions extends ISearchMatchOptions {
-    requestId: string;
+    requestId: TRequestId;
     pageCount: number;
 }
 
@@ -281,52 +297,52 @@ export interface IDjvuTextSearchProgress extends IPdfSearchProgress {}
 export interface IDjvuTextSearchResponse extends IPdfSearchResponse {}
 
 export interface IDjvuConvertOptions {
-    jobId?: string;
+    jobId?: TJobId;
     subsample?: number;
     preserveBookmarks?: boolean;
     pdfStrategy?: TDjvuPdfExportStrategy;
-    requestId?: string;
+    requestId?: TRequestId;
     documentRef?: TDocumentRef;
     hostTier?: THostResourceTier;
 }
 
 export interface IDjvuJobStartHandle {
-    jobId: string;
-    requestId: string;
+    readonly jobId: TJobId;
+    readonly requestId: TRequestId;
 }
 
 export interface IDjvuPrintOptions {
     fileName?: string;
-    pageNumbers?: number[];
+    pageNumbers?: TPageNumber[];
     viewMode: TPdfViewMode;
     orientation: TPrintOrientation;
-    requestId?: string;
+    requestId?: TRequestId;
     subsample?: number;
     pdfStrategy?: TDjvuPdfExportStrategy;
 }
 
 export interface IDjvuOpenResult {
-    success: boolean;
-    pageCount?: number;
-    pageSourceInfo?: IDjvuPageSourceInfo;
-    jobId?: string;
-    error?: string;
+    readonly success: boolean;
+    readonly pageCount?: number;
+    readonly pageSourceInfo?: IDjvuPageSourceInfo;
+    readonly jobId?: TJobId;
+    readonly error?: string;
 }
 
 export interface IDjvuConvertResult {
-    success: boolean;
-    pdfPath?: TDocumentRef;
-    jobId?: string;
-    requestId?: string;
-    documentRef?: TDocumentRef;
-    error?: string;
-    failure?: FailureReceipt;
-    expected?: ExpectedOutcome;
+    readonly success: boolean;
+    readonly pdfPath?: TDocumentRef;
+    readonly jobId?: TJobId;
+    readonly requestId?: TRequestId;
+    readonly documentRef?: TDocumentRef;
+    readonly error?: string;
+    readonly failure?: FailureReceipt;
+    readonly expected?: ExpectedOutcome;
 }
 
 export interface IDjvuPrintResult {
-    success: boolean;
-    canceled?: boolean;
-    jobId?: string;
-    error?: string;
+    readonly success: boolean;
+    readonly canceled?: boolean;
+    readonly jobId?: TJobId;
+    readonly error?: string;
 }

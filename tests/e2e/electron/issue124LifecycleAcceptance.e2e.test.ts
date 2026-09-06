@@ -21,7 +21,16 @@ import {
     onTestFinished,
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type {IWorkingCopyBackingStatus} from '@contracts/electronApiDocuments';
+import type {TLeaseId} from '@contracts/shared';
+import {
+    requirePageNumber,
+    type TPageNumber,
+} from '@contracts/pageNumbers';
 import {
     readExactPdfFixtureIdentity,
     validateExactPdfFixtureIdentity,
@@ -129,8 +138,8 @@ async function installWorkingCopyStatusProbe(page: Page) {
     expect(installed).toBe(true);
 }
 
-async function waitForMaterializationStart(page: Page, workingCopyPath: string) {
-    await expect.poll(async () => page.evaluate(async (path) => {
+async function waitForMaterializationStart(page: Page, workingCopyPath: TDocumentRef) {
+    await expect.poll(async () => page.evaluate(async (path: TDocumentRef) => {
         const target = window as IIssue124StatusWindow;
         const statuses = target.__issue124WorkingCopyStatuses ?? [];
         const latest = statuses.filter(status => status.documentRef === path).at(-1);
@@ -281,7 +290,8 @@ async function waitForSelectedQpdfProcess(markerPath: string, expectedInputPath:
 }
 
 async function installManagedJpegClipboard(page: Page, imagePath: string) {
-    const probe = await page.evaluate(async (path) => {
+    const imageRef = requireDocumentRef(imagePath);
+    const probe = await page.evaluate(async (path: TDocumentRef) => {
         const target = window as IIssue124StatusWindow;
         const files = target.electronAPI?.documentFiles;
         if (!files?.createManagedTempFileHandle) {
@@ -293,7 +303,7 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
             const originalWarn = console.warn.bind(console);
             console.warn = (...args: unknown[]) => {
                 target.__issue124Warnings?.push(args.map(value => (
-                    value instanceof Error ? value.message : String(value)
+                    String(value)
                 )).join(' '));
                 originalWarn(...args);
             };
@@ -332,7 +342,7 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
             hasNativeSourceHandle: 'nativeSourceHandle' in probeFile,
             leaseId: handle.leaseId,
         };
-    }, imagePath);
+    }, imageRef);
     expect(probe.dimensions).toEqual({
         height: 40,
         width: 64,
@@ -377,8 +387,8 @@ async function waitForImagePlacementReady(page: Page) {
     }, {timeout: 60_000}, ACTIVE_IMAGE_PLACEMENT_SELECTOR);
 }
 
-async function releaseManagedHandle(page: Page, leaseId: string) {
-    return page.evaluate(async (id) => {
+async function releaseManagedHandle(page: Page, leaseId: TLeaseId) {
+    return page.evaluate(async (id: TLeaseId) => {
         const release = (window as IIssue124StatusWindow).electronAPI?.documentFiles.releaseManagedTempFileHandle;
         return release ? release(id) : false;
     }, leaseId);
@@ -415,25 +425,35 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
             if (typeof state.workingCopyPath !== 'string') {
                 throw new Error(`Issue 124 lazy materialization has no working copy: ${JSON.stringify(state)}`);
             }
-            const workingCopyPath = state.workingCopyPath;
+            const workingCopyPath = requireDocumentRef(state.workingCopyPath);
             expect(existsSync(workingCopyPath)).toBe(false);
-            const initialStatus = await session.page.evaluate((path) => (
+            const initialStatus = await session.page.evaluate((path: TDocumentRef) => (
                 (window as IE2EWindow).electronAPI?.documentFiles.getWorkingCopyBackingStatus?.(path) ?? null
             ), workingCopyPath);
             expect(initialStatus?.state).toBe('lazy-original');
             await installWorkingCopyStatusProbe(session.page);
 
-            const pendingPrint = session.page.evaluate(async (path) => {
+            const pageNumbers: TPageNumber[] = [requirePageNumber(1)];
+            const pendingPrint = session.page.evaluate(async ({
+                path,
+                pageNumbers,
+            }: {
+                path: TDocumentRef;
+                pageNumbers: TPageNumber[];
+            }) => {
                 const printPdfPath = (window as IE2EWindow).electronAPI?.documentPdf.printPdfPath;
                 if (!printPdfPath) {
                     throw new Error('Issue 124 lazy-materialization print bridge is unavailable');
                 }
                 return printPdfPath(path, 'issue-124-lazy.pdf', {
-                    pageNumbers: [1],
+                    pageNumbers,
                     viewMode: 'single',
                     orientation: 'auto',
                 });
-            }, workingCopyPath);
+            }, {
+                path: workingCopyPath,
+                pageNumbers,
+            });
             // Puppeteer cannot deliver a result from a renderer after that
             // renderer has been killed. Main-operation unit coverage asserts
             // the typed settlement; this journey observes the externally
@@ -571,10 +591,13 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
             if (typeof state.workingCopyPath !== 'string') {
                 throw new Error('Issue 124 qpdf-cancellation working copy is unavailable');
             }
-            const workingCopyPath = state.workingCopyPath;
+            const workingCopyPath = requireDocumentRef(state.workingCopyPath);
             const pendingPrint = session.page.evaluate(async ({
                 pageNumbers,
                 path,
+            }: {
+                pageNumbers: Array<ReturnType<typeof requirePageNumber>>;
+                path: TDocumentRef
             }) => {
                 const printPdfPath = (window as IE2EWindow).electronAPI?.documentPdf.printPdfPath;
                 if (!printPdfPath) {
@@ -586,7 +609,7 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
                     orientation: 'auto',
                 });
             }, {
-                pageNumbers: Array.from({length: ISSUE_124_SELECTED_PAGE_COUNT}, (_, index) => index + 1),
+                pageNumbers: Array.from({length: ISSUE_124_SELECTED_PAGE_COUNT}, (_, index) => requirePageNumber(index + 1)),
                 path: workingCopyPath,
             });
             // The sender is intentionally destroyed below, so its Puppeteer

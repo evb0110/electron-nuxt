@@ -298,7 +298,7 @@ export class CodexAppServerClient {
     }
 
     private async waitForClose(timeoutMs: number) {
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
         try {
             return await Promise.race([
                 this.closePromise.then(() => true),

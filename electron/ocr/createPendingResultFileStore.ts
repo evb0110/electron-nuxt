@@ -3,6 +3,10 @@ import { resolve } from 'path';
 import type { ILogger } from '@electron/utils/createLogger';
 import type { IOcrPendingResultFile } from '@electron/ocr/jobManager.types';
 import { runDetached } from '@electron/utils/runDetached';
+import type {
+    TJobId,
+    TRequestId,
+} from '@contracts/shared';
 
 interface ICreatePendingResultFileStoreOptions {
     logger: ILogger;
@@ -46,7 +50,7 @@ export function findPendingOcrResultFileForPath(webContentsId: number, pdfPath: 
 }
 
 export function createPendingResultFileStore(options: ICreatePendingResultFileStoreOptions) {
-    const pendingResultFiles = new Map<string, IOcrPendingResultFile>();
+    const pendingResultFiles = new Map<TJobId, IOcrPendingResultFile>();
     const canonicalizePath = options.canonicalizePath ?? canonicalizePendingResultPath;
 
     function clearPendingResultFileCleanupTimer(entry: IOcrPendingResultFile | null | undefined) {
@@ -57,7 +61,7 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
         entry.cleanupTimer = null;
     }
 
-    function removePendingResultFileEntry(scopedJobId: string) {
+    function removePendingResultFileEntry(scopedJobId: TJobId) {
         const pending = pendingResultFiles.get(scopedJobId);
         if (!pending) {
             return null;
@@ -79,7 +83,7 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
     }
 
     const store = {
-        find(webContentsId: number, requestId: string) {
+        find(webContentsId: number, requestId: TRequestId) {
             return Array.from(pendingResultFiles.values())
                 .find(entry => entry.webContentsId === webContentsId && entry.requestId === requestId)
                 ?? null;
@@ -96,7 +100,7 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
                 .find(entry => entry.webContentsId === webContentsId && entry.pdfPath === normalizedPath)
                 ?? null;
         },
-        track(scopedJobId: string, requestId: string, webContentsId: number, pdfPath: string, resultSha256: string, requiresCleanupAck: boolean) {
+        track(scopedJobId: TJobId, requestId: TRequestId, webContentsId: number, pdfPath: string, resultSha256: string, requiresCleanupAck: boolean) {
             if (!requiresCleanupAck) {
                 runDetached(
                     () => removeTrackedEntry(removePendingResultFileEntry(scopedJobId)),
@@ -185,7 +189,7 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
                 await removeTrackedEntry(pendingEntry);
             }
         },
-        async acknowledge(webContentsId: number, requestId: string, pdfPathPayload?: string) {
+        async acknowledge(webContentsId: number, requestId: TRequestId, pdfPathPayload?: string) {
             const pending = this.find(webContentsId, requestId);
             if (!pending) {
                 return {

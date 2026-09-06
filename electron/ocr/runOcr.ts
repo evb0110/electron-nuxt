@@ -63,7 +63,14 @@ export async function runOcr(
     ];
 
     return new Promise((resolve) => {
-        const proc = spawn(binary, args, {env: buildTesseractEnv(tessdata, options?.threads)});
+        const proc = spawn(binary, args, {
+            env: buildTesseractEnv(tessdata, options?.threads),
+            stdio: [
+                'pipe',
+                'pipe',
+                'pipe',
+            ],
+        });
 
         let stdout = '';
         let stderr = '';
@@ -192,7 +199,7 @@ export async function runOcr(
                 finalize({
                     success: false,
                     text: '',
-                    error: stderrSummary || `Tesseract exited with code ${code}`,
+                    error: stderrSummary || `Tesseract exited with code ${code ?? '<unknown>'}`,
                 });
             }
         });
@@ -213,16 +220,6 @@ export async function runOcr(
                 error: stdinError.message,
             });
         });
-
-        if (!proc.stdin) {
-            killProcessImmediately();
-            finalize({
-                success: false,
-                text: '',
-                error: 'Tesseract stdin is unavailable',
-            });
-            return;
-        }
 
         proc.stdin.end(imageBuffer, (stdinError?: Error | null) => {
             if (stdinError) {

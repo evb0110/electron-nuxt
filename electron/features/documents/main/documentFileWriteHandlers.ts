@@ -296,7 +296,7 @@ export async function handleFileWrite(
             reason: 'first-mutation',
         });
         const tempPath = makeSiblingTempPath(resolvedPath);
-        let committed = false;
+        let committed = false as boolean;
         try {
             await writeFileAtomic(tempPath, payload);
             const validation = await validatePdfFile(tempPath);

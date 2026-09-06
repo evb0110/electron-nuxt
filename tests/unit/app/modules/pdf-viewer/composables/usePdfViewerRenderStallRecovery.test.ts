@@ -1,3 +1,5 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     describe,
     expect,
@@ -17,7 +19,7 @@ function setup() {
     const recovery = usePdfViewerRenderStallRecovery({
         src: computed(() => ({
             kind: 'path' as const,
-            path: '/tmp/test.pdf',
+            path: requireDocumentRef('/tmp/test.pdf'),
             size: 1,
         })),
         isLoading: ref(false),
@@ -55,7 +57,7 @@ describe('usePdfViewerRenderStallRecovery', () => {
         } = setup();
 
         recovery.handlePageRenderStall({
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             stage: 'canvas-render' as const,
             timeoutMs: 15_000,
         });
@@ -83,7 +85,7 @@ describe('usePdfViewerRenderStallRecovery', () => {
         renderVisiblePages.mockRejectedValueOnce(new Error('stalled again'));
 
         recovery.handlePageRenderStall({
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             stage: 'canvas-render',
             timeoutMs: 15_000,
         });
@@ -97,7 +99,7 @@ describe('usePdfViewerRenderStallRecovery', () => {
             recovery,
         } = setup();
         const payload = {
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             stage: 'canvas-render' as const,
             timeoutMs: 15_000,
         };
@@ -130,7 +132,7 @@ describe('usePdfViewerRenderStallRecovery', () => {
         });
 
         recovery.handlePageRenderStall({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             stage: 'canvas-render',
             timeoutMs: 1,
         });

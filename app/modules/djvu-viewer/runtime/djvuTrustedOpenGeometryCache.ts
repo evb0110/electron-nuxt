@@ -108,9 +108,10 @@ export async function prewarmRecentDjvuOpeningGeometry(
             if (!file) {
                 return;
             }
+            const readStat = port.readStat;
             const geometryTask = prevalidateTrustedDjvuOpenGeometry(
                 file.originalPath,
-                port.readStat ? () => port.readStat!(file.originalPath) : undefined,
+                readStat ? () => readStat(file.originalPath) : undefined,
                 () => port.readSourceInfo(file.originalPath),
             );
             const {

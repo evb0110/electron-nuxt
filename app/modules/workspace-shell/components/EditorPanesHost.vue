@@ -63,6 +63,7 @@
 </template>
 
 <script setup lang="ts">
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import EditorPanesGrid from '@app/modules/workspace-shell/components/EditorPanesGrid.vue';
 import EditorPaneView from '@app/modules/workspace-shell/components/EditorPaneView.vue';
@@ -70,6 +71,8 @@ import type {
     IEditorPaneState,
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
+import { parsePaneId } from '@contracts/editorPanes';
+import { parseTabId } from '@contracts/windowTabs';
 import type {
     ITabContextAvailability,
     TTabContextCommand,
@@ -132,16 +135,18 @@ const {
 const parkingTarget = ref<HTMLElement | null>(null);
 const hostRef = ref<HTMLElement | null>(null);
 const paneSlotTargets = shallowReactive(new Map<string, HTMLElement>());
-const zenActivePaneId = computed(() => (
-    zenActiveTabId
-        ? panes.find(pane => pane.tabIds.includes(zenActiveTabId))?.paneId ?? null
-        : null
-));
+const zenActivePaneId = computed(() => {
+    const tabId = parseTabId(zenActiveTabId);
+    return tabId === null
+        ? null
+        : panes.find(pane => pane.tabIds.includes(tabId))?.paneId ?? null;
+});
 
 watchEffect(() => {
     const livePaneIds = new Set(panes.map(pane => pane.paneId));
     for (const paneId of paneSlotTargets.keys()) {
-        if (!livePaneIds.has(paneId)) {
+        const parsedPaneId = parsePaneId(paneId);
+        if (parsedPaneId === null || !livePaneIds.has(parsedPaneId)) {
             paneSlotTargets.delete(paneId);
         }
     }
@@ -198,7 +203,7 @@ const emit = defineEmits<{
     'update-document-record': [tabId: string, record: IWorkspaceDocumentRecord];
     'update-tab-session-state': [tabId: string, state: ITabViewSessionState];
     'update-tab-start-section': [tabId: string, section: TStartSection];
-    'open-in-new-tab': [result: string | TOpenFileResult, paneId?: string];
+    'open-in-new-tab': [result: TDocumentRef | TOpenFileResult, paneId?: string];
     'request-close-tab': [paneId: string, tabId: string];
     'open-settings': [];
     'open-combine': [];
@@ -256,7 +261,7 @@ function handleUpdateTabStartSection(tabId: string, section: TStartSection) {
     emit('update-tab-start-section', tabId, section);
 }
 
-function handleOpenInNewTab(result: string | TOpenFileResult, paneId?: string) {
+function handleOpenInNewTab(result: TDocumentRef | TOpenFileResult, paneId?: string) {
     emit('open-in-new-tab', result, paneId);
 }
 

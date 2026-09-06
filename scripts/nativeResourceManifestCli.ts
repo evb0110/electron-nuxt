@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -82,7 +83,7 @@ if (isDirectCliRun) {
     try {
         runNativeResourceManifestCli(process.argv.slice(2));
     } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getErrorMessage(error));
         process.exit(1);
     }
 }

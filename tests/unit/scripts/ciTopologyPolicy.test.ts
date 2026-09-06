@@ -228,6 +228,7 @@ function requiredPrPushJobs(jobs: Record<string, IWorkflowJob>) {
 
 const splitQualityCommands = [
     'pnpm run lint',
+    'pnpm run check:tests:as-never',
     'pnpm run check:static:reports',
     'pnpm run check:static:assets',
     'pnpm run typecheck',
@@ -478,6 +479,7 @@ describe('CI topology policy', () => {
         expect(prQuality).toContain('run: pnpm run check:drizzle-schema');
         expect(prQuality).toContain('run: pnpm run check:electron-builder:asar-unpack');
         expect(packageScripts.lint).toBe('node scripts/validation-gates.mjs lint');
+        expect(packageScripts['check:tests:as-never']).toBe('pnpm exec tsx scripts/checkTestsAsNever.ts');
         expect(packageScripts['generate:build-artifacts']).toContain('scripts/generateBuildArtifacts.ts');
         expect(packageScripts.prepare).toContain('pnpm run generate:build-artifacts');
         expect(packageJson).not.toContain('check:native-tool-protocols');
@@ -1069,8 +1071,9 @@ describe('CI topology policy', () => {
             pr_native_build_safety: 35, // measured 18.9m cold-cache
             pr_native_pdf_integration: 25, // tiny native/qpdf/copyFileAtomic fixture
             // Calls build-target.yml, whose one timeout is shared with every
-            // release target; the Linux x64 lane itself measures ~15m.
-            pr_packaged_linux: 45,
+            // release target; remote source-map processing needs a bounded
+            // margin after the Linux x64 package smoke.
+            pr_packaged_linux: 60,
             pr_quality: 20, // measured 13.4m
             pr_rust_tests_arm64: 20, // measured 9.6m
             pr_scan_cleanup_heavy: 25, // measured 10.1m cold-cache
@@ -1245,6 +1248,7 @@ describe('CI topology policy', () => {
             'publish_store',
             'attach_win_arm64',
             'attach_mac_intel',
+            'mirror_supplemental',
             'summary',
         ]) {
             expect(parseWorkflowJobs(supplementalWorkflow)[jobName], `missing supplemental job ${jobName}`).toBeDefined();
@@ -1273,6 +1277,19 @@ describe('CI topology policy', () => {
         expect(workflowJob(supplementalWorkflow, 'attach_mac_intel')).toContain('needs.resolve.outputs.existing_mac_x64 == \'true\'');
         expect(workflowJob(supplementalWorkflow, 'attach_win_arm64')).toContain('needs.resolve.outputs.existing_win_arm64 == \'true\'');
         expect(workflowJob(supplementalWorkflow, 'summary')).toContain('$GITHUB_STEP_SUMMARY');
+        // Supplemental bytes reach the mirror only after they are attached,
+        // and only as plain objects: the immutable manifest and the stable
+        // channel belong to the promoted core release.
+        const mirrorSupplementalJob = workflowJob(supplementalWorkflow, 'mirror_supplemental');
+        expect(mirrorSupplementalJob).toContain('environment: release');
+        // The drill supplements a draft release, whose assets GitHub hides
+        // from a token that cannot write contents.
+        expect(mirrorSupplementalJob).toContain('contents: write');
+        expect(mirrorSupplementalJob).toContain('- attach_win_arm64');
+        expect(mirrorSupplementalJob).toContain('- attach_mac_intel');
+        expect(mirrorSupplementalJob).toContain('MIRROR_RELEASE_PREFIX: ${{ inputs.mirror_prefix }}');
+        expect(mirrorSupplementalJob).toContain('MIRROR_CHANNEL_KEY: ${{ inputs.channel_key }}');
+        expect(mirrorSupplementalJob).toContain('node scripts/release/publish-release-mirror.mjs supplemental "${args[@]}"');
 
         const drillWorkflow = await readProjectFile('.github/workflows/release-drill.yml');
         expectAcyclicNeedsGraph(drillWorkflow, 'release-drill.yml');
@@ -1292,6 +1309,16 @@ describe('CI topology policy', () => {
         const supplementalRedispatchDrillJob = workflowJob(drillWorkflow, 'supplemental_redispatch_drill');
         expect(supplementalRedispatchDrillJob).toContain('needs: supplemental_drill');
         expect(supplementalRedispatchDrillJob).toContain('drill: true');
+        // The drill mirrors its supplemental stubs into the run's own prefix,
+        // after the chain has staged the core objects they sit beside.
+        expect(supplementalDrillJob).toContain('- chain');
+        for (const job of [
+            supplementalDrillJob,
+            supplementalRedispatchDrillJob,
+        ]) {
+            expect(job).toContain('mirror_prefix: evb-viewer/drill/${{ github.run_id }}/releases/');
+            expect(job).toContain('channel_key: evb-viewer/drill/${{ github.run_id }}/channels/stable.json');
+        }
         const cleanupJob = workflowJob(drillWorkflow, 'cleanup');
         expect(cleanupJob).toContain('- supplemental_redispatch_drill');
         expect(cleanupJob).toContain('if: ${{ always() }}');
@@ -1348,6 +1375,25 @@ describe('CI topology policy', () => {
         ]) {
             expect(packagedSmokePaths).toContain(proofPath);
         }
+    });
+
+    it('keeps packaged annotation persistence on the strict pointer and keyboard path', async () => {
+        const packagedSmoke = await readProjectFile('scripts/release/verifyPackagedCorePdfSmoke.ts');
+        const packagedDiagnostics = await readProjectFile('scripts/release/verifyPackagedDiagnosticsSmoke.ts');
+        const packagedScanCleanup = await readProjectFile('scripts/release/verifyPackagedScanCleanup.ts');
+
+        expect(packagedSmoke).toContain('createFreeTextAnnotationWithPointer(');
+        expect(packagedSmoke).not.toContain('createFreeTextAnnotation(page,');
+        for (const verifier of [
+            packagedSmoke,
+            packagedDiagnostics,
+            packagedScanCleanup,
+        ]) {
+            expect(verifier).toContain('EVB_AUTOMATION_HIDE_WINDOW: \'1\'');
+            expect(verifier).toContain('EVB_AUTOMATION_NO_FOCUS: \'1\'');
+        }
+        expect(packagedSmoke).toContain('assertPathAbsent(workDirectory, \'temporary smoke directory\')');
+        expect(packagedSmoke).toContain('did not exit after cleanup');
     });
 
     it('keeps Partner Center submission out of the release workflows', async () => {
@@ -1478,6 +1524,7 @@ describe('CI topology policy', () => {
         expect(isRecord(storeWorkflowCall)).toBe(true);
         expect(isRecord(storeWorkflowCall) ? storeWorkflowCall.secrets : undefined).toEqual({
             SENTRY_AUTH_TOKEN: {required: false},
+            SENTRY_VERIFICATION_TOKEN: {required: false},
             SENTRY_ORG: {required: false},
             SENTRY_DESKTOP_PROJECT: {required: false},
             SENTRY_DESKTOP_DSN: {required: false},
@@ -1493,6 +1540,7 @@ describe('CI topology policy', () => {
             uses: './.github/workflows/store-appx.yml',
             secrets: {
                 SENTRY_AUTH_TOKEN: '${{ secrets.SENTRY_AUTH_TOKEN }}',
+                SENTRY_VERIFICATION_TOKEN: '${{ secrets.SENTRY_VERIFICATION_TOKEN }}',
                 SENTRY_ORG: '${{ secrets.SENTRY_ORG }}',
                 SENTRY_DESKTOP_PROJECT: '${{ secrets.SENTRY_DESKTOP_PROJECT }}',
                 SENTRY_DESKTOP_DSN: '${{ secrets.SENTRY_DESKTOP_DSN }}',

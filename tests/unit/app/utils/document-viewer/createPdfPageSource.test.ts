@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import type {PDFDocumentProxy} from 'pdfjs-dist';
 import {createPdfPageSource} from '@app/utils/document-viewer/source/createPdfPageSource';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 describe('createPdfPageSource', () => {
     it('uses the coordinated PDF renderer as its thumbnail provider', async () => {
@@ -22,7 +23,7 @@ describe('createPdfPageSource', () => {
             getPage: vi.fn(),
         });
         const source = createPdfPageSource({
-            documentRef: '/document.pdf',
+            documentRef: requireDocumentRef('/document.pdf'),
             pdfDocument,
             renderPage,
         });

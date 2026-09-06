@@ -1,6 +1,7 @@
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
+import type { TRequestId } from '@contracts/shared';
 
 export type TWorkspaceSaveRequest =
     | {kind: 'save'}
@@ -13,7 +14,7 @@ export type TWorkspaceSaveRequest =
     | {
         kind: 'optimize-copy';
         options: IPdfOptimizeOptions;
-        requestId?: string;
+        requestId?: TRequestId;
     };
 
 export interface IWorkspaceSaveTarget {

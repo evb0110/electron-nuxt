@@ -69,20 +69,33 @@ describe('runOcr setup failure cleanup', () => {
         });
     });
 
-    it('kills the child immediately when stdin is unavailable', async () => {
+    it('spawns Tesseract with piped stdio', async () => {
         const child = new MockChildProcess();
-        child.stdin = undefined;
+        const stdin = new MockStdin();
+        child.stdin = stdin;
         mocks.spawn.mockReturnValue(child);
 
         const { runOcr } = await import('@electron/ocr/runOcr');
-        const result = await runOcr(Buffer.from('image'), ['eng']);
-
-        expect(result).toEqual({
-            success: false,
-            text: '',
-            error: 'Tesseract stdin is unavailable',
+        const resultPromise = runOcr(Buffer.from('image'), ['eng']);
+        await vi.waitFor(() => {
+            expect(mocks.spawn).toHaveBeenCalledTimes(1);
         });
-        expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+        child.emit('close', 0);
+
+        await expect(resultPromise).resolves.toEqual({
+            success: true,
+            text: '',
+        });
+        expect(mocks.spawn).toHaveBeenCalledWith(
+            '/mock/tesseract',
+            expect.any(Array),
+            expect.objectContaining({stdio: [
+                'pipe',
+                'pipe',
+                'pipe',
+            ]}),
+        );
+        expect(stdin.end).toHaveBeenCalledWith(Buffer.from('image'), expect.any(Function));
     });
 
     it('kills the child immediately when stdin emits an error', async () => {

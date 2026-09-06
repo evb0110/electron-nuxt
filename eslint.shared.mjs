@@ -43,6 +43,20 @@ export const strictTypeRules = {
     ],
     '@typescript-eslint/consistent-type-exports': 'error',
     '@typescript-eslint/no-import-type-side-effects': 'error',
+    '@typescript-eslint/no-deprecated': 'error',
+    '@typescript-eslint/no-base-to-string': 'error',
+    '@typescript-eslint/restrict-template-expressions': [
+        'error',
+        {
+            allowAny: false,
+            allowArray: false,
+            allowBoolean: true,
+            allowNever: false,
+            allowNullish: false,
+            allowNumber: true,
+            allowRegExp: false,
+        },
+    ],
     '@typescript-eslint/no-unsafe-assignment': 'error',
     '@typescript-eslint/no-unsafe-member-access': 'error',
     '@typescript-eslint/no-unsafe-call': 'error',
@@ -51,6 +65,10 @@ export const strictTypeRules = {
     '@typescript-eslint/no-unnecessary-type-assertion': 'error',
     '@typescript-eslint/no-unnecessary-type-arguments': 'error',
     '@typescript-eslint/no-unnecessary-type-constraint': 'error',
+    // no-unnecessary-condition stays off. Viewer exposes reach consumers through
+    // the Proxy in createDocumentViewerExposeForwarder, and platform capabilities
+    // are assembled at runtime, so a member the declared type calls required is
+    // absent until its target mounts. The rule reads those guards as dead code.
     '@typescript-eslint/no-floating-promises': 'error',
     '@typescript-eslint/no-misused-promises': [
         'error',
@@ -68,6 +86,14 @@ export const strictTypeRules = {
     ],
     '@typescript-eslint/only-throw-error': 'error',
     '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+    '@typescript-eslint/switch-exhaustiveness-check': [
+        'error',
+        {
+            considerDefaultExhaustiveForUnions: false,
+            allowDefaultCaseForExhaustiveSwitch: false,
+            requireDefaultForNonUnion: false,
+        },
+    ],
     '@typescript-eslint/prefer-nullish-coalescing': [
         'error',
         { ignoreConditionalTests: true },

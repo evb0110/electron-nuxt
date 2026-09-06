@@ -223,6 +223,35 @@ describe('renderer log registry', () => {
         expect(loggedMessage).toContain('"nested":"[Object]"');
         expect(loggedMessage).toContain('"items":"[Array(1)]"');
     });
+
+    it('reuses a renderer-owned failure receipt without creating a main occurrence', async () => {
+        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        registerIpcHandlers();
+
+        const handler = mocks.handlers.get('renderer:log');
+        const sender = createSender(10);
+        const failureRef = {
+            eventId: '0123456789abcdef0123456789abcdef',
+            code: 'RENDERER_ERROR_GUARD_FAILED',
+            occurredAt: 1,
+            severity: 'error',
+        };
+        handler?.({
+            sender,
+            senderFrame: null,
+        }, {
+            level: 'error',
+            section: 'renderer-guard',
+            message: 'Renderer failure',
+            timestamp: '2026-03-21T00:00:00.000Z',
+            failureRef,
+        });
+
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('Renderer failure'),
+            failureRef,
+        );
+    });
 });
 
 describe('normalizeRendererLogEntry', () => {
@@ -263,6 +292,28 @@ describe('normalizeRendererLogEntry', () => {
                 message: 'm',
             }).level).toBe(level);
         }
+    });
+
+    it('keeps only a valid closed failure receipt', async () => {
+        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const failureRef = {
+            eventId: '0123456789abcdef0123456789abcdef',
+            code: 'RENDERER_ERROR_GUARD_FAILED',
+            occurredAt: 1,
+            severity: 'error',
+        };
+
+        expect(normalizeRendererLogEntry({
+            level: 'error',
+            failureRef,
+        }).failureRef).toEqual(failureRef);
+        expect(normalizeRendererLogEntry({
+            level: 'error',
+            failureRef: {
+                ...failureRef,
+                rawMessage: 'private',
+            },
+        })).not.toHaveProperty('failureRef');
     });
 
     it('uses <empty> message default when message is missing or null', async () => {

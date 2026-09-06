@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     ComputedRef,
     Ref,
@@ -19,7 +22,7 @@ interface IUsePdfTrustedOpenGeometryLifecycleOptions {
     pageMetrics: Readonly<Ref<IPdfPageMetric[]>>;
     pageMetricsVersion: Readonly<Ref<number>>;
     seedTrustedPageGeometry: (input: {
-        pageNumber: number;
+        pageNumber: TPageNumber;
         pageCount: number;
         width: number;
         height: number;
@@ -78,7 +81,10 @@ export const usePdfTrustedOpenGeometryLifecycle = (
                     };
                 }
                 seedTrustedPageGeometry({
-                    pageNumber: prevalidatedGeometry.pageNumber,
+                    pageNumber: requirePageNumber(
+                        prevalidatedGeometry.pageNumber,
+                        prevalidatedGeometry.pageCount,
+                    ),
                     pageCount: prevalidatedGeometry.pageCount,
                     width: prevalidatedGeometry.width,
                     height: prevalidatedGeometry.height,
@@ -95,12 +101,7 @@ export const usePdfTrustedOpenGeometryLifecycle = (
                 }
             }
 
-            if (
-                sourceAtLookup
-                && typeof sourceAtLookup === 'object'
-                && 'kind' in sourceAtLookup
-                && sourceAtLookup.kind === 'path'
-            ) {
+            if (sourceAtLookup && !(sourceAtLookup instanceof Blob)) {
                 // The adopted path source already carries its validated byte
                 // length. It is safe for display and load decisions, but its
                 // managed-copy mtime is not the original source revision, so
@@ -141,6 +142,7 @@ export const usePdfTrustedOpenGeometryLifecycle = (
             if (!documentId || !metric || pageCount < 1) {
                 return;
             }
+            const brandedPageNumber = requirePageNumber(pageNumber, pageCount);
 
             const snapshot = chassisAuthority?.openSurface.snapshot.value;
             if (chassisAuthority && snapshot?.identity) {
@@ -149,8 +151,8 @@ export const usePdfTrustedOpenGeometryLifecycle = (
                     documentId: snapshot.identity.documentId,
                     metricSource: acceptedSource.value,
                     currentSource: src.value,
-                    pageNumber,
-                    currentPage: currentPage.value,
+                    pageNumber: brandedPageNumber,
+                    currentPage: requirePageNumber(currentPage.value, pageCount),
                     pageCount,
                     metric,
                 });
@@ -163,7 +165,7 @@ export const usePdfTrustedOpenGeometryLifecycle = (
                 documentId,
                 size: stat.size,
                 modifiedAt: stat.modifiedAt,
-                pageNumber,
+                pageNumber: brandedPageNumber,
                 pageCount,
                 width: metric.width,
                 height: metric.height,

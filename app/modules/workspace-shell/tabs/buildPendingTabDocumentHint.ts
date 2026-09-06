@@ -38,7 +38,7 @@ export function buildPendingTabDocumentHint(target: TPendingTabDocumentHintTarge
     }
 
     if (isOpenFileResult(target)) {
-        const sourcePath = target.originalPath || (target.kind === 'pdf' ? target.workingPath : '');
+        const sourcePath = target.originalPath || (target.kind === 'pdf' ? target.workingPath : null);
         return {
             fileName: getDocumentRefBaseName(sourcePath),
             originalPath: target.originalPath,

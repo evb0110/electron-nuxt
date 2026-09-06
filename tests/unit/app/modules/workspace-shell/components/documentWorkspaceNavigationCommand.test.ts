@@ -17,6 +17,10 @@ import {
 } from 'vue';
 import type { App } from 'vue';
 import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     createDocumentOpenSurfaceSession,
     documentOpenSurfaceSessionKey,
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
@@ -56,7 +60,10 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () =
         attrs,
         expose,
     }) {
-        expose({scrollToPage: vi.fn()});
+        expose({
+            scrollToPage: vi.fn(),
+            getViewerContainer: () => null,
+        });
         return () => {
             surfaceRenders.viewers.push({...attrs});
             return h('div', {class: 'document-viewer-chassis-stub'});
@@ -152,7 +159,7 @@ function readToolbarNavigationCommand() {
 
 async function mountDocumentWorkspace(options: {
     initialSurfaceMode?: 'reader' | 'scan-cleanup';
-    pendingDocumentPath?: string;
+    pendingDocumentPath?: TDocumentRef;
 } = {}) {
     const { default: DocumentWorkspace } = await import(
         '@app/modules/workspace-shell/components/DocumentWorkspace.vue'
@@ -247,7 +254,7 @@ describe('DocumentWorkspace navigation command', () => {
     it('does not mount the reader presentation in scan-cleanup mode', async () => {
         await mountDocumentWorkspace({
             initialSurfaceMode: 'scan-cleanup',
-            pendingDocumentPath: '/tmp/reopened.pdf',
+            pendingDocumentPath: requireDocumentRef('/tmp/reopened.pdf'),
         });
 
         await vi.waitFor(() => {

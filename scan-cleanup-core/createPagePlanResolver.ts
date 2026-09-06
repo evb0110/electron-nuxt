@@ -9,6 +9,7 @@ import type {TScanCleanupLog} from '@scan-cleanup-core/types';
 import {resolveReusablePagePlanResult} from '@scan-cleanup-core/policy/effectiveOptions';
 import {ScanCleanupContractError} from '@scan-cleanup-core/errors';
 import {getScanCleanupPageOverride} from '@contracts/scanCleanupPageOverrides';
+import { requirePageNumber } from '@contracts/pageNumbers';
 
 const SCAN_CLEANUP_OUTPUT_HALVES = [
     'full',
@@ -52,7 +53,10 @@ export function createPagePlanResolver(
                 );
             }
             const placementAnchors = input.placementAnchorsByPage?.[String(pageNumber)];
-            const pageOverride = getScanCleanupPageOverride(input.options.pageOverrides, pageNumber);
+            const pageOverride = getScanCleanupPageOverride(
+                input.options.pageOverrides,
+                requirePageNumber(pageNumber),
+            );
             for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
                 const alignment = pageOverride.placementOverrides?.[half]
                     ?? input.options.pageAlignment;

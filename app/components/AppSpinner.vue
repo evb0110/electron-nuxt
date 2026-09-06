@@ -29,7 +29,6 @@ const sizeClass = computed(() => {
         case 'lg':
             return 'size-8';
         case 'md':
-        default:
             return 'size-5';
     }
 });
@@ -41,7 +40,6 @@ const toneClass = computed(() => {
         case 'inherit':
             return '';
         case 'muted':
-        default:
             return 'text-[var(--ui-text-muted)]';
     }
 });

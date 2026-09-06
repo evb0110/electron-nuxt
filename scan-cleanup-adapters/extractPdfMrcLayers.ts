@@ -17,6 +17,7 @@ import type {
     TScanCleanupRunCommand,
     IScanCleanupRunCommandOptions,
 } from '@scan-cleanup-core/types';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import {mapScanCleanupRasterPages} from '@scan-cleanup-core/resolveRasterHandoff';
 import {
     decode as decodePng,
@@ -208,7 +209,7 @@ async function inspectMrcObjectTable(input: {
         input.log(
             'warn',
             `PDF MRC compact reuse skipped because source mask polarity could not be read: ${
-                error instanceof Error ? error.message : String(error)
+                getErrorMessage(error)
             }`,
         );
         return null;
@@ -606,7 +607,7 @@ export async function extractPdfMrcLayersBatch(input: {
             'warn',
             `PDF MRC compact reuse skipped for page(s) ${failure.pages.join(', ')}; `
             + `using raster reconstruction for that chunk (${
-                failure.error instanceof Error ? failure.error.message : String(failure.error)
+                getErrorMessage(failure.error)
             })`,
         );
     }

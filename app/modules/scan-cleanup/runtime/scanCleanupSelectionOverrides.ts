@@ -8,6 +8,7 @@ import {
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
 } from '@contracts/scanCleanupPageOverrides';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 export interface IScanCleanupMixedValue<T> {
     empty: boolean;
@@ -68,10 +69,11 @@ export function updateScanCleanupPageOverrides(
         if (!Number.isInteger(page) || page < 1) {
             continue;
         }
-        const current = getScanCleanupPageOverride(overrides, page);
+        const pageNumber = requirePageNumber(page);
+        const current = getScanCleanupPageOverride(overrides, pageNumber);
         setScanCleanupPageOverride(
             overrides,
-            page,
+            pageNumber,
             createScanCleanupPageOverride(update(current, page)),
             documentMargins,
         );

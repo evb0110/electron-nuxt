@@ -2,6 +2,10 @@ import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import { decodeWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import { WORKSPACE_RECOVERY_STORE } from '@app/platform/browser/browserDocumentConstants';
 import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     runObjectStoreTransaction,
     withObjectStoreReadResult,
 } from '@app/platform/browser/browserDocumentIdb';
@@ -11,7 +15,7 @@ interface IBrowserWorkspaceRecoveryRecord {
     ownerId: string;
     generation: number;
     checkpoint: IWorkspaceCheckpoint;
-    snapshotRefs: string[];
+    snapshotRefs: TDocumentRef[];
     updatedAt: number;
 }
 
@@ -19,7 +23,7 @@ interface IBrowserWorkspaceRecoverySnapshot {
     ownerId: string;
     generation: number;
     checkpoint: IWorkspaceCheckpoint;
-    snapshotRefs: string[];
+    snapshotRefs: TDocumentRef[];
     updatedAt: number;
 }
 
@@ -66,7 +70,7 @@ function decodeRecoveryRecord(value: unknown): IBrowserWorkspaceRecoverySnapshot
         || record.generation <= 0
         || !checkpoint
         || !Array.isArray(snapshotRefs)
-        || snapshotRefs.some((ref: unknown) => typeof ref !== 'string')
+        || snapshotRefs.some((ref: unknown) => parseDocumentRef(ref) === null)
         || typeof record.updatedAt !== 'number'
         || !Number.isFinite(record.updatedAt)
     ) {
@@ -79,9 +83,10 @@ function decodeRecoveryRecord(value: unknown): IBrowserWorkspaceRecoverySnapshot
         ownerId: record.ownerId,
         generation: record.generation,
         checkpoint,
-        snapshotRefs: Array.from(new Set(snapshotRefs.filter(
-            (ref: unknown): ref is string => typeof ref === 'string' && checkpointRefs.has(ref),
-        ))),
+        snapshotRefs: Array.from(new Set(snapshotRefs.flatMap((ref: unknown) => {
+            const parsed = parseDocumentRef(ref);
+            return parsed !== null && checkpointRefs.has(parsed) ? [parsed] : [];
+        }))),
         updatedAt: record.updatedAt,
     };
 }
@@ -112,7 +117,7 @@ export async function loadBrowserWorkspaceRecovery(ownerId: string) {
 }
 
 export async function loadBrowserWorkspaceRecoveryLeasedRefs() {
-    return new Set((await loadBrowserWorkspaceRecoveries()).flatMap(record => record.snapshotRefs));
+    return new Set<string>((await loadBrowserWorkspaceRecoveries()).flatMap(record => record.snapshotRefs));
 }
 
 async function mutateBrowserWorkspaceRecovery(
@@ -169,7 +174,7 @@ export async function saveBrowserWorkspaceRecovery(
     ownerId: string,
     expectedGeneration: number,
     checkpoint: IWorkspaceCheckpoint,
-    snapshotRefs: string[],
+    snapshotRefs: TDocumentRef[],
 ): Promise<TBrowserWorkspaceRecoveryMutationResult> {
     return mutateBrowserWorkspaceRecovery(ownerId, expectedGeneration, (store, id, _current, currentGeneration) => {
         const generation = currentGeneration + 1;

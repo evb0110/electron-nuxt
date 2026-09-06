@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { readPdfConformanceProfile } from '@app/services/pdf-file/readPdfConformanceProfile';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 const mocks = vi.hoisted(() => ({
     browserLogger: { warn: vi.fn() },
@@ -27,7 +28,8 @@ describe('readPdfConformanceProfile', () => {
     });
 
     it('reads conformance through the split pdf capability', async () => {
-        const result = await readPdfConformanceProfile('/tmp/working.pdf');
+        const workingPath = requireDocumentRef('/tmp/working.pdf');
+        const result = await readPdfConformanceProfile(workingPath);
 
         expect(result).toEqual({
             profile: 'PDF/A-2u',
@@ -35,21 +37,22 @@ describe('readPdfConformanceProfile', () => {
             isTagged: true,
             hasSignatures: false,
         });
-        expect(mocks.documentPdf.analyzePdfConformance).toHaveBeenCalledWith('/tmp/working.pdf');
+        expect(mocks.documentPdf.analyzePdfConformance).toHaveBeenCalledWith(workingPath);
     });
 
     it('logs and returns null when conformance analysis fails', async () => {
         const error = new Error('analysis failed');
         mocks.documentPdf.analyzePdfConformance.mockRejectedValueOnce(error);
 
-        const result = await readPdfConformanceProfile('/tmp/working.pdf');
+        const workingPath = requireDocumentRef('/tmp/working.pdf');
+        const result = await readPdfConformanceProfile(workingPath);
 
         expect(result).toBeNull();
         expect(mocks.browserLogger.warn).toHaveBeenCalledWith(
             'pdf-file',
             'Failed to analyze PDF conformance profile',
             {
-                path: '/tmp/working.pdf',
+                path: workingPath,
                 error,
             },
         );

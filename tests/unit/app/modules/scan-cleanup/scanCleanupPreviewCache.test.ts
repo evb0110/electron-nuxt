@@ -3,6 +3,8 @@ import {
     expect,
     it,
 } from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
@@ -23,6 +25,8 @@ import {
     createScanCleanupPreviewCache,
     SCAN_CLEANUP_PREVIEW_CACHE_KEY_SEPARATOR,
 } from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
+
+const SOURCE_PATH = requireDocumentRef('/tmp/source.pdf');
 
 const previewOptions: IScanCleanupOptions = {
     preserveOriginalQuality: false,
@@ -62,7 +66,7 @@ function sparse(value: Partial<IScanCleanupPageOverride>): IScanCleanupPageOverr
 
 function result(raw: Uint8Array, outputs: Uint8Array[]): IScanCleanupPreviewResult {
     return {
-        pageNumber: 1,
+        pageNumber: requirePageNumber(1),
         totalPages: 1,
         rawImageData: raw,
         rawWidthPx: 1,
@@ -145,15 +149,15 @@ describe('scan cleanup renderer preview cache', () => {
     });
 
     it('keys every alignment that can change native Y along with sidecar-rendered options', () => {
-        const base = createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf');
+        const base = createScanCleanupPreviewCacheKey(1, previewOptions, SOURCE_PATH);
         const withAlignment = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             pageAlignment: 'bottom-right',
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         const withReadingOrder = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             readingOrder: 'rtl',
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         const withPlacementOverride = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             pageOverrides: {1: {
@@ -163,28 +167,28 @@ describe('scan cleanup renderer preview cache', () => {
                 manualSplit: null,
                 placementOverrides: {left: 'center-left'},
             }},
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         const withBinarization = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             binarization: 'sauvola',
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         const withoutIlluminationNormalization = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             normalizeIllumination: false,
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         const withCautiousDespeckle = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             despeckleLevel: 'cautious',
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         const withAutoDewarp = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             autoDewarp: true,
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         const withFixedDewarpDepth = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             autoDewarp: true,
             autoDewarpDepth: 1.8,
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         const withManualSkew = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             pageOverrides: {1: {
@@ -194,7 +198,7 @@ describe('scan cleanup renderer preview cache', () => {
                 manualSplit: null,
                 manualSkewDegrees: -2.3,
             }},
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         const withManualZones = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             pageOverrides: {1: {
@@ -230,7 +234,7 @@ describe('scan cleanup renderer preview cache', () => {
                     fill: [],
                 },
             }},
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
 
         expect(new Set([
             base,
@@ -252,7 +256,7 @@ describe('scan cleanup renderer preview cache', () => {
         const keyFor = (layoutDetectionComplete: boolean) => createScanCleanupPreviewCacheKey(
             1,
             previewOptions,
-            '/tmp/source.pdf',
+            SOURCE_PATH,
             'rev',
             null,
             '',
@@ -271,7 +275,7 @@ describe('scan cleanup renderer preview cache', () => {
         const base = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             outputMode: 'auto',
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         const withOutputModeOverride = createScanCleanupPreviewCacheKey(1, {
             ...previewOptions,
             outputMode: 'auto',
@@ -282,7 +286,7 @@ describe('scan cleanup renderer preview cache', () => {
                 manualSplit: null,
                 outputModeOverride: 'color',
             }},
-        }, '/tmp/source.pdf');
+        }, SOURCE_PATH);
         expect(withOutputModeOverride).not.toBe(base);
     });
 
@@ -290,7 +294,7 @@ describe('scan cleanup renderer preview cache', () => {
         const keyFor = (recommendation: 'bw' | 'color' | null) => createScanCleanupPreviewCacheKey(
             1,
             previewOptions,
-            '/tmp/source.pdf',
+            SOURCE_PATH,
             'rev',
             null,
             '',
@@ -325,7 +329,7 @@ describe('scan cleanup renderer preview cache', () => {
         const keyFor = (pageNumber: number, detected: boolean) => createScanCleanupPreviewCacheKey(
             pageNumber,
             previewOptions,
-            '/tmp/source.pdf',
+            SOURCE_PATH,
             'rev',
             detected ? prior : null,
         );
@@ -363,11 +367,11 @@ describe('scan cleanup renderer preview cache', () => {
             widthPx: 1250,
             heightPx: 1667,
         });
-        const unclassified = createScanCleanupPreviewCacheKey(1, previewOptions, '/tmp/source.pdf', 'rev', null);
+        const unclassified = createScanCleanupPreviewCacheKey(1, previewOptions, SOURCE_PATH, 'rev', null);
         const classified = createScanCleanupPreviewCacheKey(
             1,
             previewOptions,
-            '/tmp/source.pdf',
+            SOURCE_PATH,
             'rev',
             null,
             changedCanvas,
@@ -382,7 +386,7 @@ describe('scan cleanup renderer preview cache', () => {
         expect(createScanCleanupPreviewCacheKey(
             1,
             previewOptions,
-            '/tmp/source.pdf',
+            SOURCE_PATH,
             'rev',
             null,
             changedCanvas,
@@ -392,8 +396,8 @@ describe('scan cleanup renderer preview cache', () => {
             ...previewOptions,
             matchPageSize: false,
         };
-        expect(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null, changedCanvas))
-            .toBe(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null));
+        expect(createScanCleanupPreviewCacheKey(1, unmatched, SOURCE_PATH, 'rev', null, changedCanvas))
+            .toBe(createScanCleanupPreviewCacheKey(1, unmatched, SOURCE_PATH, 'rev', null));
     });
 
     it('keeps the dominant provisional canvas stable through an interim layout outlier', () => {
@@ -427,7 +431,7 @@ describe('scan cleanup renderer preview cache', () => {
         ) => createScanCleanupPreviewCacheKey(
             1,
             previewOptions,
-            '/tmp/source.pdf',
+            SOURCE_PATH,
             'rev',
             null,
             signatureFor(layouts, layoutEvidenceComplete),
@@ -465,7 +469,7 @@ describe('scan cleanup renderer preview cache', () => {
         const keyFor = (classification: 'two-page-spread' | null) => createScanCleanupPreviewCacheKey(
             1,
             previewOptions,
-            '/tmp/source.pdf',
+            SOURCE_PATH,
             'rev',
             null,
             '',
@@ -485,7 +489,7 @@ describe('scan cleanup renderer preview cache', () => {
         const keyFor = (overrides: TScanCleanupPageOverrides) => createScanCleanupPreviewCacheKey(
             1,
             previewOptions,
-            '/tmp/source.pdf',
+            SOURCE_PATH,
             'rev',
             null,
             '',
@@ -555,12 +559,12 @@ describe('scan cleanup renderer preview cache', () => {
         expect(createScanCleanupPreviewCacheKey(
             1,
             unmatched,
-            '/tmp/source.pdf',
+            SOURCE_PATH,
             'rev',
             null,
             '',
             scanCleanupMatchedCanvasOverridesSignature({'40': override({excluded: true})}),
-        )).toBe(createScanCleanupPreviewCacheKey(1, unmatched, '/tmp/source.pdf', 'rev', null));
+        )).toBe(createScanCleanupPreviewCacheKey(1, unmatched, SOURCE_PATH, 'rev', null));
     });
 
     it('reads a partially written override the way the canvas reads it', () => {

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {
     readFile,
     stat,
@@ -154,7 +155,7 @@ export async function getPageCount(
     } catch (err) {
         return {
             pageCount: fallback,
-            warnings: [`qpdf page-count failed; using OCR page fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`],
+            warnings: [`qpdf page-count failed; using OCR page fallback ${fallback}: ${getErrorMessage(err)}`],
         };
     }
     return {

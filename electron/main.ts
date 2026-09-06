@@ -4,6 +4,7 @@ import {
     powerMonitor,
 } from 'electron';
 import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
+import { parseDocumentRef } from '@contracts/documentRef';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -190,6 +191,15 @@ function ensureMainDiagnosticsAdapter() {
     if (mainDiagnosticsAdapterLoad !== null) {
         return mainDiagnosticsAdapterLoad;
     }
+    if (
+        process.env.EVB_ENABLE_DIAGNOSTICS_CANARY === '1'
+        && process.env.EVB_DIAGNOSTICS_CANARY_DISABLE_ADAPTER === '1'
+        && automationUserDataDir
+        && process.env.EVB_AUTOMATION_SESSION_NAME?.trim()
+    ) {
+        mainDiagnosticsAdapterLoad = Promise.resolve();
+        return mainDiagnosticsAdapterLoad;
+    }
     mainDiagnosticsAdapterLoad = import('@electron/features/diagnostics/sentryNodeAdapter')
         .then(({createSentryNodeDiagnosticsTransportFromEnvironment}) => {
             const transport = createSentryNodeDiagnosticsTransportFromEnvironment({
@@ -222,7 +232,7 @@ function ensureMainDiagnosticsAdapter() {
 const mainFailureReporterForAdapter = initializeMainFailureReporter({
     preference: diagnosticsPreference,
     transport: unavailableMainDiagnosticsTransport,
-    onPreferenceGranted: () => { void ensureMainDiagnosticsAdapter(); },
+    onPreferenceGranted: ensureMainDiagnosticsAdapter,
 });
 if (diagnosticsPreference === 'granted') {
     void ensureMainDiagnosticsAdapter();
@@ -230,7 +240,7 @@ if (diagnosticsPreference === 'granted') {
 
 const logger = createLogger('main');
 let shutdownCoordinator: ReturnType<typeof createShutdownCoordinator> | null = null;
-let pendingSafeModeRelaunchArgs: string[] | null = null;
+let pendingSafeModeRelaunchArgs = null as string[] | null;
 let pendingFatalFailure: {
     reason: string;
     receipt: FailureReceipt
@@ -359,7 +369,7 @@ const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({asy
     } else if (subsystem === 'djvu') {
         await shutdownDjvuConversions();
         performDjvuViewingShutdownCleanup();
-    } else if (subsystem === 'documents') {
+    } else {
         await closeCachedRangeReadHandles();
     }
 }});
@@ -434,8 +444,17 @@ const externalOpenManager = createExternalOpenManager({
             return false;
         }
 
+        const documentRefs = [];
+        for (const path of paths) {
+            const documentRef = parseDocumentRef(path);
+            if (documentRef === null) {
+                return false;
+            }
+            documentRefs.push(documentRef);
+        }
+
         allowOpenPaths(paths, window.webContents);
-        return sendToWindow(window, 'menu:openExternalPaths', paths);
+        return sendToWindow(window, 'menu:openExternalPaths', documentRefs);
     },
 });
 macOpenFileRouter.attachExternalOpenManager(externalOpenManager);
@@ -642,7 +661,7 @@ process.on('unhandledRejection', (reason) => {
         logger.info(`Ignoring expected unhandled rejection in main process: ${getErrorMessage(reason)}`);
         return;
     }
-    const rejectionMessage = `Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`;
+    const rejectionMessage = `Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? getErrorMessage(reason) : getErrorMessage(reason)}`;
     const receipt = logMainFailure(
         'MAIN_UNHANDLED_REJECTION',
         {subsystem: decision.action === 'fatal' ? 'unknown' : decision.subsystem},

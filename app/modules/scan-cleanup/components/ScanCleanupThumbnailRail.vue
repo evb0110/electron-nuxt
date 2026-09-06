@@ -264,6 +264,7 @@ import type {
     IScanCleanupTextAxis,
 } from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
@@ -441,6 +442,7 @@ const orderedSource = computed<IDocumentPageSource | null>(() => {
             pageNumber: order.pageAt(request.pageNumber) ?? request.pageNumber,
         };
     }
+    const thumbnailProvider = source.thumbnailProvider;
     return {
         kind: source.kind,
         documentRef: source.documentRef,
@@ -451,8 +453,8 @@ const orderedSource = computed<IDocumentPageSource | null>(() => {
         renderPage(request) {
             return source.renderPage(mapRequest(request));
         },
-        thumbnailProvider: source.thumbnailProvider ? {renderThumbnail(request) {
-            return source.thumbnailProvider!.renderThumbnail(mapRequest(request));
+        thumbnailProvider: thumbnailProvider ? {renderThumbnail(request) {
+            return thumbnailProvider.renderThumbnail(mapRequest(request));
         }} : undefined,
         dispose() {},
     };
@@ -472,7 +474,10 @@ function naturalPage(position: number) {
 }
 
 function pageOverride(page: number) {
-    return getScanCleanupPageOverride(props.overrides, page);
+    return getScanCleanupPageOverride(
+        props.overrides,
+        requirePageNumber(page, Math.max(1, props.totalPages)),
+    );
 }
 
 function isCustomized(page: number) {

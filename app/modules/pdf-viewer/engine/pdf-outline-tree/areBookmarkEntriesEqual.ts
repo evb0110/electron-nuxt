@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import { clamp } from 'es-toolkit/math';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
@@ -6,7 +8,7 @@ function normalizeTitle(title: string | null | undefined) {
     return typeof title === 'string' ? title.trim() : '';
 }
 
-function normalizePageIndex(pageIndex: number | null) {
+function normalizePageIndex(pageIndex: TPageIndex | null) {
     return typeof pageIndex === 'number' && Number.isFinite(pageIndex) ? pageIndex : null;
 }
 

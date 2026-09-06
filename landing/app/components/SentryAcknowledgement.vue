@@ -1,6 +1,12 @@
 <template>
   <div class="sentry-acknowledgement">
-    <div class="sentry-wordmark-frame">
+    <a
+      class="sentry-wordmark-link"
+      href="https://sentry.io/for/open-source/"
+      target="_blank"
+      rel="noopener noreferrer"
+      :aria-label="t('footer.sentryAcknowledgement.linkLabel')"
+    >
       <img
         class="sentry-wordmark"
         :src="SENTRY_WORDMARK_PATH"
@@ -10,15 +16,10 @@
         loading="lazy"
         decoding="async"
       >
-    </div>
+    </a>
 
     <p class="sentry-acknowledgement-copy">
       {{ t('footer.sentryAcknowledgement.message') }}
-      <a
-        href="https://sentry.io/for/open-source/"
-        target="_blank"
-        rel="noopener noreferrer"
-      >{{ t('footer.sentryAcknowledgement.linkLabel') }}</a>.
     </p>
   </div>
 </template>
@@ -33,57 +34,62 @@ const { t } = useTypedI18n();
 <style scoped>
 .sentry-acknowledgement {
   display: flex;
+  flex: 0 1 auto;
   align-items: center;
-  gap: 1rem;
+  gap: 0.7rem;
   min-width: 0;
   color: var(--landing-muted);
 }
 
-.sentry-wordmark-frame {
-  display: inline-flex;
+/* The wordmark carries the open-source-program link, so the credit holds one
+   line instead of trailing a second link that wrapped on its own. */
+.sentry-wordmark-link {
+  display: block;
   flex: 0 0 auto;
-  align-items: center;
-  padding: 0.4rem 0.55rem;
-  border: 1px solid var(--landing-border);
-  border-radius: 0.45rem;
-  background: #fff;
+  border-radius: 0.3rem;
+}
+
+.sentry-wordmark-link:hover .sentry-wordmark {
+  opacity: 0.72;
+}
+
+.sentry-wordmark-link:focus-visible {
+  outline: 0.15rem solid var(--landing-accent);
+  outline-offset: 0.2rem;
 }
 
 .sentry-wordmark {
   display: block;
-  width: 10rem;
-  max-width: min(40vw, 10rem);
+  width: 5.5rem;
+  max-width: min(34vw, 5.5rem);
   height: auto;
+  transition: opacity 0.15s;
+}
+
+/* The wordmark loads through <img>, so currentColor resolves to black inside
+   its own document and the dark theme cannot tint it. The asset stays
+   untouched; the dark theme puts it on its own light plate instead. */
+html.dark .sentry-wordmark {
+  box-sizing: content-box;
+  padding: 0.3rem 0.4rem;
+  border-radius: 0.4rem;
+  background: #fff;
 }
 
 .sentry-acknowledgement-copy {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   margin: 0;
-  font-size: 0.88rem;
-  line-height: 1.5;
-}
-
-.sentry-acknowledgement-copy a {
-  color: var(--landing-accent);
-  text-decoration: underline;
-  text-underline-offset: 0.18rem;
-}
-
-.sentry-acknowledgement-copy a:focus-visible {
-  outline: 0.15rem solid var(--landing-accent);
-  outline-offset: 0.18rem;
-  border-radius: 0.15rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-wrap: balance;
 }
 
 @media (width <= 40rem) {
   .sentry-acknowledgement {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .sentry-wordmark {
-    max-width: min(100%, 10rem);
+    gap: 0.5rem;
   }
 }
 </style>

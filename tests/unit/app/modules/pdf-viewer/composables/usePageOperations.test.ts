@@ -1,3 +1,4 @@
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     beforeEach,
     describe,
@@ -99,7 +100,7 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 } = {}) {
-    const workingCopyPath = ref<string | null>(path);
+    const workingCopyPath = ref(path === null ? null : requireDocumentRef(path));
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(options.documentRevisionToken ?? null);
     const ensureHistoryBaselineForMutation = options.ensureHistoryBaselineForMutation
         ? vi.fn(options.ensureHistoryBaselineForMutation)
@@ -339,7 +340,7 @@ describe('usePageOperations', () => {
         } = createHarness();
         pageOpsApi.rotate.mockResolvedValueOnce({ success: true });
         reloadWorkingCopyIntoHistory.mockImplementationOnce(async () => {
-            workingCopyPath.value = '/tmp/other.pdf';
+            workingCopyPath.value = requireDocumentRef('/tmp/other.pdf');
             return false;
         });
 
@@ -658,9 +659,9 @@ describe('usePageOperations', () => {
         );
 
         const insertPromise = pageOps.insertFile(5, 2, [
-            'browser://documents/a.pdf',
-            'browser://documents/b.png',
-            'browser://documents/c.pdf',
+            requireDocumentRef('browser://documents/a.pdf'),
+            requireDocumentRef('browser://documents/b.png'),
+            requireDocumentRef('browser://documents/c.pdf'),
         ]);
         await Promise.resolve();
 
@@ -746,7 +747,7 @@ describe('usePageOperations', () => {
                 undefined,
                 { expectedDocumentRevisionToken: requireDocumentRevisionToken('rev-after-save') },
             ],
-            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.insertFile(10, 4, ['browser://documents/source.pdf']),
+            invoke: (pageOps: ReturnType<typeof usePageOperations>) => pageOps.insertFile(10, 4, [requireDocumentRef('browser://documents/source.pdf')]),
             name: 'insert file',
         },
         {

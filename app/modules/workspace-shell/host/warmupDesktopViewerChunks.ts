@@ -125,7 +125,7 @@ export function scheduleDesktopViewerWarmup(
 
     const scheduleIdle = options.scheduleIdle ?? scheduleIdleWork;
     let cancelScheduled: TCancelIdleWork = () => {};
-    let cancelled = false;
+    const lifecycle: { cancelled: boolean } = {cancelled: false};
     let stageRunning = false;
     let settled = false;
     let resolveCompletion: () => void = () => {};
@@ -152,13 +152,13 @@ export function scheduleDesktopViewerWarmup(
     }
 
     function scheduleStagedTarget(index: number) {
-        if (cancelled || index >= ALL_WORKSPACE_VIEWER_CHUNK_TARGETS.length) {
+        if (lifecycle.cancelled || index >= ALL_WORKSPACE_VIEWER_CHUNK_TARGETS.length) {
             resolveOnce();
             return;
         }
 
         cancelScheduled = scheduleIdle(async () => {
-            if (cancelled) {
+            if (lifecycle.cancelled) {
                 resolveOnce();
                 return;
             }
@@ -172,7 +172,7 @@ export function scheduleDesktopViewerWarmup(
                     });
                 }
                 stageRunning = false;
-                if (cancelled) {
+                if (lifecycle.cancelled.valueOf()) {
                     resolveOnce();
                     return;
                 }
@@ -186,7 +186,7 @@ export function scheduleDesktopViewerWarmup(
 
     if (options.strategy === 'eager') {
         cancelScheduled = scheduleIdle(async () => {
-            if (cancelled) {
+            if (lifecycle.cancelled) {
                 resolveOnce();
                 return;
             }
@@ -207,10 +207,10 @@ export function scheduleDesktopViewerWarmup(
     return {
         completion,
         cancel: () => {
-            if (settled || cancelled) {
+            if (settled || lifecycle.cancelled) {
                 return;
             }
-            cancelled = true;
+            lifecycle.cancelled = true;
             cancelScheduled();
             if (!stageRunning) {
                 resolveOnce();

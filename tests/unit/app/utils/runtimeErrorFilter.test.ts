@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import {cast} from '@tests/helpers/cast';
+import {requireIsoTimestamp} from '@contracts/timestamps';
 import {
     createDebugLogRuntimeErrorReport,
     createDebugLogRuntimeErrorPresentation,
@@ -21,7 +22,7 @@ function legacyDebugLogEntry(
     return cast<IDebugLogEntry>({
         source,
         message: level === undefined ? message : `[${level}] ${message}`,
-        timestamp: '2026-08-23T08:57:36.046Z',
+        timestamp: requireIsoTimestamp('2026-08-23T08:57:36.046Z'),
         ...(level === undefined ? {} : {level}),
     });
 }
@@ -95,7 +96,7 @@ describe('runtime error filter', () => {
         const entry: IDebugLogEntry = {
             source: 'main',
             message: '[ERROR] Main failure',
-            timestamp: '2026-08-23T08:57:36.046Z',
+            timestamp: requireIsoTimestamp('2026-08-23T08:57:36.046Z'),
             level: 'ERROR',
             failureRef: {
                 eventId: 'c'.repeat(32) as never,

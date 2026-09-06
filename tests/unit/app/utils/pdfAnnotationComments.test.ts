@@ -9,6 +9,7 @@ import {
     matchesCommentQuery,
     splitByQueryMatches,
 } from '@app/utils/pdfAnnotationComments';
+import {requireEpochMs} from '@contracts/timestamps';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
@@ -20,7 +21,7 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
         kindLabel: 'Inline Note',
         subtype: 'Text',
         author: null,
-        modifiedAt: 1700000000000,
+        modifiedAt: requireEpochMs(1700000000000),
         color: null,
         uid: null,
         annotationId: null,

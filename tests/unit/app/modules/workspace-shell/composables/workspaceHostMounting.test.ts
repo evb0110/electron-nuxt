@@ -26,6 +26,7 @@ import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
 } from '@app/types/workspaceExpose';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 function createRecordingViewerChunkLoaders(loadedChunks: string[]) {
     const record = (target: TWorkspaceViewerChunkTarget) => () => {
@@ -84,7 +85,7 @@ describe('tabHasDocumentHint', () => {
     it('returns true when original path exists', () => {
         expect(tabHasDocumentHint({
             fileName: null,
-            originalPath: '/docs/invoice.pdf',
+            originalPath: requireDocumentRef('/docs/invoice.pdf'),
             isDjvu: false,
         })).toBe(true);
     });

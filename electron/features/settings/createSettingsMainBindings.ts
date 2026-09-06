@@ -36,7 +36,7 @@ async function applySettingsSavePatch(
     settingsPayload: TSettingsSavePatch,
     shutdownAssistant: () => Promise<void>,
 ) {
-    let shouldShutdownAssistant = false;
+    let shouldShutdownAssistant = false as boolean;
     const savedSettings = await updateSettings((currentSettings: ISettingsData) => {
         const incoming = sanitizeSettings({
             ...currentSettings,

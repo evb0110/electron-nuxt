@@ -1,5 +1,6 @@
 import {open} from 'node:fs/promises';
 import type {FileHandle} from 'node:fs/promises';
+import { getErrorMessage } from '@electron/utils/error';
 import type {
     IDocumentRevisionStamp,
     TDocumentRevisionToken,
@@ -126,7 +127,7 @@ class JsonStreamReader {
     }
 
     async skipWhitespace(): Promise<void> {
-        while (true) {
+        for (;;) {
             const character = await this.peek();
             if (character === null || !/\s/u.test(character)) {
                 return;
@@ -139,7 +140,7 @@ class JsonStreamReader {
         await this.skipWhitespace();
         await this.expect('"');
         let encoded = '"';
-        while (true) {
+        for (;;) {
             const character = await this.next();
             if (character === null) {
                 fail('unterminated JSON string');
@@ -190,7 +191,7 @@ class JsonStreamReader {
     async readNumber(): Promise<number> {
         await this.skipWhitespace();
         let token = '';
-        while (true) {
+        for (;;) {
             const character = await this.peek();
             if (character === null || /[\s,}\]]/u.test(character)) {
                 break;
@@ -242,7 +243,7 @@ class JsonStreamReader {
                 await this.next();
                 return;
             }
-            while (true) {
+            for (;;) {
                 await this.readString();
                 await this.skipWhitespace();
                 await this.expect(':');
@@ -264,7 +265,7 @@ class JsonStreamReader {
                 await this.next();
                 return;
             }
-            while (true) {
+            for (;;) {
                 await this.skipValue(depth + 1);
                 await this.skipWhitespace();
                 const delimiter = await this.next();
@@ -330,7 +331,7 @@ async function readRevision(reader: JsonStreamReader): Promise<IDocumentRevision
         await reader.next();
         return undefined;
     }
-    while (true) {
+    for (;;) {
         const key = await reader.readString();
         await reader.skipWhitespace();
         await reader.expect(':');
@@ -370,7 +371,7 @@ async function readSource(reader: JsonStreamReader): Promise<string | undefined>
         await reader.next();
         return undefined;
     }
-    while (true) {
+    for (;;) {
         const key = await reader.readString();
         await reader.skipWhitespace();
         await reader.expect(':');
@@ -412,7 +413,7 @@ async function readOcr(reader: JsonStreamReader): Promise<Pick<IRootFields, 'ocr
         await reader.next();
         return {};
     }
-    while (true) {
+    for (;;) {
         const key = await reader.readString();
         await reader.skipWhitespace();
         await reader.expect(':');
@@ -441,7 +442,7 @@ async function readOcr(reader: JsonStreamReader): Promise<Pick<IRootFields, 'ocr
                 let validLanguages = true;
                 await reader.skipWhitespace();
                 if (await reader.peek() !== ']') {
-                    while (true) {
+                    for (;;) {
                         await reader.skipWhitespace();
                         if (await reader.peek() !== '"') {
                             await reader.skipValue();
@@ -499,7 +500,7 @@ async function readPageMapping(reader: JsonStreamReader): Promise<{
         await reader.next();
         return {};
     }
-    while (true) {
+    for (;;) {
         const key = await reader.readString();
         await reader.skipWhitespace();
         await reader.expect(':');
@@ -543,7 +544,7 @@ async function readPages(
         await reader.next();
         return;
     }
-    while (true) {
+    for (;;) {
         const rawPageNumber = await reader.readString();
         const pageNumber = Number(rawPageNumber);
         const validPageNumber = isSafePositiveInteger(pageNumber)
@@ -643,7 +644,7 @@ async function parseManifestStream(
             await reader.next();
             return null;
         }
-        while (true) {
+        for (;;) {
             const key = await reader.readString();
             await reader.skipWhitespace();
             await reader.expect(':');
@@ -753,7 +754,7 @@ export async function* iterateOcrIndexV3ManifestMappings(
     const capacity = 256;
     let producerMetadata: IOcrIndexV3ManifestStreamMetadata | null = null;
     let producerError: unknown;
-    let producerFinished = false;
+    let producerFinished = false as boolean;
     const enqueue = async (item: IQueueItem): Promise<void> => {
         while (queue.length >= capacity) {
             await new Promise<void>(resolve => waiters.push(resolve));
@@ -789,7 +790,7 @@ export async function* iterateOcrIndexV3ManifestMappings(
             if (producerError instanceof Error) {
                 throw producerError;
             }
-            throw new OcrIndexV3ManifestStreamError(String(producerError));
+            throw new OcrIndexV3ManifestStreamError(getErrorMessage(producerError));
         }
         return producerMetadata;
     } finally {

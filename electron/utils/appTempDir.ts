@@ -43,7 +43,7 @@ function getAppTempNamespace() {
         return configuredNamespace;
     }
 
-    const userDataPath = (electron as {app?: Pick<App, 'getPath'>}).app?.getPath('userData')?.trim();
+    const userDataPath = (electron as {app?: Pick<App, 'getPath'>}).app?.getPath('userData').trim();
     if (userDataPath) {
         return createAppTempNamespace(userDataPath);
     }

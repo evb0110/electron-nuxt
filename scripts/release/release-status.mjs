@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {
@@ -16,6 +17,7 @@ import {
 } from './shared.mjs';
 
 const MIRROR_CHANNEL_KEY = 'evb-viewer/channels/stable.json';
+/** @type {ReadonlyArray<{arch: string, label: string, platform: NodeJS.Platform}>} */
 const CORE_TARGETS = [
     {
         arch: 'arm64',
@@ -39,6 +41,20 @@ const CORE_TARGETS = [
     },
 ];
 
+/** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
+/** @typedef {{exists: boolean, error: string | null}} ITagState */
+/** @typedef {{assets: string[], error: string | null, exists: boolean, isDraft: boolean, publishedAt: string | null, tagName: string}} IReleaseState */
+/** @typedef {{label: string, pattern: RegExp}} IAssetRequirement */
+/** @typedef {{complete: boolean, expected: string[], missing: string[], present: string[]}} IAssetSummary */
+/** @typedef {{conclusion: string | null, createdAt: string | null, error: string | null, found: boolean, status: string, url: string}} IWorkflowSummary */
+/** @typedef {{checked: boolean, error: string | null, matchesTag: boolean | null, tag: string | null}} IMirrorSummary */
+/** @typedef {{databaseId?: number, displayTitle?: unknown, eventPayload?: {inputs?: {tag?: unknown}}, inputs?: {tag?: unknown}, name?: unknown, workflowName?: unknown, createdAt?: string, conclusion?: string | null, status?: string, url?: string}} IWorkflowStatusRun */
+/** @typedef {{tag: string, runCommand: TCommandRunner}} ITagCommandOptions */
+/** @typedef {{env?: NodeJS.ProcessEnv, getLocalReleaseTargetsFn?: typeof getLocalReleaseTargets, getRequiredArtifactPatternsFn?: typeof getRequiredArtifactPatterns, getSupplementalReleaseAssetNamesFn?: typeof getSupplementalReleaseAssetNames, listWorkflowRunsFn?: typeof listWorkflowRuns, readMirrorChannelFn?: (options: {env: NodeJS.ProcessEnv, runCommand: TCommandRunner}) => {checked: boolean, error: string | null, tag: string | null}, readReleaseStateFn?: (tag: string, runCommand: TCommandRunner) => IReleaseState, readTagStateFn?: (tag: string, runCommand: TCommandRunner) => ITagState, runCommand?: TCommandRunner}} IReleaseStatusDependencies */
+/** @typedef {{assets: string[], checksumManifestPresent: boolean, core: IAssetSummary, coreComplete: boolean, isDraft: boolean | null, isPublic: boolean, mirror: IMirrorSummary, publishedAt: string | null, releaseExists: boolean, releaseError: string | null, releaseTag: string, supplemental: IAssetSummary, supplementalComplete: boolean, tag: string, tagError: string | null, tagExists: boolean, workflows: {release: IWorkflowSummary, supplemental: IWorkflowSummary}}} IReleaseStatus */
+
+/** @param {unknown} error @returns {boolean} */
+
 function isNotFoundError(error) {
     const status = getExitStatus(error);
     const message = errorMessage(error);
@@ -49,6 +65,7 @@ function isNotFoundError(error) {
     );
 }
 
+/** @param {string} tag @param {TCommandRunner} runCommand @returns {ITagState} */
 function readTagState(tag, runCommand) {
     try {
         runCommand('gh', [
@@ -76,6 +93,7 @@ function readTagState(tag, runCommand) {
     }
 }
 
+/** @param {string} tag @param {TCommandRunner} runCommand @returns {IReleaseState} */
 function readReleaseState(tag, runCommand) {
     try {
         const payload = runCommand('gh', [
@@ -85,11 +103,10 @@ function readReleaseState(tag, runCommand) {
             '--json',
             'isDraft,publishedAt,assets,tagName',
         ]);
+        /** @type {{assets?: Array<{name?: unknown}>, isDraft?: unknown, publishedAt?: unknown, tagName?: unknown}} */
         const release = JSON.parse(payload);
         const assets = Array.isArray(release.assets)
-            ? release.assets
-                .map(asset => asset?.name)
-                .filter(name => typeof name === 'string')
+            ? release.assets.flatMap(asset => typeof asset.name === 'string' ? [asset.name] : [])
             : [];
 
         return {
@@ -123,10 +140,12 @@ function readReleaseState(tag, runCommand) {
     }
 }
 
+/** @param {RegExp | string} pattern @returns {string} */
 function patternText(pattern) {
     return pattern instanceof RegExp ? pattern.toString() : String(pattern);
 }
 
+/** @param {{env: NodeJS.ProcessEnv, getLocalReleaseTargetsFn: typeof getLocalReleaseTargets, getRequiredArtifactPatternsFn: typeof getRequiredArtifactPatterns}} options @returns {IAssetRequirement[]} */
 function getCoreAssetRequirements({
     env,
     getLocalReleaseTargetsFn,
@@ -157,6 +176,7 @@ function getCoreAssetRequirements({
     ));
 }
 
+/** @param {string[]} assetNames @param {IAssetRequirement[]} requirements @param {string[]} supplementalNames @returns {IAssetSummary} */
 function summarizeCoreAssets(assetNames, requirements, supplementalNames) {
     const coreAssetNames = assetNames.filter(name => !supplementalNames.includes(name));
     const present = requirements
@@ -174,6 +194,7 @@ function summarizeCoreAssets(assetNames, requirements, supplementalNames) {
     };
 }
 
+/** @param {string[]} assetNames @param {string[]} expectedNames @returns {IAssetSummary} */
 function summarizeSupplementalAssets(assetNames, expectedNames) {
     const present = expectedNames.filter(name => assetNames.includes(name));
 
@@ -185,6 +206,7 @@ function summarizeSupplementalAssets(assetNames, expectedNames) {
     };
 }
 
+/** @param {IWorkflowStatusRun | null | undefined} runInfo @param {string} tag @returns {boolean} */
 function runMatchesTag(runInfo, tag) {
     const values = [
         runInfo?.displayTitle,
@@ -206,6 +228,7 @@ function runMatchesTag(runInfo, tag) {
     });
 }
 
+/** @param {string} tag @param {string} workflow @param {typeof listWorkflowRuns} listWorkflowRunsFn @param {TCommandRunner} runCommand @returns {IWorkflowSummary} */
 function latestWorkflowRun(tag, workflow, listWorkflowRunsFn, runCommand) {
     let runs;
     try {
@@ -221,23 +244,29 @@ function latestWorkflowRun(tag, workflow, listWorkflowRunsFn, runCommand) {
         };
     }
 
+    /** @type {IWorkflowStatusRun[]} */
     const matchingRuns = (Array.isArray(runs) ? runs : [])
         .filter(runInfo => runMatchesTag(runInfo, tag));
-    const latest = matchingRuns.reduce((current, candidate) => {
-        if (!current) {
-            return candidate;
+    let latest = null;
+    for (const candidate of matchingRuns) {
+        if (!latest) {
+            latest = candidate;
+            continue;
         }
 
-        const currentTime = Date.parse(String(current.createdAt ?? ''));
+        const currentTime = Date.parse(String(latest.createdAt ?? ''));
         const candidateTime = Date.parse(String(candidate.createdAt ?? ''));
         if (candidateTime !== currentTime) {
-            return candidateTime > currentTime ? candidate : current;
+            if (candidateTime > currentTime) {
+                latest = candidate;
+            }
+            continue;
         }
 
-        return Number(candidate.databaseId ?? 0) > Number(current.databaseId ?? 0)
-            ? candidate
-            : current;
-    }, null);
+        if (Number(candidate.databaseId ?? 0) > Number(latest.databaseId ?? 0)) {
+            latest = candidate;
+        }
+    }
 
     if (!latest) {
         return {
@@ -260,6 +289,7 @@ function latestWorkflowRun(tag, workflow, listWorkflowRunsFn, runCommand) {
     };
 }
 
+/** @param {NodeJS.ProcessEnv} env @returns {boolean} */
 function mirrorIsConfigured(env) {
     return [
         'MIRROR_S3_ENDPOINT',
@@ -269,6 +299,7 @@ function mirrorIsConfigured(env) {
     ].every(name => typeof env[name] === 'string' && env[name].trim() !== '');
 }
 
+/** @param {{env: NodeJS.ProcessEnv, runCommand: TCommandRunner}} options @returns {{checked: true, error: null, tag: string | null}} */
 function readMirrorChannel({
     env,
     runCommand,
@@ -279,13 +310,13 @@ function readMirrorChannel({
         `s3://${env.MIRROR_S3_BUCKET}/${MIRROR_CHANNEL_KEY}`,
         '-',
         '--endpoint-url',
-        env.MIRROR_S3_ENDPOINT,
+        env.MIRROR_S3_ENDPOINT ?? '',
         '--region',
         env.MIRROR_S3_REGION || 'ru-central1',
     ], {env: {
         ...env,
-        AWS_ACCESS_KEY_ID: env.MIRROR_S3_ACCESS_KEY_ID,
-        AWS_SECRET_ACCESS_KEY: env.MIRROR_S3_SECRET_KEY,
+        AWS_ACCESS_KEY_ID: env.MIRROR_S3_ACCESS_KEY_ID ?? '',
+        AWS_SECRET_ACCESS_KEY: env.MIRROR_S3_SECRET_KEY ?? '',
     }});
     const channel = JSON.parse(payload);
     const tag = channel.release?.tag ?? channel.tag ?? null;
@@ -297,6 +328,7 @@ function readMirrorChannel({
     };
 }
 
+/** @param {string} tag @param {NodeJS.ProcessEnv} env @param {TCommandRunner} runCommand @param {(options: {env: NodeJS.ProcessEnv, runCommand: TCommandRunner}) => {checked: boolean, error: string | null, tag: string | null}} readMirrorChannelFn @returns {IMirrorSummary} */
 function summarizeMirror(tag, env, runCommand, readMirrorChannelFn) {
     if (!mirrorIsConfigured(env)) {
         return {
@@ -328,6 +360,7 @@ function summarizeMirror(tag, env, runCommand, readMirrorChannelFn) {
     }
 }
 
+/** @param {string} tag @param {IReleaseStatusDependencies} [deps] @returns {IReleaseStatus} */
 export function summarizeReleaseStatus(tag, deps = {}) {
     if (!RELEASE_TAG_PATTERN.test(tag)) {
         throw new Error(`Expected a release tag such as v1.2.3, received "${tag}"`);
@@ -366,7 +399,7 @@ export function summarizeReleaseStatus(tag, deps = {}) {
         && isPublic
         && core.complete
         && checksumManifestPresent
-        && (!mirror.checked || mirror.matchesTag);
+        && (!mirror.checked || mirror.matchesTag === true);
     const workflows = {
         release: latestWorkflowRun(tag, 'release.yml', listWorkflowRunsFn, runCommand),
         supplemental: latestWorkflowRun(
@@ -397,6 +430,7 @@ export function summarizeReleaseStatus(tag, deps = {}) {
     };
 }
 
+/** @param {string} label @param {IWorkflowSummary} workflow @returns {string} */
 function formatWorkflow(label, workflow) {
     if (!workflow.found) {
         const detail = workflow.error ? `, ${workflow.error}` : '';
@@ -407,6 +441,7 @@ function formatWorkflow(label, workflow) {
     return `${label}: ${workflow.status}${conclusion}, ${workflow.url || 'no URL'}`;
 }
 
+/** @param {IReleaseStatus} status @returns {string} */
 export function formatReleaseStatus(status) {
     const releaseState = !status.releaseExists
         ? status.releaseError ? `unavailable (${status.releaseError})` : 'missing'
@@ -464,7 +499,7 @@ const isDirectCliRun = process.argv[1]
 
 if (isDirectCliRun) {
     main().catch((error) => {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.stderr.write(`${getCliErrorMessage(error)}\n`);
         process.exit(1);
     });
 }

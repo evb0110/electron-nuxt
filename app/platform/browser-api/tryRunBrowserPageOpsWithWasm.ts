@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     IBrowserPdfCombineCatalog,
     IBrowserPdfConformanceFacts,
@@ -196,12 +197,7 @@ function canUsePdfPageOpsWasm() {
 }
 
 function resolveWasmUrl() {
-    const location = globalThis.location;
-    if (!location) {
-        return WASM_PATH;
-    }
-
-    return new URL(WASM_PATH, location.href).toString();
+    return new URL(WASM_PATH, globalThis.location.href).toString();
 }
 
 async function loadPdfPageOpsWasm() {
@@ -314,10 +310,22 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
 
 function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
     switch (request.type) {
+        case 'deletePages':
+        case 'extractPages':
+        case 'reorderPages':
+        case 'insertPages':
+        case 'rotate':
+        case 'crop':
+        case 'removeCrop':
+        case 'getPageGeometry':
+        case 'decrypt':
+        case 'parseAnnotations':
+        case 'saveMutations':
+        case 'readCatalog':
+        case 'conformance':
+            return request.payload.data;
         case 'mergePages':
             return new Uint8Array();
-        default:
-            return request.payload.data;
     }
 }
 
@@ -378,7 +386,17 @@ function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | nu
             return [request.payload.data];
         case 'mergePages':
             return request.payload.documents;
-        default:
+        case 'deletePages':
+        case 'extractPages':
+        case 'reorderPages':
+        case 'insertPages':
+        case 'rotate':
+        case 'crop':
+        case 'removeCrop':
+        case 'getPageGeometry':
+        case 'decrypt':
+        case 'parseAnnotations':
+        case 'saveMutations':
             return null;
     }
 }
@@ -796,7 +814,7 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
     } catch (error) {
         return createWasmFailure(
             'invalid-request',
-            error instanceof Error ? error.message : 'Page operation WASM request failed',
+            error instanceof Error ? getErrorMessage(error) : 'Page operation WASM request failed',
         );
     } finally {
         if (request !== null && passwordLength > 0) {

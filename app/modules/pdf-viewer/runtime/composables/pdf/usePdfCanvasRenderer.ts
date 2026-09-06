@@ -1,4 +1,5 @@
 import type { ICancelableRenderTask } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPdfPageRenderContentIntent } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
@@ -221,7 +222,7 @@ export const usePdfCanvasRenderer = (deps: {
         ) {
             return {
                 annotationCanvasMap: null,
-                annotationMode: AnnotationMode?.DISABLE ?? 0,
+                annotationMode: AnnotationMode.DISABLE,
                 operationsFilter: undefined,
             };
         }
@@ -233,7 +234,7 @@ export const usePdfCanvasRenderer = (deps: {
             };
         }
         const annotationCanvasMap = new Map<string, HTMLCanvasElement>();
-        const annotationMode = AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1;
+        const annotationMode = AnnotationMode.ENABLE_FORMS;
         const operationsFilter = await createHiddenAnnotationOperationsFilter(
             pdfPage,
             annotationMode,
@@ -299,7 +300,7 @@ export const usePdfCanvasRenderer = (deps: {
         const annotationOptions = await withPageStageTimeout(
             createAnnotationRenderOptions(pdfPage, options),
             {
-                pageNumber: pdfPage.pageNumber,
+                pageNumber: requirePageNumber(pdfPage.pageNumber),
                 stage: 'canvas-prepare',
                 timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
             },

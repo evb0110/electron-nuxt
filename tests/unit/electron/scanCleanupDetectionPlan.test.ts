@@ -11,6 +11,7 @@ import {
     resolvePreviewRasterPlan,
 } from '@scan-cleanup-core/detection';
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     INativeScanCleanupPageMetadataV3,
     INativeScanCleanupSplitDiagnosticsV3,
@@ -39,7 +40,7 @@ function cropPage(
 
 function retryResult(overrides: Partial<IScanCleanupDetectionResult> = {}): IScanCleanupDetectionResult {
     return {
-        pageNumber: 1,
+        pageNumber: requirePageNumber(1),
         classification: 'single-uncut-page',
         confidence: 0.1,
         cutterXPx: null,

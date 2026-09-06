@@ -1,6 +1,5 @@
 import { app } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
-import { randomUUID } from 'node:crypto';
 import {
     dirname,
     join,
@@ -31,6 +30,10 @@ import {
     SearchIpcError,
 } from '@electron/features/search/main/searchErrors';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    createRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import type { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { createLogger } from '@electron/utils/createLogger';
@@ -235,8 +238,8 @@ function cancelPendingSearchRequestsForPdfPath(pdfPath: string, reason: string) 
     return canceledCount;
 }
 
-function resolveSearchRequestId(requestId: string | undefined, prefix: string) {
-    return requestId ?? `${prefix}-${randomUUID()}`;
+function resolveSearchRequestId(requestId: TRequestId | undefined, prefix: string): TRequestId {
+    return requestId ?? createRequestId(prefix);
 }
 
 function canceledSearchResponse(): ISearchResponse {

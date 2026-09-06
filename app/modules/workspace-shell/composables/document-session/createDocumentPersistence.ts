@@ -3,6 +3,8 @@ import type { IPdfPersistResult } from '@app/types/pdfUi';
 import type { TTranslateFn } from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TPdfDateString } from '@contracts/pdfDateString';
+import type { TRequestId } from '@contracts/shared';
 import type {
     IPdfNativeAnnotationIdentityBinding,
     IPdfNativeAnnotationDelete,
@@ -297,7 +299,7 @@ export function createDocumentPersistence(
             if (isStaleRevisionError(e)) {
                 throw e;
             }
-            state.error.value = e instanceof Error ? e.message : deps.t('errors.file.save');
+            state.error.value = e instanceof Error ? getErrorMessage(e) : deps.t('errors.file.save');
             return createFailedPersistResult(saveMode, didSaveAs);
         }
     }
@@ -596,7 +598,7 @@ export function createDocumentPersistence(
 
     async function optimizeWorkingCopyAsCopy(
         options: IPdfOptimizeOptions,
-        requestId?: string,
+        requestId?: TRequestId,
         opts?: {
             saveMode?: TPdfSaveMode;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
@@ -702,7 +704,7 @@ export function createDocumentPersistence(
             preserveLoadedSource?: boolean;
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
-            modifiedAt: string;
+            modifiedAt: TPdfDateString;
             verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
             assertBeforeExpose?: () => Promise<void> | void;
             geometryUpdates?: IPdfNoteGeometryUpdate[];
@@ -729,7 +731,7 @@ export function createDocumentPersistence(
             preserveLoadedSource?: boolean;
             expectedWorkingPath?: TDocumentRef | null;
             expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
-            modifiedAt: string;
+            modifiedAt: TPdfDateString;
             verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
             assertBeforeExpose?: () => Promise<void> | void;
         },
@@ -766,8 +768,10 @@ export function createDocumentPersistence(
             BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', {reason: 'empty-mutation-set'});
             return null;
         }
-        const canUseGenericNativeMutations = typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function'
-            && typeof documentFiles.commitStagedPdfNativeMutations === 'function';
+        const applyPdfNativeMutationsToWorkingCopy = documentFiles.applyPdfNativeMutationsToWorkingCopy;
+        const commitStagedPdfNativeMutations = documentFiles.commitStagedPdfNativeMutations;
+        const canUseGenericNativeMutations = typeof applyPdfNativeMutationsToWorkingCopy === 'function'
+            && typeof commitStagedPdfNativeMutations === 'function';
         const canUseLegacyNativeNoteText = (
             !hasPageLabels
             && !hasBookmarks
@@ -798,8 +802,8 @@ export function createDocumentPersistence(
         if (!canUseGenericNativeMutations && !canUseLegacyNativeNoteText && !canUseLegacyNativeNoteChanges) {
             BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', () => ({
                 reason: 'native-document-capability-unavailable',
-                hasGenericApply: typeof documentFiles.applyPdfNativeMutationsToWorkingCopy === 'function',
-                hasGenericCommit: typeof documentFiles.commitStagedPdfNativeMutations === 'function',
+                hasGenericApply: typeof applyPdfNativeMutationsToWorkingCopy === 'function',
+                hasGenericCommit: typeof commitStagedPdfNativeMutations === 'function',
                 hasLegacyNoteText: typeof documentFiles.savePdfNoteTextUpdates === 'function',
                 hasLegacyNoteChanges: typeof documentFiles.savePdfNoteChanges === 'function',
                 updateCount: updates.length,
@@ -866,7 +870,11 @@ export function createDocumentPersistence(
                 phaseTimings,
                 'native-ipc',
                 async () => {
-                    if (canUseGenericNativeMutations) {
+                    if (
+                        canUseGenericNativeMutations
+                        && typeof applyPdfNativeMutationsToWorkingCopy === 'function'
+                        && typeof commitStagedPdfNativeMutations === 'function'
+                    ) {
                         const revisionOptions = createDocumentMutationRevisionOptions(expectedDocumentRevisionToken);
                         if (!revisionOptions) {
                             throw new NativeMutationPreExposeError(
@@ -876,7 +884,7 @@ export function createDocumentPersistence(
                         const applied = await measurePdfPersistPhase(
                             phaseTimings,
                             'native-apply',
-                            () => documentFiles.applyPdfNativeMutationsToWorkingCopy!(
+                            () => applyPdfNativeMutationsToWorkingCopy(
                                 workingPath,
                                 mutations,
                                 opts.modifiedAt,
@@ -886,9 +894,12 @@ export function createDocumentPersistence(
                         if (!applied.applied || !applied.validation?.isValid) {
                             return applied;
                         }
-                        if (!applied.stagedOutput) {
+                        const stagedOutput = applied.stagedOutput;
+                        if (!stagedOutput) {
                             throw new NativeMutationPreExposeError('Native mutation did not return an immutable staged output');
                         }
+                        const verifyPathBeforeExpose = opts.verifyPathBeforeExpose;
+                        const assertBeforeExpose = opts.assertBeforeExpose;
                         let appliedIdentityBindings: IPdfNativeAnnotationIdentityBinding[];
                         try {
                             appliedIdentityBindings = validateNativeIdentityBindings(
@@ -902,32 +913,32 @@ export function createDocumentPersistence(
                             // seconds of visible save latency. Older/native-adjacent callers
                             // without the explicit proof retain the renderer verification.
                             if (
-                                opts.verifyPathBeforeExpose
+                                verifyPathBeforeExpose
                                 && applied.nativeMutationPostconditionsVerified !== true
                             ) {
                                 await measurePdfPersistPhase(
                                     phaseTimings,
                                     'native-verify-staged-path',
-                                    () => opts.verifyPathBeforeExpose!(
-                                        applied.stagedOutput!.path,
-                                        applied.stagedOutput!.size,
+                                    () => verifyPathBeforeExpose(
+                                        stagedOutput.path,
+                                        stagedOutput.size,
                                     ),
                                 );
                             }
-                            if (opts.assertBeforeExpose) {
+                            if (assertBeforeExpose) {
                                 await measurePdfPersistPhase(
                                     phaseTimings,
                                     'native-assert-current',
-                                    async () => opts.assertBeforeExpose!(),
+                                    async () => assertBeforeExpose(),
                                 );
                             }
                             await measurePdfPersistPhase(
                                 phaseTimings,
                                 'native-publish-automation',
-                                () => publishStagedPdfNativeMutationForAutomation(applied.stagedOutput!),
+                                () => publishStagedPdfNativeMutationForAutomation(stagedOutput),
                             );
                         } catch (error) {
-                            await documentFiles.releaseManagedTempFileHandle?.(applied.stagedOutput.leaseId);
+                            await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
                             throw new NativeMutationPreExposeError(getErrorMessage(error));
                         }
                         let committed: IPdfNativeSaveResult;
@@ -935,9 +946,9 @@ export function createDocumentPersistence(
                             committed = await measurePdfPersistPhase(
                                 phaseTimings,
                                 'native-commit',
-                                () => documentFiles.commitStagedPdfNativeMutations!(
+                                () => commitStagedPdfNativeMutations(
                                     workingPath,
-                                    applied.stagedOutput!,
+                                    stagedOutput,
                                     createNativeStagedCommitOptions(
                                         expectedDocumentRevisionToken,
                                         mutations,
@@ -961,20 +972,23 @@ export function createDocumentPersistence(
                         }
                         return committed;
                     }
-                    if (canUseLegacyNativeNoteChanges) {
-                        return documentFiles.savePdfNoteChanges!(workingPath, {
+                    if (canUseLegacyNativeNoteChanges && typeof documentFiles.savePdfNoteChanges === 'function') {
+                        return documentFiles.savePdfNoteChanges(workingPath, {
                             ...(updates.length > 0 ? {updates} : {}),
                             ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
                             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
                             ...(deletes.length > 0 ? {deletes} : {}),
                         }, opts.modifiedAt, createDocumentMutationRevisionOptions(expectedDocumentRevisionToken));
                     }
-                    return documentFiles.savePdfNoteTextUpdates!(
-                        workingPath,
-                        updates,
-                        opts.modifiedAt,
-                        createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
-                    );
+                    if (canUseLegacyNativeNoteText && typeof documentFiles.savePdfNoteTextUpdates === 'function') {
+                        return documentFiles.savePdfNoteTextUpdates(
+                            workingPath,
+                            updates,
+                            opts.modifiedAt,
+                            createDocumentMutationRevisionOptions(expectedDocumentRevisionToken),
+                        );
+                    }
+                    throw new Error('No native PDF mutation strategy is available for this document');
                 },
             );
             if (!result.applied || !result.validation?.isValid) {

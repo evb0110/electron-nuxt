@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {
     readdir,
     rm,
@@ -145,7 +146,7 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
             ? error
             : new OcrStorageBudgetError(
                 'OCR_STORAGE_RESERVE_EXHAUSTED',
-                `OCR stopped because filesystem capacity could not be verified or allocated: ${error instanceof Error ? error.message : String(error)}`,
+                `OCR stopped because filesystem capacity could not be verified or allocated: ${getErrorMessage(error)}`,
             );
         violation ??= normalized;
         if (!options.abortController.signal.aborted) {

@@ -9,6 +9,9 @@ import {
 } from 'node:path';
 import {pathToFileURL} from 'node:url';
 
+/** @typedef {(args: string[], options?: object) => string} TReadelf */
+
+/** @param {string} left @param {string} right */
 export function compareNumericVersions(left, right) {
     const leftParts = left.split('.').map(Number);
     const rightParts = right.split('.').map(Number);
@@ -21,11 +24,14 @@ export function compareNumericVersions(left, right) {
     return 0;
 }
 
+/** @param {string} versionInfo */
 export function extractRequiredGlibcVersions(versionInfo) {
-    return [...new Set([...versionInfo.matchAll(/\bGLIBC_(\d+(?:\.\d+)+)\b/gu)].map(match => match[1]))]
+    return [...new Set([...versionInfo.matchAll(/\bGLIBC_(\d+(?:\.\d+)+)\b/gu)]
+        .flatMap(match => match[1] === undefined ? [] : [match[1]]))]
         .sort(compareNumericVersions);
 }
 
+/** @param {string} directory @returns {Promise<string[]>} */
 async function collectFiles(directory) {
     const files = [];
     for (const entry of await readdir(directory, {withFileTypes: true})) {
@@ -39,6 +45,7 @@ async function collectFiles(directory) {
     return files;
 }
 
+/** @param {string} filePath */
 async function isElfFile(filePath) {
     const handle = await open(filePath, 'r');
     try {
@@ -54,12 +61,18 @@ async function isElfFile(filePath) {
     }
 }
 
+/**
+ * @param {string} rootDirectory
+ * @param {string} maximumVersion
+ * @param {{runReadelf?: TReadelf}} [options]
+ */
 export async function assertLinuxGlibcBaseline(
     rootDirectory,
     maximumVersion,
-    {runReadelf = (args, options) => execFileSync('readelf', args, options)} = {},
+    {runReadelf = (args, options) => String(execFileSync('readelf', args, options))} = {},
 ) {
     runReadelf(['--version'], {stdio: 'ignore'});
+    /** @type {string[]} */
     const failures = [];
     let elfFileCount = 0;
     for (const filePath of await collectFiles(resolve(rootDirectory))) {
@@ -82,7 +95,10 @@ export async function assertLinuxGlibcBaseline(
                 ],
             });
         } catch (error) {
-            const stderr = typeof error?.stderr === 'string'
+            const stderr = error
+                && typeof error === 'object'
+                && 'stderr' in error
+                && typeof error.stderr === 'string'
                 ? error.stderr.trim()
                 : '';
             throw new Error(
@@ -111,7 +127,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         rootDirectory,
         maximumVersion,
     ] = process.argv.slice(2);
-    if (!rootDirectory || !/^\d+(?:\.\d+)+$/u.test(maximumVersion ?? '')) {
+    if (!rootDirectory || maximumVersion === undefined || !/^\d+(?:\.\d+)+$/u.test(maximumVersion)) {
         throw new Error('Usage: assert-linux-glibc-baseline.mjs <package-root> <maximum-version>');
     }
     const result = await assertLinuxGlibcBaseline(rootDirectory, maximumVersion);

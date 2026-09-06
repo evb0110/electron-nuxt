@@ -123,7 +123,7 @@ export function resolveTextAnchorRect(
                     searchOptions: target.searchOptions,
                 });
         const rects = range
-            ? Array.from(range.getClientRects?.() ?? []).filter(rect => rect.width > 0 || rect.height > 0)
+            ? Array.from(range.getClientRects()).filter(rect => rect.width > 0 || rect.height > 0)
             : [];
         const rect = rects.length > 0
             ? {
@@ -190,7 +190,7 @@ export function isPdfNavigationReady(
     const pageElement = container.querySelector<HTMLElement>(`.page_container[data-page="${page}"]`);
     if (readiness === 'text-layer') {
         const textLayer = pageElement?.querySelector<HTMLElement>('.text-layer, .textLayer');
-        return textLayer?.dataset?.pdfTextLayerReady === 'true';
+        return textLayer?.dataset.pdfTextLayerReady === 'true';
     }
     return Boolean(pageElement?.querySelector(
         '.pdf-annotation-editor-layer, .annotation-editor-layer, .annotationEditorLayer',

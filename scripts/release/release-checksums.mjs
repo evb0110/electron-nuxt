@@ -21,6 +21,10 @@ import { isSupplementalReleaseAsset } from './policy.mjs';
 const CHECKSUM_FILENAME = 'SHA256SUMS';
 const CHECKSUM_LINE_PATTERN = /^([a-f0-9]{64}) {2}(.+)$/u;
 
+/** @typedef {{name: string, sha256: string}} IChecksumEntry */
+/** @typedef {{releaseVersion?: string | undefined}} IVerifyReleaseChecksumsOptions */
+
+/** @param {string} artifactDirectory @returns {Promise<{assetNames: string[], checksumPath: string, contents: string}>} */
 export async function generateReleaseChecksums(artifactDirectory) {
     const assetNames = await releaseAssetNames(artifactDirectory);
     const lines = [];
@@ -46,6 +50,7 @@ export async function generateReleaseChecksums(artifactDirectory) {
     };
 }
 
+/** @param {string} artifactDirectory @param {IVerifyReleaseChecksumsOptions} [options] @returns {Promise<{assetNames: string[]}>} */
 export async function verifyReleaseChecksums(artifactDirectory, {releaseVersion} = {}) {
     const assetNames = await releaseAssetNames(artifactDirectory);
     const checksumPath = join(artifactDirectory, CHECKSUM_FILENAME);
@@ -79,6 +84,7 @@ export async function verifyReleaseChecksums(artifactDirectory, {releaseVersion}
     return {assetNames};
 }
 
+/** @param {string} contents @returns {IChecksumEntry[]} */
 export function parseChecksumManifest(contents) {
     if (!contents.endsWith('\n') || contents.length === 1) {
         throw new Error(`${CHECKSUM_FILENAME} must be non-empty and end with a newline`);
@@ -91,7 +97,12 @@ export function parseChecksumManifest(contents) {
         if (!match) {
             throw new Error(`Invalid ${CHECKSUM_FILENAME} line: ${JSON.stringify(line)}`);
         }
-        const name = validateAssetBasename(match[2]);
+        const sha256 = match[1];
+        const rawName = match[2];
+        if (sha256 === undefined || rawName === undefined) {
+            throw new Error(`Invalid ${CHECKSUM_FILENAME} line: ${JSON.stringify(line)}`);
+        }
+        const name = validateAssetBasename(rawName);
         const portableName = portableAssetName(name);
         if (portableNames.has(portableName)) {
             throw new Error(`Duplicate release asset basename in ${CHECKSUM_FILENAME}: ${name}`);
@@ -99,12 +110,13 @@ export function parseChecksumManifest(contents) {
         portableNames.add(portableName);
         assets.push({
             name,
-            sha256: match[1],
+            sha256,
         });
     }
     return assets;
 }
 
+/** @param {string} artifactDirectory @returns {Promise<string[]>} */
 async function releaseAssetNames(artifactDirectory) {
     const entries = await readdir(artifactDirectory, {withFileTypes: true});
     const names = [];
@@ -120,6 +132,7 @@ async function releaseAssetNames(artifactDirectory) {
     return validateReleaseAssetNames(names);
 }
 
+/** @param {string[]} assetNames @returns {string[]} */
 export function validateReleaseAssetNames(assetNames) {
     const names = [];
     const portableNames = new Set();
@@ -138,6 +151,7 @@ export function validateReleaseAssetNames(assetNames) {
     return names.sort();
 }
 
+/** @param {string} name @returns {string} */
 function validateAssetBasename(name) {
     if (
         name !== basename(name)
@@ -158,14 +172,17 @@ function validateAssetBasename(name) {
     return name;
 }
 
+/** @param {string} name @returns {string} */
 function portableAssetName(name) {
     return name.normalize('NFC').toLowerCase();
 }
 
+/** @param {string[]} names @returns {string} */
 function formatNames(names) {
     return names.length > 0 ? names.join(', ') : '(none)';
 }
 
+/** @param {string} filePath @returns {Promise<string>} */
 async function hashFile(filePath) {
     const hash = createHash('sha256');
     for await (const chunk of createReadStream(filePath)) {
@@ -185,10 +202,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         !artifactDirectory
         || extraArguments.length > 0
         || (releaseVersion !== undefined && command !== 'verify')
-        || ![
-            'generate',
-            'verify',
-        ].includes(command)
+        || (command !== 'generate' && command !== 'verify')
     ) {
         throw new Error(
             'Usage: release-checksums.mjs <generate|verify> <artifact-directory> [release-version]',

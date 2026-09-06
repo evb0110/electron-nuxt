@@ -58,7 +58,7 @@ useHead(() => ({
             content: '#1a1a1a',
             media: '(prefers-color-scheme: dark)',
         },
-        ...localeHead.value.meta ?? [],
+        ...localeHead.value.meta,
     ],
     link: [
         {
@@ -109,7 +109,7 @@ useHead(() => ({
             type: 'font/woff2',
             crossorigin: 'anonymous',
         },
-        ...localeHead.value.link ?? [],
+        ...localeHead.value.link,
     ],
     script: [{
         key: 'website-schema',

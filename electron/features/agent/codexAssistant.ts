@@ -770,15 +770,13 @@ export async function getAgentAssistantState(
         return currentState(scope, selection);
     }
 
-    if (selection.provider === 'codex') {
-        const codexInfo = await runtimeLifecycle.refreshCodexInfo();
-        if (codexInfo.installed && codexInfo.isVersionSupported) {
-            try {
-                await runtimeLifecycle.ensureRuntime();
-                await refreshAuthStateAndRuntimeAvailability();
-            } catch (error) {
-                logger.warn(`Assistant runtime is not ready: ${getErrorMessage(error)}`);
-            }
+    const codexInfo = await runtimeLifecycle.refreshCodexInfo();
+    if (codexInfo.installed && codexInfo.isVersionSupported) {
+        try {
+            await runtimeLifecycle.ensureRuntime();
+            await refreshAuthStateAndRuntimeAvailability();
+        } catch (error) {
+            logger.warn(`Assistant runtime is not ready: ${getErrorMessage(error)}`);
         }
     }
     return currentState(scope, selection);
@@ -1055,7 +1053,7 @@ export async function sendAgentAssistantMessage(
         }
 
         let currentThreadId: string | null = null;
-        const turnGeneration: number | null = claimedTurnGeneration;
+        const turnGeneration = claimedTurnGeneration;
         try {
             const currentRuntime = await runtimeLifecycle.ensureRuntime();
             await assistantFeatureLifecycle.assertEnabled(operationGeneration);
@@ -1149,7 +1147,6 @@ export async function sendAgentAssistantMessage(
             if (
                 isCodexAppServerRequestTimeoutError(error)
             && currentThreadId
-            && turnGeneration !== null
             && cleanupRuntime
             ) {
                 const fenced = failCodexTurnAndFence(session, turnGeneration, codexProviderRuntime.lastError, {

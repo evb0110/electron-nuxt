@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
     lstat,
     readdir,
@@ -318,7 +319,7 @@ if (isDirectCliRun) {
         const mib = (stats.byteLength / 1024 / 1024).toFixed(1);
         console.log(`Web deploy source check passed: ${stats.fileCount} files, ${mib} MiB.`);
     } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getCliErrorMessage(error));
         process.exit(1);
     }
 }

@@ -8,6 +8,12 @@ import {
 } from 'vitest';
 import {createHash} from 'node:crypto';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
+import {
+    requireJobId,
+    requireRequestId,
+} from '@contracts/shared';
 import type * as WorkingCopyStore from '@electron/file-access/workingCopyStore';
 
 const mocks = vi.hoisted(() => ({
@@ -211,10 +217,10 @@ describe('OCR replacement ownership path aliases', () => {
             documentRevision: {
                 version: 1,
                 token: sourceRevisionToken,
-                documentRef: workingCopyPath,
+                documentRef: requireDocumentRef(workingCopyPath),
                 authority: 'electron-working-copy',
                 contentRevision: 1,
-                mintedAt: 1,
+                mintedAt: requireEpochMs(1),
             },
             ocrPageData: [{
                 pageNumber: 1,
@@ -270,7 +276,7 @@ describe('OCR replacement ownership path aliases', () => {
             }
             throw Object.assign(new Error('missing'), {code: 'ENOENT'});
         });
-        store?.track('42:ocr-1', 'ocr-1', 42, rendererOcrPath, resultSha256, true);
+        store?.track(requireJobId('42:ocr-1'), requireRequestId('ocr-1'), 42, rendererOcrPath, resultSha256, true);
 
         await expect(handleReplaceWorkingCopyFromPath(
             ownerContext,
@@ -288,7 +294,7 @@ describe('OCR replacement ownership path aliases', () => {
     });
 
     it('allows the owning renderer to replace from a macOS /var alias but rejects other renderers', async () => {
-        store?.track('42:ocr-1', 'ocr-1', 42, rendererOcrPath, resultSha256, true);
+        store?.track(requireJobId('42:ocr-1'), requireRequestId('ocr-1'), 42, rendererOcrPath, resultSha256, true);
 
         await expect(handleReplaceWorkingCopyFromPath(
             ownerContext,

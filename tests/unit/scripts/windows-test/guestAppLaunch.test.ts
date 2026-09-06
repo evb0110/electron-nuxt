@@ -7,6 +7,7 @@ import {
     it,
 } from 'vitest';
 import {
+    buildLaunchEnvironment,
     buildLaunchArguments,
     createOwnedProcessRegistry,
     createWindowsAppLauncher,
@@ -40,6 +41,7 @@ function fakeSpawner(pid: number) {
     const spawned: Array<{
         executable: string;
         args: readonly string[];
+        env: NodeJS.ProcessEnv | undefined;
     }> = [];
     let alive = true;
     const handle: IGuestProcessHandle & { pid: number } = {
@@ -49,10 +51,11 @@ function fakeSpawner(pid: number) {
         },
         isAlive: () => alive,
     };
-    const spawner: IGuestProcessSpawner = { spawn: (executable, args) => {
+    const spawner: IGuestProcessSpawner = { spawn: (executable, args, options) => {
         spawned.push({
             executable,
             args,
+            env: options?.env,
         });
         return handle;
     } };
@@ -113,6 +116,66 @@ describe('guest application launch', () => {
             '--remote-debugging-port=9333',
             '--user-data-dir=C:\\evb-test\\work\\run\\profile',
         ]);
+    });
+
+    it('gives each instrumented launch a helper-enabled environment matching its profile', () => {
+        const baseEnvironment = {
+            PATH: 'C:\\Windows\\System32',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_SESSION_NAME: 'inherited-session',
+            evb_automation_user_data_dir: 'C:\\inherited\\profile',
+            EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '0',
+            evb_enable_renderer_file_open_helper: '0',
+        };
+        const originalEnvironment = {...baseEnvironment};
+        const first = buildLaunchEnvironment(
+            'instrumentation',
+            'C:\\evb-test\\work\\run\\profile-one',
+            baseEnvironment,
+        );
+        const second = buildLaunchEnvironment(
+            'instrumentation',
+            'C:\\evb-test\\work\\run\\profile-two',
+            baseEnvironment,
+        );
+
+        expect(first).toMatchObject({
+            PATH: 'C:\\Windows\\System32',
+            EVB_AUTOMATION_USER_DATA_DIR: 'C:\\evb-test\\work\\run\\profile-one',
+            EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
+        });
+        expect(first).not.toHaveProperty('EVB_AUTOMATION_NO_FOCUS');
+        expect(first).not.toHaveProperty('EVB_AUTOMATION_HIDE_WINDOW');
+        expect(first).not.toHaveProperty('evb_automation_user_data_dir');
+        expect(first).not.toHaveProperty('evb_enable_renderer_file_open_helper');
+        expect(first.EVB_AUTOMATION_SESSION_NAME).toMatch(/^evb-windows-test-/u);
+        expect(second.EVB_AUTOMATION_SESSION_NAME).toMatch(/^evb-windows-test-/u);
+        expect(second.EVB_AUTOMATION_SESSION_NAME).not.toBe(first.EVB_AUTOMATION_SESSION_NAME);
+        expect(second.EVB_AUTOMATION_USER_DATA_DIR).toBe('C:\\evb-test\\work\\run\\profile-two');
+        expect(baseEnvironment).toEqual(originalEnvironment);
+    });
+
+    it('removes inherited automation and renderer helper flags from acceptance launches', () => {
+        const baseEnvironment = {
+            PATH: 'C:\\Windows\\System32',
+            EVB_AUTOMATION_NO_FOCUS: '1',
+            EVB_AUTOMATION_USER_DATA_DIR: 'C:\\inherited\\profile',
+            EVB_AUTOMATION_SESSION_NAME: 'inherited-session',
+            EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE: '1',
+            evb_automation_stale: '1',
+            EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
+            evb_enable_renderer_file_open_helper: '1',
+            EVB_WINDOWS_TEST_NATIVE_UI: 'uia3',
+        };
+        const originalEnvironment = {...baseEnvironment};
+        const launchEnvironment = buildLaunchEnvironment('acceptance', undefined, baseEnvironment);
+
+        expect(launchEnvironment).toEqual({
+            PATH: 'C:\\Windows\\System32',
+            EVB_WINDOWS_TEST_NATIVE_UI: 'uia3',
+        });
+        expect(baseEnvironment).toEqual(originalEnvironment);
     });
 
     it('resolves the per-user install path from the environment', () => {
@@ -218,6 +281,46 @@ describe('guest application launch', () => {
         expect(launcher.terminate(record).terminated).toBe(false);
     });
 
+    it('passes the isolated instrumentation environment to the spawned executable', () => {
+        const fake = fakeSpawner(7789);
+        const launcher = createWindowsAppLauncher({
+            clock: {
+                now: () => 1_700_000_000_000,
+                nowIso: () => '2026-09-04T12:00:00.000Z',
+                sleep: () => Promise.resolve(),
+            },
+            spawner: fake.spawner,
+            registry: createOwnedProcessRegistry(),
+            environment: {
+                PATH: 'C:\\Windows\\System32',
+                EVB_AUTOMATION_NO_FOCUS: '1',
+            },
+            executable: {
+                executablePath: 'C:\\Users\\tester\\App\\EVB Viewer.exe',
+                sha256: 'f'.repeat(64),
+                architecture: 'arm64',
+            },
+        });
+        const record = launcher.launch({
+            profile: 'instrumentation',
+            remoteDebuggingPort: 9555,
+            userDataDirectory: 'C:\\evb-test\\work\\run\\profile',
+        });
+        const launchEnvironment = fake.spawned[0]?.env;
+        const userDataArgument = record.args.find(argument => argument.startsWith('--user-data-dir='));
+
+        expect(launchEnvironment).toMatchObject({
+            PATH: 'C:\\Windows\\System32',
+            EVB_AUTOMATION_USER_DATA_DIR: 'C:\\evb-test\\work\\run\\profile',
+            EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
+        });
+        expect(launchEnvironment).not.toHaveProperty('EVB_AUTOMATION_NO_FOCUS');
+        expect(launchEnvironment?.EVB_AUTOMATION_USER_DATA_DIR)
+            .toBe(userDataArgument?.slice('--user-data-dir='.length));
+        expect(launchEnvironment?.EVB_AUTOMATION_SESSION_NAME).toMatch(/^evb-windows-test-/u);
+        expect(launcher.terminate(record).terminated).toBe(true);
+    });
+
     it('never gives an acceptance launch a debugging endpoint', () => {
         const fake = fakeSpawner(1234);
         const launcher = createWindowsAppLauncher({
@@ -228,6 +331,13 @@ describe('guest application launch', () => {
             },
             spawner: fake.spawner,
             registry: createOwnedProcessRegistry(),
+            environment: {
+                PATH: 'C:\\Windows\\System32',
+                EVB_AUTOMATION_NO_FOCUS: '1',
+                EVB_AUTOMATION_USER_DATA_DIR: 'C:\\inherited\\profile',
+                EVB_AUTOMATION_SESSION_NAME: 'inherited-session',
+                EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
+            },
             executable: {
                 executablePath: 'C:\\Users\\tester\\App\\EVB Viewer.exe',
                 sha256: 'f'.repeat(64),
@@ -240,5 +350,6 @@ describe('guest application launch', () => {
         });
         expect(record.browserUrl).toBeNull();
         expect(record.args).toEqual(['C:\\evb-test\\work\\run\\inputs\\doc.pdf']);
+        expect(fake.spawned[0]?.env).toEqual({PATH: 'C:\\Windows\\System32'});
     });
 });

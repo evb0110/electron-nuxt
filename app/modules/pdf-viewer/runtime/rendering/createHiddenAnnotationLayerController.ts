@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import { uniq } from 'es-toolkit/array';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/display/annotation_layer';
@@ -51,7 +53,7 @@ export function createHiddenAnnotationLayerController(options: {
         return Boolean(normalized && getNormalizedHiddenAnnotationIds().has(normalized));
     };
 
-    const hideHiddenManagedEditors = (pageNumber?: number) => {
+    const hideHiddenManagedEditors = (pageNumber?: TPageNumber) => {
         const annotationUiManager = options.getAnnotationUiManager();
         if (!annotationUiManager) {
             return;

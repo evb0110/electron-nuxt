@@ -10,6 +10,7 @@ import {
     BrowserDocumentReadError,
 } from '@app/platform/browser/browserDocumentReadError';
 import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const documentsMock = vi.hoisted(() => ({
     readFile: vi.fn(),
@@ -101,10 +102,10 @@ describe('platformDocuments', () => {
     it('refreshes the working copy after save-as only for browser-backed saved refs', async () => {
         const { shouldRefreshWorkingCopyAfterSaveAs } = await import('@app/utils/platformDocuments');
 
-        expect(shouldRefreshWorkingCopyAfterSaveAs('browser://documents/source.pdf', 'browser://documents/working.pdf')).toBe(true);
-        expect(shouldRefreshWorkingCopyAfterSaveAs('/tmp/source.pdf', '/tmp/working.pdf')).toBe(false);
-        expect(shouldRefreshWorkingCopyAfterSaveAs('browser://documents/working.pdf', 'browser://documents/working.pdf')).toBe(false);
-        expect(shouldRefreshWorkingCopyAfterSaveAs(null, 'browser://documents/working.pdf')).toBe(false);
+        expect(shouldRefreshWorkingCopyAfterSaveAs(requireDocumentRef('browser://documents/source.pdf'), requireDocumentRef('browser://documents/working.pdf'))).toBe(true);
+        expect(shouldRefreshWorkingCopyAfterSaveAs(requireDocumentRef('/tmp/source.pdf'), requireDocumentRef('/tmp/working.pdf'))).toBe(false);
+        expect(shouldRefreshWorkingCopyAfterSaveAs(requireDocumentRef('browser://documents/working.pdf'), requireDocumentRef('browser://documents/working.pdf'))).toBe(false);
+        expect(shouldRefreshWorkingCopyAfterSaveAs(null, requireDocumentRef('browser://documents/working.pdf'))).toBe(false);
     });
 
     it('returns the direct file read when the capability allows it', async () => {
@@ -115,7 +116,7 @@ describe('platformDocuments', () => {
         ]));
 
         const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
-        await expect(readDocumentFileFully('browser://small.pdf')).resolves.toEqual(new Uint8Array([
+        await expect(readDocumentFileFully(requireDocumentRef('browser://documents/small.pdf'))).resolves.toEqual(new Uint8Array([
             1,
             2,
             3,
@@ -139,7 +140,7 @@ describe('platformDocuments', () => {
             .mockResolvedValueOnce(new Uint8Array([3]));
 
         const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
-        const result = await readDocumentFileFully('browser://huge.pdf');
+        const result = await readDocumentFileFully(requireDocumentRef('browser://documents/huge.pdf'));
 
         expect(result.byteLength).toBe((largeChunkSize * 2) + 1);
         expect(result[0]).toBe(1);
@@ -147,8 +148,8 @@ describe('platformDocuments', () => {
         expect(result[largeChunkSize]).toBe(2);
         expect(result[(largeChunkSize * 2) - 1]).toBe(2);
         expect(result.at(-1)).toBe(3);
-        expect(documentFilesMock.readFile).toHaveBeenCalledWith('browser://huge.pdf');
-        expect(documentFilesMock.statFile).toHaveBeenCalledWith('browser://huge.pdf');
+        expect(documentFilesMock.readFile).toHaveBeenCalledWith('browser://documents/huge.pdf');
+        expect(documentFilesMock.statFile).toHaveBeenCalledWith('browser://documents/huge.pdf');
         expect(documentFilesMock.readFileRange).toHaveBeenCalledTimes(3);
         expect(yieldToBrowserMock).toHaveBeenCalledTimes(2);
     });
@@ -161,7 +162,7 @@ describe('platformDocuments', () => {
         documentsMock.statFile.mockResolvedValueOnce({ size: MAX_DOCUMENT_ALLOCATION_BYTES + 1 });
 
         const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
-        await expect(readDocumentFileFully('browser://oversized.pdf'))
+        await expect(readDocumentFileFully(requireDocumentRef('browser://documents/oversized.pdf')))
             .rejects
             .toThrow(`no greater than ${MAX_DOCUMENT_ALLOCATION_BYTES} bytes`);
         expect(documentsMock.readFileRange).not.toHaveBeenCalled();
@@ -176,7 +177,7 @@ describe('platformDocuments', () => {
         documentsMock.readFileRange.mockResolvedValueOnce(new Uint8Array());
 
         const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
-        await expect(readDocumentFileFully('browser://huge.pdf')).rejects.toThrow(
+        await expect(readDocumentFileFully(requireDocumentRef('browser://documents/huge.pdf'))).rejects.toThrow(
             'Range read returned no bytes before EOF at offset 0 of 4',
         );
 
@@ -188,7 +189,7 @@ describe('platformDocuments', () => {
         documentsMock.readFile.mockRejectedValueOnce(new Error('Permission denied'));
 
         const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
-        await expect(readDocumentFileFully('browser://forbidden.pdf')).rejects.toThrow('Permission denied');
+        await expect(readDocumentFileFully(requireDocumentRef('browser://documents/forbidden.pdf'))).rejects.toThrow('Permission denied');
 
         expect(documentsMock.statFile).not.toHaveBeenCalled();
         expect(documentsMock.readFileRange).not.toHaveBeenCalled();
@@ -200,7 +201,7 @@ describe('platformDocuments', () => {
         ));
 
         const { readDocumentFileFully } = await import('@app/utils/platformDocuments');
-        await expect(readDocumentFileFully('browser://huge.pdf')).rejects.toThrow(
+        await expect(readDocumentFileFully(requireDocumentRef('browser://documents/huge.pdf'))).rejects.toThrow(
             'Browser document is too large to load fully into memory',
         );
 

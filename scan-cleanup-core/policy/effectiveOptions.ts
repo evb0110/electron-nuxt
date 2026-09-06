@@ -16,6 +16,7 @@ import {
     resolveScanCleanupMarginsMm,
     resolveScanCleanupPageLayout,
 } from '@contracts/scanCleanupPageOverrides';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IPdfPageSize} from '@scan-cleanup-core/types';
 
 export function resolveReusablePagePlan(
@@ -49,7 +50,10 @@ export function resolveReusablePagePlanResult(
     status: TReusablePagePlanStatus
 } {
     const evidence = evidenceByPage?.[String(pageNumber)];
-    const pageOverride = getScanCleanupPageOverride(options.pageOverrides, pageNumber);
+    const pageOverride = getScanCleanupPageOverride(
+        options.pageOverrides,
+        requirePageNumber(pageNumber),
+    );
     const observedLayout = layoutByPage?.[String(pageNumber)];
     if (evidence === undefined) {
         return {
@@ -85,21 +89,21 @@ function reusablePlanFromEvidence(evidence: IScanCleanupPagePlanEvidence) {
     const automaticContentBoxes = Object.fromEntries(Object.entries(evidence.outputs).flatMap(([
         half,
         output,
-    ]) => output?.contentBox === undefined ? [] : [[
+    ]) => output.contentBox === undefined ? [] : [[
         half,
         output.contentBox,
     ]]));
     const automaticSkewDegrees = Object.fromEntries(Object.entries(evidence.outputs).flatMap(([
         half,
         output,
-    ]) => output?.detectedSkewDegrees === undefined ? [] : [[
+    ]) => output.detectedSkewDegrees === undefined ? [] : [[
         half,
         output.detectedSkewDegrees,
     ]]));
     const resolvedTextToneDiagnostics = Object.fromEntries(Object.entries(evidence.outputs).flatMap(([
         half,
         output,
-    ]) => output?.textToneDiagnostics === undefined ? [] : [[
+    ]) => output.textToneDiagnostics === undefined ? [] : [[
         half,
         output.textToneDiagnostics,
     ]]));

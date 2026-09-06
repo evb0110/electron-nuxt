@@ -17,7 +17,7 @@ const hasDesktopBridge = ref(false);
 const isDesktopRuntime = useState('runtime:is-desktop', () => true);
 
 definePageMeta({ preloadWorkspaceShell: false });
-useServerSeoMeta({ robots: 'noindex, nofollow' });
+if (import.meta.server) useSeoMeta({ robots: 'noindex, nofollow' });
 useHead(() => ({ title: t('app.title') }));
 
 onMounted(async () => {

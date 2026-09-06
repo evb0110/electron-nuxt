@@ -7,17 +7,18 @@ export const useAssistantComposerAutofocus = (
     composerInputRef: Ref<HTMLTextAreaElement | null>,
     canFocusComposerInput: ComputedRef<boolean>,
 ) => {
-    let shouldAutofocusComposerInput = true;
+    let shouldAutofocusComposerInput = true as boolean;
+    const canAutofocusComposerInput = () => shouldAutofocusComposerInput && canFocusComposerInput.value;
 
     async function focusComposerInputOnce() {
-        if (!shouldAutofocusComposerInput || !canFocusComposerInput.value) {
+        if (!canAutofocusComposerInput()) {
             return;
         }
 
         await nextTick();
 
         const input = composerInputRef.value;
-        if (!shouldAutofocusComposerInput || !canFocusComposerInput.value || !input || input.disabled) {
+        if (!canAutofocusComposerInput() || !input || input.disabled) {
             return;
         }
 

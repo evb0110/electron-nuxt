@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     combineOutcomes,
     type IWindowsTestAssertionResult,
@@ -199,7 +200,7 @@ function outcomeForError(error: unknown): {
     }
     return {
         outcome: 'infrastructure-failed',
-        reason: error instanceof Error ? error.message : String(error),
+        reason: getErrorMessage(error),
     };
 }
 

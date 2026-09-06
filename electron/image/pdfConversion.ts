@@ -26,6 +26,7 @@ import {
 import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { abortErrorFromSignal } from '@electron/utils/abort';
+import { assertNever } from '@contracts/assertNever';
 import {
     createPdfCombineOutputTooLargeError,
     normalizePdfCombineOutputLimit,
@@ -171,10 +172,6 @@ class PdfCombineWorkerStartupError extends Error {
         super(message);
         this.name = 'PdfCombineWorkerStartupError';
     }
-}
-
-function assertNever(value: never) {
-    throw new Error(`Unhandled image combine worker payload: ${JSON.stringify(value)}`);
 }
 
 function parseCombineWorkerProgressPayload(
@@ -472,9 +469,8 @@ function createPdfFromInputPathsWorker(
                     resolve(data);
                     return;
                 }
-                default:
-                    assertNever(payload);
             }
+            return assertNever(payload);
         });
 
         worker.once('error', (error) => {

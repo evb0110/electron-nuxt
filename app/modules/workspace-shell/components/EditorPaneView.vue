@@ -60,6 +60,7 @@
 </template>
 
 <script setup lang="ts">
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
@@ -118,7 +119,7 @@ const emit = defineEmits<{
     'update-document-record': [tabId: string, record: IWorkspaceDocumentRecord];
     'update-tab-session-state': [tabId: string, state: ITabViewSessionState];
     'update-tab-start-section': [tabId: string, section: TStartSection];
-    'open-in-new-tab': [result: string | TOpenFileResult, paneId: string];
+    'open-in-new-tab': [result: TDocumentRef | TOpenFileResult, paneId: string];
     'request-close-tab': [paneId: string, tabId: string];
     'open-settings': [];
     'open-combine': [];

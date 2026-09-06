@@ -604,7 +604,7 @@ describe('PDF navigation request resolver', () => {
             true,
         ],
     ] as const)('honors %s readiness', (readiness, expected) => {
-        const page = cast<HTMLElement>({querySelector: (selector: string) => selector.includes('text') || selector.includes('annotation') ? {} : null});
+        const page = cast<HTMLElement>({querySelector: (selector: string) => selector.includes('text') || selector.includes('annotation') ? {dataset: {}} : null});
         const container = cast<HTMLElement>({querySelector: () => page});
         expect(isPdfNavigationReady(container, 2, readiness, () => true)).toBe(expected);
     });

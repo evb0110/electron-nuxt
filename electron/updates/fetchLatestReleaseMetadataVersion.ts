@@ -16,6 +16,11 @@ let releaseCohortCookieRetryAt = 0;
 
 interface IReleaseMetadataLogger {warn: (message: string) => void;}
 
+interface IResponseHeaders {
+    get(name: string): string | null;
+    getSetCookie?: () => string[];
+}
+
 function isValidReleaseCohortCookieValue(value: string | undefined): value is string {
     return value !== undefined && RELEASE_COHORT_COOKIE_VALUE_PATTERN.test(value);
 }
@@ -37,7 +42,7 @@ async function loadReleaseCohortCookie(metadataUrl: string, logger: IReleaseMeta
                 name: RELEASE_COHORT_COOKIE_NAME,
                 url: metadataUrl,
             });
-            releaseCohortCookie = cookies?.find(cookie => isValidReleaseCohortCookieValue(cookie.value))?.value ?? null;
+            releaseCohortCookie = cookies.find(cookie => isValidReleaseCohortCookieValue(cookie.value))?.value ?? null;
             releaseCohortCookieRetryAt = 0;
         } catch (error) {
             releaseCohortCookie = undefined;
@@ -53,8 +58,11 @@ async function loadReleaseCohortCookie(metadataUrl: string, logger: IReleaseMeta
 }
 
 function getSetCookieHeaders(response: Response) {
-    const headers = response.headers as Headers & {getSetCookie?: () => string[];};
-    return headers.getSetCookie?.() ?? [headers.get('set-cookie') ?? ''];
+    const headers: IResponseHeaders = response.headers;
+    if (headers.getSetCookie) {
+        return headers.getSetCookie();
+    }
+    return [headers.get('set-cookie') ?? ''];
 }
 
 function getReleaseCohortCookieValue(response: Response) {

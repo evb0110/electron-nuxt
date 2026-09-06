@@ -1,3 +1,4 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -18,7 +19,7 @@ describe('useBookmarkState', () => {
         state.handleBookmarksChange({
             bookmarks: [{
                 title: 'Intro',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 namedDest: null,
                 bold: false,
                 italic: false,

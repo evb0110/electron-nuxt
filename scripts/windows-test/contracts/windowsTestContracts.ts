@@ -7,7 +7,7 @@ import {
 
 export const WINDOWS_TEST_SCHEMA_VERSION = 1;
 
-export const WINDOWS_TEST_RUNNER_VERSION = '2026-09-04.1';
+export const WINDOWS_TEST_RUNNER_VERSION = '2026-09-05.1';
 
 export const windowsTestExitCodes = {
     passed: 0,
@@ -90,8 +90,9 @@ export type TWindowsTestGatePolicy = typeof windowsTestGatePolicies[number];
 
 export const windowsTestDefaultDeadlines = {
     bootToGuestReadySeconds: 180,
-    guestReadyToDesktopReadySeconds: 60,
+    guestReadyToDesktopReadySeconds: 180,
     uiStepSeconds: 30,
+    guestTransportSeconds: 180,
     printReadinessCeilingSeconds: 120,
     jobSeconds: 1200,
 } as const;

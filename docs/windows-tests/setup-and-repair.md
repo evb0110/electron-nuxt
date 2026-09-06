@@ -11,11 +11,14 @@ outside the checkout.
 | --- | --- | --- |
 | macOS session | The coordinator runs in the logged-in GUI session, not over SSH | `SSH_CONNECTION` unset and the launchd manager is `Aqua` |
 | UTM | 4.7.5 (QEMU 10.0.2) installed at `/Applications/UTM.app` | `utmctl version` parses to the supported version |
+| UTM preview capture | `NoScreenshot=true` for UTM 4.7.5 on this host | Read-only preference check before readiness and runs |
 | Automation consent | The launcher that runs `utmctl` (Terminal, iTerm, a LaunchAgent) has Automation permission for UTM | `utmctl list` succeeds; OSStatus -1743 is reported as missing consent, not as an SSH problem |
 | Data root | `~/Library/Application Support/EVBViewerWindowsTests/` exists with `config.json` | Config loads and validates |
 | Disk | Free space above the configured reserve for one clone plus evidence | Free bytes compared with `retention.minFreeBytes` |
 | Candidate | A hash-verified NSIS installer registered in the config or passed with `--artifact` | File exists and its SHA-256 matches |
+| Printed page markers | Tesseract available to the host runner for rasterized print outputs | Missing OCR makes marker verification inconclusive, never passing |
 | Python oracle | `python3` with Pillow for the generated-PDF verifier | Missing tooling makes the render oracle inconclusive, never passing |
+| Host input ownership | UTM `Capture Input` is off for the active lab window | Accessibility probe reads the checkbox before launch and after cleanup; a remaining on state blocks the run |
 
 Set `EVB_WINDOWS_TESTS_ROOT` only for tests or a second lab root. The default
 root is the one above.
@@ -45,7 +48,11 @@ EVBViewerWindowsTests/
    `caches/tools/worker/guestWorker.cjs`, copies its PowerShell helpers, and
    generates seven fixtures, copies four tracked fixtures, and writes `caches/fixtures/manifest.json`. It preserves
    existing configuration and refuses to change inputs while a run lease exists.
-   It does not create a VM or qualify Windows automation.
+   It also stages a byte-identical standalone copy of the installed `utmctl` in the
+   tools cache. Running it outside `UTM.app` prevents a foreground Dock icon for
+   every polling call. Preparation verifies the copy; doctor rejects a stale or
+   missing copy with a preparation remedy. It does not create a VM or qualify
+   Windows automation.
 
 2. Create a `config.json` like the one below. Placeholder
    UUIDs are shown. Replace `goldenVmId` with the identity of the fresh lab
@@ -73,7 +80,7 @@ EVBViewerWindowsTests/
    }
    ```
 
-3. Grant Automation consent. Run the read-only `pnpm windows:test:doctor` from the launcher you
+3. Verify the actual launcher and grant Automation consent only if needed. Run the read-only `pnpm windows:test:doctor` from the launcher you
    will use. If macOS denies the request, grant Automation access to UTM in
    System Settings. Do not paste raw VM listings into reports. Repeat for each
    launcher and record its application path in `qualifiedLaunchers`. Doctor detects the enclosing application from process ancestry, with
@@ -98,12 +105,19 @@ EVBViewerWindowsTests/
 
 ## Golden image build
 
-Build from Microsoft Windows 11 Pro ARM64 media into a new UTM VM. Never
-clone or reuse the personal VM.
+The normal source is Microsoft Windows 11 Pro ARM64 media in a new UTM VM.
+The existing lab on this host is a recorded exception: the user authorized a
+one-time stopped copy of the personal VM on 2026-09-05. Continue provisioning
+that lab copy. The original remains denied as every automated operation target.
+Copying does not remove personal files, credentials, or inherited settings.
 
 1. Install Windows with a nonproduction local account for the test user and a
    separate local administrator. Keep UAC, Defender and device encryption at
-   their defaults and record the activation state.
+   their defaults and record the activation state. Probe these settings before
+   acceptance, including on a copied lab. The authorized lab copy inherited
+   disabled UAC, so provisioning must enable it and verify it after reboot.
+   Record encryption and activation status without exporting recovery keys or
+   product keys. Confine test activity to the dedicated account and test root.
 2. As administrator, create the guest directories and ACLs:
    `C:\EVBViewerTests\inbox`, `outbox`, `state`, `staging`, `work`. SYSTEM and
    Administrators get full control; the test user gets read on `inbox` and
@@ -119,13 +133,30 @@ clone or reuse the personal VM.
 5. Register the worker logon task by running
    `scripts/windows-test/guest/powershell/register-worker-logon-task.ps1`
    as administrator. The task starts the worker in the test user's
-   interactive session at logon and writes the boot ID. It stores no
-   credentials.
+   interactive session at logon and writes the boot ID. Its hidden PowerShell
+   entry point validates the lab marker and standard test account, verifies
+   Windows Audio is stopped with startup disabled and Microsoft Print to PDF
+   is set to A4, then starts Node without a console window.
+   Registration runs `disable-test-audio.ps1` to configure the lab's `Audiosrv`
+   service and `configure-test-printer.ps1 -Configure` to set the printer
+   policy. `state\audio-mute.json` and `state\printer-policy.json` record the
+   checks. A failed policy check prevents worker startup. It stores no credentials.
+   The Node entry point holds a Windows named pipe for the guest root before
+   changing heartbeat or boot identity. A second worker must refuse to start.
+   Updating a scheduled task does not terminate its existing Node child. After
+   refreshing the worker, cold-boot the baseline and verify a fresh heartbeat
+   before making test clones. Do not kill processes by executable name.
 6. Decide the sign-in policy for unattended cold boots. The lane does not
    choose a personal-account autologon. If automatic sign-in for the isolated
    lab account is not configured, runs after a reset are assisted and the
    ledger's M0a gate stays open.
-7. Remove installation media and external drive references. Keep every disk,
+7. Keep the baseline device layout stable. The lab booted with Intel HD Audio,
+   stalled in firmware after removing that device, and booted again after
+   restoring it. Endpoint mute reported success but the user still heard
+   Windows sounds. Quiet testing therefore disables the lab's Windows Audio
+   service and verifies its state at worker logon. Keep the virtual audio card
+   and host volume unchanged.
+   Remove installation media and external drive references. Keep every disk,
    EFI and TPM file inside the lab bundle, with no symbolic links. Shut the VM
    down and keep its bundle under the configured `testImageRoot`, normally
    `images/baselines/`. Write `images/baselines/<goldenImageId>.json` with the
@@ -180,8 +211,8 @@ against that digest. There is no implicit latest build.
 
 ```sh
 pnpm windows:test:doctor
-pnpm windows:test -- --suite critical
-pnpm windows:test:report -- --run RUN_ID
+pnpm windows:test --suite critical
+pnpm windows:test:report --run RUN_ID
 ```
 
 Every run copies the complete stopped lab bundle into the configured test-image
@@ -189,16 +220,57 @@ root, assigns a new UUID and network MAC addresses, imports it into UTM, and boo
 The copy path does not use `utmctl clone`, which writes into UTM's own storage.
 It then waits for the worker heartbeat with the current boot ID, stages the artifact
 and fixtures with hash verification, writes the job, and polls the guest
-outbox until the result or the deadline. The summary and evidence stay under
+outbox until the result or the deadline. The prepared read-only ISO uses full
+64-character digest filenames, which fit Joliet without truncation. One guest
+operation validates the media marker, copies the installer and fixtures, and
+verifies every destination hash before job publication.
+The summary and evidence stay under
 `runs/<RUN_ID>/` and are never rewritten.
+
+Guest-agent readiness uses a read-only marker-file pull. Desktop readiness
+then requires a fresh matching heartbeat within 180 seconds; a copied heartbeat
+from the baseline is rejected.
+
+Host PowerShell transport has a 180-second command deadline. It is separate
+from the 30-second native UI step deadline. A live transport probe took 57
+seconds on this lab, and the old shared deadline stopped a real staging run.
+
+### Host input ownership
+
+The Windows lane keeps the host keyboard and mouse available throughout a run.
+The launcher compiles and runs the checked-in macOS Accessibility probe
+`scripts/windows-test/host/utmInputCaptureProbe.swift`. After every owned clone
+starts, it finds that clone's UTM window by the registered display name and
+reads the supported `Capture Input` toolbar checkbox. A checked control is
+released with UTM's documented Command+Option chord, then read again. The
+launcher does not click the checkbox and does not send guest keyboard or mouse
+events through the host.
+
+An absent window, ambiguous UTM process, missing checkbox, checked state that
+survives the chord, or a UTM process that remains frontmost is an infrastructure
+failure. The launch probe hides a focused UTM window before guest work begins.
+The cleanup path repeats the release and hides a focused UTM window. The probe
+records `before`, `after`, UTM PID, frontmost PID, and `hostInputAvailable` in
+`runs/<RUN_ID>/input-capture-launch.json` and
+`runs/<RUN_ID>/input-capture-cleanup.json`. Repeat the check after a cold reset
+and keep both records with the run evidence. Both records must report
+`after: 0` and `hostInputAvailable: true`. Never proceed from a screenshot or
+from a unit-test result alone.
 
 ## Repair
 
 | Symptom | Cause | Repair |
 | --- | --- | --- |
-| `doctor` reports `automation-consent-missing` with OSStatus -1743 | The current launcher has no Automation permission for UTM | Open System Settings, Privacy and Security, Automation, allow the launcher to control UTM; run `utmctl list` from that launcher; add it to `qualifiedLaunchers` |
-| Exit 6 with an active run ID | Another coordinator owns the lease | Wait, or `pnpm windows:test:stop -- --run RUN_ID` from any terminal |
-| Exit 6 but no coordinator process exists | Stale lease after a crash or host reboot | `pnpm windows:test:stop -- --run RUN_ID` performs stale-owner recovery under the host lock; it stops only the owned clone |
+| `doctor` reports `automation-consent-missing` with OSStatus -1743 | The current launcher has no Automation permission for UTM | Open System Settings, Privacy and Security, Automation, allow the launcher to control UTM; run doctor from that launcher; add it to `qualifiedLaunchers` only after its documented live qualification passes |
+| A second UTM Dock icon appears and disappears while polling | The bundled CLI registers as a foreground application | Run preparation and use the verified standalone CLI. Do not edit UTM.app, re-sign it, or change TCC. See the [live transport report](../research/utm-windows-live-transport-2026-09-05.md). |
+| UTM closes during a run | Host application crash or exit | Preserve the crash report and run evidence. The runner refuses commands after the pinned UTM process disappears or changes. Reopen UTM normally, inspect the stopped clone, and use a new run ID. |
+| Host shortcuts stop working, UTM remains focused, or `Capture Input` is checked | The UTM display window captured or retained host focus | Release Command+Option in the active lab window. Run doctor and inspect the input-capture records. The launcher hides a focused UTM window and fails closed if capture remains on or UTM remains frontmost. It never clicks that checkbox. |
+| Windows sounds occur during testing | Endpoint mute is insufficient or the audio service policy changed | Run the marker-checked administrator audio provisioning helper in the lab, then cold boot and verify `Audiosrv` is Disabled and Stopped. Worker startup refuses a failed check. |
+| Print output is Letter instead of the A4 fixture geometry | Microsoft Print to PDF kept its Windows default paper size | Run `configure-test-printer.ps1 -Configure -GuestRoot C:\EVBViewerTests` as the lab administrator, then cold boot and confirm `state\printer-policy.json` reports `A4`. Worker startup refuses printer drift. |
+| `status` reports VM not found for a registered UUID | UTM compares UUID arguments as case-sensitive strings | The transport must pass uppercase UUIDs for every operation; retain case-insensitive ownership checks. |
+| `exec` returns exit 0 and empty output for a failing guest command | Dispatch completed without a valid guest result | Require the unique guest completion record and actual exit code. Never treat the CLI return alone as completion. |
+| Exit 6 with an active run ID | Another coordinator owns the lease | Wait, or `pnpm windows:test:stop --run RUN_ID` from any terminal |
+| Exit 6 but no coordinator process exists | Stale lease after a crash or host reboot | `pnpm windows:test:stop --run RUN_ID` performs stale-owner recovery under the host lock; it stops only the owned clone |
 | Exit 3 "desktop not ready" | Guest is locked, in Session 0, or the logon task did not run | Sign in to the test user in the UTM window, confirm the task exists, then rerun |
 | Exit 3 "image drift" | A pre-existing EVB installation, pending reboot, or unexpected OS build in the clone | Do not patch the clone; rebuild or requalify the golden image per the migration policy |
 | Retained failed clone blocks the next run | `retention.maxFailedClones` reached | Inspect the clone, then delete it from the UTM UI, or raise the limit; the runner never deletes the only failure evidence automatically |
@@ -208,3 +280,21 @@ outbox until the result or the deadline. The summary and evidence stay under
 Never delete `lease.json`, `host.lock`, a run directory or a clone by hand
 while a coordinator may be alive. The documented recovery path goes through
 `windows:test:stop`.
+
+
+## UTM preview capture crash mitigation
+
+Two live attempts crashed UTM 4.7.5 in CoreGraphics image copying and
+CoreAnimation commit. [UTM issue 7745](https://github.com/utmapp/UTM/issues/7745)
+reports a similar screenshot lifetime bug. Fixed guest resolution did not
+prevent the second crash. The lab host now uses `NoScreenshot=true`.
+
+This is an application-wide preference that disables UTM's automatic VM
+preview captures. It leaves guest display and worker screenshots available.
+Record the old value, verify that every VM is already stopped, quit UTM normally, then use the
+supported preference command `defaults write com.utmapp.UTM NoScreenshot -bool YES`.
+Reopen UTM normally. If the previous value was unset, restore it with
+`defaults delete com.utmapp.UTM NoScreenshot` after testing. See the
+[UTM preferences documentation](https://docs.getutm.app/preferences/macos/).
+Do not silently upgrade the shared app to a beta or claim this mitigation
+fixes the upstream defect without repeated live-run evidence.

@@ -18,6 +18,7 @@ import {
     workspaceHasDocumentOrOpenError,
     workspaceHasOpenedDocument,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { cast } from '@tests/helpers/cast';
 
 function createColdDocumentSession(tabId: string, path: string) {
@@ -27,7 +28,7 @@ function createColdDocumentSession(tabId: string, path: string) {
         initialRecord: createWorkspaceDocumentRecord({
             tab: {
                 fileName: path.split('/').at(-1) ?? path,
-                originalPath: path,
+                originalPath: requireDocumentRef(path),
                 isDirty: false,
                 isDjvu: false,
             },
@@ -67,7 +68,7 @@ describe('deferredWorkspaceHostState', () => {
                 && tryClaimWorkspaceRestoreAttempt(
                     restoreAttempts,
                     firstSession.snapshot.value,
-                    '/tmp/first.pdf',
+                    requireDocumentRef('/tmp/first.pdf'),
                 )
             ) {
                 restoredPaths.push('/tmp/first.pdf');
@@ -100,7 +101,7 @@ describe('deferredWorkspaceHostState', () => {
                 && tryClaimWorkspaceRestoreAttempt(
                     restoreAttempts,
                     session.snapshot.value,
-                    '/tmp/pending.pdf',
+                    requireDocumentRef('/tmp/pending.pdf'),
                 )
             ) {
                 restoredPaths.push('/tmp/pending.pdf');
@@ -146,36 +147,36 @@ describe('deferredWorkspaceHostState', () => {
         expect(tryClaimWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
         )).toBe(true);
         expect(tryClaimWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
         )).toBe(false);
 
         finishWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
             false,
         );
         expect(tryClaimWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
         )).toBe(true);
 
         finishWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
             true,
         );
         expect(tryClaimWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
         )).toBe(false);
     });
 
@@ -184,7 +185,7 @@ describe('deferredWorkspaceHostState', () => {
         session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'failed.pdf',
-                originalPath: '/tmp/failed.pdf',
+                originalPath: requireDocumentRef('/tmp/failed.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },

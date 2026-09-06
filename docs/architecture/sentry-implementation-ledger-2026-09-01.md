@@ -6,14 +6,14 @@
 - Repository commit inspected: `55e00c7670e2c3b077da63238b3adfba10e34a28` on `main`
 - Architecture source of truth: `docs/architecture/sentry-error-telemetry-ledger-2026-09-01.md`
 - Legal and privacy source of truth: `docs/research/sentry-opt-out-diagnostics-2026-09-01.md`
-- Implementation snapshot: repository work is implemented. Live account
-  hardening, project and credential provisioning, closed-adapter test events,
-  exact-byte Preview and production web deployments, web private-map upload,
-  the production hosted-browser consent matrix, the live landing
-  acknowledgement, and private-map upload, canary, and artifact-scan proof for
-  all eight shipping desktop identities are verified. The packaged desktop
-  consent matrix, legal approval for Nitro, operations cycles, and production
-  observation periods remain open.
+- Implementation snapshot: repository work is implemented, but the earlier
+  source-map acceptance record was invalidated by live Sentry review on
+  2026-09-05. Production currently shows 256 unresolved deterministic web
+  source-map canary issues, and a representative event reports
+  `missing_source_content`. Exact-byte deployment, account controls, the
+  hosted-browser consent behavior, the landing acknowledgement, and artifact
+  scans remain recorded separately. The uploader and canary verifier are being
+  repaired before any source-map or eight-identity acceptance claim can close.
 - This ledger is current. It is not deferred or superseded. A blocked item
   remains part of this ledger until its external evidence or observation period
   is complete.
@@ -133,15 +133,15 @@ reporting and does not satisfy a live canary.
   manifest-proved mapless generated facades, and 1,375 project sources. The
   protected Preview deployment is Ready, ships no public maps, and every served
   browser bundle hash matches the private manifest through authenticated Vercel
-  access.
+  access. This proves byte handling, not hosted symbolication.
 - The first web artifact attempt exposed a Sentry CLI behavior that silently
-  skipped the hidden `.vercel` tree. The uploader now stages that tree under a
+  skipped the hidden `.vercel` tree. The uploader stages that tree under a
   visible temporary directory and invokes the CLI from the Vercel `static` and
-  `functions` roots. A fresh strict upload accepted all 473 bundles. Sentry
-  accepted 256 deterministic canaries, recorded 217 generated or vendor-only
-  bundles without a usable EVB mapping, and resolved the sampled browser frame
-  by Debug ID to `app/composables/useRuntimeErrorReports.ts:16` with source
-  context and `symbolicated_in_app` true.
+  `functions` roots. The old invocation omitted the `~/` URL prefix for the
+  static root and had no API verifier. The production feed now shows 256
+  unresolved deterministic canary issues, with a sampled `missing_source_content`
+  result. SEN-MAP-04 is therefore blocked until a fresh exact release passes
+  the new upload and per-event API verification flow.
 - The hardened Electron and browser adapters each sent one closed test event,
   and post-scrubber repeats confirmed that no URL, request, raw content, user,
   or derived geography survived. The macOS arm64 private upload accepted all
@@ -150,11 +150,11 @@ reporting and does not satisfy a live canary.
   the expected EVB TypeScript or Vue file and line with the exact release and
   dist.
 - The exact-tag `v0.1.452` artifact run uploaded 280 private bundles for each
-  of the eight shipping desktop identities. Each identity sent 228 mapped
-  canaries and passed its packaged-artifact scan. Live Sentry inspection
-  sampled macOS arm64, Windows arm64, and Store arm64 events and resolved the
-  original EVB file, line, release, and dist. The unpublished Windows 7
-  experiment remains outside the shipping matrix under #335. Artifact workflow
+  of the eight shipping desktop identities and submitted 228 mapped canaries
+  per identity. It passed its packaged-artifact scan, but it did not run the
+  new per-event source-map verifier. Those submissions are historical and do
+  not close the source-map rows. The unpublished Windows 7 experiment remains
+  outside the shipping matrix under #335. Artifact workflow
   [33928531296](https://github.com/evb0110/evb-viewer/actions/runs/33928531296)
   completed successfully, including both Microsoft Store installed-smoke jobs.
 - Release `v0.1.452` is public at commit
@@ -181,9 +181,10 @@ reporting and does not satisfy a live canary.
 
 - A qualified person must approve the viewer Nitro legitimate-interests
   assessment before Nitro processing starts.
-- The packaged desktop consent canary, the one-week Nitro canary, quota
-  notifications, the first weekly operations cycle, and the four-week
-  production proof remain incomplete.
+- The packaged desktop consent canary, the one-week Nitro canary, and the
+  four-week production proof remain incomplete. The first weekly operations
+  cycle and the platform-supported quota notifications were verified on
+  2026-09-05.
 
 ## Current repository baseline
 
@@ -1491,11 +1492,13 @@ current repository or external-gate status.
 
 #### SEN-MAP-04 Upload maps and verify symbolication
 
-- Status: complete for the production web deployment and all eight shipping desktop identities
+- Status: blocked pending the uploader repair and a fresh per-event API verification receipt
 - Depends on: SEN-MAP-05, SEN-EXT-02, SEN-EXT-06, SEN-SDK-02, SEN-SDK-03,
   SEN-SDK-05
 - Difficulty: x-hard
-- Paths: `scripts/release/upload-sentry-sourcemaps.mjs` (new),
+- Paths: `scripts/release/upload-sentry-sourcemaps.mjs`,
+  `scripts/release/send-sentry-sourcemap-canaries.mjs`,
+  `scripts/release/verify-sentry-sourcemap-canaries.mjs`,
   `.github/workflows/build.yml`, `.github/workflows/build-mac-intel.yml`,
   `.github/workflows/build-win7-legacy.yml`,
   `.github/workflows/store-appx.yml`,
@@ -1506,8 +1509,13 @@ current repository or external-gate status.
   files and run one deterministic, retry-safe canary per supported bundle with
   a project-source mapping, showing the original EVB file,
   function, line, release, and dist, and confirm Debug ID matching through
-  Sentry's source-map debug endpoint. The upload token is a CI secret with the
-  minimum scope, is never printed, and never reaches a public artifact. Because
+  Sentry's source-map debug endpoint and the processed-event endpoint. The
+  verifier checks every event in the receipt, including source-file and map
+  lookup, exact Debug ID association, original file, function, line, canary
+  identity, and source context. It checks complete manifest coverage and does
+  not require Sentry scraping data because source fetching is disabled. The
+  upload token and separate read-only verification token are CI secrets with
+  minimum scope, are never printed, and never reach a public artifact. Because
   supplemental re-dispatch reuses already attached assets and builds are not byte
   reproducible, each shipping desktop dist gets the map manifest from the build
   that produced its bytes. The upload for supplemental macOS Intel and
@@ -1516,25 +1524,28 @@ current repository or external-gate status.
   partial supplemental asset pair is rebuilt, that fresh build must upload its
   fresh private artifacts before attachment. Browser worker-parent bundles and
   Nitro output are included in the web manifest and symbolication canary. The
-  release tool may spawn only the pinned Sentry CLI and may read only the upload
-  token allowed by SEN-GATE-02.
+  staging and upload tools may spawn only the pinned Sentry CLI and may read
+  only the upload token allowed by SEN-GATE-02. The verifier may read only the
+  separate read-only verification token.
 - Vercel's output directory is hidden. The uploader copies its exact bytes to a
   visible temporary tree, then uploads from `vercel/output/static` and
-  `vercel/output/functions`. This preserves the browser artifact name
-  `~/_nuxt/...` while retaining the original relative source paths used during
-  Sentry's rewrite. Uploading the temporary tree's parent is invalid because it
-  produces `~/vercel/output/static/...`, which does not match deployed browser
-  URLs even when the Debug ID itself is present.
-- Tests: a workflow policy test that upload precedes any canary step; a secret
-  scan on public artifacts; a test that a re-dispatch path performs no upload.
-- Exit evidence: per-project-source-bundle canary events showing original file,
-  function, line, release, and dist, plus a Debug ID match report. Generated or
-  vendor-only bundles without an EVB source mapping are recorded in the private
-  canary receipt and do not claim symbolication proof.
+  `vercel/output/functions`. The static invocation must pass `--url-prefix ~/`
+  so `/_nuxt/...` frames match Sentry's `~/_nuxt/...` artifact names while the
+  source-map rewrite can still reach the staged project sources. Uploading the
+  temporary tree's parent produces `~/vercel/output/static/...` and does not
+  match deployed browser URLs.
+- Tests: upload-argument coverage for the static URL prefix, a verifier suite
+  covering delayed processing and missing source content, a workflow policy test
+  that verification follows every canary step, a secret scan on public
+  artifacts, and a test that a re-dispatch path performs no upload.
+- Exit evidence: a passing `canary-verification-receipt.json` for every
+  project-source canary in the exact release and dist. Generated or vendor-only
+  bundles without an EVB source mapping are recorded in the private canary
+  receipt and do not claim symbolication proof.
 
 #### SEN-MAP-05 Prebuilt viewer deployment
 
-- Status: complete; protected Preview and public production deployments and full served-byte parity verified through 2026-09-05
+- Status: served-byte parity complete; source-map acceptance remains blocked by SEN-MAP-04
 - Depends on: SEN-MAP-03
 - Difficulty: x-hard
 - Paths: `scripts/deployVercelPrivate.mjs`, the `deploy:web` and
@@ -1652,7 +1663,8 @@ current repository or external-gate status.
 
 #### SEN-CON-07 No-client-report proof
 
-- Status: implemented and locally verified; packaged canary proof pending
+- Status: implemented and locally verified; macOS arm64 packaged proof passed
+  2026-09-05, remaining shipping identities pending hosted proof
 - Depends on: SEN-CON-06, SEN-SDK-02, SEN-SDK-03, SEN-SDK-05
 - Difficulty: medium
 - Paths: `electron/features/diagnostics/sentryNodeAdapter.ts`,
@@ -1672,7 +1684,8 @@ current repository or external-gate status.
 
 #### SEN-CAN-01 Desktop consent canary
 
-- Status: blocked by signed artifacts, live project, and map upload
+- Status: implemented; macOS arm64 local packaged matrix passed 2026-09-05,
+  all-identity hosted acceptance and update/recovery deadline proof pending
 - Depends on: SEN-CON-03, SEN-CON-05, SEN-CORE-09, SEN-MIG-04, SEN-MIG-07,
   SEN-MIG-09, SEN-MIG-13, SEN-SDK-02, SEN-MAP-04, SEN-CON-07
 - Difficulty: x-hard
@@ -1692,7 +1705,7 @@ current repository or external-gate status.
 
 #### SEN-CAN-02 Hosted browser consent canary
 
-- Status: complete; production request counts, grant, denial, revocation, CSP, closed Error ID, and original-source symbolication verified 2026-09-05
+- Status: consent behavior, request counts, revocation, CSP, and runtime Error ID complete; source-map acceptance remains blocked by SEN-MAP-04
 - Depends on: SEN-CON-05, SEN-MIG-04, SEN-SDK-03, SEN-MAP-04, SEN-CON-07
 - Difficulty: hard
 - Paths: a preview deployment and the browser integration suite
@@ -1701,28 +1714,29 @@ current repository or external-gate status.
   and that the CSP permits exactly the one ingest origin.
 - Tests: browser integration canary against the preview deployment.
 - Exit evidence: recorded network traces for each preference value and a
-  symbolicated canary event.
+  symbolicated canary event after the fresh exact release passes SEN-MAP-04.
 
 ### Phase 6: operation
 
 #### SEN-OPS-01 Alerts and quota
 
-- Status: partially complete; the three production issue alerts are enabled, while organization quota notifications remain pending
+- Status: complete; three production issue alerts and the platform-supported personal error-quota notification are enabled
 - Depends on: SEN-CAN-01, SEN-CAN-02, SEN-CAN-03
 - Difficulty: medium
 - Behavior: configure exactly four alert classes: a new or regressed high-priority
   fatal production issue, a new or regressed production issue with a diagnostic
   code, a production issue with a diagnostic code that exceeds 20 events in five
-  minutes, and quota at 50, 70, and 90 percent. Sentry exposes quota thresholds
-  in ten-percent steps, so the architecture's original 75-percent point is
-  implemented as the closest earlier threshold.
+  minutes, and an organization quota notification. The live account UI exposes
+  only `100% and 80%` or `100%`; it does not expose custom 50, 70, 75, or 90
+  percent points. The stricter available `100% and 80%` option is enabled, and
+  pay-as-you-go remains disabled.
   Do not alert on preview, tests, cancellation, expected teardown, validation,
   unsupported input, or ordinary offline behavior.
 - Exit evidence: the four alerts exist and the excluded categories are recorded.
 
 #### SEN-OPS-02 Weekly triage procedure
 
-- Status: partially complete; runbook implemented, first live weekly cycle pending
+- Status: complete; runbook implemented and first live weekly cycle recorded 2026-09-05
 - Depends on: SEN-OPS-01
 - Difficulty: medium
 - Paths: `docs/releasing.md` or a dedicated operations section for the runbook
@@ -1822,7 +1836,7 @@ already exists at `55e00c767`.
 | --- | --- | --- |
 | Closed builder | Forbidden sentinels at every input depth never reach a captured envelope | `tests/unit/` diagnostics suites |
 | Code registry | Type tests and runtime decoders reject unknown codes, keys, values, frames, IDs, and schema versions | `tests/unit/contracts/` |
-| Static boundary | Only the three named runtime adapter roots import a Sentry SDK; only two exact release tools may invoke the CLI | `tests/unit/architecture/`, `scripts/architecture/boundary-check.mjs` (existing) |
+| Static boundary | Only the three named runtime adapter roots import a Sentry SDK; only two exact release tools may invoke the CLI, and only the exact verification tool may read the separate read-only verification token | `tests/unit/architecture/`, `scripts/architecture/boundary-check.mjs` (existing) |
 | Red invariant | Raw red presentation, direct `console.error`, and receipt-free runtime or fatal reports fail | `tests/unit/architecture/`, `eslint-plugin-custom.mjs` (existing) |
 | Renderer ownership | One guarded Vue error yields one local log, one IPC record, one UI report, one event | `tests/unit/app/` |
 | Main ownership | One main `ERROR` yields one local log and one event, then appears in every window without another send | `tests/unit/electron/` |
@@ -1890,7 +1904,7 @@ Each has an enforcing gate.
 | No broad SDK import | Only `electron/features/diagnostics/sentryNodeAdapter.ts`, `app/utils/browserDiagnosticsTransport.ts`, and `server/utils/sentryNitroAdapter.ts` may import a Sentry SDK, read a DSN, call a capture API, or construct a Sentry event | SEN-GATE-02 |
 | No raw payload capture | The remote plane is built from a closed record; no code path may pass a raw `Error`, console argument, log line, UI string, or arbitrary object toward a transport | SEN-GATE-03, SEN-CORE-02 |
 | No duplicate ownership | A presenter accepts a receipt and never captures; a logger call that receives a receipt creates no second occurrence; a main-owned failure presented in a renderer reuses `failureRef` | SEN-GATE-01, SEN-MIG-06 |
-| No runner-to-Sentry path | Development runner stdout, stderr, page diagnostics, session records, and local log files are never read by an adapter; scripts cannot import a client SDK, while only the two exact release tools may invoke the pinned CLI for injection or upload | SEN-GATE-02 |
+| No runner-to-Sentry path | Development runner stdout, stderr, page diagnostics, session records, and local log files are never read by an adapter; scripts cannot import a client SDK, while only the two exact release tools may invoke the pinned CLI for injection or upload and the exact verifier may query the read-only API | SEN-GATE-02 |
 | No child SDK | Workers, utility processes, preload, and the renderer initialize no Sentry client | SEN-GATE-02, SEN-CORE-09 |
 | No persistence | No offline queue, no persisted event, no transport-level retry store; the single startup marker is the only persisted record and is deleted unconditionally | SEN-CON-03, SEN-SDK-02 |
 | No behavior change | Sentry never alters startup, editing, save, print, update, recovery, relaunch, or shutdown behavior or deadlines | SEN-CAN-01 |

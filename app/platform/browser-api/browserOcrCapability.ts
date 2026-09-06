@@ -4,6 +4,11 @@ import type {
 } from '@contracts/electronApiOcr';
 import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
+import {
+    createJobId,
+    type TRequestId,
+} from '@contracts/shared';
+import { createEpochMs } from '@contracts/timestamps';
 
 const BROWSER_OCR_UNAVAILABLE = 'Browser OCR is unavailable; use the desktop app to create searchable PDFs.';
 
@@ -12,14 +17,14 @@ function createBrowserOcrUnavailableEnvelope(): IOcrErrorEnvelope {
         code: 'OCR_WORKER_UNAVAILABLE',
         message: BROWSER_OCR_UNAVAILABLE,
         retryable: false,
-        timestamp: Date.now(),
+        timestamp: createEpochMs(),
     };
 }
 
-function createBrowserOcrJobUnavailableResult(requestId: string): IOcrJobStartResult {
+function createBrowserOcrJobUnavailableResult(): IOcrJobStartResult {
     return {
         started: false,
-        jobId: requestId,
+        jobId: createJobId('ocr-unavailable'),
         installed: [],
         error: BROWSER_OCR_UNAVAILABLE,
         errors: [BROWSER_OCR_UNAVAILABLE],
@@ -39,7 +44,7 @@ export const browserOcrCapability: IOcrCapability = {
     getLanguages() {
         return Promise.resolve([]);
     },
-    resolveDocumentTextCatalog(_workingCopyPath, documentRevision, pageCount = 0, _requestId?: string) {
+    resolveDocumentTextCatalog(_workingCopyPath, documentRevision, pageCount = 0, _requestId?: TRequestId) {
         return Promise.resolve({
             documentRevision,
             pageCount,
@@ -53,7 +58,7 @@ export const browserOcrCapability: IOcrCapability = {
         firstPage,
         lastPage,
         pageCount = lastPage,
-        _requestId?: string,
+        _requestId?: TRequestId,
     ) {
         return Promise.resolve({
             documentRevision,
@@ -71,8 +76,8 @@ export const browserOcrCapability: IOcrCapability = {
             errorEnvelope: createBrowserOcrUnavailableEnvelope(),
         });
     },
-    createSearchablePdf(_sourcePdfPath, _pages, requestId) {
-        return Promise.resolve(createBrowserOcrJobUnavailableResult(requestId));
+    createSearchablePdf(_sourcePdfPath, _pages, _requestId) {
+        return Promise.resolve(createBrowserOcrJobUnavailableResult());
     },
     onProgress: noopUnsubscribe,
     onComplete: noopUnsubscribe,

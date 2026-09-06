@@ -5,6 +5,8 @@ import {
     expect,
     it,
 } from 'vitest';
+import {requireJobId} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
 import {
     scanCleanupAutoDetectionCanceledDocuments,
@@ -28,7 +30,7 @@ function cacheEntry() {
         results: [],
         signatures: new Map<number, string>(),
         state: {
-            jobId: 'detect-1',
+            jobId: requireJobId('detect-1'),
             status: 'completed' as const,
             progress: {
                 stage: 'detecting' as const,
@@ -38,7 +40,7 @@ function cacheEntry() {
                 completedPageNumbers: [1],
             },
             results: [],
-            updatedAtMs: 0,
+            updatedAtMs: requireEpochMs(0),
         },
         totalPages: 1,
     };
@@ -51,7 +53,7 @@ describe('discardScanCleanupDocumentState', () => {
         scanCleanupAutoDetectionCanceledDocuments.clear();
     });
 
-    it('drops detection restore state and persisted overrides but keeps document margins', () => {
+    it('drops detection restore state and persisted overrides but keeps document margins', async () => {
         scanCleanupDetectionSessionCache.set(LIFECYCLE_KEY, cacheEntry());
         scanCleanupDetectionSessionCache.set(AUTHORITATIVE_LIFECYCLE_KEY, cacheEntry());
         scanCleanupAutoDetectionCanceledDocuments.add(LIFECYCLE_KEY);
@@ -69,8 +71,8 @@ describe('discardScanCleanupDocumentState', () => {
             bottomMm: 18,
         });
 
-        discardScanCleanupDocumentState(DOCUMENT_KEY, SOURCE_SHA256);
-        discardScanCleanupDocumentState(DOCUMENT_KEY, SOURCE_SHA256);
+        await discardScanCleanupDocumentState(DOCUMENT_KEY, SOURCE_SHA256);
+        await discardScanCleanupDocumentState(DOCUMENT_KEY, SOURCE_SHA256);
 
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
         expect(scanCleanupAutoDetectionCanceledDocuments.size).toBe(0);
@@ -83,10 +85,10 @@ describe('discardScanCleanupDocumentState', () => {
         });
     });
 
-    it('leaves other documents untouched and tolerates missing keys', () => {
+    it('leaves other documents untouched and tolerates missing keys', async () => {
         scanCleanupDetectionSessionCache.set(`${DOCUMENT_KEY}-other\u0000rev`, cacheEntry());
-        discardScanCleanupDocumentState(DOCUMENT_KEY);
-        discardScanCleanupDocumentState(null);
+        await discardScanCleanupDocumentState(DOCUMENT_KEY);
+        await discardScanCleanupDocumentState(null);
         expect(scanCleanupDetectionSessionCache.size).toBe(1);
     });
 });

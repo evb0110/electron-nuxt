@@ -250,7 +250,7 @@ function scheduleRangeReadHandleIdleClose(
     if (entry.idleTimer) {
         clearTimeout(entry.idleTimer);
     }
-    entry.idleTimer = setTimeout(() => {
+    const idleTimer = setTimeout(() => {
         const currentEntry = rangeReadHandles.get(cacheKey);
         if (currentEntry !== entry) {
             return;
@@ -258,7 +258,8 @@ function scheduleRangeReadHandleIdleClose(
         void requestRangeReadHandleClose(resolvedPath, entry)
             .finally(() => pruneRangeReadPathEpochIfUnused(resolvedPath));
     }, RANGE_READ_HANDLE_IDLE_MS);
-    (entry.idleTimer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
+    entry.idleTimer = idleTimer;
+    idleTimer.unref();
 }
 
 function closeCachedRangeReadHandle(resolvedPath: string) {
@@ -359,7 +360,7 @@ function waitForRangeReadHandleCloseBeforeMutation(
 
 async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadHandleLease> {
     const cacheKey = getRangeReadCacheKey(resolvedPath);
-    while (true) {
+    for (;;) {
         const mutationBarrier = rangeReadMutationBarriers.get(cacheKey);
         if (mutationBarrier) {
             await mutationBarrier.promise;

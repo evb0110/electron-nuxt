@@ -9,10 +9,15 @@ import {
     basename,
     extname,
 } from 'path';
-import type { ICropMargins } from '@contracts/shared';
+import type {
+    ICropMargins,
+    TRequestId,
+} from '@contracts/shared';
+import { parseDocumentRef } from '@contracts/documentRef';
 import {
     normalizeCropMargins,
     normalizeNonEmptyStringPaths,
+    parseRequestId,
 } from '@contracts/shared';
 import type {
     TOpenBatchProgressOperation,
@@ -178,7 +183,7 @@ function formatSelectionLabel(ranges: readonly IPageMoveRangeSegment[]) {
 
 function createOpenBatchProgressReporter(
     context: IPageOpsOperationContext,
-    requestId: string,
+    requestId: TRequestId,
     operation: TOpenBatchProgressOperation,
 ) {
     const pump = createIpcProgressPump<TOpenDocumentDirectBatchProgress>({
@@ -232,7 +237,7 @@ async function transitionPageMutation<T>(input: {
 }) {
     await awaitPageIdentityStoreInitialization(input.workingCopyPath);
     const values: T[] = [];
-    let committedDelta: IPageIdentityDelta | null = null;
+    let committedDelta = null as IPageIdentityDelta | null;
     const documentRevision = await transitionWorkingCopyContentRevision(
         input.workingCopyPath,
         'page-ops',
@@ -490,9 +495,13 @@ async function handlePageOpsExtract(
         }
     });
     allowOpenPath(destPath, context.sender);
+    const documentRef = parseDocumentRef(destPath);
+    if (documentRef === null) {
+        throw new Error('Page extraction returned an invalid document ref');
+    }
     return {
         success: true,
-        destPath,
+        destPath: documentRef,
     };
 }
 
@@ -795,7 +804,7 @@ async function handlePageOpsInsertFile(
     assertOpenInputPathCount(sourcePaths);
     const trustedSourcePaths = normalizeNonEmptyStringPaths(sourcePaths)
         .map(path => requireOpenPath(path, context.sender));
-    const normalizedRequestId = normalizeOptionalIpcRequestId(requestId) ?? '';
+    const normalizedRequestId = parseRequestId(normalizeOptionalIpcRequestId(requestId));
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(options);
 
     const mutation = await enqueueWorkingCopyMutation(normalizedWorkingCopyPath, async (operation) => {

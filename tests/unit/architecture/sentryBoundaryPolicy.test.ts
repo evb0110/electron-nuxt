@@ -15,6 +15,7 @@ const {
     SENTRY_CANARY_TOOL_ROOTS,
     SENTRY_RELEASE_TOOL_ROOTS,
     SENTRY_RUNTIME_ADAPTER_ROOTS,
+    SENTRY_VERIFICATION_TOOL_ROOTS,
 } = await import(
     pathToFileURL(resolve(projectRoot, 'scripts/architecture/boundary-check.mjs')).href
 );
@@ -214,6 +215,23 @@ describe('Sentry SDK and CLI architecture policy', () => {
             'sentry-upload-token-boundary',
             'sentry-cli-boundary',
         ]);
+    });
+
+    it('allows only the exact verification tool to read its read-only token', () => {
+        const verificationSource = 'const token = process.env.SENTRY_VERIFICATION_TOKEN;\n';
+
+        expect(sentryViolations(
+            'scripts/release/verify-sentry-sourcemap-canaries.mjs',
+            verificationSource,
+        )).toEqual([]);
+        expect(sentryViolations(
+            'scripts/electron-run/runner.ts',
+            verificationSource,
+        )).toEqual([expect.objectContaining({
+            rule: 'sentry-upload-token-boundary',
+            specifier: 'verification-token-read',
+        })]);
+        expect(SENTRY_VERIFICATION_TOOL_ROOTS).toEqual(new Set(['scripts/release/verify-sentry-sourcemap-canaries.mjs']));
     });
 
     it('rejects client imports and capture calls even in release tools', () => {

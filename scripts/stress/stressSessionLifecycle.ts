@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { join } from 'node:path';
 import {
     isProcessAlive,
@@ -81,12 +82,12 @@ export async function startStressSession(scenarioId: string, profile: IStressHos
             try {
                 await applied.release();
             } catch (error) {
-                log(`profile release failed: ${error instanceof Error ? error.message : String(error)}`);
+                log(`profile release failed: ${getErrorMessage(error)}`);
             }
             try {
                 await session.stop({preserveArtifacts: true});
             } catch (error) {
-                log(`session stop failed: ${error instanceof Error ? error.message : String(error)}`);
+                log(`session stop failed: ${getErrorMessage(error)}`);
             }
             if (electronPid !== null && isProcessAlive(electronPid)) {
                 try {
@@ -96,7 +97,7 @@ export async function startStressSession(scenarioId: string, profile: IStressHos
                         await killProcessTree(electronPid, FORCE_KILL_GRACE_MS, {force: true});
                     }
                 } catch (error) {
-                    log(`electron pid ${electronPid} cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+                    log(`electron pid ${electronPid} cleanup failed: ${getErrorMessage(error)}`);
                 }
             }
             const leakedPids = sweepLeakedSessionProcesses(userDataDir);
@@ -106,7 +107,7 @@ export async function startStressSession(scenarioId: string, profile: IStressHos
                     try {
                         await killProcessTree(pid, FORCE_KILL_GRACE_MS, {force: true});
                     } catch (error) {
-                        log(`leaked pid ${pid} kill failed: ${error instanceof Error ? error.message : String(error)}`);
+                        log(`leaked pid ${pid} kill failed: ${getErrorMessage(error)}`);
                     }
                 }
             }

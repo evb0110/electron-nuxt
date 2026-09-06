@@ -62,7 +62,7 @@ function getWorkerFailureReceipt(error: unknown) {
 }
 
 function isExpectedWorkerTermination(error: Error) {
-    return error.message === 'ERR_BROWSER_SEARCH_CANCELED';
+    return getErrorMessage(error) === 'ERR_BROWSER_SEARCH_CANCELED';
 }
 
 function reportWorkerFailure(error: Error) {
@@ -84,12 +84,10 @@ function reportWorkerFailure(error: Error) {
             cause: error,
         },
     }, {runtime: 'browser-worker-parent'});
-    if (receipt) {
-        Object.defineProperty(error, 'failure', {
-            configurable: true,
-            value: receipt,
-        });
-    }
+    Object.defineProperty(error, 'failure', {
+        configurable: true,
+        value: receipt,
+    });
     return error;
 }
 
@@ -298,7 +296,7 @@ const browserSearchWorkerClient = new BrowserWorkerClient<IPendingWorkerRequest>
         }
     },
     createError: event => reportWorkerFailure(new BrowserSearchWorkerRequestError(
-        event.error instanceof Error ? event.error.message : event.message,
+        event.error instanceof Error ? getErrorMessage(event.error) : event.message,
     )),
     handleMessage: settleSearchWorkerResponse,
 });

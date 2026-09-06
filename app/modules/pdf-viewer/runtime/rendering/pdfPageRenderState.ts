@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 type TPdfPageRenderVisualState = 'none' | 'ready';
@@ -25,15 +27,32 @@ export function resolvePdfCommittedRasterQuality(
     intent: IPdfCommittedRasterQuality['intent'],
 ): IPdfCommittedRasterQuality {
     const fallbackPixels = Math.max(0, renderResult.canvas.width * renderResult.canvas.height);
-    const hasQuality = Number.isFinite(renderResult.requestedPixels)
-        && Number.isFinite(renderResult.grantedPixels)
-        && Number.isFinite(renderResult.pixelScaleFactor)
-        && typeof renderResult.wasClamped === 'boolean';
+    const requestedPixels = renderResult.requestedPixels;
+    const grantedPixels = renderResult.grantedPixels;
+    const pixelScaleFactor = renderResult.pixelScaleFactor;
+    const wasClamped = renderResult.wasClamped;
+    if (
+        typeof requestedPixels !== 'number'
+        || !Number.isFinite(requestedPixels)
+        || typeof grantedPixels !== 'number'
+        || !Number.isFinite(grantedPixels)
+        || typeof pixelScaleFactor !== 'number'
+        || !Number.isFinite(pixelScaleFactor)
+        || typeof wasClamped !== 'boolean'
+    ) {
+        return {
+            requestedPixels: fallbackPixels,
+            grantedPixels: fallbackPixels,
+            pixelScaleFactor: 1,
+            wasClamped: false,
+            intent,
+        };
+    }
     return {
-        requestedPixels: hasQuality ? renderResult.requestedPixels! : fallbackPixels,
-        grantedPixels: hasQuality ? renderResult.grantedPixels! : fallbackPixels,
-        pixelScaleFactor: hasQuality ? renderResult.pixelScaleFactor! : 1,
-        wasClamped: hasQuality ? renderResult.wasClamped! : false,
+        requestedPixels,
+        grantedPixels,
+        pixelScaleFactor,
+        wasClamped,
         intent,
     };
 }
@@ -59,28 +78,28 @@ interface IPdfPageRenderSlot {
     readonly pendingContainer: HTMLElement | null;
 }
 
-export interface IPdfPageNumberStateSet extends Iterable<number> {
+export interface IPdfPageNumberStateSet extends Iterable<TPageNumber> {
     readonly size: number;
-    add: (pageNumber: number) => IPdfPageNumberStateSet;
+    add: (pageNumber: TPageNumber) => IPdfPageNumberStateSet;
     clear: () => void;
-    delete: (pageNumber: number) => boolean;
-    entries: () => SetIterator<[number, number]>;
-    forEach: (callback: (value: number) => void) => void;
-    has: (pageNumber: number) => boolean;
-    keys: () => SetIterator<number>;
-    values: () => SetIterator<number>;
+    delete: (pageNumber: TPageNumber) => boolean;
+    entries: () => SetIterator<[TPageNumber, TPageNumber]>;
+    forEach: (callback: (value: TPageNumber) => void) => void;
+    has: (pageNumber: TPageNumber) => boolean;
+    keys: () => SetIterator<TPageNumber>;
+    values: () => SetIterator<TPageNumber>;
 }
 
-export interface IPdfPageNumberStateMap extends Iterable<[number, number]> {
+export interface IPdfPageNumberStateMap extends Iterable<[TPageNumber, number]> {
     readonly size: number;
     clear: () => void;
-    delete: (pageNumber: number) => boolean;
-    entries: () => MapIterator<[number, number]>;
-    forEach: (callback: (value: number, key: number) => void) => void;
-    get: (pageNumber: number) => number | undefined;
-    has: (pageNumber: number) => boolean;
-    keys: () => MapIterator<number>;
-    set: (pageNumber: number, value: number) => IPdfPageNumberStateMap;
+    delete: (pageNumber: TPageNumber) => boolean;
+    entries: () => MapIterator<[TPageNumber, number]>;
+    forEach: (callback: (value: number, key: TPageNumber) => void) => void;
+    get: (pageNumber: TPageNumber) => number | undefined;
+    has: (pageNumber: TPageNumber) => boolean;
+    keys: () => MapIterator<TPageNumber>;
+    set: (pageNumber: TPageNumber, value: number) => IPdfPageNumberStateMap;
     values: () => MapIterator<number>;
 }
 
@@ -106,13 +125,13 @@ const EMPTY_RENDER_SLOT: IPdfPageRenderSlot = {
 };
 
 export function createPdfPageRenderState() {
-    const slots = new Map<number, IPdfPageRenderSlot>();
+    const slots = new Map<TPageNumber, IPdfPageRenderSlot>();
 
-    function getSlot(pageNumber: number) {
+    function getSlot(pageNumber: TPageNumber) {
         return slots.get(pageNumber) ?? EMPTY_RENDER_SLOT;
     }
 
-    function setSlot(pageNumber: number, slot: IPdfPageRenderSlot) {
+    function setSlot(pageNumber: TPageNumber, slot: IPdfPageRenderSlot) {
         if (
             slot.canvasReadiness === 'none'
             && slot.layerReadiness === 'none'
@@ -124,7 +143,7 @@ export function createPdfPageRenderState() {
         slots.set(pageNumber, slot);
     }
 
-    function updateSlot(pageNumber: number, patch: Partial<IPdfPageRenderSlot>) {
+    function updateSlot(pageNumber: TPageNumber, patch: Partial<IPdfPageRenderSlot>) {
         setSlot(pageNumber, {
             ...getSlot(pageNumber),
             ...patch,
@@ -133,8 +152,8 @@ export function createPdfPageRenderState() {
 
     function createSetView(options: {
         includes: (slot: IPdfPageRenderSlot) => boolean;
-        add: (pageNumber: number) => void;
-        remove: (pageNumber: number) => void;
+        add: (pageNumber: TPageNumber) => void;
+        remove: (pageNumber: TPageNumber) => void;
     }): IPdfPageNumberStateSet {
         const pageNumbers = () => [...slots]
             .filter(([
@@ -183,8 +202,8 @@ export function createPdfPageRenderState() {
 
     function createMapView(options: {
         getValue: (slot: IPdfPageRenderSlot) => number | null;
-        setValue: (pageNumber: number, value: number) => void;
-        remove: (pageNumber: number) => void;
+        setValue: (pageNumber: TPageNumber, value: number) => void;
+        remove: (pageNumber: TPageNumber) => void;
     }): IPdfPageNumberStateMap {
         const entries = () => [...slots]
             .map(([
@@ -194,7 +213,7 @@ export function createPdfPageRenderState() {
                 pageNumber,
                 options.getValue(slot),
             ] as const)
-            .filter((entry): entry is readonly [number, number] => entry[1] !== null);
+            .filter((entry): entry is readonly [TPageNumber, number] => entry[1] !== null);
         const view: IPdfPageNumberStateMap = {
             get size() {
                 return entries().length;
@@ -291,12 +310,12 @@ export function createPdfPageRenderState() {
     });
 
     return {
-        slots: slots as ReadonlyMap<number, IPdfPageRenderSlot>,
+        slots: slots as ReadonlyMap<TPageNumber, IPdfPageRenderSlot>,
         renderedPages,
         renderingPages,
         renderingPageRequestIds,
         getSlot,
-        markRenderFailed(pageNumber: number, version: number, requestId: number) {
+        markRenderFailed(pageNumber: TPageNumber, version: number, requestId: number) {
             const current = getSlot(pageNumber);
             if (
                 current.job !== 'rendering'
@@ -313,7 +332,7 @@ export function createPdfPageRenderState() {
             return true;
         },
         beginRender(
-            pageNumber: number,
+            pageNumber: TPageNumber,
             version: number,
             requestId: number,
             documentToken: string,
@@ -360,7 +379,7 @@ export function createPdfPageRenderState() {
             });
         },
         beginQualityRefine(
-            pageNumber: number,
+            pageNumber: TPageNumber,
             version: number,
             requestId: number,
             documentToken: string,
@@ -380,7 +399,7 @@ export function createPdfPageRenderState() {
             );
         },
         commitVisual(
-            pageNumber: number,
+            pageNumber: TPageNumber,
             version: number,
             requestId: number,
             committedRasterQuality: IPdfCommittedRasterQuality = {
@@ -413,7 +432,7 @@ export function createPdfPageRenderState() {
             });
             return true;
         },
-        markCanvasOnly(pageNumber: number, version: number, requestId: number) {
+        markCanvasOnly(pageNumber: TPageNumber, version: number, requestId: number) {
             const current = getSlot(pageNumber);
             if (
                 current.job !== 'rendering'
@@ -431,7 +450,7 @@ export function createPdfPageRenderState() {
             return true;
         },
         beginLayerHydration(
-            pageNumber: number,
+            pageNumber: TPageNumber,
             version: number,
             requestId: number,
             documentToken: string,
@@ -470,7 +489,7 @@ export function createPdfPageRenderState() {
             });
             return true;
         },
-        markLayersHydrating(pageNumber: number, version: number, requestId: number) {
+        markLayersHydrating(pageNumber: TPageNumber, version: number, requestId: number) {
             const current = getSlot(pageNumber);
             if (current.layerReadiness === 'hydrating') {
                 return current.job === 'rendering'
@@ -499,7 +518,7 @@ export function createPdfPageRenderState() {
             return true;
         },
         markTextLayerReady(
-            pageNumber: number,
+            pageNumber: TPageNumber,
             contentVersion: number,
             hydrationRequestId: number,
             container: HTMLElement,
@@ -523,7 +542,7 @@ export function createPdfPageRenderState() {
             return true;
         },
         markLayersReady(
-            pageNumber: number,
+            pageNumber: TPageNumber,
             contentVersion: number,
             hydrationRequestId: number,
             container: HTMLElement,
@@ -552,7 +571,7 @@ export function createPdfPageRenderState() {
             return true;
         },
         markLayersCanvasOnly(
-            pageNumber: number,
+            pageNumber: TPageNumber,
             contentVersion: number,
             hydrationRequestId: number,
             container: HTMLElement,
@@ -579,13 +598,13 @@ export function createPdfPageRenderState() {
             });
             return true;
         },
-        isLayerPromotionEligible(pageNumber: number) {
+        isLayerPromotionEligible(pageNumber: TPageNumber) {
             const current = getSlot(pageNumber);
             return current.canvasReadiness === 'ready'
                 && current.job === 'idle'
                 && (current.layerReadiness === 'none' || current.layerReadiness === 'canvas-only');
         },
-        failLayerHydration(pageNumber: number, version: number, requestId: number) {
+        failLayerHydration(pageNumber: TPageNumber, version: number, requestId: number) {
             const current = getSlot(pageNumber);
             if (
                 current.contentVersion !== version
@@ -615,7 +634,7 @@ export function createPdfPageRenderState() {
             });
             return true;
         },
-        completeRender(pageNumber: number, version: number, requestId: number) {
+        completeRender(pageNumber: TPageNumber, version: number, requestId: number) {
             const current = getSlot(pageNumber);
             if (current.job !== 'rendering' || current.version !== version || current.requestId !== requestId) {
                 return false;
@@ -632,7 +651,7 @@ export function createPdfPageRenderState() {
             return true;
         },
         adoptCommittedCanvasVersion(
-            pageNumber: number,
+            pageNumber: TPageNumber,
             contentVersion: number,
             documentToken = getSlot(pageNumber).documentToken,
         ) {
@@ -658,7 +677,7 @@ export function createPdfPageRenderState() {
             return true;
         },
         commitCanvas(
-            pageNumber: number,
+            pageNumber: TPageNumber,
             version: number,
             requestId: number,
             committedRasterQuality?: IPdfCommittedRasterQuality,
@@ -668,7 +687,7 @@ export function createPdfPageRenderState() {
             }
             return this.completeRender(pageNumber, version, requestId);
         },
-        clearPage(pageNumber: number) {
+        clearPage(pageNumber: TPageNumber) {
             slots.delete(pageNumber);
         },
         clearAll() {

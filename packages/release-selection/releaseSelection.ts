@@ -286,7 +286,7 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
         return null;
     }
 
-    const extensionPreference = PREFERRED_EXTENSION_ORDER[profile.platform] || PREFERRED_EXTENSION_ORDER.unknown;
+    const extensionPreference = PREFERRED_EXTENSION_ORDER[profile.platform];
     const platformScopedAssets = candidatePool.filter(asset => asset.platform === profile.platform);
     if (!platformScopedAssets.length) {
         return null;
@@ -485,7 +485,7 @@ export function selectPreferredInstallers(assets: IReleaseInstaller[]): IRelease
         return assets;
     }
 
-    const formatOrder = PREFERRED_EXTENSION_ORDER[first.platform] || PREFERRED_EXTENSION_ORDER.unknown;
+    const formatOrder = PREFERRED_EXTENSION_ORDER[first.platform];
     const assetsByArch = groupBy(assets, asset => asset.arch);
 
     const preferredInstallers: IReleaseInstaller[] = [];
@@ -504,7 +504,7 @@ export function selectPreferredInstallers(assets: IReleaseInstaller[]): IRelease
 }
 
 export function compareInstallersForSelect(left: IReleaseInstaller, right: IReleaseInstaller) {
-    const extensionPreference = PREFERRED_EXTENSION_ORDER[left.platform] || PREFERRED_EXTENSION_ORDER.unknown;
+    const extensionPreference = PREFERRED_EXTENSION_ORDER[left.platform];
     const extensionDiff = extensionRank(left.extension, extensionPreference) - extensionRank(right.extension, extensionPreference);
     if (extensionDiff !== 0) {
         return extensionDiff;
@@ -530,6 +530,7 @@ export function formatFileSize(bytes: number) {
         'KB',
         'MB',
         'GB',
+        'TB',
     ];
     let value = bytes;
     let unitIndex = 0;
@@ -540,5 +541,5 @@ export function formatFileSize(bytes: number) {
     }
 
     const rounded = value >= 10 ? value.toFixed(0) : value.toFixed(1);
-    return `${rounded} ${units[unitIndex]}`;
+    return `${rounded} ${units[unitIndex] ?? 'TB'}`;
 }

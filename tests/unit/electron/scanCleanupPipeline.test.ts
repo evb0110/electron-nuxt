@@ -20,6 +20,7 @@ import type {
     TScanCleanupOutputMode,
     TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import type {INativeScanCleanupOutputV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
@@ -214,7 +215,7 @@ async function answerPageSizesCommand(args: readonly string[], pageCount = 4) {
         {length: pageCount},
         (_, index) => index + 1,
     ).map(pageNumber => ({
-        pageNumber,
+        pageNumber: requirePageNumber(pageNumber),
         xPoints: 0,
         yPoints: 0,
         widthPoints: 240,
@@ -227,7 +228,7 @@ async function answerPageSizesCommand(args: readonly string[], pageCount = 4) {
 // The document's own geometry in whatever order a producer hands it over.
 function documentGeometry(pageNumbers: readonly number[]) {
     return pageNumbers.map(pageNumber => ({
-        pageNumber,
+        pageNumber: requirePageNumber(pageNumber),
         xPoints: 0,
         yPoints: 0,
         widthPoints: 240,
@@ -798,7 +799,7 @@ describe('scan cleanup pipeline', () => {
             options,
             layoutByPage: {'1': 'single-uncut-page' as const},
             pagePlanEvidenceByPage: {'1': {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 rotationDegrees: 0 as const,
                 layoutClassification: 'single-uncut-page' as const,
                 automaticSplit: {
@@ -869,7 +870,7 @@ describe('scan cleanup pipeline', () => {
 
     it('counts pinned plans and rejects stale evidence instead of silently reanalyzing', () => {
         const evidence = {'1': {
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             rotationDegrees: 0 as const,
             layoutClassification: 'single-uncut-page' as const,
             outputs: {},
@@ -907,7 +908,7 @@ describe('scan cleanup pipeline', () => {
             rotationDegrees: 0 as const,
         };
         const evidence = {'1': {
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             rotationDegrees: 0 as const,
             layoutClassification: 'single-uncut-page' as const,
             outputs: {full: {
@@ -956,7 +957,7 @@ describe('scan cleanup pipeline', () => {
             rotationDegrees: 0 as const,
         };
         const evidence = {'1': {
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             rotationDegrees: 0 as const,
             layoutClassification: 'single-uncut-page' as const,
             outputs: {full: {contentBox}},
@@ -986,7 +987,7 @@ describe('scan cleanup pipeline', () => {
             rotationDegrees: 0 as const,
         };
         const evidence = {'20001': {
-            pageNumber: 20_001,
+            pageNumber: requirePageNumber(20_001),
             rotationDegrees: 0 as const,
             layoutClassification: 'single-uncut-page' as const,
             outputs: {full: {contentBox}},
@@ -1642,7 +1643,7 @@ describe('scan cleanup pipeline', () => {
                 },
                 outputModeRecommendations: {1: 'color'},
                 sourcePageMetadataByPage: {1: {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     xPoints: 0,
                     yPoints: 0,
                     widthPoints: 240,
@@ -2132,7 +2133,7 @@ describe('scan cleanup pipeline', () => {
             ].map(pageNumber => [
                 String(pageNumber),
                 {
-                    pageNumber,
+                    pageNumber: requirePageNumber(pageNumber),
                     xPoints: 0,
                     yPoints: 0,
                     widthPoints: 240,
@@ -3233,7 +3234,7 @@ describe('scan cleanup pipeline', () => {
             },
             outputModeRecommendations: {'1': 'mixed'},
             sourcePageMetadataByPage: {'1': {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 xPoints: 0,
                 yPoints: 0,
                 widthPoints: 240,
@@ -3306,7 +3307,7 @@ describe('scan cleanup pipeline', () => {
             outputModeRecommendations: {'1': 'mixed'},
             layoutByPage: {'1': 'single-uncut-page'},
             pagePlanEvidenceByPage: {'1': {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 rotationDegrees: 0,
                 layoutClassification: 'single-uncut-page',
                 outputs: {right: {contentBox: {
@@ -3461,7 +3462,7 @@ describe('scan cleanup pipeline', () => {
                     matchPageSize: false,
                 },
                 sourcePageMetadataByPage: {'1': {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     xPoints: 0,
                     yPoints: 0,
                     widthPoints: 240,
@@ -5078,7 +5079,7 @@ describe('scan cleanup pipeline', () => {
         // user believe nothing was touched.
         expect(summary.warnings).toContain(formatScanCleanupWarningEvent({
             code: 'matched-canvas-pages-resampled',
-            pages: [2],
+            pages: [requirePageNumber(2)],
         }));
         // The meter follows the run that actually happened. On the lossless
         // weights `rendering` is not a stage at all, so a profile fixed before
@@ -5135,7 +5136,7 @@ describe('scan cleanup pipeline', () => {
         });
         expect(summary.warnings).toContain(formatScanCleanupWarningEvent({
             code: 'matched-canvas-pages-resampled',
-            pages: [2],
+            pages: [requirePageNumber(2)],
         }));
     });
 
@@ -5291,8 +5292,8 @@ describe('scan cleanup pipeline', () => {
             formatScanCleanupWarningEvent({
                 code: 'matched-canvas-content-fitted-pages',
                 pages: [
-                    1,
-                    2,
+                    requirePageNumber(1),
+                    requirePageNumber(2),
                 ],
             }),
         ]);
@@ -5319,8 +5320,8 @@ describe('scan cleanup pipeline', () => {
             formatScanCleanupWarningEvent({
                 code: 'matched-canvas-content-fitted-pages',
                 pages: [
-                    1,
-                    2,
+                    requirePageNumber(1),
+                    requirePageNumber(2),
                 ],
             }),
         ]);
@@ -5491,7 +5492,7 @@ describe('scan cleanup pipeline', () => {
             .toMatchObject({scale: 0.5});
         expect(summary.warnings).toContain(formatScanCleanupWarningEvent({
             code: 'matched-canvas-pages-scaled-in-place',
-            pages: [1],
+            pages: [requirePageNumber(1)],
         }));
     });
 

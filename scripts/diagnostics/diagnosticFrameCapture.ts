@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { execFile } from 'node:child_process';
 import {
     mkdirSync,
@@ -197,7 +198,7 @@ async function createFfmpegArtifacts(options: {
             available: false,
             command: options.command,
             contactSheetPath: null,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
             mp4Path: null,
         };
     }
@@ -234,7 +235,7 @@ async function startCdpScreencastCapture(page: Page, options: {
     quality: number;
     startedAt: number;
 }) {
-    const client = await page.target().createCDPSession();
+    const client = await page.createCDPSession();
     const writeFrame = createFrameWriter(options);
     let acceptingFrames = true;
     let pendingWrites = Promise.resolve();
@@ -347,7 +348,7 @@ export async function startDiagnosticFrameCapture(
         });
     } catch (error) {
         mode = 'screenshot-fallback';
-        fallbackReason = error instanceof Error ? error.message : String(error);
+        fallbackReason = getErrorMessage(error);
         fallbackCapture = startScreenshotFallbackCapture(page, {
             frames,
             framesDir,

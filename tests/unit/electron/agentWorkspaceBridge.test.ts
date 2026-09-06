@@ -15,6 +15,8 @@ import type {
     IAgentWorkspaceSnapshotRequest,
 } from '@contracts/agent';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
+import { requireIsoTimestamp } from '@contracts/timestamps';
+import { requireTabId } from '@contracts/windowTabs';
 import { cast } from '@tests/helpers/cast';
 import type * as AgentWorkspaceBridgeModule from '@electron/features/agent/workspaceBridge';
 
@@ -90,7 +92,7 @@ function getSnapshotRequest(window: IFakeWindow, index = 0) {
 
 function createWorkspaceSnapshot(): IAgentWorkspaceSnapshot {
     return {
-        capturedAt: '2026-06-22T00:00:00.000Z',
+        capturedAt: requireIsoTimestamp('2026-06-22T00:00:00.000Z'),
         activePaneId: null,
         activeTabId: null,
         summary: {
@@ -148,7 +150,7 @@ describe('agent workspace bridge', () => {
 
         const pending = requestAgentCommand(toBrowserWindow(window), {
             name: 'activate_tab',
-            arguments: {tabId: 'tab-1'},
+            arguments: {tabId: requireTabId('tab-1')},
         }, 30_000);
         window.webContents.emit('render-process-gone');
 
@@ -162,7 +164,7 @@ describe('agent workspace bridge', () => {
 
             const pending = requestAgentCommand(toBrowserWindow(window), {
                 name: 'activate_tab',
-                arguments: {tabId: 'tab-1'},
+                arguments: {tabId: requireTabId('tab-1')},
             }).catch((error: unknown) => error);
 
             await vi.advanceTimersByTimeAsync(DEFAULT_AGENT_REQUEST_TIMEOUT_MS);
@@ -251,7 +253,7 @@ describe('agent workspace bridge', () => {
 
         const pending = requestAgentCommand(toBrowserWindow(window), {
             name: 'activate_tab',
-            arguments: {tabId: 'tab-1'},
+            arguments: {tabId: requireTabId('tab-1')},
         }, DEFAULT_AGENT_REQUEST_TIMEOUT_MS, undefined, abortController.signal);
         abortController.abort();
 
@@ -267,7 +269,7 @@ describe('agent workspace bridge', () => {
 
         const pending = requestAgentCommand(toBrowserWindow(window), {
             name: 'activate_tab',
-            arguments: {tabId: 'tab-1'},
+            arguments: {tabId: requireTabId('tab-1')},
         }, DEFAULT_AGENT_REQUEST_TIMEOUT_MS, undefined, abortController.signal);
 
         await expect(pending).rejects.toThrow('aborted by the caller');

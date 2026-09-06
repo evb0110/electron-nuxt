@@ -26,6 +26,7 @@ import { useWorkspaceSidebarSearchSyncController } from '@app/modules/workspace-
 import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/composables/useWorkspaceAnnotationSession';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { useWorkspacePageNavigationCommand } from '@app/modules/workspace-shell/composables/useWorkspacePageNavigationCommand';
@@ -771,7 +772,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         if (!viewer?.renderLoadedPdfPagesForBrowserPrint) {
             throw new Error('Loaded PDF printing is unavailable');
         }
-        await viewer.renderLoadedPdfPagesForBrowserPrint(targetDocument, pageNumbers, options);
+        await viewer.renderLoadedPdfPagesForBrowserPrint(
+            targetDocument,
+            pageNumbers.map(pageNumber => requirePageNumber(pageNumber, totalPages.value)),
+            options,
+        );
     }
     async function printDriverSource(
         payload: IWorkspaceDriverPrintRequest,

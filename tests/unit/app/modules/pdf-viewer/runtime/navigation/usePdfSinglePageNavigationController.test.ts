@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
 import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import {
     describe,
     expect,
     it,
@@ -22,7 +26,7 @@ import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/ru
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
 
 function requireLayoutPageTop(layout: IPdfPageLayoutMetrics, pageIndex: number) {
-    const top = getLayoutPageTop(layout, pageIndex);
+    const top = getLayoutPageTop(layout, requirePageIndex(pageIndex));
     if (top === null) {
         throw new Error(`Expected a layout top for page index ${String(pageIndex)}`);
     }
@@ -487,7 +491,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            expect(controller.scrollToPage(2)).toBe(true);
+            expect(controller.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(2);
             });
@@ -704,11 +708,11 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            expect(controller.scrollToPage(3)).toBe(true);
+            expect(controller.scrollToPage(requirePageNumber(3))).toBe(true);
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(3);
             });
-            expect(getLayoutPageTop(layout, 2)).toBeGreaterThan(viewer.scrollHeight);
+            expect(getLayoutPageTop(layout, requirePageIndex(2))).toBeGreaterThan(viewer.scrollHeight);
             expect(viewportWrites.writes.at(-1)?.top).toBe(0);
             expect(viewer.scrollTop).toBe(0);
         } finally {
@@ -1307,7 +1311,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            expect(controller.scrollToPage(2)).toBe(true);
+            expect(controller.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => {
                 expect(prepareNavigationVisual).toHaveBeenCalledWith(
                     {
@@ -1332,7 +1336,7 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(viewer.querySelector('[data-page="1"] canvas')).not.toBeNull();
             expect(viewer.querySelector('[data-page="2"] .document-page-skeleton')).not.toBeNull();
 
-            expect(controller.scrollToPage(3)).toBe(true);
+            expect(controller.scrollToPage(requirePageNumber(3))).toBe(true);
             await vi.waitFor(() => {
                 expect(viewportWrites.writes).toHaveLength(1);
             });
@@ -1428,7 +1432,7 @@ describe('usePdfSinglePageNavigationController', () => {
             // requestedCurrentPage prop is a projection of the open surface
             // and must never be treated as the command channel.
             for (let requestedPage = 2; requestedPage <= 6; requestedPage += 1) {
-                controller.scrollToPage(requestedPage);
+                controller.scrollToPage(requirePageNumber(requestedPage));
                 await nextTick();
             }
             expect(controller.navigationAnchorPage.value).toBe(6);
@@ -1562,7 +1566,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            expect(controller.scrollToPage(5)).toBe(true);
+            expect(controller.scrollToPage(requirePageNumber(5))).toBe(true);
             expect(controller.navigationAnchorPage.value).toBe(5);
             isLoading.value = false;
             await nextTick();
@@ -1575,6 +1579,574 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(navigationFeedback).toHaveBeenLastCalledWith(null);
             expect(prepareNavigationVisual).not.toHaveBeenCalled();
             expect(viewportWrites.writes).toHaveLength(0);
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
+    it('cancels an active search destination before a later slot can trigger its viewport write', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+        });
+        for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = pageNumber === 1
+                ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
+                : '<div class="document-page-skeleton"></div>';
+            viewer.append(page);
+        }
+        const pageSlots = createPdfPageSlotRegistry();
+        pageSlots.markMounted(1);
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 2}, () => ({
+                width: 600,
+                height: 800,
+            })),
+            totalPages: 2,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const freshPages = new Set([1]);
+        const renderVisiblePages = vi.fn(async (range: {
+            start: number;
+            end: number
+        }) => {
+            const page = viewer.querySelector<HTMLElement>(
+                `.page_container[data-page="${String(range.start)}"]`,
+            );
+            if (page) {
+                page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div><div class="text-layer" data-pdf-text-layer-ready="true"></div>';
+                freshPages.add(range.start);
+            }
+        });
+        const viewportWrites = createTestPdfViewportWritePort();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(2),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 2} as PDFDocumentProxy),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages,
+                isPageFreshlyRenderedForNavigation: page => freshPages.has(page),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            expect(controller.submitNavigationRequest({
+                target: {
+                    kind: 'rect',
+                    page: 2,
+                    rect: {
+                        left: 0.25,
+                        top: 0.5,
+                        width: 0.1,
+                        height: 0.05,
+                    },
+                },
+                alignment: 'rect-center',
+                readiness: 'text-layer',
+                postArrival: 'search-highlight',
+                source: 'search',
+                supersession: 'latest-wins',
+            })).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.activeIntent.value?.navigation?.source)
+                    .toBe('search');
+            });
+            expect(viewportWrites.writes).toHaveLength(0);
+
+            controller.endSearchNavigation();
+            pageSlots.markMounted(2);
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.getTerminalOutcome('viewport-navigation-1'))
+                    .toBe('cancelled');
+            });
+            expect(renderVisiblePages).not.toHaveBeenCalled();
+            expect(viewportWrites.writes).toHaveLength(0);
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
+    it('cancels a queued search destination before the runtime can replay and write it', async () => {
+        const scope = effectScope();
+        const viewerRef = ref<HTMLElement | null>(null);
+        const numPages = ref(0);
+        const isLoading = ref(true);
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+        const pageSlots = createPdfPageSlotRegistry();
+        const viewportWrites = createTestPdfViewportWritePort();
+        const navigationFeedback = vi.fn();
+        let layout: ReturnType<typeof buildPageLayoutMetrics> = null;
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: viewerRef,
+                numPages,
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading,
+                pdfDocument,
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages: vi.fn(async () => undefined),
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                emitNavigationFeedbackPage: navigationFeedback,
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            expect(controller.submitNavigationRequest({
+                target: {
+                    kind: 'rect',
+                    page: 2,
+                    rect: {
+                        left: 0.25,
+                        top: 0.5,
+                        width: 0.1,
+                        height: 0.05,
+                    },
+                },
+                alignment: 'rect-center',
+                readiness: 'text-layer',
+                postArrival: 'search-highlight',
+                source: 'search',
+                supersession: 'latest-wins',
+            })).toBe(true);
+            expect(controller.navigationAnchorPage.value).toBe(2);
+
+            controller.endSearchNavigation();
+            expect(controller.navigationAnchorPage.value).toBeNull();
+            expect(navigationFeedback).toHaveBeenLastCalledWith(null);
+
+            const viewer = document.createElement('div');
+            Object.defineProperties(viewer, {
+                clientHeight: {value: 700},
+                clientWidth: {value: 900},
+            });
+            for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
+                const page = document.createElement('div');
+                page.className = 'page_container page_container--rendered';
+                page.dataset.page = String(pageNumber);
+                page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
+                viewer.append(page);
+                pageSlots.markMounted(pageNumber);
+            }
+            layout = buildPageLayoutMetrics({
+                pageMetrics: Array.from({length: 2}, () => ({
+                    width: 600,
+                    height: 800,
+                })),
+                totalPages: 2,
+                viewMode: 'single',
+                scale: 1,
+                gap: 20,
+                paddingTop: 20,
+                paddingBottom: 20,
+            });
+            if (!layout) {
+                throw new Error('Expected PDF layout metrics');
+            }
+            viewerRef.value = viewer;
+            numPages.value = 2;
+            pdfDocument.value = {numPages: 2} as PDFDocumentProxy;
+            isLoading.value = false;
+            await nextTick();
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            expect(viewportWrites.writes).toHaveLength(0);
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
+    it('leaves an active bookmark destination owned when search navigation ends', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+        });
+        for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container page_container--rendered';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
+            viewer.append(page);
+        }
+        const pageSlots = createPdfPageSlotRegistry();
+        pageSlots.markMounted(1);
+        pageSlots.markMounted(2);
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 2}, () => ({
+                width: 600,
+                height: 800,
+            })),
+            totalPages: 2,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const preparation = createDeferred();
+        const prepareNavigationLayout = vi.fn(async () => preparation.promise);
+        const viewportWrites = createTestPdfViewportWritePort();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(2),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 2} as PDFDocumentProxy),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages: vi.fn(async () => undefined),
+                prepareNavigationLayout,
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            expect(controller.submitNavigationRequest({
+                target: {
+                    kind: 'page',
+                    page: 2,
+                },
+                alignment: 'page-top',
+                readiness: 'page-canvas',
+                source: 'bookmark',
+                supersession: 'latest-wins',
+            })).toBe(true);
+            await vi.waitFor(() => expect(prepareNavigationLayout).toHaveBeenCalledOnce());
+            expect(controller.viewportAuthority.activeIntent.value?.navigation?.source)
+                .toBe('bookmark');
+
+            controller.endSearchNavigation();
+            expect(controller.viewportAuthority.activeIntent.value?.navigation?.source)
+                .toBe('bookmark');
+            preparation.resolve();
+
+            await vi.waitFor(() => expect(viewportWrites.writes).toHaveLength(1));
+            expect(viewportWrites.writes[0]?.top).toBeGreaterThan(0);
+        } finally {
+            preparation.resolve();
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
+    it('leaves a geometry-only intent owned when search navigation ends', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+        });
+        const page = document.createElement('div');
+        page.className = 'page_container page_container--rendered';
+        page.dataset.page = '1';
+        page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
+        viewer.append(page);
+        const pageSlots = createPdfPageSlotRegistry();
+        pageSlots.markMounted(1);
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: [{
+                width: 600,
+                height: 800,
+            }],
+            totalPages: 1,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const metricPreparation = createDeferred();
+        const ensurePageMetricsInRange = vi.fn(async () => {
+            await metricPreparation.promise;
+            return false;
+        });
+        const viewportWrites = createTestPdfViewportWritePort();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(1),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 1} as PDFDocumentProxy),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages: vi.fn(async () => undefined),
+                ensurePageMetricsInRange,
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            const zoom = controller.submitViewportStateIntent('zoom', {zoom: 2});
+            await vi.waitFor(() => expect(ensurePageMetricsInRange).toHaveBeenCalledOnce());
+            expect(controller.viewportAuthority.activeIntent.value?.kind).toBe('zoom');
+            expect(controller.viewportAuthority.activeIntent.value?.navigation).toBeUndefined();
+
+            controller.endSearchNavigation();
+            expect(controller.viewportAuthority.activeIntent.value?.kind).toBe('zoom');
+            expect(controller.viewportAuthority.activeIntent.value?.navigation).toBeUndefined();
+            metricPreparation.resolve();
+
+            await expect(zoom).resolves.toMatchObject({outcome: 'settled'});
+            expect(viewportWrites.writes).toHaveLength(1);
+        } finally {
+            metricPreparation.resolve();
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
+    it('submits a restored page above the placeholder count before the document reports its length', async () => {
+        const scope = effectScope();
+        const viewerRef = ref<HTMLElement | null>(null);
+        const numPages = ref(0);
+        const requestedCurrentPage = ref<number | undefined>(undefined);
+        const pageSlots = createPdfPageSlotRegistry();
+        const viewportWrites = createTestPdfViewportWritePort();
+        const cancelPendingSearchScroll = vi.fn();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: viewerRef,
+                numPages,
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(true),
+                pdfDocument: shallowRef(null),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages: vi.fn(async () => undefined),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                emitNavigationFeedbackPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => null,
+                requestedCurrentPage,
+                cancelPendingSearchScroll,
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            // A restored session replays its stored page before the document
+            // reports a length, so the page count is still the zero
+            // placeholder. requirePageNumber rejects rather than clamps, so
+            // bounding this submit by the placeholder would throw the restored
+            // page away instead of carrying it to the ready document.
+            requestedCurrentPage.value = 7;
+            await nextTick();
+
+            expect(cancelPendingSearchScroll).toHaveBeenCalledOnce();
+            expect(controller.navigationAnchorPage.value).toBe(7);
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
+    it('captures a semantic anchor after a shorter document leaves the committed page out of range', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        const pageSlots = createPdfPageSlotRegistry();
+        for (let pageNumber = 1; pageNumber <= 5; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
+            viewer.append(page);
+            pageSlots.markMounted(pageNumber);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 5}, () => ({
+                width: 600,
+                height: 800,
+            })),
+            totalPages: 5,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const numPages = ref(5);
+        const viewportWrites = createTestPdfViewportWritePort();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages,
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(false),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 5} as PDFDocumentProxy),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages: vi.fn(async () => undefined),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                emitNavigationFeedbackPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            expect(controller.currentPageAuthority.commitViewportPage(5)).toBe(true);
+            await nextTick();
+
+            // Swapping in a shorter document leaves the viewport authority holding
+            // page 5 for a tick. The bound on requirePageNumber rejects rather than
+            // clamps, so an unbounded read here threw instead of settling.
+            numPages.value = 2;
+
+            expect(() => controller.captureCurrentSemanticAnchor()).not.toThrow();
+            const anchor = controller.captureCurrentSemanticAnchor();
+            if (!anchor) {
+                throw new Error('Expected a captured semantic anchor');
+            }
+            expect(anchor.page).toBeLessThanOrEqual(2);
         } finally {
             pageSlots.dispose();
             scope.stop();

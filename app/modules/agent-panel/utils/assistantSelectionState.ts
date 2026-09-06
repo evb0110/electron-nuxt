@@ -55,7 +55,7 @@ function defaultEffortForProviderModel(
     if (defaultOption && efforts.includes(defaultOption)) {
         return defaultOption;
     }
-    return efforts[0] ?? providerStatus.defaultEffort ?? ASSISTANT_DEFAULT_EFFORT;
+    return efforts[0] ?? providerStatus.defaultEffort;
 }
 
 export function createSelectedAssistantStatus(
@@ -159,7 +159,7 @@ export function providerDefaultSpeedMode(
     provider: TAgentAssistantProviderId,
 ): TAgentAssistantSpeedMode {
     const providerStatus = providers.find(candidate => candidate.id === provider);
-    if (providerStatus?.id === 'codex' && providerStatus.availableSpeedModes && !providerStatus.availableSpeedModes.includes('fast')) {
+    if (providerStatus?.id === 'codex' && !providerStatus.availableSpeedModes.includes('fast')) {
         return ASSISTANT_DEFAULT_SPEED_MODE;
     }
     return providerStatus?.activeSpeedMode

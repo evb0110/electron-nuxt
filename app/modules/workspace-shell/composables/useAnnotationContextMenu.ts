@@ -86,7 +86,7 @@ export const useAnnotationContextMenu = () => {
     );
 
     const annotationContextMenuCanCopy = computed(() => {
-        const text = annotationContextMenu.value.comment?.text?.trim();
+        const text = annotationContextMenu.value.comment?.text.trim();
         return Boolean(text);
     });
 

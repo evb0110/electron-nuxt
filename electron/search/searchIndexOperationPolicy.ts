@@ -95,7 +95,7 @@ async function readLegacyPageCount(path: string, sizeBytes: number | undefined) 
     let escaped = false;
     let stringValue = '';
     let topLevelString: string | undefined;
-    let readingPageCount = false;
+    let readingPageCount = false as boolean;
     let numberValue = '';
 
     const scan = (chunk: string) => {

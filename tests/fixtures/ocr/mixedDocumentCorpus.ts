@@ -4,6 +4,7 @@ import type {
     IOcrIndexV3Page,
 } from '@contracts/ocrIndex';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
 
 export const MIXED_OCR_CORPUS_PATH = '/tmp/evb-mixed-ocr-corpus.pdf';
 export const MIXED_OCR_CORPUS_REVISION = requireDocumentRevisionToken('mixed-ocr-corpus-r1');
@@ -46,7 +47,7 @@ export const mixedEvbPage: IOcrIndexV3Page = {
 export const mixedOcrManifest: IOcrIndexV3Manifest = {
     version: 3,
     documentRevision: {token: MIXED_OCR_CORPUS_REVISION},
-    createdAt: 1,
+    createdAt: requireEpochMs(1),
     source: {pdfPath: MIXED_OCR_CORPUS_PATH},
     pageCount: 4,
     pageBox: 'crop',

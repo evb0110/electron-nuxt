@@ -8,7 +8,12 @@ import {
     nextTick,
     ref,
 } from 'vue';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import { requireEpochMs } from '@contracts/timestamps';
 import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
@@ -25,10 +30,10 @@ function createDocumentRevision(token = 'revision-1', documentRef = '/tmp/workin
     return {
         version: 1,
         token: requireDocumentRevisionToken(token),
-        documentRef,
+        documentRef: requireDocumentRef(documentRef),
         authority: 'browser-document-store',
         contentRevision: token === 'revision-1' ? 1 : 2,
-        mintedAt: token === 'revision-1' ? 1 : 2,
+        mintedAt: requireEpochMs(token === 'revision-1' ? 1 : 2),
     };
 }
 
@@ -42,7 +47,7 @@ describe('WorkspaceDocumentController', () => {
         const published: Array<ReturnType<typeof session.toWorkspaceRecord>> = [];
 
         session.bindWorkspaceProjection({
-            pendingDocumentPath: ref('/docs/cold.pdf'),
+            pendingDocumentPath: ref<TDocumentRef | null | undefined>(requireDocumentRef('/docs/cold.pdf')),
             openBatchProgress: ref(null),
             hasPdf: ref(false),
             isDjvuMode: ref(false),
@@ -83,7 +88,7 @@ describe('WorkspaceDocumentController', () => {
         };
 
         session.bindWorkspaceProjection({
-            pendingDocumentPath: ref('/docs/scan.djvu'),
+            pendingDocumentPath: ref<TDocumentRef | null | undefined>(requireDocumentRef('/docs/scan.djvu')),
             openBatchProgress: ref(null),
             hasPdf: ref(false),
             isDjvuMode: ref(false),
@@ -116,7 +121,7 @@ describe('WorkspaceDocumentController', () => {
         session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'Document.pdf',
-                originalPath: '/tmp/original.pdf',
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
                 isDirty: true,
                 isDjvu: false,
             },
@@ -154,7 +159,7 @@ describe('WorkspaceDocumentController', () => {
         session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'Document.pdf',
-                originalPath: '/tmp/original.pdf',
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
             },
             documentIdentity: createDocumentRevision(),
             toolbarSnapshot: {viewerCapabilities: {
@@ -174,14 +179,14 @@ describe('WorkspaceDocumentController', () => {
         });
         const transaction = session.beginTransaction({
             kind: 'open',
-            documentRef: '/tmp/original.pdf',
+            documentRef: requireDocumentRef('/tmp/original.pdf'),
         });
         session.finishTransaction(transaction.id, 'failed');
 
         const baseRecord = createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'Document.pdf',
-                originalPath: '/tmp/original.pdf',
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
             },
             documentIdentity: createDocumentRevision(),
             toolbarSnapshot: {viewerCapabilities: {
@@ -210,7 +215,7 @@ describe('WorkspaceDocumentController', () => {
             initialRecord: createWorkspaceDocumentRecord({
                 tab: {
                     fileName: 'Document.pdf',
-                    originalPath: '/tmp/original.pdf',
+                    originalPath: requireDocumentRef('/tmp/original.pdf'),
                     isDirty: false,
                     isDjvu: false,
                 },
@@ -235,7 +240,7 @@ describe('WorkspaceDocumentController', () => {
             initialRecord: createWorkspaceDocumentRecord({
                 tab: {
                     fileName: 'A.pdf',
-                    originalPath: '/tmp/a.pdf',
+                    originalPath: requireDocumentRef('/tmp/a.pdf'),
                     isDirty: false,
                     isDjvu: false,
                 },
@@ -249,7 +254,7 @@ describe('WorkspaceDocumentController', () => {
         session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'B.pdf',
-                originalPath: '/tmp/b.pdf',
+                originalPath: requireDocumentRef('/tmp/b.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },
@@ -266,7 +271,7 @@ describe('WorkspaceDocumentController', () => {
             initialRecord: createWorkspaceDocumentRecord({
                 tab: {
                     fileName: 'A.pdf',
-                    originalPath: '/tmp/a.pdf',
+                    originalPath: requireDocumentRef('/tmp/a.pdf'),
                     isDirty: false,
                     isDjvu: false,
                 },
@@ -277,7 +282,7 @@ describe('WorkspaceDocumentController', () => {
 
         const close = session.beginTransaction({
             kind: 'close',
-            documentRef: '/tmp/a-working.pdf',
+            documentRef: requireDocumentRef('/tmp/a-working.pdf'),
             persist: false,
         });
         session.applyWorkspaceRecord(createWorkspaceDocumentRecord(), 'workspace');
@@ -293,7 +298,7 @@ describe('WorkspaceDocumentController', () => {
             initialRecord: createWorkspaceDocumentRecord({
                 tab: {
                     fileName: 'A.pdf',
-                    originalPath: '/tmp/a.pdf',
+                    originalPath: requireDocumentRef('/tmp/a.pdf'),
                 },
                 documentIdentity: createDocumentRevision('revision-1', '/tmp/a-working.pdf'),
                 toolbarSnapshot: {
@@ -308,7 +313,7 @@ describe('WorkspaceDocumentController', () => {
 
         const close = session.beginTransaction({
             kind: 'close',
-            documentRef: '/tmp/a-working.pdf',
+            documentRef: requireDocumentRef('/tmp/a-working.pdf'),
             persist: false,
         });
         session.finishTransaction(close.id, 'committed');
@@ -345,7 +350,7 @@ describe('WorkspaceDocumentController', () => {
             action: 'openRecentFromPlaceholder',
             target: {
                 fileName: 'dictionary.pdf',
-                originalPath: '/docs/dictionary.pdf',
+                originalPath: requireDocumentRef('/docs/dictionary.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },
@@ -378,7 +383,7 @@ describe('WorkspaceDocumentController', () => {
             initialRecord: createWorkspaceDocumentRecord({
                 tab: {
                     fileName: 'A.pdf',
-                    originalPath: '/tmp/a.pdf',
+                    originalPath: requireDocumentRef('/tmp/a.pdf'),
                 },
                 documentIdentity: createDocumentRevision('revision-1', '/tmp/a-working.pdf'),
             }),
@@ -386,13 +391,13 @@ describe('WorkspaceDocumentController', () => {
 
         const close = session.beginTransaction({
             kind: 'close',
-            documentRef: '/tmp/a-working.pdf',
+            documentRef: requireDocumentRef('/tmp/a-working.pdf'),
             persist: false,
         });
         session.finishTransaction(close.id, 'committed');
         session.applyTabUpdate({
             fileName: 'A.pdf',
-            originalPath: '/tmp/a.pdf',
+            originalPath: requireDocumentRef('/tmp/a.pdf'),
         });
 
         expect(session.toWorkspaceRecord().tab).toMatchObject({
@@ -408,7 +413,7 @@ describe('WorkspaceDocumentController', () => {
             initialRecord: createWorkspaceDocumentRecord({
                 tab: {
                     fileName: 'A.pdf',
-                    originalPath: '/tmp/a.pdf',
+                    originalPath: requireDocumentRef('/tmp/a.pdf'),
                 },
                 documentIdentity: createDocumentRevision('revision-1', '/tmp/a-working.pdf'),
             }),
@@ -432,11 +437,11 @@ describe('WorkspaceDocumentController', () => {
         });
         const first = session.beginTransaction({
             kind: 'open',
-            documentRef: '/tmp/a.pdf',
+            documentRef: requireDocumentRef('/tmp/a.pdf'),
         });
         const second = session.beginTransaction({
             kind: 'open',
-            documentRef: '/tmp/b.pdf',
+            documentRef: requireDocumentRef('/tmp/b.pdf'),
         });
 
         expect(first.id).toBe('tx-1');
@@ -460,11 +465,11 @@ describe('WorkspaceDocumentController', () => {
         });
         const open = session.beginTransaction({
             kind: 'open',
-            documentRef: '/tmp/a.pdf',
+            documentRef: requireDocumentRef('/tmp/a.pdf'),
         });
         const close = session.beginTransaction({
             kind: 'close',
-            documentRef: '/tmp/a.pdf',
+            documentRef: requireDocumentRef('/tmp/a.pdf'),
             persist: false,
         });
 
@@ -475,7 +480,7 @@ describe('WorkspaceDocumentController', () => {
         session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'A.pdf',
-                originalPath: '/tmp/a.pdf',
+                originalPath: requireDocumentRef('/tmp/a.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },
@@ -501,7 +506,7 @@ describe('WorkspaceDocumentController', () => {
         session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'Document.pdf',
-                originalPath: '/tmp/original.pdf',
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },
@@ -530,7 +535,7 @@ describe('WorkspaceDocumentController', () => {
         const record = createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'Document.pdf',
-                originalPath: '/tmp/original.pdf',
+                originalPath: requireDocumentRef('/tmp/original.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },
@@ -542,7 +547,7 @@ describe('WorkspaceDocumentController', () => {
 
         const reopen = session.beginTransaction({
             kind: 'open',
-            documentRef: '/tmp/working.pdf',
+            documentRef: requireDocumentRef('/tmp/working.pdf'),
         });
         session.applyWorkspaceRecord(record, 'workspace');
         session.finishTransaction(reopen.id, 'committed');
@@ -567,7 +572,7 @@ describe('WorkspaceDocumentController', () => {
 
         session.beginTransaction({
             kind: 'open',
-            documentRef: '/tmp/next.pdf',
+            documentRef: requireDocumentRef('/tmp/next.pdf'),
         });
 
         await expect(wait).resolves.toBeNull();

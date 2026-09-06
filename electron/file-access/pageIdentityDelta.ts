@@ -16,6 +16,12 @@ import type {
 export const PAGE_IDENTITY_INLINE_PAGE_COUNT = 4_096;
 export const PAGE_IDENTITY_MAX_RANGE_OPERATIONS = 100_000;
 
+type TMutablePageIdentityRangeOperation = TPageIdentityRangeOperation extends infer TOperation
+    ? TOperation extends object
+        ? {-readonly [TKey in keyof TOperation]: TOperation[TKey]}
+        : never
+    : never;
+
 export function assertPageCount(value: number, label: string) {
     if (!Number.isSafeInteger(value) || value < 0) {
         throw new Error(`${label} must be a non-negative safe integer`);
@@ -349,7 +355,7 @@ function createLegacyOrRangeDelta(
 }
 
 function appendMapping(
-    ranges: TPageIdentityRangeOperation[],
+    ranges: TMutablePageIdentityRangeOperation[],
     fromPageNumber: number,
     toPageNumber: number,
     count: number,
@@ -378,7 +384,7 @@ function appendMapping(
 }
 
 function appendDelete(
-    ranges: TPageIdentityRangeOperation[],
+    ranges: TMutablePageIdentityRangeOperation[],
     fromPageNumber: number,
     count: number,
 ) {
@@ -393,7 +399,7 @@ function appendDelete(
 }
 
 function appendTouch(
-    ranges: TPageIdentityRangeOperation[],
+    ranges: TMutablePageIdentityRangeOperation[],
     toPageNumber: number,
     count: number,
     reason: IPageIdentityRangeTouch['reason'],
@@ -423,7 +429,7 @@ function createLargeIdentityDelta(
     touchedPages: readonly number[] = [],
     reason?: IPageIdentityRangeTouch['reason'],
 ) {
-    const ranges: TPageIdentityRangeOperation[] = [];
+    const ranges: TMutablePageIdentityRangeOperation[] = [];
     const touched = reason === undefined ? [] : sortedUniquePages(touchedPages, pageCount);
     let oldPage = 1;
     let newPage = 1;
@@ -577,7 +583,7 @@ export function createDeleteIdentityDelta(pageCount: number, deletedPages: reado
                 .map(fromPageNumber => ({fromPageNumber})),
         };
     }
-    const ranges: TPageIdentityRangeOperation[] = [];
+    const ranges: TMutablePageIdentityRangeOperation[] = [];
     let oldPage = 1;
     let newPage = 1;
     for (let index = 0; index < deleted.length;) {
@@ -621,7 +627,7 @@ export function createMoveIdentityDelta(
     if (toPageNumber === fromPageNumber) {
         return createIdentityDelta(pageCount);
     }
-    const ranges: TPageIdentityRangeOperation[] = [];
+    const ranges: TMutablePageIdentityRangeOperation[] = [];
     if (toPageNumber < fromPageNumber) {
         appendMapping(ranges, 1, 1, toPageNumber - 1);
         appendMapping(ranges, fromPageNumber, toPageNumber, count);
@@ -728,7 +734,7 @@ export function createPageMoveRangesIdentityDelta(
         throw new Error('Page move ranges produced an invalid insertion slot');
     }
 
-    const outputRanges: TPageIdentityRangeOperation[] = [];
+    const outputRanges: TMutablePageIdentityRangeOperation[] = [];
     let destinationPage = 1;
     for (const sourceRange of before) {
         appendMapping(outputRanges, sourceRange.fromPageNumber, destinationPage, sourceRange.count);
@@ -772,7 +778,7 @@ export function createDeleteRangeIdentityDelta(pageCount: number, fromPageNumber
         );
     }
     const nextPageCount = pageCount - count;
-    const ranges: TPageIdentityRangeOperation[] = [];
+    const ranges: TMutablePageIdentityRangeOperation[] = [];
     appendMapping(ranges, 1, 1, fromPageNumber - 1);
     appendDelete(ranges, fromPageNumber, count);
     appendMapping(
@@ -830,7 +836,7 @@ export function createDeleteRangesIdentityDelta(
         return createDeleteIdentityDelta(pageCount, deletedPages);
     }
 
-    const ranges: TPageIdentityRangeOperation[] = [];
+    const ranges: TMutablePageIdentityRangeOperation[] = [];
     let oldPage = 1;
     let newPage = 1;
     for (const deletedRange of deletedRanges) {
@@ -862,7 +868,7 @@ export function createReorderIdentityDelta(pageCount: number, order: readonly nu
         };
     }
     const seen = new Set<number>();
-    const ranges: TPageIdentityRangeOperation[] = [];
+    const ranges: TMutablePageIdentityRangeOperation[] = [];
     let outputPage = 1;
     for (let index = 0; index < order.length;) {
         const fromPageNumber = order[index]!;
@@ -916,7 +922,7 @@ export function createInsertIdentityDelta(pageCount: number, afterPage: number, 
         };
     }
     const identitySeed = randomUUID();
-    const ranges: TPageIdentityRangeOperation[] = [];
+    const ranges: TMutablePageIdentityRangeOperation[] = [];
     appendMapping(ranges, 1, 1, afterPage);
     const insert: IPageIdentityRangeInsert = {
         kind: 'insert',

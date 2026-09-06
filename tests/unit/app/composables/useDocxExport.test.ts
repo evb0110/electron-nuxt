@@ -8,6 +8,7 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import {effectScope} from 'vue';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type {IDocxExportFileCapability} from '@contracts/docxExport';
 import type {TDocxTextPageSource} from '@app/utils/docxStreaming';
 
@@ -84,7 +85,7 @@ describe('useDocxExport', () => {
         const exportState = useDocxExport();
 
         const result = await exportState.exportDocx({
-            workingCopyPath: '/tmp/work.pdf',
+            workingCopyPath: requireDocumentRef('/tmp/work.pdf'),
             documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as PDFDocumentProxy,
             selectedLanguages: ['heb'],
@@ -151,7 +152,7 @@ describe('useDocxExport', () => {
         const { useDocxExport } = await import('@app/composables/useDocxExport');
         const exportState = useDocxExport();
         const result = await exportState.exportDocx({
-            workingCopyPath: '/tmp/work.pdf',
+            workingCopyPath: requireDocumentRef('/tmp/work.pdf'),
             documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as PDFDocumentProxy,
         });
@@ -170,7 +171,7 @@ describe('useDocxExport', () => {
         const exportState = useDocxExport();
 
         const result = await exportState.exportDocx({
-            workingCopyPath: '/tmp/work.pdf',
+            workingCopyPath: requireDocumentRef('/tmp/work.pdf'),
             documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as PDFDocumentProxy,
         });
@@ -191,7 +192,7 @@ describe('useDocxExport', () => {
         const exportState = useDocxExport();
 
         const result = await exportState.exportDocx({
-            workingCopyPath: 'browser://documents/working/work.pdf',
+            workingCopyPath: requireDocumentRef('browser://documents/working/work.pdf'),
             documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as PDFDocumentProxy,
         });
@@ -209,7 +210,7 @@ describe('useDocxExport', () => {
         const { useDocxExport } = await import('@app/composables/useDocxExport');
         const exportState = useDocxExport();
         const exportPromise = exportState.exportDocx({
-            workingCopyPath: 'browser://documents/working/work.pdf',
+            workingCopyPath: requireDocumentRef('browser://documents/working/work.pdf'),
             documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as PDFDocumentProxy,
         });
@@ -245,7 +246,7 @@ describe('useDocxExport', () => {
         const { useDocxExport } = await import('@app/composables/useDocxExport');
         const exportState = useDocxExport();
         const exportPromise = exportState.exportDocx({
-            workingCopyPath: '/tmp/work.pdf',
+            workingCopyPath: requireDocumentRef('/tmp/work.pdf'),
             documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as PDFDocumentProxy,
         });
@@ -294,7 +295,7 @@ describe('useDocxExport', () => {
             throw new Error('Failed to create DOCX export scope');
         }
         const exportPromise = exportState.exportDocx({
-            workingCopyPath: '/tmp/work.pdf',
+            workingCopyPath: requireDocumentRef('/tmp/work.pdf'),
             documentRevisionToken: TEST_DOCUMENT_REVISION,
             pdfDocument: {} as PDFDocumentProxy,
         });

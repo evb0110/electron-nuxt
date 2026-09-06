@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {createPdfjsDocumentSourceLoader} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {pdfjsDocumentTeardownCoordinator} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 
@@ -71,7 +72,7 @@ const CHUNK_BYTES = 1024 * 1024;
 function createPathSource(path: string, size = CHUNK_BYTES * 2) {
     return {
         kind: 'path' as const,
-        path,
+        path: requireDocumentRef(path),
         size,
     };
 }

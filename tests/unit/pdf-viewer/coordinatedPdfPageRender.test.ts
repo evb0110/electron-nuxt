@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import {
     afterEach,
@@ -55,7 +56,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const firstRun = runCoordinatedPdfPageRender({
             owner: 'thumbnail-current',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage,
             priority: 100,
             startRender: () => firstRender.task,
@@ -64,7 +65,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const secondRun = runCoordinatedPdfPageRender({
             owner: 'viewer',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage,
             priority: 100,
             startRender: () => {
@@ -94,7 +95,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const firstRun = runCoordinatedPdfPageRender({
             owner: 'thumbnail',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage,
             priority: 10,
             startRender: () => firstRender.task,
@@ -104,7 +105,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const secondRun = runCoordinatedPdfPageRender({
             owner: 'viewer',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage,
             priority: 100,
             startRender: () => {

@@ -960,7 +960,7 @@ export async function openNativePrintDialogForPath(
         void pdfPluginReady.promise.catch(() => undefined);
     }
     let shouldRetainPrintWindow = false;
-    let closedForAbort = false;
+    let closedForAbort = false as boolean;
     const closeForAbort = () => {
         closedForAbort = true;
         closePrintWindow(printWindow);
@@ -1024,7 +1024,7 @@ export async function openNativePrintDialogForPath(
         logger.warn(`Failed to open native print dialog: ${getErrorMessage(error)}`);
         return {
             success: false,
-            error: error instanceof Error ? error.message : 'Failed to open native print dialog',
+            error: error instanceof Error ? getErrorMessage(error) : 'Failed to open native print dialog',
         };
     } finally {
         printWindowLifecycleAbortController.abort();

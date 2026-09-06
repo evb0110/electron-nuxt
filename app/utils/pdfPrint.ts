@@ -98,7 +98,6 @@ function createBrowserPrintCanvas(targetDocument: IBrowserPrintDocument) {
     if (
         typeof document !== 'undefined'
         && document !== targetDocument
-        && typeof document.createElement === 'function'
     ) {
         return requireBrowserPrintCanvas(document.createElement('canvas'));
     }

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import type {
     IpcRenderer,
     IpcRendererEvent,
@@ -67,8 +68,8 @@ class PlatformIpcInvokeError extends Error {
     override readonly cause: unknown;
 
     constructor(channel: string, cause: unknown) {
-        const message = cause instanceof Error && cause.message
-            ? cause.message
+        const message = cause instanceof Error && getErrorMessage(cause)
+            ? getErrorMessage(cause)
             : `IPC invoke failed for ${channel}`;
         super(message);
         this.name = 'PlatformIpcInvokeError';
@@ -83,7 +84,7 @@ async function invokeWithChannelContext<TResult>(
     args: unknown[],
     options?: IIpcInvokerOptions,
 ) {
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
     try {
         const invokePromise = ipcRenderer.invoke(channel, ...args) as Promise<TResult>;
         const timeoutMs = options?.invokeTimeoutMsByChannel?.[channel];
@@ -122,7 +123,7 @@ export function createCodecIpcInvoker<TMap extends {[TChannel in keyof TMap]: II
         try {
             encodedArgs = codecs[channel].encodeArgs?.(args) ?? args;
         } catch (error) {
-            const details = error instanceof Error ? `: ${error.message}` : '';
+            const details = error instanceof Error ? `: ${getErrorMessage(error)}` : '';
             throw new PlatformIpcInvokeError(
                 channel,
                 new Error(`Invalid IPC request for ${channel}${details}`),
@@ -132,7 +133,7 @@ export function createCodecIpcInvoker<TMap extends {[TChannel in keyof TMap]: II
         try {
             return codecs[channel].decodeResult(result);
         } catch (error) {
-            const details = error instanceof Error ? `: ${error.message}` : '';
+            const details = error instanceof Error ? `: ${getErrorMessage(error)}` : '';
             throw new PlatformIpcInvokeError(
                 channel,
                 new Error(`Invalid IPC response for ${channel}${details}`),

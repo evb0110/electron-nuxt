@@ -5,7 +5,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IAgentAssistantState } from '@contracts/agent';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {
+    IAgentAssistantChatScope,
+    IAgentAssistantState,
+} from '@contracts/agent';
 import type { IAssistantChatSession } from '@electron/features/agent/assistantChatSessionStore';
 import { createAssistantEventPublisher } from '@electron/features/agent/createAssistantEventPublisher';
 import { cast } from '@tests/helpers/cast';
@@ -45,12 +49,12 @@ describe('assistant event publisher', () => {
     });
 
     it('targets only the BrowserWindow bound to the producing session', () => {
-        const scope = {
+        const scope: IAgentAssistantChatScope = {
             kind: 'document' as const,
             key: 'document-a',
             title: 'A',
             documentSessionKey: 'session-a',
-            documentRef: '/tmp/a.pdf',
+            documentRef: requireDocumentRef('/tmp/a.pdf'),
         };
         const session = {
             provider: 'codex',

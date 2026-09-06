@@ -22,6 +22,7 @@ import type {
     IPdfDataPrintOptions,
     IPdfPathPrintOptions,
 } from '@contracts/electronApiDocuments';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import type {
@@ -157,7 +158,7 @@ async function openPdfInDefaultApp(path: string): Promise<IOpenPdfInDefaultAppRe
         logger.warn(`Failed to open PDF in the default app: ${getErrorMessage(error)}`);
         return {
             success: false,
-            error: error instanceof Error ? error.message : 'Failed to open the default PDF app',
+            error: error instanceof Error ? getErrorMessage(error) : 'Failed to open the default PDF app',
         };
     }
 }
@@ -182,18 +183,14 @@ function normalizePrintPageNumbers(pageNumbers?: number[]) {
         throw new Error('Invalid print page numbers');
     }
 
-    return normalized.sort((left, right) => left - right);
+    return normalized
+        .sort((left, right) => left - right)
+        .map(pageNumber => requirePageNumber(pageNumber));
 }
 
 function normalizePdfPathPrintOptions(options?: IPdfPathPrintOptions): IPdfPathPrintOptions {
     const viewMode = options?.viewMode ?? 'single';
     const orientation = options?.orientation ?? 'auto';
-    if (viewMode !== 'single' && viewMode !== 'facing' && viewMode !== 'facing-first-single') {
-        throw new Error('Invalid print layout');
-    }
-    if (orientation !== 'auto' && orientation !== 'portrait' && orientation !== 'landscape') {
-        throw new Error('Invalid print orientation');
-    }
     if (
         options?.requestId !== undefined
         && (typeof options.requestId !== 'string' || options.requestId.length === 0 || options.requestId.length > 128)

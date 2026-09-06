@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
@@ -102,7 +103,7 @@ if (isDirectCliRun) {
     try {
         runNativeCorpusTests();
     } catch (error) {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.stderr.write(`${getCliErrorMessage(error)}\n`);
         process.exitCode = 1;
     }
 }

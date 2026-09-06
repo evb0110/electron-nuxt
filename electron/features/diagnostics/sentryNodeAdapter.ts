@@ -10,6 +10,12 @@ import {
     type Transport,
 } from '@sentry/core';
 import {request as requestHttps} from 'node:https';
+import {appendFileSync} from 'node:fs';
+import {
+    isAbsolute,
+    relative,
+    resolve,
+} from 'node:path';
 import {
     decodeDiagnosticRecord,
     type DiagnosticRecord,
@@ -34,6 +40,17 @@ interface INodeEnvelopeTransportOptions {
 
 type TSentryTransportFactory = (options: INodeEnvelopeTransportOptions) => Transport;
 
+export interface ISentryNodeAuditEntry {
+    readonly code: DiagnosticRecord['code'];
+    readonly dist: SentryBuildIdentity['dist'];
+    readonly environment: SentryBuildIdentity['environment'];
+    readonly eventId: DiagnosticRecord['eventId'];
+    readonly itemType: 'event';
+    readonly phase: 'accepted' | 'attempted' | 'rejected';
+    readonly release: SentryBuildIdentity['release'];
+    readonly runtime: DiagnosticRecord['runtime'];
+}
+
 export interface ISentryNodeAdapterOptions {
     dsn: string;
     identity: SentryBuildIdentity;
@@ -46,6 +63,7 @@ export interface ISentryNodeAdapterOptions {
         node?: string;
     };
     makeTransport?: TSentryTransportFactory;
+    audit?: (entry: ISentryNodeAuditEntry) => void;
     resolveFilenameDebugIds?: () => Readonly<Record<string, string>>;
 }
 
@@ -108,6 +126,56 @@ function buildRuntimeContext(options: ISentryNodeAdapterOptions) {
 function isSuccessfulResponse(value: Awaited<ReturnType<Transport['send']>>) {
     return value.statusCode === undefined
         || value.statusCode >= 200 && value.statusCode < 300;
+}
+
+function writeAudit(
+    audit: ISentryNodeAdapterOptions['audit'],
+    record: DiagnosticRecord,
+    identity: SentryBuildIdentity,
+    phase: ISentryNodeAuditEntry['phase'],
+) {
+    try {
+        audit?.({
+            code: record.code,
+            dist: identity.dist,
+            environment: identity.environment,
+            eventId: record.eventId,
+            itemType: 'event',
+            phase,
+            release: identity.release,
+            runtime: record.runtime,
+        });
+    } catch {
+        // An automation audit sink is observational and never changes delivery.
+    }
+}
+
+function createEnvironmentAuditSink(): ISentryNodeAdapterOptions['audit'] {
+    if (
+        process.env.EVB_ENABLE_DIAGNOSTICS_CANARY !== '1'
+        || !process.env.EVB_AUTOMATION_SESSION_NAME?.trim()
+    ) {
+        return undefined;
+    }
+    const userDataPath = process.env.EVB_AUTOMATION_USER_DATA_DIR?.trim();
+    const auditPath = process.env.EVB_DIAGNOSTICS_CANARY_AUDIT_FILE?.trim();
+    if (!userDataPath || !auditPath) {
+        return undefined;
+    }
+    const root = resolve(userDataPath);
+    const target = resolve(auditPath);
+    const relativeTarget = relative(root, target);
+    if (
+        relativeTarget.length === 0
+        || relativeTarget.startsWith('..')
+        || isAbsolute(relativeTarget)
+    ) {
+        return undefined;
+    }
+
+    return entry => {
+        appendFileSync(target, `${JSON.stringify(entry)}\n`, {encoding: 'utf8'});
+    };
 }
 
 function createNodeEnvelopeTransport(options: INodeEnvelopeTransportOptions) {
@@ -206,10 +274,19 @@ export function createSentryNodeDiagnosticsTransport(
             if (markedEvent === null) {
                 return false;
             }
+            writeAudit(options.audit, record, identity, 'attempted');
             try {
                 return Promise.resolve(transport.send(createEventEnvelope(markedEvent, dsn)))
-                    .then(isSuccessfulResponse, () => false);
+                    .then((response) => {
+                        const accepted = isSuccessfulResponse(response);
+                        writeAudit(options.audit, record, identity, accepted ? 'accepted' : 'rejected');
+                        return accepted;
+                    }, () => {
+                        writeAudit(options.audit, record, identity, 'rejected');
+                        return false;
+                    });
             } catch {
+                writeAudit(options.audit, record, identity, 'rejected');
                 return false;
             }
         },
@@ -219,6 +296,7 @@ export function createSentryNodeDiagnosticsTransport(
 export function createSentryNodeDiagnosticsTransportFromEnvironment(
     options: TSentryNodeRuntimeOptions,
 ) {
+    const audit = createEnvironmentAuditSink();
     return createSentryNodeDiagnosticsTransport({
         ...options,
         dsn: process.env.SENTRY_DESKTOP_DSN ?? '',
@@ -228,5 +306,6 @@ export function createSentryNodeDiagnosticsTransportFromEnvironment(
             dist: process.env.EVB_SENTRY_DIST ?? '',
             environment: process.env.EVB_SENTRY_ENVIRONMENT as SentryBuildIdentity['environment'],
         },
+        ...(audit === undefined ? {} : {audit}),
     });
 }

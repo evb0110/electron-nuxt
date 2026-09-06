@@ -1,4 +1,10 @@
 import { clamp } from 'es-toolkit/math';
+import {
+    parsePageNumber,
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import { measureDevPerf } from '@app/utils/devPerf';
 import type {
     IViewportVisibilityResult,
@@ -15,7 +21,7 @@ import {
 
 interface IVisiblePageMetrics {
     range: IVisiblePageRange | null;
-    mostVisiblePage: number | null;
+    mostVisiblePage: TPageNumber | null;
     maxVisibleArea: number;
 }
 
@@ -29,7 +35,7 @@ function normalizePageNumber(value: unknown) {
         return null;
     }
 
-    return pageNumber;
+    return parsePageNumber(pageNumber);
 }
 
 export function getPageNumberFromElement(element: HTMLElement) {
@@ -50,7 +56,10 @@ function getViewportIntersectionLength(
 }
 
 function getLayoutPageTop(metrics: IPdfPageLayoutMetrics, index: number) {
-    return Math.max(0, (getResolvedLayoutPageTop(metrics, index) ?? 0) - metrics.paddingTop);
+    return Math.max(
+        0,
+        (getResolvedLayoutPageTop(metrics, requirePageIndex(index)) ?? 0) - metrics.paddingTop,
+    );
 }
 
 function getLayoutRowTop(metrics: IPdfPageLayoutMetrics, rowIndex: number) {
@@ -66,7 +75,7 @@ function getLayoutRowWidth(metrics: IPdfPageLayoutMetrics, rowIndex: number) {
     const rowEndPage = metrics.base.rowEndPages[rowIndex] ?? rowStartPage;
     let width = 0;
     for (let pageNumber = rowStartPage; pageNumber <= rowEndPage; pageNumber += 1) {
-        width += getLayoutPageWidth(metrics, pageNumber - 1);
+        width += getLayoutPageWidth(metrics, requirePageIndex(pageNumber - 1));
     }
     return width;
 }
@@ -76,7 +85,7 @@ function getLayoutPageLeft(metrics: IPdfPageLayoutMetrics, index: number, contai
     const rowStartPage = metrics.base.rowStartPages[rowIndex] ?? index + 1;
     let pageLeft = Math.max(0, (containerWidth - getLayoutRowWidth(metrics, rowIndex)) / 2);
     for (let pageNumber = rowStartPage; pageNumber < index + 1; pageNumber += 1) {
-        pageLeft += getLayoutPageWidth(metrics, pageNumber - 1);
+        pageLeft += getLayoutPageWidth(metrics, requirePageIndex(pageNumber - 1));
     }
     return pageLeft;
 }
@@ -142,9 +151,9 @@ export function getViewportVisibilityFromLayout(
     }
     const viewportLeft = Math.max(0, container.scrollLeft);
     const viewportRight = viewportLeft + container.clientWidth;
-    let firstVisiblePage: number | null = null;
-    let lastVisiblePage: number | null = null;
-    let mostVisiblePage: number | null = null;
+    let firstVisiblePage: TPageNumber | null = null;
+    let lastVisiblePage: TPageNumber | null = null;
+    let mostVisiblePage: TPageNumber | null = null;
     let maxVisibleArea = 0;
     const firstVisibleIndex = clamp(
         (metrics.base.rowStartPages[firstVisibleRowIndex] ?? 1) - 1,
@@ -158,9 +167,9 @@ export function getViewportVisibilityFromLayout(
     );
     for (let index = firstVisibleIndex; index <= lastVisibleIndex; index += 1) {
         const pageTop = getLayoutPageTop(metrics, index);
-        const pageHeight = getLayoutPageHeight(metrics, index);
+        const pageHeight = getLayoutPageHeight(metrics, requirePageIndex(index));
         const pageLeft = getLayoutPageLeft(metrics, index, container.clientWidth);
-        const pageWidth = getLayoutPageWidth(metrics, index);
+        const pageWidth = getLayoutPageWidth(metrics, requirePageIndex(index));
         const visibleArea = getViewportIntersectionLength(
             pageTop,
             pageTop + pageHeight,
@@ -175,11 +184,12 @@ export function getViewportVisibilityFromLayout(
         if (visibleArea <= 0) {
             continue;
         }
-        firstVisiblePage ??= index + 1;
-        lastVisiblePage = index + 1;
+        const pageNumber = requirePageNumber(index + 1, totalPages);
+        firstVisiblePage ??= pageNumber;
+        lastVisiblePage = pageNumber;
         if (visibleArea > maxVisibleArea) {
             maxVisibleArea = visibleArea;
-            mostVisiblePage = index + 1;
+            mostVisiblePage = pageNumber;
         }
     }
     if (firstVisiblePage === null || lastVisiblePage === null) {
@@ -187,11 +197,11 @@ export function getViewportVisibilityFromLayout(
     }
     return {
         range: {
-            start: clamp(firstVisiblePage, 1, totalPages),
-            end: clamp(lastVisiblePage, 1, totalPages),
+            start: requirePageNumber(clamp(firstVisiblePage, 1, totalPages), totalPages),
+            end: requirePageNumber(clamp(lastVisiblePage, 1, totalPages), totalPages),
         },
         mostVisiblePage: maxVisibleArea > 0 && mostVisiblePage !== null
-            ? clamp(mostVisiblePage, 1, totalPages)
+            ? requirePageNumber(clamp(mostVisiblePage, 1, totalPages), totalPages)
             : null,
     };
 }
@@ -203,9 +213,9 @@ function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics 
     const viewportRight = viewportLeft + container.clientWidth;
     const pageContainers = container.querySelectorAll<HTMLElement>('.page_container');
 
-    let firstVisiblePage: number | null = null;
-    let lastVisiblePage: number | null = null;
-    let mostVisiblePage: number | null = null;
+    let firstVisiblePage: TPageNumber | null = null;
+    let lastVisiblePage: TPageNumber | null = null;
+    let mostVisiblePage: TPageNumber | null = null;
     let maxVisibleArea = 0;
 
     for (const pageElement of pageContainers) {
@@ -278,13 +288,13 @@ export function getViewportVisibilityFromDom(
         return {
             range: visible.range
                 ? {
-                    start: clamp(visible.range.start, 1, totalPages),
-                    end: clamp(visible.range.end, 1, totalPages),
+                    start: requirePageNumber(clamp(visible.range.start, 1, totalPages), totalPages),
+                    end: requirePageNumber(clamp(visible.range.end, 1, totalPages), totalPages),
                 }
                 : null,
             mostVisiblePage:
                 visible.maxVisibleArea > 0 && visible.mostVisiblePage !== null
-                    ? clamp(visible.mostVisiblePage, 1, totalPages)
+                    ? requirePageNumber(clamp(visible.mostVisiblePage, 1, totalPages), totalPages)
                     : null,
         };
     }, {

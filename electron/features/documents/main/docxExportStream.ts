@@ -4,7 +4,6 @@ import {
     unlink,
 } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import {
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
@@ -20,9 +19,14 @@ import {
 } from '@electron/utils/atomicReplace';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
+import {
+    createSessionId,
+    requireSessionId,
+    type TSessionId,
+} from '@contracts/shared';
 
 interface IDocxExportStreamSession {
-    id: string;
+    id: TSessionId;
     senderId: number;
     sender: WebContents;
     targetPath: string;
@@ -39,7 +43,7 @@ interface IDocxExportStreamSession {
     unregisterSenderCleanup: () => void;
 }
 
-const sessions = new Map<string, IDocxExportStreamSession>();
+const sessions = new Map<TSessionId, IDocxExportStreamSession>();
 
 function requireSenderId(context: IDocumentsSenderIdContext) {
     if (typeof context.senderId !== 'number') {
@@ -56,10 +60,7 @@ function requireSender(context: IDocumentsSenderIdContext) {
 }
 
 function normalizeSessionId(value: unknown) {
-    if (typeof value !== 'string' || value.trim().length === 0) {
-        throw new Error('Invalid DOCX stream session id');
-    }
-    return value.trim();
+    return requireSessionId(value);
 }
 
 function normalizeChunk(value: unknown) {
@@ -79,6 +80,12 @@ function normalizeChunk(value: unknown) {
 
 function clearSessionTimeout(session: IDocxExportStreamSession) {
     clearTimeout(session.timeout);
+}
+
+// Read through a call so the compiler does not narrow the flag to `false` across
+// the awaits in commitDocxExportStream; cancel can flip it between any two of them.
+function isDocxExportStreamCancellationRequested(session: IDocxExportStreamSession) {
+    return session.cancelRequested;
 }
 
 function refreshSessionTimeout(session: IDocxExportStreamSession) {
@@ -170,7 +177,7 @@ export async function beginDocxExportStream(
     assertNoSymlinkPathSegments(targetPath);
     const tempPath = makeSiblingTempPath(targetPath);
     const handle = await open(tempPath, 'wx');
-    const id = randomUUID();
+    const id = createSessionId('docx-export');
     const timeout = setTimeout(() => undefined, DOCX_EXPORT_STREAM_SESSION_TIMEOUT_MS);
     timeout.unref?.();
     const session: IDocxExportStreamSession = {
@@ -249,22 +256,22 @@ export async function commitDocxExportStream(
     const commitPromise = (async () => {
         try {
             await session.queue;
-            if (session.cancelRequested) {
+            if (isDocxExportStreamCancellationRequested(session)) {
                 await closeAndRemoveTemp(session);
                 return false;
             }
             await syncFileHandleForDurability(session.handle);
-            if (session.cancelRequested) {
+            if (isDocxExportStreamCancellationRequested(session)) {
                 await closeAndRemoveTemp(session);
                 return false;
             }
             await session.handle.close();
-            if (session.cancelRequested) {
+            if (isDocxExportStreamCancellationRequested(session)) {
                 await closeAndRemoveTemp(session);
                 return false;
             }
             assertNoSymlinkPathSegments(session.targetPath);
-            if (session.cancelRequested) {
+            if (isDocxExportStreamCancellationRequested(session)) {
                 await closeAndRemoveTemp(session);
                 return false;
             }

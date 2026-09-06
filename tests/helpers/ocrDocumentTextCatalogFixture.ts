@@ -4,6 +4,7 @@ import type {
     IOcrIndexV3Page,
 } from '@contracts/ocrIndex';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { requireEpochMs } from '@contracts/timestamps';
 
 export const OCR_CATALOG_FIXTURE_PATH = '/tmp/evb-ocr-catalog-agreement.pdf';
 export const OCR_CATALOG_FIXTURE_REVISION = requireDocumentRevisionToken('ocr-catalog-agreement-r1');
@@ -18,7 +19,7 @@ export function createOcrDocumentTextCatalogFixture(
     options: {revision?: string} = {},
 ) {
     const revision = requireDocumentRevisionToken(options.revision ?? OCR_CATALOG_FIXTURE_REVISION);
-    const manifestPages: IOcrIndexV3Manifest['pages'] = {};
+    const manifestPages: Record<number, {path: string}> = {};
     const artifacts = new Map<string, unknown>();
 
     for (const page of pages) {
@@ -53,7 +54,7 @@ export function createOcrDocumentTextCatalogFixture(
     const manifest: IOcrIndexV3Manifest = {
         version: 3,
         documentRevision: {token: revision},
-        createdAt: 1,
+        createdAt: requireEpochMs(1),
         source: {pdfPath: OCR_CATALOG_FIXTURE_PATH},
         pageCount: Math.max(1, ...pages.map(page => page.pageNumber)),
         pageBox: 'crop',

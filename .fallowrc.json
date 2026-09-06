@@ -33,6 +33,9 @@
         // The package export map exposes nested diagnostics contracts as
         // public subpath entry points, not only through the root barrel.
         "packages/contracts/diagnostics/**/*.{ts,js}",
+        // The standalone release verifier imports this runtime sidecar from
+        // Node without a TypeScript loader.
+        "packages/contracts/getErrorMessage.js",
         "scripts/**/*.{ts,mjs,cjs}",
         "tests/fixtures/ocr/*.mjs",
         "tests/setup.ts",

@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     PDFDocumentProxy,
     PDFPageProxy,
@@ -43,7 +45,7 @@ export interface IPdfRasterDocumentFence {
 }
 
 export interface IPdfRasterDemand {
-    readonly pageNumber: number;
+    readonly pageNumber: TPageNumber;
     readonly renderKey: string;
     readonly lane: TPdfRasterLane;
     readonly ordinal: number;
@@ -70,7 +72,7 @@ export interface IPdfRasterRenderTarget<TPrepared> {
     commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean;
     discard(prepared: TPrepared): void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
-    release(pageNumber: number, reason: string): void;
+    release(pageNumber: TPageNumber, reason: string): void;
 }
 
 export type TPdfRasterOutcome =
@@ -102,13 +104,13 @@ export interface IPdfRasterSchedulerSnapshot {
     readonly inFlightByLane: Readonly<Record<TPdfRasterLane, number>>;
     readonly inFlightPages: ReadonlyArray<{
         readonly lane: TPdfRasterLane;
-        readonly pageNumber: number;
+        readonly pageNumber: TPageNumber;
         readonly sourceId: string;
         readonly targetId: string;
     }>;
     readonly residentPages: ReadonlyArray<{
         readonly lane: TPdfRasterLane;
-        readonly pageNumber: number;
+        readonly pageNumber: TPageNumber;
         readonly sourceId: string;
         readonly targetId: string;
     }>;
@@ -137,7 +139,7 @@ export interface IPdfPageRasterScheduler {
 interface ICreatePdfPageRasterSchedulerOptions {
     documentFence: IPdfRasterDocumentFence;
     leasePage: (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         retention?: TPdfDocumentPageLeaseRetention,
     ) => Promise<IPdfDocumentPageLease>;
     maxConcurrency?: number | undefined;
@@ -218,7 +220,7 @@ function createWorkKey(targetId: string, demand: IPdfRasterDemand) {
     return `${targetId}\0${String(demand.pageNumber)}\0${demand.renderKey}`;
 }
 
-function createDemandIdentity(sourceId: string, targetId: string, pageNumber: number) {
+function createDemandIdentity(sourceId: string, targetId: string, pageNumber: TPageNumber) {
     return `${sourceId}\0${targetId}\0${String(pageNumber)}`;
 }
 
@@ -288,7 +290,7 @@ export function createPdfPageRasterScheduler(
         work.pageLease = null;
     }
 
-    function hasPendingWorkForPage(targetId: string, pageNumber: number) {
+    function hasPendingWorkForPage(targetId: string, pageNumber: TPageNumber) {
         const prefix = `${targetId}\0${String(pageNumber)}\0`;
         for (const key of queued.keys()) {
             if (key.startsWith(prefix)) {
@@ -308,7 +310,7 @@ export function createPdfPageRasterScheduler(
         return false;
     }
 
-    function hasCommittedResidentForPage(targetId: string, pageNumber: number) {
+    function hasCommittedResidentForPage(targetId: string, pageNumber: TPageNumber) {
         const prefix = `${targetId}\0${String(pageNumber)}\0`;
         for (const key of residents.keys()) {
             if (key.startsWith(prefix)) {
@@ -492,10 +494,11 @@ export function createPdfPageRasterScheduler(
                 return;
             }
             work.stage = 'leased';
-            work.pageLease = await options.leasePage(
+            const pageLease = await options.leasePage(
                 work.demand.pageNumber,
                 work.demand.retention,
             );
+            work.pageLease = pageLease;
             if (!isDemandCurrent(work)) {
                 settleWork(work, {
                     status: 'cancelled',
@@ -538,7 +541,7 @@ export function createPdfPageRasterScheduler(
             work.stage = 'preparing';
             work.prepared = await work.target.prepare(
                 work.demand,
-                work.pageLease.page,
+                pageLease.page,
                 work.controller.signal,
                 settlement => captureWorkSettlement(work, settlement),
             );
@@ -563,7 +566,7 @@ export function createPdfPageRasterScheduler(
             await runCoordinatedPdfPageRender({
                 owner: work.target.id,
                 pageNumber: work.demand.pageNumber,
-                pdfPage: work.pageLease.page,
+                pdfPage: pageLease.page,
                 priority: LANE_ORDER[work.demand.lane],
                 continuation: {
                     key: `${surfaceScopeId}:${work.key}`,
@@ -571,7 +574,7 @@ export function createPdfPageRasterScheduler(
                 },
                 signal: work.controller.signal,
                 shouldStart: () => isDemandCurrent(work),
-                startRender: () => work.target.start(work.prepared, work.pageLease!.page),
+                startRender: () => work.target.start(work.prepared, pageLease.page),
                 watchdog: {
                     key: `raster-canvas-render:${surfaceScopeId}:${String(work.sequence)}:${String(work.retryCount)}`,
                     metadata: {
@@ -976,6 +979,7 @@ export function ensurePdfPageRasterScheduler(
     options: {
         documentFence: IPdfRasterDocumentFence;
         leasePage: ICreatePdfPageRasterSchedulerOptions['leasePage'];
+        maxConcurrency?: number | undefined;
     },
 ) {
     const existing = pdfDocumentRasterSchedulers.get(document);
@@ -985,6 +989,7 @@ export function ensurePdfPageRasterScheduler(
     const scheduler = createPdfPageRasterScheduler({
         documentFence: options.documentFence,
         leasePage: options.leasePage,
+        maxConcurrency: options.maxConcurrency,
     });
     pdfDocumentRasterSchedulers.set(document, scheduler);
     return scheduler;

@@ -18,13 +18,22 @@ import {
     parseDocumentRevisionToken,
     requireDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     appendOptionalDocumentArg as appendOptional,
     decodeOptionalDocumentObject as decodeOptionalObject,
     decodePdfRevisionOptions as decodeRevisionOptions,
     decodeRequiredDocumentObject as decodeRequiredObject,
 } from '@contracts/documentsPersistenceSchemas';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {isRecord} from '@contracts/runtimeGuards';
+import {
+    parseSessionId,
+    type TSessionId,
+} from '@contracts/shared';
 
 function fail(message: string): never {
     throw new Error(message);
@@ -33,11 +42,20 @@ function fail(message: string): never {
 const fixtureRevisionToken = requireDocumentRevisionToken('drt1:fixture');
 const fixtureRevisionOptions = {expectedDocumentRevisionToken: fixtureRevisionToken};
 
-function decodeStringValue(value: unknown, fieldName: string) {
-    if (typeof value !== 'string' || value.length === 0) {
-        fail(`${fieldName} must be a non-empty string`);
+function decodeDocumentRef(value: unknown, fieldName: string): TDocumentRef {
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        fail(`${fieldName} must be an absolute document reference`);
     }
-    return value;
+    return parsed;
+}
+
+function decodeSessionId(value: unknown, fieldName: string): TSessionId {
+    const parsed = parseSessionId(value);
+    if (parsed === null) {
+        fail(`${fieldName} must be a non-empty session ID`);
+    }
+    return parsed;
 }
 
 function decodeAnnotationIndexOptions(value: unknown): IPdfAnnotationIndexOptions {
@@ -49,7 +67,7 @@ function decodeAnnotationIndexOptions(value: unknown): IPdfAnnotationIndexOption
 }
 
 function decodeChunkOptions(value: unknown): IPdfAnnotationIndexChunkOptions | undefined {
-    const decoded = decodeOptionalObject<{chunkBytes?: unknown}>(value, 'options');
+    const decoded = decodeOptionalObject(value, 'options');
     if (decoded === undefined) {
         return undefined;
     }
@@ -67,12 +85,12 @@ const beginPdfAnnotationIndexArgs = documentArgs<'beginPdfAnnotationIndex'>(
     value => {
         const args = decodeArgumentArray(value, 2);
         return [
-            decodeStringValue(args[0], 'path'),
+            decodeDocumentRef(args[0], 'path'),
             decodeAnnotationIndexOptions(args[1]),
         ];
     },
     () => [
-        '/tmp/document.pdf',
+        decodeDocumentRef('/tmp/document.pdf', 'path'),
         fixtureRevisionOptions,
     ],
 );
@@ -80,35 +98,32 @@ const readPdfAnnotationIndexChunkArgs = documentArgs<'readPdfAnnotationIndexChun
     value => {
         const args = decodeArgumentArray(value, 2, 3);
         return appendOptional([
-            decodeStringValue(args[0], 'sessionId'),
+            decodeSessionId(args[0], 'sessionId'),
             decodeSafeIntegerValue(args[1], 'offset'),
         ], decodeChunkOptions(args[2])) as TDocumentMethodArgs<'readPdfAnnotationIndexChunk'>;
     },
     () => [
-        'annotation-index-1',
+        decodeSessionId('annotation-index-1', 'sessionId'),
         0,
     ],
 );
 const releasePdfAnnotationIndexArgs = documentArgs<'releasePdfAnnotationIndex'>(
     value => {
         const args = decodeArgumentArray(value, 1);
-        return [decodeStringValue(args[0], 'sessionId')];
+        return [decodeSessionId(args[0], 'sessionId')];
     },
-    () => ['annotation-index-1'],
+    () => [decodeSessionId('annotation-index-1', 'sessionId')],
 );
 const cancelPdfAnnotationIndexArgs = documentArgs<'cancelPdfAnnotationIndex'>(
     value => {
         const args = decodeArgumentArray(value, 1);
-        return [decodeStringValue(args[0], 'sessionId')];
+        return [decodeSessionId(args[0], 'sessionId')];
     },
-    () => ['annotation-index-1'],
+    () => [decodeSessionId('annotation-index-1', 'sessionId')],
 );
 
 function decodeObjectRef(value: unknown, fieldName: string): IPdfAnnotationIndexObjectRef {
-    const decoded = decodeRequiredObject<{
-        objectNumber?: unknown;
-        generationNumber?: unknown
-    }>(value, fieldName);
+    const decoded = decodeRequiredObject(value, fieldName);
     return {
         objectNumber: decodeSafeIntegerValue(decoded.objectNumber, `${fieldName}.objectNumber`, 1),
         generationNumber: decodeSafeIntegerValue(decoded.generationNumber, `${fieldName}.generationNumber`),
@@ -116,15 +131,7 @@ function decodeObjectRef(value: unknown, fieldName: string): IPdfAnnotationIndex
 }
 
 function decodeEntry(value: unknown): IPdfAnnotationIndexEntry {
-    const decoded = decodeRequiredObject<{
-        pageIndex?: unknown;
-        objectNumber?: unknown;
-        generationNumber?: unknown;
-        subtype?: unknown;
-        name?: unknown;
-        popupRef?: unknown;
-        parentRef?: unknown;
-    }>(value, 'annotation index entry');
+    const decoded = decodeRequiredObject(value, 'annotation index entry');
     if (
         typeof decoded.subtype !== 'string'
         || decoded.subtype.length === 0
@@ -134,7 +141,9 @@ function decodeEntry(value: unknown): IPdfAnnotationIndexEntry {
         fail('invalid annotation index entry text fields');
     }
     return {
-        pageIndex: decodeSafeIntegerValue(decoded.pageIndex, 'annotation index entry pageIndex') as IPdfAnnotationIndexEntry['pageIndex'],
+        pageIndex: requirePageIndex(
+            decodeSafeIntegerValue(decoded.pageIndex, 'annotation index entry pageIndex'),
+        ),
         objectNumber: decodeSafeIntegerValue(decoded.objectNumber, 'annotation index entry objectNumber'),
         generationNumber: decodeSafeIntegerValue(decoded.generationNumber, 'annotation index entry generationNumber'),
         subtype: decoded.subtype,
@@ -150,19 +159,10 @@ function decodeEntry(value: unknown): IPdfAnnotationIndexEntry {
 
 const pdfAnnotationIndexSessionResult = documentResult<'beginPdfAnnotationIndex'>(
     value => {
-        const decoded = decodeRequiredObject<{
-            sessionId?: unknown;
-            documentRef?: unknown;
-            documentRevisionToken?: unknown;
-            pageCount?: unknown;
-            entryCount?: unknown;
-            totalBytes?: unknown;
-        }>(value, 'annotation index session');
+        const decoded = decodeRequiredObject(value, 'annotation index session');
         if (
-            typeof decoded.sessionId !== 'string'
-            || decoded.sessionId.length === 0
-            || typeof decoded.documentRef !== 'string'
-            || decoded.documentRef.length === 0
+            parseSessionId(decoded.sessionId) === null
+            || parseDocumentRef(decoded.documentRef) === null
         ) {
             fail('invalid annotation index session identifiers');
         }
@@ -173,8 +173,8 @@ const pdfAnnotationIndexSessionResult = documentResult<'beginPdfAnnotationIndex'
             fail('annotation index documentRevisionToken is invalid');
         }
         return {
-            sessionId: decoded.sessionId,
-            documentRef: decoded.documentRef,
+            sessionId: parseSessionId(decoded.sessionId) ?? fail('annotation index session ID is invalid'),
+            documentRef: parseDocumentRef(decoded.documentRef) ?? fail('annotation index document reference is invalid'),
             documentRevisionToken,
             pageCount: decodeSafeIntegerValue(decoded.pageCount, 'annotation index pageCount'),
             entryCount: decodeSafeIntegerValue(decoded.entryCount, 'annotation index entryCount'),
@@ -182,8 +182,8 @@ const pdfAnnotationIndexSessionResult = documentResult<'beginPdfAnnotationIndex'
         } satisfies IPdfAnnotationIndexSession;
     },
     () => ({
-        sessionId: 'annotation-index-1',
-        documentRef: '/tmp/document.pdf',
+        sessionId: decodeSessionId('annotation-index-1', 'sessionId'),
+        documentRef: decodeDocumentRef('/tmp/document.pdf', 'documentRef'),
         documentRevisionToken: fixtureRevisionToken,
         pageCount: 1,
         entryCount: 0,
@@ -192,13 +192,7 @@ const pdfAnnotationIndexSessionResult = documentResult<'beginPdfAnnotationIndex'
 );
 const pdfAnnotationIndexChunkResult = documentResult<'readPdfAnnotationIndexChunk'>(
     value => {
-        const decoded = decodeRequiredObject<{
-            offset?: unknown;
-            nextOffset?: unknown;
-            byteLength?: unknown;
-            done?: unknown;
-            entries?: unknown;
-        }>(value, 'annotation index chunk');
+        const decoded = decodeRequiredObject(value, 'annotation index chunk');
         const nextOffset = decoded.nextOffset === null || decoded.nextOffset === undefined
             ? null
             : decodeSafeIntegerValue(decoded.nextOffset, 'annotation index chunk nextOffset');

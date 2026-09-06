@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { Ref } from 'vue';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
@@ -12,9 +15,9 @@ export interface ICreatePdfInitialVisualCommitOptions {
     viewport: TPdfViewportSession;
     viewerContainer: Ref<HTMLElement | null>;
     renderedPageStateVersion: Ref<number>;
-    isCommittedVisual: (pageNumber: number) => boolean;
+    isCommittedVisual: (pageNumber: TPageNumber) => boolean;
     queueFrame: () => void;
-    emitInitialVisualReady: (payload: {pageNumber: number}) => void;
+    emitInitialVisualReady: (payload: {pageNumber: TPageNumber}) => void;
 }
 export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCommitOptions) => {
     const chassisAuthority = options.chassisAuthority;
@@ -25,7 +28,7 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
         const surface = chassisAuthority?.openSurface;
         const snapshot = surface?.snapshot.value;
         const render = snapshot?.committedRender;
-        const pageNumber = viewport.currentPage.value;
+        const pageNumber = requirePageNumber(viewport.currentPage.value);
         if (!surface || !snapshot || !render
             || render.generation !== snapshot.generation
             || render.documentRevision !== snapshot.identity?.documentRevision
@@ -76,7 +79,7 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
         markStartupMetricOnce('evb:first-page-painted');
         options.emitInitialVisualReady({pageNumber: ready.pageNumber});
     }
-    function adoptResidentCanvas(pageNumber: number) {
+    function adoptResidentCanvas(pageNumber: TPageNumber) {
         if (!chassisAuthority || !options.openSurfaceRenderOwner || !options.isCommittedVisual(pageNumber)) {
             return;
         }

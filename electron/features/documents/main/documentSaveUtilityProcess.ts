@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {randomBytes} from 'node:crypto';
 import {constants as fsConstants} from 'node:fs';
 import {
@@ -21,11 +22,25 @@ import {
     runNativeCommand,
 } from '@electron/native-tools/runNativeCommand';
 
-const {parentPort} = process;
+interface IUtilityParentPort {
+    once(eventName: string, listener: (event: {data: unknown}) => void): unknown;
+    postMessage(value: unknown): void;
+}
 
-if (!parentPort) {
+function isUtilityParentPort(value: unknown): value is IUtilityParentPort {
+    return typeof value === 'object'
+        && value !== null
+        && 'once' in value
+        && typeof value.once === 'function'
+        && 'postMessage' in value
+        && typeof value.postMessage === 'function';
+}
+
+const rawParentPort: unknown = process.parentPort;
+if (!isUtilityParentPort(rawParentPort)) {
     throw new Error('Document save utility started without a parent port');
 }
+const utilityParentPort = rawParentPort;
 
 async function exists(path: string) {
     try { await stat(path); return true; } catch { return false; }
@@ -131,7 +146,7 @@ async function validatePdf(path: string, validationBinary?: string) {
     } catch (error) {
         const exitCode: unknown = (error as {code?: unknown}).code;
         if (exitCode !== 3 && exitCode !== '3') {
-            throw new Error(`PDF save staging file failed qpdf validation: ${error instanceof Error ? error.message : String(error)}`);
+            throw new Error(`PDF save staging file failed qpdf validation: ${getErrorMessage(error)}`);
         }
     }
 }
@@ -168,7 +183,7 @@ async function atomicReplace(
     if (backedUp) await unlink(backup).catch(() => undefined);
 }
 
-parentPort.once('message', (event) => {
+utilityParentPort.once('message', (event) => {
     void (async () => {
         const request = decodeDocumentSaveUtilityRequest(event.data);
         if (!request) throw new Error('Invalid document save utility request');
@@ -179,7 +194,7 @@ parentPort.once('message', (event) => {
                 ok: true,
                 ...inspection,
             };
-            parentPort.postMessage(result);
+            utilityParentPort.postMessage(result);
             return;
         }
         const reuse = getDocumentSaveUtilityReusePlan(request);
@@ -220,13 +235,13 @@ parentPort.once('message', (event) => {
             ok: true,
             ...inspection,
         };
-        parentPort.postMessage(result);
+        utilityParentPort.postMessage(result);
     })().catch((error: unknown) => {
         const result: TDocumentSaveUtilityResult = {
             type: 'result',
             ok: false,
-            error: error instanceof Error ? error.message : 'Document save utility failed',
+            error: error instanceof Error ? getErrorMessage(error) : 'Document save utility failed',
         };
-        parentPort.postMessage(result);
+        utilityParentPort.postMessage(result);
     });
 });

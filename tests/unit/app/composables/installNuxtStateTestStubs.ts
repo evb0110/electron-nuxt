@@ -1,7 +1,7 @@
 import { ref } from 'vue';
 import { vi } from 'vitest';
 
-type TRefStore = Map<string, ReturnType<typeof ref>>;
+export type TRefStore = Map<string, ReturnType<typeof ref>>;
 
 export function installNuxtStateTestStubs(
     cookieStore: TRefStore,

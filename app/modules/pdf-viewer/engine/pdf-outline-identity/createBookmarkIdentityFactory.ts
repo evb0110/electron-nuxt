@@ -1,3 +1,6 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type {
     IBookmarkIdentityInput,
     TCreateBookmarkId,
@@ -38,7 +41,7 @@ function resolveIdentityTitle(title: string | null | undefined, untitledLabel: s
     return trimmed.length > 0 ? trimmed : untitledLabel;
 }
 
-function resolveIdentityPageIndex(pageIndex: number | null) {
+function resolveIdentityPageIndex(pageIndex: TPageIndex | null) {
     return typeof pageIndex === 'number' && Number.isFinite(pageIndex)
         ? Math.max(0, Math.trunc(pageIndex))
         : null;
@@ -113,7 +116,9 @@ export function createBookmarkIdentityFactory(
         const contentPath = [
             encodeField(input.parentId),
             encodeField(resolveIdentityTitle(input.title, untitledLabel)),
-            encodeField(resolveIdentityPageIndex(input.pageIndex)),
+            encodeField(resolveIdentityPageIndex(
+                input.pageIndex === null ? null : requirePageIndex(input.pageIndex),
+            )),
             encodeField(resolveIdentityNamedDest(input.dest)),
         ].join('');
         const occurrence = occurrencesByContentPath.get(contentPath) ?? 0;

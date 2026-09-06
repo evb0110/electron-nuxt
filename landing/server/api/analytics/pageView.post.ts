@@ -57,7 +57,7 @@ export default defineEventHandler(async (event) => {
         });
     }
     const config = useRuntimeConfig(event);
-    const db = getOptionalDb(config.databaseUrl ?? process.env.DATABASE_URL);
+    const db = getOptionalDb(config.databaseUrl);
     if (!db) {
         return {
             ok: true,

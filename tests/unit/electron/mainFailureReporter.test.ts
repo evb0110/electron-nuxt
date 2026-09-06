@@ -11,6 +11,7 @@ import {
     MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
 } from '@electron/features/diagnostics/public';
 import {parseDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
+import {requireEpochMs} from '@contracts/timestamps';
 import type {DiagnosticRecord} from '@contracts/diagnostics/diagnosticRecord';
 
 const BASE_STACK = 'Error\n    at mainFailure (electron/main.ts:12:4)';
@@ -124,6 +125,29 @@ describe('Electron main failure reporter', () => {
         expect(onPreferenceGranted).toHaveBeenCalledTimes(2);
         reporter.capture(createInput());
         expect(send).toHaveBeenCalledTimes(2);
+    });
+
+    it('exposes the in-flight adapter load so a persisted grant can wait before resending', async () => {
+        let finishLoading!: () => void;
+        const reporter = createMainFailureReporter({
+            preference: 'unknown',
+            transport: {isReady: false},
+            onPreferenceGranted: () => new Promise<void>((resolve) => {
+                finishLoading = resolve;
+            }),
+        });
+
+        reporter.setPreference('granted');
+        let ready = false;
+        const readiness = reporter.waitForTransportReady().then(() => {
+            ready = true;
+        });
+        await Promise.resolve();
+        expect(ready).toBe(false);
+
+        finishLoading();
+        await readiness;
+        expect(ready).toBe(true);
     });
 
     it('uses the source stack only for source-policy diagnostic codes', () => {
@@ -322,7 +346,7 @@ describe('Electron main failure reporter', () => {
             severity: 'error',
             runtime: 'electron-renderer',
             operation: 'renderer-error',
-            occurredAt: 1,
+            occurredAt: requireEpochMs(1),
             frames: [{module: 'app/utils/failureReporter.ts'}],
             context: {},
         });

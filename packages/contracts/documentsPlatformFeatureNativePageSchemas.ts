@@ -5,10 +5,12 @@ import type {
     TPdfNativePageSizes,
 } from '@contracts/electronApiDocuments';
 import {PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT} from '@contracts/electronApiDocuments';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     isFiniteNumber,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {parseEpochMs} from '@contracts/timestamps';
 
 function fail(message: string): never {
     throw new Error(message);
@@ -28,6 +30,17 @@ function decodeUint8ArrayValue(value: unknown, fieldName: string) {
     return value;
 }
 
+const PDF_ROTATIONS = [
+    0,
+    90,
+    180,
+    270,
+] as const;
+
+function isPdfRotation(value: unknown): value is typeof PDF_ROTATIONS[number] {
+    return PDF_ROTATIONS.some(rotation => rotation === value);
+}
+
 function decodeOpeningGeometry(value: unknown) {
     if (
         !isRecord(value)
@@ -39,30 +52,23 @@ function decodeOpeningGeometry(value: unknown) {
         || value.width <= 0
         || !isFiniteNumber(value.height)
         || value.height <= 0
-        || typeof value.rotation !== 'number'
-        || !([
-            0,
-            90,
-            180,
-            270,
-        ] as const).includes(value.rotation as 0 | 90 | 180 | 270)
+        || !isPdfRotation(value.rotation)
         || typeof value.size !== 'number'
         || !Number.isSafeInteger(value.size)
         || value.size < 0
-        || typeof value.modifiedAt !== 'number'
-        || !Number.isSafeInteger(value.modifiedAt)
-        || value.modifiedAt < 0 || value.linearized !== undefined && typeof value.linearized !== 'boolean'
+        || parseEpochMs(value.modifiedAt) === null
+        || value.linearized !== undefined && typeof value.linearized !== 'boolean'
     ) {
         fail('invalid PDF opening geometry result');
     }
     return {
-        pageNumber: 1 as const,
+        pageNumber: requirePageNumber(1),
         pageCount: value.pageCount,
         width: value.width,
         height: value.height,
-        rotation: value.rotation as 0 | 90 | 180 | 270,
+        rotation: value.rotation,
         size: value.size,
-        modifiedAt: value.modifiedAt,
+        modifiedAt: parseEpochMs(value.modifiedAt) ?? fail('invalid PDF modification time'),
         ...(value.linearized === undefined ? {} : {linearized: value.linearized}),
     };
 }
@@ -105,7 +111,7 @@ function decodePageSizesResult(value: unknown): TPdfNativePageSizes {
             fail(`native page size override ${String(index)}.pageNumber exceeds pageCount`);
         }
         return {
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber, pageCount),
             ...decodePageSize(item, `native page size override ${String(index)}`),
         };
     });

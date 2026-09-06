@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import type {
     PDFContext,
     PDFObject,
@@ -18,7 +19,7 @@ const MAX_INHERITABLE_LOOKUP_DEPTH = 64;
 
 export function isPdfUnexpectedObjectTypeError(error: unknown) {
     return error instanceof UnexpectedObjectTypeError
-        || (error instanceof Error && error.message.startsWith(UNEXPECTED_OBJECT_TYPE_MESSAGE_PREFIX));
+        || (error instanceof Error && getErrorMessage(error).startsWith(UNEXPECTED_OBJECT_TYPE_MESSAGE_PREFIX));
 }
 
 function handleOptionalPdfLookupError(error: unknown) {

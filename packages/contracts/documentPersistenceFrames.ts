@@ -9,7 +9,15 @@ import {
     getDocumentMutationErrorPayload,
     isStaleRevisionError,
 } from '@contracts/documentMutationErrors';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    parseSessionId,
+    type TSessionId,
+} from '@contracts/shared';
 
 export const SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION = 1;
 export const PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES = 8 * 1024 * 1024;
@@ -41,43 +49,43 @@ export const PDF_PERSISTENCE_ERROR_PHASES = [
 export type TPdfPersistenceErrorPhase = typeof PDF_PERSISTENCE_ERROR_PHASES[number];
 
 export interface ISerializedPdfPersistenceLimits {
-    protocolVersion: typeof SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION;
-    maxChunkBytes: number;
-    maxInFlightChunks: number;
-    maxTotalBytes: number;
-    ackTimeoutMs: number;
-    resultTimeoutMs: number;
+    readonly protocolVersion: typeof SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION;
+    readonly maxChunkBytes: number;
+    readonly maxInFlightChunks: number;
+    readonly maxTotalBytes: number;
+    readonly ackTimeoutMs: number;
+    readonly resultTimeoutMs: number;
 }
 
 export interface IPdfPersistenceErrorFrame {
-    type: 'error';
-    code: TPdfPersistenceErrorCode;
-    phase: TPdfPersistenceErrorPhase;
-    retryable: boolean;
-    expected: boolean;
-    error: string;
-    seq?: number;
+    readonly type: 'error';
+    readonly code: TPdfPersistenceErrorCode;
+    readonly phase: TPdfPersistenceErrorPhase;
+    readonly retryable: boolean;
+    readonly expected: boolean;
+    readonly error: string;
+    readonly seq?: number;
 }
 
 export interface IPdfPersistenceResultFrame {
-    type: 'result';
-    path: string | null;
-    validation: IPdfValidationResult;
+    readonly type: 'result';
+    readonly path: TDocumentRef | null;
+    readonly validation: IPdfValidationResult;
 }
 
 export interface IPdfPersistenceStagedFrame {
-    type: 'staged';
-    sessionId: string;
-    stagedOutput: ITypedStagedArtifact;
-    validation: IPdfValidationResult;
+    readonly type: 'staged';
+    readonly sessionId: TSessionId;
+    readonly stagedOutput: ITypedStagedArtifact;
+    readonly validation: IPdfValidationResult;
 }
 
-export interface IPdfPersistenceReadyFrame { type: 'ready'; }
+export interface IPdfPersistenceReadyFrame { readonly type: 'ready'; }
 
 export interface IPdfPersistenceAckFrame {
-    type: 'ack';
-    seq: number;
-    receivedBytes?: number;
+    readonly type: 'ack';
+    readonly seq: number;
+    readonly receivedBytes?: number;
 }
 
 export type TPdfPersistenceMainToPreloadFrame =
@@ -88,14 +96,14 @@ export type TPdfPersistenceMainToPreloadFrame =
     | IPdfPersistenceAckFrame;
 
 export interface IPdfPersistenceChunkFrame {
-    type: 'chunk';
-    seq: number;
-    bytes: Uint8Array;
+    readonly type: 'chunk';
+    readonly seq: number;
+    readonly bytes: Uint8Array;
 }
 
-export interface IPdfPersistenceCompleteFrame { type: 'complete'; }
+export interface IPdfPersistenceCompleteFrame { readonly type: 'complete'; }
 
-export interface IPdfPersistenceCancelFrame { type: 'cancel'; }
+export interface IPdfPersistenceCancelFrame { readonly type: 'cancel'; }
 
 export type TPdfPersistencePreloadToMainFrame =
     | IPdfPersistenceChunkFrame
@@ -103,13 +111,21 @@ export type TPdfPersistencePreloadToMainFrame =
     | IPdfPersistenceCancelFrame;
 
 export interface IPdfPersistencePreloadToMainPayload {
-    type: TPdfPersistencePreloadToMainFrame['type'];
-    seq?: number;
-    bytes?: Uint8Array | ArrayBuffer;
+    readonly type: TPdfPersistencePreloadToMainFrame['type'];
+    readonly seq?: number;
+    readonly bytes?: Uint8Array | ArrayBuffer;
 }
 
 const PDF_PERSISTENCE_ERROR_CODE_SET = new Set<string>(PDF_PERSISTENCE_ERROR_CODES);
 const PDF_PERSISTENCE_ERROR_PHASE_SET = new Set<string>(PDF_PERSISTENCE_ERROR_PHASES);
+
+function isPdfPersistenceErrorCode(value: unknown): value is TPdfPersistenceErrorCode {
+    return typeof value === 'string' && PDF_PERSISTENCE_ERROR_CODE_SET.has(value);
+}
+
+function isPdfPersistenceErrorPhase(value: unknown): value is TPdfPersistenceErrorPhase {
+    return typeof value === 'string' && PDF_PERSISTENCE_ERROR_PHASE_SET.has(value);
+}
 
 export function createPdfPersistenceReadyFrame(): IPdfPersistenceReadyFrame {
     return {type: 'ready'};
@@ -124,7 +140,7 @@ export function createPdfPersistenceAckFrame(seq: number, receivedBytes: number)
 }
 
 export function createPdfPersistenceResultFrame(
-    path: string | null,
+    path: TDocumentRef | null,
     validation: IPdfValidationResult,
 ): IPdfPersistenceResultFrame {
     return {
@@ -135,7 +151,7 @@ export function createPdfPersistenceResultFrame(
 }
 
 export function createPdfPersistenceStagedFrame(
-    sessionId: string,
+    sessionId: TSessionId,
     stagedOutput: ITypedStagedArtifact,
     validation: IPdfValidationResult,
 ): IPdfPersistenceStagedFrame {
@@ -221,21 +237,27 @@ export function parsePdfPersistenceMainToPreloadFrame(value: unknown): TPdfPersi
         return null;
     }
     if (value.type === 'result' && isPdfValidationResult(value.validation)) {
+        const path = value.path === null ? null : parseDocumentRef(value.path);
+        if (value.path !== null && path === null) {
+            return null;
+        }
         return createPdfPersistenceResultFrame(
-            typeof value.path === 'string' ? value.path : null,
+            path,
             value.validation,
         );
     }
     if (
         value.type === 'staged'
-        && typeof value.sessionId === 'string'
-        && value.sessionId.length > 0
         && isPdfValidationResult(value.validation)
     ) {
+        const sessionId = parseSessionId(value.sessionId);
+        if (sessionId === null) {
+            return null;
+        }
         const stagedOutput = decodeTypedStagedArtifact(value.stagedOutput);
         if (stagedOutput !== null) {
             return createPdfPersistenceStagedFrame(
-                value.sessionId,
+                sessionId,
                 stagedOutput,
                 value.validation,
             );
@@ -247,11 +269,11 @@ export function parsePdfPersistenceMainToPreloadFrame(value: unknown): TPdfPersi
             : getPdfPersistenceErrorMessage({});
         return {
             type: 'error',
-            code: typeof value.code === 'string' && PDF_PERSISTENCE_ERROR_CODE_SET.has(value.code)
-                ? value.code as TPdfPersistenceErrorCode
+            code: isPdfPersistenceErrorCode(value.code)
+                ? value.code
                 : 'UNKNOWN',
-            phase: typeof value.phase === 'string' && PDF_PERSISTENCE_ERROR_PHASE_SET.has(value.phase)
-                ? value.phase as TPdfPersistenceErrorPhase
+            phase: isPdfPersistenceErrorPhase(value.phase)
+                ? value.phase
                 : 'streaming',
             retryable: typeof value.retryable === 'boolean' ? value.retryable : false,
             expected: typeof value.expected === 'boolean' ? value.expected : false,

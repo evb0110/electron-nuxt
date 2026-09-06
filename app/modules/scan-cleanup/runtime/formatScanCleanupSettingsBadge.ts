@@ -53,12 +53,12 @@ export function formatScanCleanupSettingsBadge(
         case 'layoutMode':
             return t('scanCleanup.settingsBadges.items.layoutMode', {value: translateSettingsBadgeValue(
                 t,
-                settingsBadgeLayoutValueKeys[value] ?? settingsBadgeLayoutValueKeys.auto!,
+                settingsBadgeLayoutValueKeys[value] ?? 'scanCleanup.layout.auto',
             )});
         case 'binarization':
             return t('scanCleanup.settingsBadges.items.binarization', {value: translateSettingsBadgeValue(
                 t,
-                settingsBadgeValueKeys[value] ?? settingsBadgeValueKeys.auto!,
+                settingsBadgeValueKeys[value] ?? 'scanCleanup.advanced.binarization.auto',
             )});
         case 'normalizeIllumination':
             return t('scanCleanup.settingsBadges.items.normalizeIllumination', {value: enabledLabel});
@@ -75,7 +75,7 @@ export function formatScanCleanupSettingsBadge(
         case 'pageAlignment':
             return t('scanCleanup.settingsBadges.items.pageAlignment', {value: translateSettingsBadgeValue(
                 t,
-                settingsBadgeAlignmentValueKeys[value] ?? settingsBadgeAlignmentValueKeys['top-center']!,
+                settingsBadgeAlignmentValueKeys[value] ?? 'scanCleanup.pageSize.topCenter',
             )});
         case 'marginsMm': {
             try {
@@ -98,7 +98,7 @@ export function formatScanCleanupSettingsBadge(
         case 'despeckleLevel':
             return t('scanCleanup.settingsBadges.items.despeckleLevel', {value: translateSettingsBadgeValue(
                 t,
-                settingsBadgeValueKeys[value] ?? settingsBadgeValueKeys.normal!,
+                settingsBadgeValueKeys[value] ?? 'scanCleanup.advanced.despeckle.normal',
             )});
         case 'autoDewarp':
             return t('scanCleanup.settingsBadges.items.autoDewarp', {value: enabledLabel});
@@ -107,7 +107,7 @@ export function formatScanCleanupSettingsBadge(
         case 'outputMode':
             return t('scanCleanup.settingsBadges.items.outputMode', {value: translateSettingsBadgeValue(
                 t,
-                settingsBadgeValueKeys[value] ?? settingsBadgeValueKeys.auto!,
+                settingsBadgeValueKeys[value] ?? 'scanCleanup.advanced.binarization.auto',
             )});
         case 'pageOverrides':
             return t('scanCleanup.settingsBadges.items.pageOverrides', {count: Number(value)});

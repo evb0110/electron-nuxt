@@ -10,6 +10,7 @@ import {
 
 const projectRoot = path.resolve(import.meta.dirname, '../..');
 
+/** @param {string[]} args @returns {'desktop' | 'web' | undefined} */
 function parseTarget(args) {
     const targetArgs = args.filter(arg => arg.startsWith('--target='));
     if (targetArgs.length > 1) {
@@ -22,6 +23,7 @@ function parseTarget(args) {
     return target;
 }
 
+/** @returns {string} */
 function readPackageVersion() {
     const packageJson = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
     if (typeof packageJson.version !== 'string') {
@@ -30,6 +32,7 @@ function readPackageVersion() {
     return packageJson.version;
 }
 
+/** @param {string | undefined} filePath @param {string[]} lines */
 function appendLines(filePath, lines) {
     if (!filePath) {
         return;
@@ -37,6 +40,7 @@ function appendLines(filePath, lines) {
     appendFileSync(filePath, `${lines.join('\n')}\n`);
 }
 
+/** @param {{args?: string[], environment?: NodeJS.ProcessEnv, version?: string}} [options] */
 export function resolveReleaseIdentityForEnvironment({
     args = process.argv.slice(2),
     environment = process.env,

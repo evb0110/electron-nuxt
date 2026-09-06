@@ -4,7 +4,7 @@ export type THostResourceTier = 'low' | 'medium' | 'high';
 export type TDocumentSavePerformanceTier = 'low' | 'balanced' | 'high';
 export type TPerformanceMode = 'auto' | THostResourceTier;
 
-export interface IHostGpuStatusSnapshot {[featureName: string]: string;}
+export interface IHostGpuStatusSnapshot {readonly [featureName: string]: string;}
 
 const CANVAS_GPU_FEATURES = [
     '2d_canvas',
@@ -17,13 +17,13 @@ export function usesSoftwareCanvasRendering(gpuStatus?: IHostGpuStatusSnapshot) 
 }
 
 export interface IHostResourceProfileSnapshot {
-    logicalCpus: number;
-    totalRamBytes: number;
-    safeMode: boolean;
-    gpuStatus?: IHostGpuStatusSnapshot;
-    detectedTier: THostResourceTier;
-    performanceMode: TPerformanceMode;
-    tier: THostResourceTier;
+    readonly logicalCpus: number;
+    readonly totalRamBytes: number;
+    readonly safeMode: boolean;
+    readonly gpuStatus?: IHostGpuStatusSnapshot;
+    readonly detectedTier: THostResourceTier;
+    readonly performanceMode: TPerformanceMode;
+    readonly tier: THostResourceTier;
 }
 
 export interface IHostResourceTierInputs {
@@ -62,7 +62,7 @@ function decodeHostGpuStatusSnapshot(value: unknown): IHostGpuStatusSnapshot | n
         return null;
     }
 
-    const snapshot: IHostGpuStatusSnapshot = {};
+    const snapshot: Record<string, string> = {};
     for (const [
         featureName,
         status,

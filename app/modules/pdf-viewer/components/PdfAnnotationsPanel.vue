@@ -183,7 +183,10 @@ const toolLabel = computed(() => {
             return t('annotations.arrow');
         case 'select':
             return t('annotations.select');
-        default:
+        case 'note':
+            return t('annotations.stickyNoteLabel');
+        case 'none':
+        case 'stamp':
             return t('annotations.annotations');
     }
 });

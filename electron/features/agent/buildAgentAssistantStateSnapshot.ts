@@ -30,6 +30,7 @@ import {
     type IClaudeAssistantProviderInfo,
 } from '@electron/features/agent/assistantProviderStatus';
 import { getAssistantTurnProviderTurnId } from '@electron/features/agent/assistantTurnLifecycle';
+import {createIsoTimestamp} from '@contracts/timestamps';
 
 interface IBuildAgentAssistantStateSnapshotOptions {
     claudeInfo: IClaudeAssistantProviderInfo | null;
@@ -160,7 +161,7 @@ function buildAgentAssistantStatusSnapshot(options: IBuildAgentAssistantStateSna
             lastEventAtMs: session?.turnPresentation.lastEventAtMs ?? null,
             usage: session?.turnPresentation.usage ?? null,
         },
-        lastCheckedAt: new Date().toISOString(),
+        lastCheckedAt: createIsoTimestamp(),
         ...(error
             ? {
                 error,

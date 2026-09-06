@@ -44,6 +44,12 @@ import type {
 } from '@contracts/agent';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { isDocumentRevisionInfo } from '@contracts/documentRevision';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {
+    isEpochMs,
+    parseIsoTimestamp,
+} from '@contracts/timestamps';
+import {parseTabId} from '@contracts/windowTabs';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -427,8 +433,7 @@ function isAssistantErrorEnvelope(value: unknown) {
         )
         && typeof value.message === 'string'
         && typeof value.retryable === 'boolean'
-        && typeof value.timestamp === 'number'
-        && Number.isFinite(value.timestamp);
+        && isEpochMs(value.timestamp);
 }
 
 function isAssistantImageAttachment(value: unknown) {
@@ -448,7 +453,7 @@ function isAssistantChatMessage(value: unknown): value is IAgentAssistantChatMes
         && typeof value.id === 'string'
         && (value.role === 'user' || value.role === 'assistant' || value.role === 'system')
         && typeof value.text === 'string'
-        && typeof value.createdAt === 'string'
+        && parseIsoTimestamp(value.createdAt) !== null
         && (
             value.attachments === undefined
             || Array.isArray(value.attachments) && value.attachments.every(isAssistantImageAttachment)
@@ -467,9 +472,9 @@ function isAssistantSessionScopeBinding(value: unknown): value is IAssistantSess
         && (value.provider === 'codex' || value.provider === 'claude')
         && isNonNegativeInteger(value.turnGeneration)
         && isSafeInteger(value.windowId)
-        && typeof value.tabId === 'string'
+        && parseTabId(value.tabId) !== null
         && isOptionalNullableString(value.documentSessionKey)
-        && isNullableString(value.documentRef)
+        && (value.documentRef === null || parseDocumentRef(value.documentRef) !== null)
         && isOptionalDocumentBackend(value.documentBackend)
         && isOptionalNullableString(value.documentInstanceId)
         && (value.documentIdentity === null || isDocumentRevisionInfo(value.documentIdentity))
@@ -888,6 +893,12 @@ export class AssistantChatPersistence {
         await next;
     }
 
+    private hasPendingPersistenceWork() {
+        return this.queues.size > 0
+            || this.pendingSnapshots.size > 0
+            || this.activeSnapshotCounts.size > 0;
+    }
+
     private async flushUntilIdle() {
         const results: unknown[] = [];
         for (;;) {
@@ -909,18 +920,10 @@ export class AssistantChatPersistence {
             if (failure) {
                 throw failure.reason;
             }
-            if (
-                this.queues.size === 0
-                && this.pendingSnapshots.size === 0
-                && this.activeSnapshotCounts.size === 0
-            ) {
+            if (!this.hasPendingPersistenceWork()) {
                 await this.writeQueue;
                 await this.maintenanceQueue;
-                if (
-                    this.queues.size === 0
-                    && this.pendingSnapshots.size === 0
-                    && this.activeSnapshotCounts.size === 0
-                ) {
+                if (!this.hasPendingPersistenceWork()) {
                     return results;
                 }
             }

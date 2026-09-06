@@ -5,7 +5,6 @@ import {
     rm,
     stat,
 } from 'fs/promises';
-import { randomUUID } from 'crypto';
 import { tmpdir } from 'os';
 import {
     extname,
@@ -38,6 +37,8 @@ import {
 } from '@electron/utils/atomicReplace';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
+import { parseDocumentRef } from '@contracts/documentRef';
+import type { TRequestId } from '@contracts/shared';
 
 const PDF_OPTIMIZE_RENDER_CHUNK_PAGES = parseIntegerEnv(
     'EVB_PDF_OPTIMIZE_RENDER_CHUNK_PAGES',
@@ -69,7 +70,7 @@ export interface IPdfOptimizePageRange {
 
 interface IOptimizeProgressContext {
     cancelGroup?: string;
-    requestId: string;
+    requestId: TRequestId;
     preset: TPdfOptimizePreset;
     signal?: AbortSignal;
     emit?: (progress: IPdfOptimizeProgress) => void;
@@ -77,7 +78,7 @@ interface IOptimizeProgressContext {
 
 interface IOptimizePdfToFileOptions {
     cancelGroup?: string;
-    requestId: string;
+    requestId: TRequestId;
     signal?: AbortSignal;
     onProgress?: (progress: IPdfOptimizeProgress) => void;
 }
@@ -99,6 +100,14 @@ const RASTER_PRESETS: Record<Exclude<TPdfOptimizePreset, 'lossless'>, IPdfRaster
         grayscale: true,
     },
 };
+
+function requireDocumentRef(value: unknown) {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
+}
 
 export function normalizePdfOptimizeOptions(value: unknown): IPdfOptimizeOptions {
     if (!isRecord(value) || !isPdfOptimizePreset(value.preset)) {
@@ -381,7 +390,7 @@ export async function optimizePdfToFile(
     optimizeOptions: IOptimizePdfToFileOptions,
 ): Promise<IPdfOptimizeResult> {
     const normalizedOptions = normalizePdfOptimizeOptions(options);
-    const requestId = optimizeOptions.requestId.trim() || randomUUID();
+    const requestId = optimizeOptions.requestId;
     const context: IOptimizeProgressContext = {
         ...(optimizeOptions.cancelGroup ? {cancelGroup: optimizeOptions.cancelGroup} : {}),
         requestId,
@@ -427,7 +436,7 @@ export async function optimizePdfToFile(
         replaced = true;
         const optimizedBytes = await stat(outputPath).then(stats => stats.size).catch(() => null);
         return {
-            path: outputPath,
+            path: requireDocumentRef(outputPath),
             validation,
             preset: normalizedOptions.preset,
             originalBytes,

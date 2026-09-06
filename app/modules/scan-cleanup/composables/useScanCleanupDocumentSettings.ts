@@ -3,6 +3,7 @@ import type {
     TScanCleanupPageAlignment,
 } from '@contracts/electronApiScanCleanup';
 import type {ComputedRef} from 'vue';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {tryOnScopeDispose} from '@vueuse/core';
 import {
     attachScanCleanupPageOverrideDefaults,
@@ -154,11 +155,12 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             void flushDocumentPersistence().catch(() => undefined);
             return;
         }
+        const pending = pendingPersistence;
         if (
-            pendingPersistence?.sourceSha256 !== (sourceSha256 ?? null)
-            || pendingPersistence?.legacyDocumentKey !== (legacyDocumentKey ?? null)
-            || (pendingPersistence !== null
-                && !isScanCleanupDocumentPersistenceTokenCurrent(pendingPersistence.token))
+            pending === null
+            || pending.sourceSha256 !== (sourceSha256 ?? null)
+            || pending.legacyDocumentKey !== (legacyDocumentKey ?? null)
+            || !isScanCleanupDocumentPersistenceTokenCurrent(pending.token)
         ) {
             void flushDocumentPersistence().catch(() => undefined);
         }
@@ -308,10 +310,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             );
         }
         for (const pageNumber of Object.keys(values.pageOverrides).map(Number)) {
+            const brandedPageNumber = requirePageNumber(pageNumber);
             setScanCleanupPageOverride(
                 values.pageOverrides,
-                pageNumber,
-                getScanCleanupPageOverride(values.pageOverrides, pageNumber),
+                brandedPageNumber,
+                getScanCleanupPageOverride(values.pageOverrides, brandedPageNumber),
                 values.marginsMm,
             );
         }

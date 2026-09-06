@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 interface ISyncPdfjsViewerCssModule {
     collectReferencedImages: (cssText: string) => string[];
+    collectRequiredImageNames: (cssText: string, sourceImageNames: string[]) => string[];
     normalizeWhitespace: (cssText: string) => string;
     removeUnusedUiBlocks: (cssText: string) => string;
     rewriteImageUrls: (cssText: string, sourceImageNames: string[]) => string;
@@ -15,6 +16,7 @@ interface ISyncPdfjsViewerCssModule {
 
 const {
     collectReferencedImages,
+    collectRequiredImageNames,
     normalizeWhitespace,
     removeUnusedUiBlocks,
     rewriteImageUrls,
@@ -65,5 +67,21 @@ describe('PDF.js viewer CSS sync', () => {
         expect(normalized).toContain('url(\'/pdfjs/images/toolbarButton-menuArrow.svg\')');
         expect(normalized).not.toContain('missing.svg');
         expect(collectReferencedImages(normalized)).toEqual(['toolbarButton-menuArrow.svg']);
+    });
+
+    it('keeps PDF.js annotation images used by the runtime outside viewer CSS', () => {
+        expect(collectRequiredImageNames(
+            'url(\'/pdfjs/images/toolbarButton-menuArrow.svg\')',
+            [
+                'annotation-note.svg',
+                'annotation-comment.svg',
+                'toolbarButton-menuArrow.svg',
+                'comment-closeButton.svg',
+            ],
+        )).toEqual([
+            'annotation-comment.svg',
+            'annotation-note.svg',
+            'toolbarButton-menuArrow.svg',
+        ]);
     });
 });

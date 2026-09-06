@@ -13,6 +13,11 @@ import { pathToFileURL } from 'node:url';
 const DEFAULT_TIMEOUT_MS = 45 * 60 * 1000;
 const POLL_INTERVAL_MS = 10 * 1000;
 
+/** @typedef {{databaseId?: number, status?: string, conclusion?: string | null, url: string}} IReleaseWorkflowRun */
+/** @typedef {{conclusion?: string, name?: string}} IReleaseJob */
+/** @typedef {{failedJobs: string[], url: string}} IFailureSummary */
+/** @typedef {{createdAfter?: string, findReleaseRunFn?: (tag: string, targetSha: string, createdAfter: string) => IReleaseWorkflowRun | null, nowFn?: () => number, readFailedJobSummaryFn?: (runId: number) => IFailureSummary, readWaitTimeoutMsFn?: () => number, sleepFn?: (milliseconds: number) => Promise<unknown>, stderr?: {write: (chunk: string) => unknown}, stdout?: {write: (chunk: string) => unknown}, targetSha?: string}} IWaitForReleaseOptions */
+
 function readTag() {
     const tag = process.argv[2]?.trim();
     if (!tag) {
@@ -48,6 +53,7 @@ function readWaitTimeoutMs() {
 
 export { isTransientGitHubCliError };
 
+/** @param {string} tag @param {string} [targetSha] @param {string} [createdAfter] @returns {IReleaseWorkflowRun | null} */
 function findReleaseRun(tag, targetSha = '', createdAfter = '') {
     const targetTitles = new Set([
         `Release ${tag}`,
@@ -62,6 +68,7 @@ function findReleaseRun(tag, targetSha = '', createdAfter = '') {
     });
 }
 
+/** @param {number} runId @returns {IFailureSummary} */
 function readFailedJobSummary(runId) {
     const payload = run('gh', [
         'run',
@@ -70,13 +77,13 @@ function readFailedJobSummary(runId) {
         '--json',
         'jobs,url',
     ]);
+    /** @type {{jobs?: IReleaseJob[], url?: unknown}} */
     const parsed = JSON.parse(payload);
     const jobs = Array.isArray(parsed.jobs) ? parsed.jobs : [];
 
     const failedJobs = jobs
         .filter(job => job?.conclusion === 'failure')
-        .map(job => job.name)
-        .filter(name => typeof name === 'string' && name.length > 0);
+        .flatMap(job => typeof job.name === 'string' && job.name.length > 0 ? [job.name] : []);
 
     return {
         failedJobs,
@@ -84,6 +91,7 @@ function readFailedJobSummary(runId) {
     };
 }
 
+/** @param {{error: unknown, stderr: {write: (chunk: string) => unknown}, tag: string, transientPollFailures: number}} options */
 function writeTransientPollingFailure({
     error,
     stderr,
@@ -96,6 +104,7 @@ function writeTransientPollingFailure({
     );
 }
 
+/** @param {string} tag @param {IWaitForReleaseOptions} [options] @returns {Promise<void>} */
 export async function waitForRelease(tag, {
     createdAfter = '',
     findReleaseRunFn = findReleaseRun,
@@ -153,6 +162,10 @@ export async function waitForRelease(tag, {
         if (runInfo.conclusion === 'success') {
             stdout.write(`Release workflow succeeded for ${tag}: ${runInfo.url}\n`);
             return;
+        }
+
+        if (runInfo.databaseId === undefined) {
+            throw new Error(`Release workflow ${tag} did not report a database ID.`);
         }
 
         let failureSummary;

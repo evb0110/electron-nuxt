@@ -1,9 +1,11 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import type { IPageScrollBounds } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
 
 export function getPageScrollBounds(
     container: HTMLElement,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     margin: number,
 ): IPageScrollBounds | null {
     const pageElement = getPageContainerByNumber(container, pageNumber);

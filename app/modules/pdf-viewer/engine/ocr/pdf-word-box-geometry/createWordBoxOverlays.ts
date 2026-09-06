@@ -12,7 +12,7 @@ export function createWordBoxOverlays(
     currentMatchWords?: Set<string>,
     rotation: TOcrIndexRotation = 0,
 ): HTMLElement[] {
-    if (!words || words.length === 0) {
+    if (words.length === 0) {
         return [];
     }
 

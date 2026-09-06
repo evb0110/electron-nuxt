@@ -85,6 +85,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
     } = options;
 
     let pendingZoomSyncOptions: IPendingZoomSyncOptions | null = null;
+    const hasPendingZoomSync = () => pendingZoomSyncOptions !== null;
     let zoomRerenderFrameScheduled = false;
     let zoomRerenderDeferredTimer: ReturnType<typeof setTimeout> | null = null;
     let zoomGestureIdleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -113,7 +114,22 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         switch (normalizedSource) {
             case PDF_RERENDER_SOURCE.ZoomGestureChange:
                 return 'zoom-gesture';
-            default:
+            case PDF_RERENDER_SOURCE.DprChange:
+            case PDF_RERENDER_SOURCE.FitHeightCurrentPage:
+            case PDF_RERENDER_SOURCE.FitHeightPagedTarget:
+            case PDF_RERENDER_SOURCE.FitMode:
+            case PDF_RERENDER_SOURCE.FitWidthCurrentPage:
+            case PDF_RERENDER_SOURCE.FitWidthExplicit:
+            case PDF_RERENDER_SOURCE.FitWidthPagedTarget:
+            case PDF_RERENDER_SOURCE.ReRender:
+            case PDF_RERENDER_SOURCE.ResizeObserver:
+            case PDF_RERENDER_SOURCE.ResizeSettle:
+            case PDF_RERENDER_SOURCE.Unknown:
+            case PDF_RERENDER_SOURCE.ViewMode:
+            case PDF_RERENDER_SOURCE.ViewRotation:
+            case PDF_RERENDER_SOURCE.ZoomChange:
+            case PDF_RERENDER_SOURCE.ZoomMode:
+            case PDF_RERENDER_SOURCE.ZoomModeChange:
                 return 'zoom-change';
         }
     }
@@ -287,7 +303,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
             busy,
             frameScheduled: zoomRerenderFrameScheduled,
             queueProcessing: zoomRerenderQueueProcessing,
-            hasPendingZoomSync: Boolean(pendingZoomSyncOptions),
+            hasPendingZoomSync: hasPendingZoomSync(),
         });
         notifyZoomRerenderBusy(
             busy,
@@ -370,10 +386,6 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
         }
         const deferred = deferredResizeSyncAfterZoom;
         deferredResizeSyncAfterZoom = null;
-        if (deferredResizeMaxTimer !== null) {
-            clearTimeout(deferredResizeMaxTimer);
-            deferredResizeMaxTimer = null;
-        }
         if (!deferred?.syncOptions.resizeAnchor) {
             return;
         }
@@ -482,7 +494,7 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
                 advanceZoomTransaction(nextSyncOptions, 'settled');
                 if (
                     isIdleOnceZoomGestureSync(nextSyncOptions)
-                    && pendingZoomSyncOptions === null
+                    && !hasPendingZoomSync()
                 ) {
                     resetStableZoomGesture();
                 }

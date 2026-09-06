@@ -7,6 +7,10 @@ import type {
     TOcrTextSupersessionPolicy,
 } from '@contracts/electronApiOcr';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type {
+    TJobId,
+    TRequestId,
+} from '@contracts/shared';
 import type { IJobBrokerLease } from '@electron/resources/jobBroker';
 import type {
     TOcrPdfPageSelection,
@@ -35,9 +39,9 @@ interface IOcrRegistryJob {
 }
 
 export interface IOcrQueuedJob extends IOcrRegistryJob {
-    scopedJobId: string;
+    scopedJobId: TJobId;
     documentJobKey: string;
-    requestId: string;
+    requestId: TRequestId;
     webContentsId: number;
     sourcePdfPath: string;
     documentRevision: IDocumentRevisionInfo;
@@ -48,9 +52,9 @@ export interface IOcrQueuedJob extends IOcrRegistryJob {
 }
 
 export interface IOcrPreparingJob extends IOcrRegistryJob {
-    scopedJobId: string;
+    scopedJobId: TJobId;
     documentJobKey: string;
-    requestId: string;
+    requestId: TRequestId;
     webContentsId: number;
     sourcePdfPath: string;
     documentRevision: IDocumentRevisionInfo;
@@ -70,8 +74,8 @@ export interface IOcrActiveJob extends IOcrQueuedJob {
 }
 
 export interface IOcrPendingResultFile {
-    scopedJobId: string;
-    requestId: string;
+    scopedJobId: TJobId;
+    requestId: TRequestId;
     webContentsId: number;
     pdfPath: string;
     resultSha256: string;

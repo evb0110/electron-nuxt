@@ -11,6 +11,7 @@ import {
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { maxWorkspaceMetadataHistoryEntries } from '@app/modules/workspace-shell/metadata/maxWorkspaceMetadataHistoryEntries';
 import { createPageLabelModel } from '@app/utils/document-viewer/pageLabels';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import type {
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
@@ -75,7 +76,7 @@ describe('useWorkspaceMetadataHistory', () => {
         history.resetToCurrentState();
         bookmarkItems.value = [{
             title: 'Direct command',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             namedDest: null,
             bold: false,
             italic: false,
@@ -107,7 +108,7 @@ describe('useWorkspaceMetadataHistory', () => {
 
         bookmarkItems.value = [{
             title: 'Chapter 1',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             namedDest: null,
             bold: false,
             italic: false,
@@ -269,7 +270,7 @@ describe('useWorkspaceMetadataHistory', () => {
         for (let index = 0; index < maxWorkspaceMetadataHistoryEntries + 10; index += 1) {
             bookmarkItems.value = [{
                 title: `Bookmark ${index + 1}`,
-                pageIndex: index,
+                pageIndex: requirePageIndex(index),
                 namedDest: null,
                 bold: false,
                 italic: false,
@@ -301,7 +302,7 @@ describe('useWorkspaceMetadataHistory', () => {
 
         bookmarkItems.value = [{
             title: 'Saved bookmark',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             namedDest: null,
             bold: false,
             italic: false,
@@ -344,7 +345,7 @@ describe('useWorkspaceMetadataHistory', () => {
 
         bookmarkItems.value = [{
             title: 'Transient bookmark',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             namedDest: null,
             bold: false,
             italic: false,

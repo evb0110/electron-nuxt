@@ -6,6 +6,7 @@ import type {
     IAgentMcpIntegrationStatus,
 } from '@contracts/agent';
 import type { IAgentCapability } from '@contracts/agentPlatformFeature';
+import { createIsoTimestamp } from '@contracts/timestamps';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,
@@ -29,7 +30,7 @@ export function createBrowserAgentMcpStatus(): IAgentMcpIntegrationStatus {
         codexConfigured: false,
         codexRegistrationState: 'unknown',
         installUrl: 'https://developers.openai.com/codex/app',
-        lastCheckedAt: new Date().toISOString(),
+        lastCheckedAt: createIsoTimestamp(),
         setupSnippets: {
             codex: '',
             claude: '',
@@ -128,7 +129,7 @@ export function createBrowserAssistantState(): IAgentAssistantState {
                 lastEventAtMs: null,
                 usage: null,
             },
-            lastCheckedAt: new Date().toISOString(),
+            lastCheckedAt: createIsoTimestamp(),
         },
         messages: [],
     };

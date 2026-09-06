@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     IScanCleanupStartRequest,
     TScanCleanupStartResult as TBridgeScanCleanupStartResult,
@@ -6,6 +7,11 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type {TTranslateFn} from '@i18n-app';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
+    createJobId,
+    parseJobId,
+    type TJobId,
+} from '@contracts/shared';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createFailureToastPresenter} from '@app/composables/useFailureToast';
@@ -58,10 +64,10 @@ export class ScanCleanupRunReconciliationError extends Error {
  * oldest entry is dropped once the set is full: a job that far back cannot be
  * the active one, so it has nothing left to suppress.
  */
-const terminalJobs = new Set<string>();
+const terminalJobs = new Set<TJobId>();
 const TERMINAL_JOB_MEMORY = 32;
 
-function rememberTerminalJob(jobId: string) {
+function rememberTerminalJob(jobId: TJobId) {
     terminalJobs.add(jobId);
     while (terminalJobs.size > TERMINAL_JOB_MEMORY) {
         const oldest = terminalJobs.values().next();
@@ -82,7 +88,7 @@ interface IScanCleanupRunError {
 }
 
 export const scanCleanupRun = reactive({
-    activeJobId: null as string | null,
+    activeJobId: null as TJobId | null,
     inFlight: false,
     workspaceOwnerIds: new Set<string>(),
     jobState: null as TScanCleanupJobState | null,
@@ -263,7 +269,7 @@ interface IGeneratedPdfHandoff {
     controller: AbortController;
     generation: number;
     invalidated: boolean;
-    jobId: string;
+    jobId: TJobId;
 }
 
 let handoffGeneration = 0;
@@ -326,7 +332,7 @@ type TScanCleanupRunOwner = Pick<IScanCleanupStartRequest, 'ownerId' | 'document
 
 async function reconcileScanCleanupRunState(
     capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
-    jobId: string,
+    jobId: TJobId,
     owner: TScanCleanupRunOwner,
 ) {
     for (let attempt = 0; attempt < RUN_SUBSCRIPTION_RECONCILIATION_ATTEMPTS; attempt += 1) {
@@ -351,7 +357,7 @@ async function reconcileScanCleanupRunState(
 
 async function abandonUnobservedScanCleanupRun(
     capability: NonNullable<ReturnType<typeof getScanCleanupCapability>>,
-    jobId: string,
+    jobId: TJobId,
     owner: TScanCleanupRunOwner,
 ) {
     if (scanCleanupRun.activeJobId !== jobId) {
@@ -370,7 +376,7 @@ async function abandonUnobservedScanCleanupRun(
     return true;
 }
 
-function persistActiveJob(jobId: string | null, documentRef: string | null = scanCleanupRun.ownerDocumentRef) {
+function persistActiveJob(jobId: TJobId | null, documentRef: string | null = scanCleanupRun.ownerDocumentRef) {
     if (!import.meta.client) {
         return;
     }
@@ -616,7 +622,7 @@ async function startScanCleanupRequest(
         if (reset) {
             throw new ScanCleanupRunReconciliationError(
                 'subscription',
-                caught instanceof Error ? caught.message : '',
+                caught instanceof Error ? getErrorMessage(caught) : '',
             );
         }
         return result;
@@ -646,7 +652,7 @@ export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TSc
         }
         return Promise.resolve({
             started: false,
-            jobId: scanCleanupRun.activeJobId ?? '',
+            jobId: scanCleanupRun.activeJobId ?? createJobId('scan-cleanup'),
             error: '',
             errorCode: 'internal',
             fallback: 'already-running',
@@ -656,7 +662,7 @@ export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TSc
     if (!capability) {
         return Promise.resolve({
             started: false,
-            jobId: '',
+            jobId: createJobId('scan-cleanup'),
             error: '',
             errorCode: 'tools-unavailable',
             fallback: 'unavailable',
@@ -707,7 +713,7 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
     }
     installed = true;
     unsubscribe = capability.onJobState(acceptScanCleanupJobState);
-    const storedJobId = import.meta.client ? sessionStorage.getItem(ACTIVE_JOB_KEY) : null;
+    const storedJobId = parseJobId(import.meta.client ? sessionStorage.getItem(ACTIVE_JOB_KEY) : null);
     if (storedJobId) {
         scanCleanupRun.activeJobId = storedJobId;
         scanCleanupRun.inFlight = true;
@@ -733,8 +739,7 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
                     if (reset && ownerId) {
                         reportScanCleanupRunError(
                             ownerId,
-                            dependencies?.t('scanCleanup.errors.runRecoveryFailed')
-                                ?? 'Scan cleanup could not be recovered after the renderer session was restored.',
+                            nextDependencies.t('scanCleanup.errors.runRecoveryFailed'),
                             sourceDocumentRef,
                             'internal',
                         );

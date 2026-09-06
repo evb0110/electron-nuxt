@@ -365,7 +365,7 @@ const assistantPrimaryActionLabel = computed(() => assistantSetup.value.primaryA
     ? t(assistantSetup.value.primaryActionLabelKey)
     : '');
 const mcpServerName = computed(() => status?.serverName ?? t('settings.agentMcpUnavailable'));
-const mcpServerUrl = computed(() => status?.serverUrl?.length
+const mcpServerUrl = computed(() => status?.serverUrl.length
     ? status.serverUrl
     : t('settings.agentMcpUnavailable'));
 const codexCommand = computed(() => status?.setupSnippets?.codex
@@ -414,7 +414,6 @@ const statusLabel = computed(() => {
         case 'starting':
             return t('settings.agentMcpStatusStarting');
         case 'unknown':
-        default:
             return t('settings.agentMcpStatusCodexMissing');
     }
 });
@@ -450,7 +449,10 @@ const statusIcon = computed(() => {
             return 'i-ph-arrows-clockwise';
         case 'disabled':
             return 'i-ph-chat-circle-dots';
-        default:
+        case 'missing':
+        case 'mismatched':
+        case 'error':
+        case 'unknown':
             return 'i-ph-warning-circle';
     }
 });
@@ -473,7 +475,21 @@ function translateAssistantCopy(copy: TSettingsAssistantCopy) {
             return t(copy.key, copy.params);
         case 'settings.assistantPanelStatusReadyAccount':
             return t(copy.key, copy.params);
-        default:
+        case 'assistant.loginPending':
+        case 'settings.assistantPanelCheckingHint':
+        case 'settings.assistantPanelErrorHint':
+        case 'settings.assistantPanelNeedsCodexHint':
+        case 'settings.assistantPanelReadyHint':
+        case 'settings.assistantPanelSignedOutHint':
+        case 'settings.assistantPanelStatusChecking':
+        case 'settings.assistantPanelStatusError':
+        case 'settings.assistantPanelStatusLoginPending':
+        case 'settings.assistantPanelStatusNeedsCodex':
+        case 'settings.assistantPanelStatusNeedsUpdate':
+        case 'settings.assistantPanelStatusReady':
+        case 'settings.assistantPanelStatusSignedOut':
+        case 'settings.assistantPanelStatusUnsupported':
+        case 'settings.assistantPanelUnsupportedHint':
             return t(copy.key);
     }
 }

@@ -56,6 +56,13 @@ import {
     OCR_ERROR_CODES,
     OCR_PROGRESS_EVENT_CHANNEL,
 } from '@contracts/electronApiOcr';
+import { assertNever } from '@contracts/assertNever';
+import {
+    parseRequestId,
+    requireJobId,
+    requireRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
@@ -172,9 +179,6 @@ const ocrJobs = createMainJobRegistry<IOcrRegistryProgress, IOcrCompleteResult, 
         }),
     },
 });
-function assertNever(value: never) {
-    throw new Error(`Unhandled OCR worker message: ${JSON.stringify(value)}`);
-}
 function getOcrSourcePathKey(sourcePdfPath: string) {
     return normalizePathForLookup(sourcePdfPath) || sourcePdfPath;
 }
@@ -279,7 +283,7 @@ export const { cancelOcrJobsForWorkingCopy } = createOcrWorkingCopyInvalidationC
 
 function handleWorkerMessage(
     scopedJobId: string,
-    requestId: string,
+    requestId: TRequestId,
     webContentsId: number,
     worker: Worker,
     message: TOcrWorkerManagerMessage,
@@ -374,9 +378,8 @@ function handleWorkerMessage(
             finalizeActiveJob(scopedJobId);
             return;
         }
-        default:
-            assertNever(message);
     }
+    return assertNever(message);
 }
 
 function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBrokerLease) {
@@ -498,7 +501,7 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
             type: 'start',
             // Keep worker-visible job ids sender-agnostic so renderer callbacks
             // continue matching the requestId generated in the UI.
-            jobId: job.requestId,
+            jobId: requireJobId(job.requestId),
             data,
         };
         worker.postMessage(startMessage);
@@ -517,7 +520,7 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
 function findQueueBlockingResult(
     context: IOcrManagerContext,
     scopedJobId: string,
-    requestId: string,
+    requestId: TRequestId,
     options: {
         includePreparing: boolean;
         documentJobKey?: string
@@ -570,7 +573,7 @@ function createDeferred<T>() {
     };
 }
 
-function toTerminalResult(requestId: string, failure: IOcrQueueStartResult): IOcrCompleteResult {
+function toTerminalResult(requestId: TRequestId, failure: IOcrQueueStartResult): IOcrCompleteResult {
     const error = failure.error ?? 'OCR job failed before it started';
     return {
         requestId,
@@ -693,10 +696,10 @@ export async function handleOcrCreateSearchablePdfAsync(
     context: IOcrManagerContext,
     sourcePdfPath: string,
     pages: TOcrPdfPageSelection,
-    requestId: string,
+    requestId: TRequestId,
     options: IOcrSearchablePdfOptions = {},
 ): Promise<IOcrQueueStartResult> {
-    log.debug(`handleOcrCreateSearchablePdfAsync called: sourcePdfPath=${sourcePdfPath}, pages=${getOcrPageSelectionCount(pages)}, reqId=${requestId}, dpi=${options.renderDpi}, profile=${options.qualityProfile ?? 'balanced'}, preprocessing=${options.preprocessingMode ?? 'off'}`);
+    log.debug(`handleOcrCreateSearchablePdfAsync called: sourcePdfPath=${sourcePdfPath}, pages=${getOcrPageSelectionCount(pages)}, reqId=${requestId}, dpi=${options.renderDpi ?? 'default'}, profile=${options.qualityProfile ?? 'balanced'}, preprocessing=${options.preprocessingMode ?? 'off'}`);
     const scopedJobId = toScopedOcrJobId(context.senderId, requestId);
     let reservedDocumentJobKey: string | null = null;
 
@@ -850,7 +853,7 @@ export async function handleOcrCreateSearchablePdfAsync(
                     logQueueDepth(`OCR job ${requestId} submitted to JobBroker`);
                     resolveStart({
                         started: true,
-                        jobId: requestId,
+                        jobId: requireJobId(requestId),
                     });
                     return await admitPreparedOcrJob(preparingJob, queuedJob);
                 } catch (error) {
@@ -898,8 +901,10 @@ export async function handleOcrAcknowledgeResultFile(
     error?: string
 }> {
     await pendingResultFileStore.evictStale();
-    const requestId = typeof requestIdPayload === 'string' ? requestIdPayload.trim() : '';
-    if (!requestId) {
+    const requestId = typeof requestIdPayload === 'string'
+        ? parseRequestId(requestIdPayload)
+        : null;
+    if (requestId === null) {
         return {
             cleaned: false,
             error: 'requestId must be a non-empty string',
@@ -914,7 +919,7 @@ export async function handleOcrAcknowledgeResultFile(
 
 export function handleOcrCancel(
     context: IOcrManagerContext,
-    requestId: string,
+    requestId: TRequestId,
 ): IOcrCancelResult {
     log.info(`[${requestId}] Cancel requested`);
     const scopedJobId = toScopedOcrJobId(context.senderId, requestId);
@@ -997,8 +1002,8 @@ function projectOcrJob(snapshot: TOcrJobSnapshot): IOcrJobProjectionState {
     const percent = progress.phaseProgress
         ?? (progress.totalPages > 0 ? (progress.processedCount / progress.totalPages) * 100 : 0);
     return {
-        jobId: toScopedOcrJobId(snapshot.owner.webContentsId, snapshot.jobId),
-        requestId: snapshot.jobId,
+        jobId: toScopedOcrJobId(snapshot.owner.webContentsId, requireRequestId(snapshot.jobId)),
+        requestId: requireRequestId(snapshot.jobId),
         status: snapshot.status === 'canceling' || snapshot.status === 'committing'
             ? 'running'
             : snapshot.status,
@@ -1014,14 +1019,14 @@ function projectOcrJob(snapshot: TOcrJobSnapshot): IOcrJobProjectionState {
     };
 }
 
-export function getOcrJobProjection(context: IOcrManagerContext, requestId: string) {
+export function getOcrJobProjection(context: IOcrManagerContext, requestId: TRequestId) {
     const snapshot = ocrJobs.get(requestId, toOcrActor(context));
     return snapshot ? projectOcrJob(snapshot) : null;
 }
 
 export function subscribeOcrJobProjection(
     context: IOcrManagerContext,
-    requestId: string,
+    requestId: TRequestId,
     listener: (state: IOcrJobProjectionState) => void,
 ) {
     return ocrJobs.subscribe(

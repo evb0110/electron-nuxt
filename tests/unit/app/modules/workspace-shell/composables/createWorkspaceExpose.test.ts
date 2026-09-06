@@ -17,6 +17,8 @@ import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceEx
 import type { IWorkspaceDocumentViewerNavigationPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import { cast } from '@tests/helpers/cast';
 import { createRangePageSelection } from '@contracts/pageNumbers';
+import { requireDocumentRef } from '@contracts/documentRef';
+import type { TPdfSource } from '@app/types/pdfUi';
 
 function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
     return cast<Parameters<typeof createWorkspaceExpose>[0]>({
@@ -95,6 +97,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         readAgentResource: vi.fn(async () => ({})),
         workingCopyPath: ref(null),
         originalPath: ref(null),
+        djvuSourcePath: ref(null),
         pdfData: ref(null),
         pdfReloadSrc: ref(null),
         annotationComments: ref([]),
@@ -178,12 +181,22 @@ describe('createWorkspaceExpose', () => {
             .toBeNull();
     });
 
+    it('reports the active DjVu source as the automation document identity', () => {
+        const expose = createWorkspaceExpose(createDeps({
+            isDjvuMode: ref(true),
+            originalPath: ref(null),
+            djvuSourcePath: ref(requireDocumentRef('/tmp/reader.djvu')),
+        }));
+
+        expect(expose.getAutomationStateSnapshot().originalPath).toBe('/tmp/reader.djvu');
+    });
+
     it('reports path-backed PDF ownership without exposing bytes', () => {
         const deps = createDeps({
             pdfData: ref(null),
-            pdfReloadSrc: ref({
+            pdfReloadSrc: ref<TPdfSource>({
                 kind: 'path',
-                path: '/tmp/working.pdf',
+                path: requireDocumentRef('/tmp/working.pdf'),
                 size: 4_096,
             }),
         });

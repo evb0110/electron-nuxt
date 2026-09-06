@@ -91,7 +91,7 @@ import {
 } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { formatPageIndicatorWithOptions } from '@app/utils/pdfPageLabels';
+import { formatPageIndicatorWithOptions } from '@app/utils/document-viewer/pageLabels';
 import { THUMBNAIL_WIDTH } from '@app/constants/pdfLayout';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
 import {

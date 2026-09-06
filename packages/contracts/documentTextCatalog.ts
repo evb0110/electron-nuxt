@@ -1,3 +1,6 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+import { parsePageNumber } from '@contracts/pageNumbers';
+
 import type { IOcrWord } from '@contracts/shared';
 import { isOcrWord } from '@contracts/shared';
 import {
@@ -13,61 +16,61 @@ import {
 export type TDocumentTextSource = 'pdf-native' | 'foreign-ocr' | 'evb-ocr';
 
 export interface IDocumentTextCatalogPage {
-    pageNumber: number;
-    text: string;
-    source: TDocumentTextSource;
-    words?: IOcrWord[];
-    generation?: string;
-    render?: {
-        dpi: number;
-        imagePx: {
-            w: number;
-            h: number
+    readonly pageNumber: TPageNumber;
+    readonly text: string;
+    readonly source: TDocumentTextSource;
+    readonly words?: readonly IOcrWord[];
+    readonly generation?: string;
+    readonly render?: {
+        readonly dpi: number;
+        readonly imagePx: {
+            readonly w: number;
+            readonly h: number
         };
     };
-    languages?: string[];
-    contentDigest: string;
+    readonly languages?: readonly string[];
+    readonly contentDigest: string;
 }
 
 export interface IDocumentTextSnapshot {
-    documentRevision: TDocumentRevisionToken;
-    pageCount: number;
-    pages: IDocumentTextCatalogPage[];
-    contentDigest: string;
+    readonly documentRevision: TDocumentRevisionToken;
+    readonly pageCount: number;
+    readonly pages: readonly IDocumentTextCatalogPage[];
+    readonly contentDigest: string;
 }
 
 /** A bounded page window used by streaming exports. The range is at most 64 pages. */
 export interface IDocumentTextCatalogWindow {
-    documentRevision: TDocumentRevisionToken;
-    pageCount: number;
-    firstPage: number;
-    lastPage: number;
-    pages: IDocumentTextCatalogPage[];
-    contentDigest: string;
+    readonly documentRevision: TDocumentRevisionToken;
+    readonly pageCount: number;
+    readonly firstPage: number;
+    readonly lastPage: number;
+    readonly pages: readonly IDocumentTextCatalogPage[];
+    readonly contentDigest: string;
 }
 
 export interface IDocumentOcrPageRange {
-    firstPage: number;
-    lastPage: number;
+    readonly firstPage: number;
+    readonly lastPage: number;
 }
 
 export interface IDocumentOcrAvailability {
-    documentRevision: TDocumentRevisionToken;
-    pageCount: number;
+    readonly documentRevision: TDocumentRevisionToken;
+    readonly pageCount: number;
     /** Number of mapped pages, independent of how many ranges are returned. */
-    mappedPageCount?: number;
+    readonly mappedPageCount?: number;
     /** Sorted, disjoint mapped-page ranges. */
-    pageRanges?: IDocumentOcrPageRange[];
+    readonly pageRanges?: readonly IDocumentOcrPageRange[];
     /** False when the range list was capped and page probing is required. */
-    rangesComplete?: boolean;
+    readonly rangesComplete?: boolean;
     /** v3 wire compatibility. New producers must return pageRanges instead. */
-    pageNumbers?: number[];
+    readonly pageNumbers?: readonly TPageNumber[];
 }
 
 export interface IDocumentOcrPageSnapshot {
-    documentRevision: TDocumentRevisionToken;
-    pageCount: number;
-    page: IDocumentTextCatalogPage | null;
+    readonly documentRevision: TDocumentRevisionToken;
+    readonly pageCount: number;
+    readonly page: IDocumentTextCatalogPage | null;
 }
 
 export const MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS = 100_000;
@@ -90,15 +93,17 @@ function isPositiveFinite(value: unknown): value is number {
 function decodeDocumentTextCatalogPage(
     candidate: unknown,
     pageCount: number,
-    pageNumbers?: Set<number>,
+    pageNumbers?: Set<TPageNumber>,
 ): IDocumentTextCatalogPage | null {
+    if (!isRecord(candidate)) {
+        return null;
+    }
+    const pageNumber = typeof candidate.pageNumber === 'number'
+        ? parsePageNumber(candidate.pageNumber, pageCount)
+        : null;
     if (
-        !isRecord(candidate)
-        || typeof candidate.pageNumber !== 'number'
-        || !Number.isSafeInteger(candidate.pageNumber)
-        || candidate.pageNumber < 1
-        || candidate.pageNumber > pageCount
-        || pageNumbers?.has(candidate.pageNumber) === true
+        pageNumber === null
+        || pageNumbers?.has(pageNumber) === true
         || typeof candidate.text !== 'string'
         || candidate.text.length > MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH
         || !isOneOf(DOCUMENT_TEXT_SOURCES, candidate.source)
@@ -135,9 +140,9 @@ function decodeDocumentTextCatalogPage(
             },
         };
     }
-    pageNumbers?.add(candidate.pageNumber);
+    pageNumbers?.add(pageNumber);
     return {
-        pageNumber: candidate.pageNumber,
+        pageNumber,
         text: candidate.text,
         source: candidate.source,
         contentDigest: candidate.contentDigest,
@@ -165,7 +170,7 @@ export function decodeDocumentTextSnapshot(value: unknown): IDocumentTextSnapsho
     }
 
     const pages: IDocumentTextCatalogPage[] = [];
-    const pageNumbers = new Set<number>();
+    const pageNumbers = new Set<TPageNumber>();
     let totalTextLength = 0;
     for (const candidate of value.pages) {
         const page = decodeDocumentTextCatalogPage(candidate, value.pageCount, pageNumbers);
@@ -212,7 +217,7 @@ export function decodeDocumentTextCatalogWindow(value: unknown): IDocumentTextCa
     }
 
     const pages: IDocumentTextCatalogPage[] = [];
-    const pageNumbers = new Set<number>();
+    const pageNumbers = new Set<TPageNumber>();
     let totalTextLength = 0;
     for (const candidate of value.pages) {
         const page = decodeDocumentTextCatalogPage(candidate, value.pageCount, pageNumbers);
@@ -255,18 +260,15 @@ export function decodeDocumentOcrAvailability(value: unknown): IDocumentOcrAvail
         if (!Array.isArray(value.pageNumbers) || value.pageNumbers.length > value.pageCount) {
             return null;
         }
-        const pageNumbers = new Set<number>();
+        const pageNumbers = new Set<TPageNumber>();
         for (const pageNumber of value.pageNumbers) {
-            if (
-                typeof pageNumber !== 'number'
-                || !Number.isSafeInteger(pageNumber)
-                || pageNumber < 1
-                || pageNumber > value.pageCount
-                || pageNumbers.has(pageNumber)
-            ) {
+            const parsedPageNumber = typeof pageNumber === 'number'
+                ? parsePageNumber(pageNumber, value.pageCount)
+                : null;
+            if (parsedPageNumber === null || pageNumbers.has(parsedPageNumber)) {
                 return null;
             }
-            pageNumbers.add(pageNumber);
+            pageNumbers.add(parsedPageNumber);
         }
         return {
             documentRevision,

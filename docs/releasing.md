@@ -22,7 +22,7 @@ The cutter owns the tag because the workflow cannot create it. GitHub requires t
 
 The release workflow waits for exact-SHA CI. For a version-only release commit with `[skip ci]`, it accepts a successful `gates_ok` run from the parent commit. Core packaging, checksum creation, mirror staging, and public promotion run in the core release workflow.
 
-The supplemental workflow attaches the macOS Intel ZIP and the Windows ARM64 installer and provenance after promotion, and builds the Microsoft Store AppX packages as workflow artifacts; nothing submits them to the Store. It is dispatched automatically. A rerun skips the build of every asset the release already holds and verifies the attached copy instead, so it is safe to repeat:
+The supplemental workflow attaches the macOS Intel ZIP and the Windows ARM64 installer and provenance after promotion, copies whatever it attached to the release mirror, and builds the Microsoft Store AppX packages as workflow artifacts; nothing submits them to the Store. It is dispatched automatically. A rerun skips the build of every asset the release already holds and verifies the attached copy instead, so it is safe to repeat, and it repairs a missing mirror copy on the way:
 
 ```sh
 gh workflow run release-supplemental.yml -f tag=vX.Y.Z

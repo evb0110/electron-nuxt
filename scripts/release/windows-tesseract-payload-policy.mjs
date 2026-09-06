@@ -7,12 +7,17 @@ import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
+/** @typedef {{totalBytes: number, libtesseractBytes: number, icuDataBytes: number}} IWindowsTesseractLimits */
+/** @typedef {{name: string, bytes: number}} IWindowsTesseractFile */
+/** @typedef {{files: IWindowsTesseractFile[], totalBytes: number}} IWindowsTesseractMeasurement */
+
 export const WINDOWS_TESSERACT_PAYLOAD_LIMITS = Object.freeze({
     totalBytes: 176 * 1024 * 1024,
     libtesseractBytes: 105 * 1024 * 1024,
     icuDataBytes: 32 * 1024 * 1024,
 });
 
+/** @param {string} binDirectory @returns {IWindowsTesseractMeasurement} */
 export function measureWindowsTesseractPayload(binDirectory) {
     const files = readdirSync(binDirectory, { withFileTypes: true })
         .filter(entry => entry.isFile())
@@ -27,6 +32,7 @@ export function measureWindowsTesseractPayload(binDirectory) {
     };
 }
 
+/** @param {{binDirectory: string, limits?: IWindowsTesseractLimits}} options @returns {{errors: string[], measurement: IWindowsTesseractMeasurement}} */
 export function verifyWindowsTesseractPayload({
     binDirectory,
     limits = WINDOWS_TESSERACT_PAYLOAD_LIMITS,

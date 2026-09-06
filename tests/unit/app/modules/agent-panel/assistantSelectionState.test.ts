@@ -27,6 +27,12 @@ import {
     requireDocumentInstanceId,
     requireDocumentRevisionToken,
 } from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {
+    requireEpochMs,
+    requireIsoTimestamp,
+} from '@contracts/timestamps';
+import {requireTabId} from '@contracts/windowTabs';
 
 function createProviderStatus(
     id: TAgentAssistantProviderId,
@@ -126,7 +132,7 @@ function createAssistantStatus(
             lastEventAtMs: null,
             usage: null,
         },
-        lastCheckedAt: '2026-01-01T00:00:00.000Z',
+        lastCheckedAt: requireIsoTimestamp('2026-01-01T00:00:00.000Z'),
         ...patch,
     };
 }
@@ -280,14 +286,14 @@ describe('assistantSelectionState', () => {
             kind: 'document',
             key: 'scope-1',
             title: 'Document',
-            tabId: 'tab-1',
-            documentRef: 'document.pdf',
+            tabId: requireTabId('tab-1'),
+            documentRef: requireDocumentRef('/tmp/document.pdf'),
         })).toEqual({
             kind: 'document',
             key: 'scope-1',
             title: 'Document',
-            tabId: 'tab-1',
-            documentRef: 'document.pdf',
+            tabId: requireTabId('tab-1'),
+            documentRef: requireDocumentRef('/tmp/document.pdf'),
         });
 
         expect(cloneAssistantScope({
@@ -310,15 +316,15 @@ describe('assistantSelectionState', () => {
                 kind: 'document',
                 key: 'document-session:logical-1',
                 title: 'Document',
-                tabId: 'tab-1',
+                tabId: requireTabId('tab-1'),
                 documentSessionKey: 'logical-1',
                 documentInstanceId: requireDocumentInstanceId('instance-a'),
                 documentIdentity: {
                     version: 1,
                     authority: 'browser-document-store',
                     contentRevision: 1,
-                    documentRef: '/tmp/document.pdf',
-                    mintedAt: 1,
+                    documentRef: requireDocumentRef('/tmp/document.pdf'),
+                    mintedAt: requireEpochMs(1),
                     token: requireDocumentRevisionToken('revision-1'),
                 },
             },

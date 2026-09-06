@@ -1,6 +1,5 @@
 import {
     createHash,
-    randomUUID,
     type Hash,
 } from 'node:crypto';
 import {
@@ -17,6 +16,15 @@ import type {
 } from 'electron';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
+    createSessionId,
+    parseSessionId,
+    type TSessionId,
+} from '@contracts/shared';
 import type {
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
@@ -114,7 +122,7 @@ const PDF_EOF_TAIL_BYTES = 64 * 1024;
 type TSerializedPdfPersistenceMode = 'save' | 'save_as' | 'working_copy';
 
 interface ISerializedPdfPersistenceSession {
-    id: string;
+    id: TSessionId;
     mode: TSerializedPdfPersistenceMode;
     senderId: number;
     sender: WebContents;
@@ -156,7 +164,7 @@ interface ISerializedPdfPersistenceStageResult {
     stagedOutput: ITypedStagedArtifact | null;
 }
 
-const sessions = new Map<string, ISerializedPdfPersistenceSession>();
+const sessions = new Map<TSessionId, ISerializedPdfPersistenceSession>();
 const senderReservations = new Map<number, number>();
 
 function createEmptyPdfValidationResult(message: string): IPdfValidationResult {
@@ -168,6 +176,14 @@ function createEmptyPdfValidationResult(message: string): IPdfValidationResult {
     };
 }
 
+function requireDocumentRef(value: unknown): TDocumentRef {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
+}
+
 function createOriginalChangedValidationResult() {
     return createEmptyPdfValidationResult('Original file changed on disk; save skipped to avoid overwriting external edits');
 }
@@ -177,8 +193,8 @@ function normalizeExpectedDocumentRevisionToken(
     options?: IPdfSerializedSaveOptions | null,
 ) {
     const token = options?.expectedDocumentRevisionToken;
-    if (token === undefined || token === null) {
-        throw createMissingRevisionError({documentRef: workingPath});
+    if (token === undefined) {
+        throw createMissingRevisionError({documentRef: requireDocumentRef(workingPath)});
     }
     const parsedToken = parseDocumentRevisionToken(token);
     if (parsedToken === null) {
@@ -373,7 +389,7 @@ async function createSession(options: {
         releaseSenderReservation();
         throw error;
     }
-    const id = randomUUID();
+    const id = createSessionId('serialized-pdf');
     const timeout = setTimeout(() => undefined, SERIALIZED_PDF_SESSION_TIMEOUT_MS);
     timeout.unref?.();
     const lifecycleOperation = registerMainOperation({
@@ -485,7 +501,7 @@ export async function beginSerializedPdfSaveAs(
 
     return {
         sessionId: session.id,
-        path: targetPath,
+        path: requireDocumentRef(targetPath),
         ...getSerializedPdfPersistenceLimits(),
     };
 }
@@ -615,8 +631,8 @@ async function commitSession(
         throw new Error('Serialized PDF persistence session does not match the staged artifact');
     }
     const committedValidation = session.stagedValidation;
-    let conflictValidation: IPdfValidationResult | null = null;
-    let syncWarningValidation: IPdfValidationResult | null = null;
+    let conflictValidation = null as IPdfValidationResult | null;
+    let syncWarningValidation = null as IPdfValidationResult | null;
     let targetWriteCommitted = false;
     let workingCopyRefreshed = false;
     await enqueueWorkingCopyMutation(session.workingPath, async () => {
@@ -758,8 +774,8 @@ async function commitSession(
 }
 
 function getSessionForPortEvent(event: IpcMainEvent, rawSessionId: unknown) {
-    const sessionId = typeof rawSessionId === 'string' ? rawSessionId : '';
-    const session = sessions.get(sessionId);
+    const sessionId = parseSessionId(rawSessionId);
+    const session = sessionId === null ? undefined : sessions.get(sessionId);
     if (!session) {
         throw new Error('PDF persistence session was not found');
     }
@@ -774,8 +790,8 @@ function getOwnedStagedSession(
     context: IDocumentsSenderIdContext,
     rawSessionId: unknown,
 ) {
-    const sessionId = typeof rawSessionId === 'string' ? rawSessionId : '';
-    const session = sessions.get(sessionId);
+    const sessionId = parseSessionId(rawSessionId);
+    const session = sessionId === null ? undefined : sessions.get(sessionId);
     if (!session) {
         throw new Error('PDF persistence session was not found');
     }
@@ -803,7 +819,7 @@ export async function commitStagedSerializedPdf(
     const executeCommit = async () => {
         try {
             const result = await commitSession(session, stagedOutput);
-            const path = result.targetWriteCommitted ? session.targetPath : null;
+            const path = result.targetWriteCommitted ? requireDocumentRef(session.targetPath) : null;
             if (result.targetWriteCommitted) {
                 finishSessionLifecycle(session);
                 await rm(session.tempPath, {force: true}).catch(() => undefined);
@@ -959,17 +975,13 @@ async function handlePortMessage(
             return;
         }
 
-        if (payload.type === 'cancel') {
-            await cleanupSession(session);
-            port.postMessage(createPdfPersistenceErrorFrame('PDF persistence stream canceled', {
-                phase: 'cancel',
-                expected: true,
-            }));
-            port.close();
-            return;
-        }
-
-        throw new Error(`Unknown PDF persistence message (${describePdfPersistenceMessage(normalizedMessage)})`);
+        await cleanupSession(session);
+        port.postMessage(createPdfPersistenceErrorFrame('PDF persistence stream canceled', {
+            phase: 'cancel',
+            expected: true,
+        }));
+        port.close();
+        return;
     } catch (error) {
         await cleanupSession(session);
         const errorFrameOptions: {

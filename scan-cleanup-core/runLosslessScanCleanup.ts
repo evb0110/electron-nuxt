@@ -14,6 +14,7 @@ import type {
     TScanCleanupWarningEvent,
 } from '@contracts/electronApiScanCleanup';
 import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {
     getScanCleanupPageOverride,
@@ -244,7 +245,7 @@ export async function runLosslessScanCleanup(
     ) => {
         reportScanCleanupSummaryWarningEvent(summary, {
             event,
-            ...(pageNumber === undefined ? {} : {pageNumber}),
+            ...(pageNumber === undefined ? {} : {pageNumber: requirePageNumber(pageNumber)}),
             ...(half === undefined ? {} : {half}),
         }, warn);
     };
@@ -305,7 +306,7 @@ export async function runLosslessScanCleanup(
         if (shouldCountCompactPages) {
             for (const raster of batchRasterByNumber.values()) {
                 if (isCompactLayeredRaster(raster)) {
-                    compactLayeredPageCount = (compactLayeredPageCount ?? 0) + 1;
+                    compactLayeredPageCount += 1;
                 }
             }
         }
@@ -435,7 +436,10 @@ export async function runLosslessScanCleanup(
                 emitProgress('collecting', collectedCount, pageNumbers.length);
                 const sourcePageNumber = batchPageNumbers[index]!;
                 pageMetadataBySource.set(sourcePageNumber, metadata);
-                const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, sourcePageNumber);
+                const pageOverride = getScanCleanupPageOverride(
+                    request.options.pageOverrides,
+                    requirePageNumber(sourcePageNumber),
+                );
                 if (metadata.excluded) {
                     summary.excludedPages += 1;
                     continue;
@@ -753,7 +757,7 @@ export async function runLosslessScanCleanup(
     if (scaledRasterPages.size > 0) {
         warnEvent({
             code: 'matched-canvas-pages-scaled-in-place',
-            pages: [...scaledRasterPages],
+            pages: [...scaledRasterPages].map(pageNumber => requirePageNumber(pageNumber)),
         });
     }
     for (const fitted of fittedPageEvents) warnEvent(fitted.event, fitted.pageNumber, fitted.half);
@@ -763,7 +767,7 @@ export async function runLosslessScanCleanup(
         const metadata = pageMetadataBySource.get(sourcePage);
         return {
             sourcePage,
-            half: output.half ?? 'full',
+            half: output.half,
             outputOrdinal: outputIndex + 1,
             rotationDegrees: metadata?.rotationDegrees ?? 0,
             excluded: false,
@@ -780,7 +784,7 @@ export async function runLosslessScanCleanup(
             outputOrdinal: null,
             rotationDegrees: metadata?.rotationDegrees ?? getScanCleanupPageOverride(
                 request.options.pageOverrides,
-                pageNumber,
+                requirePageNumber(pageNumber),
             ).rotationDegrees,
             excluded: metadata?.excluded === true,
             blank: metadata?.excluded !== true,
@@ -896,7 +900,7 @@ export async function runLosslessScanCleanup(
         documentPageCount: pageNumbers.length,
         options: request.options,
         ...(compactLayeredPageCountComplete
-            ? {compactLayeredPageCount: compactLayeredPageCount ?? 0}
+            ? {compactLayeredPageCount}
             : {}),
         partialRun: !fullDocumentRun,
         sourceBytes: sourceFile.size,
@@ -924,7 +928,7 @@ export async function runLosslessScanCleanup(
                 illuminationNormalized: false,
                 textToneApplied: false,
                 binarizationMode: null,
-                half: output.half ?? 'full',
+                half: output.half,
                 rotationDegrees: metadata?.rotationDegrees ?? 0,
                 excluded: false,
                 blank: false,

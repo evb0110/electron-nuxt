@@ -1,11 +1,18 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     parsePageNumber,
     type TPageNumber,
 } from '@contracts/pageNumbers';
 import type { TOcrIndexRotation } from '@contracts/ocrIndex';
 import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     isOcrWord,
     type IOcrWord,
+    requireRequestId,
+    type TRequestId,
 } from '@contracts/shared';
 import {
     parseDocumentRevisionToken,
@@ -16,6 +23,10 @@ import {
     findSerializableErrorEnvelope,
     type ISerializableErrorEnvelope,
 } from '@contracts/serializableError';
+import {
+    isEpochMs,
+    type TEpochMs,
+} from '@contracts/timestamps';
 
 /** Shared user-visible search limits. Keep every runtime on these values. */
 export const SEARCH_RESULT_LIMIT = 500;
@@ -32,11 +43,11 @@ export const PDF_SEARCH_MIN_QUERY_LENGTH = 1;
 export const DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH = 2;
 
 export interface IPdfSearchExcerpt {
-    prefix: boolean;
-    suffix: boolean;
-    before: string;
-    match: string;
-    after: string;
+    readonly prefix: boolean;
+    readonly suffix: boolean;
+    readonly before: string;
+    readonly match: string;
+    readonly after: string;
 }
 
 export type TPdfSearchUtf16Offset = number;
@@ -47,22 +58,22 @@ export interface IPdfSearchUtf16Range {
 }
 
 export interface IPdfSearchResult {
-    pageNumber: TPageNumber;
-    pageMatchIndex: number;
-    matchIndex: number;
-    startOffset: TPdfSearchUtf16Offset;
-    endOffset: TPdfSearchUtf16Offset;
-    excerpt: IPdfSearchExcerpt;
-    words?: IOcrWord[];
-    pageWidth?: number;
-    pageHeight?: number;
-    rotation?: TOcrIndexRotation;
+    readonly pageNumber: TPageNumber;
+    readonly pageMatchIndex: number;
+    readonly matchIndex: number;
+    readonly startOffset: TPdfSearchUtf16Offset;
+    readonly endOffset: TPdfSearchUtf16Offset;
+    readonly excerpt: IPdfSearchExcerpt;
+    readonly words?: readonly IOcrWord[];
+    readonly pageWidth?: number;
+    readonly pageHeight?: number;
+    readonly rotation?: TOcrIndexRotation;
 }
 
 export interface IPdfSearchResponse {
-    results: IPdfSearchResult[];
-    truncated: boolean;
-    canceled?: boolean;
+    readonly results: readonly IPdfSearchResult[];
+    readonly truncated: boolean;
+    readonly canceled?: boolean;
 }
 
 function decodeSearchExcerpt(value: unknown): IPdfSearchExcerpt | null {
@@ -160,15 +171,15 @@ export const SEARCH_WIRE_CODEC = {
 } as const;
 
 export interface IPdfSearchProgress {
-    requestId: string;
-    processed: number;
-    total: number;
-    results?: IPdfSearchResult[];
-    resultsStartIndex?: number;
-    truncated?: boolean;
-    canceled?: boolean;
-    status?: 'running' | 'success' | 'canceled' | 'failed';
-    error?: string;
+    readonly requestId: TRequestId;
+    readonly processed: number;
+    readonly total: number;
+    readonly results?: readonly IPdfSearchResult[];
+    readonly resultsStartIndex?: number;
+    readonly truncated?: boolean;
+    readonly canceled?: boolean;
+    readonly status?: 'running' | 'success' | 'canceled' | 'failed';
+    readonly error?: string;
 }
 
 export type TSearchErrorCode =
@@ -181,12 +192,12 @@ export type TSearchErrorCode =
     | 'SEARCH_INTERNAL';
 
 export interface ISearchErrorEnvelope extends ISerializableErrorEnvelope<TSearchErrorCode> {
-    retryable: boolean;
-    timestamp: number;
-    details?: string;
+    readonly retryable: boolean;
+    readonly timestamp: TEpochMs;
+    readonly details?: string;
 }
 
-export interface ISearchErrorEnvelopeCarrier {errorEnvelope?: ISearchErrorEnvelope;}
+export interface ISearchErrorEnvelopeCarrier {readonly errorEnvelope?: ISearchErrorEnvelope;}
 
 export function isSearchErrorEnvelope(value: unknown): value is ISearchErrorEnvelope {
     return isRecord(value)
@@ -202,7 +213,7 @@ export function isSearchErrorEnvelope(value: unknown): value is ISearchErrorEnve
         ].includes(value.code)
         && typeof value.message === 'string'
         && typeof value.retryable === 'boolean'
-        && typeof value.timestamp === 'number'
+        && isEpochMs(value.timestamp)
         && (value.details === undefined || typeof value.details === 'string');
 }
 
@@ -275,7 +286,7 @@ export const SEARCH_OPTION_SEMANTICS = [
 ] as const;
 
 export interface IPdfSearchRequestOptions extends ISearchMatchOptions {
-    requestId?: string;
+    requestId?: TRequestId;
     pageCount?: number;
     documentRevision?: TDocumentRevisionToken;
 }
@@ -773,7 +784,7 @@ export function assertSafePdfSearchRegex(
     try {
         new RegExp(pattern, options.matchCase ? 'gu' : 'giu');
     } catch (error) {
-        throw new Error(`Invalid search regex: ${error instanceof Error ? error.message : 'pattern could not be compiled'}`);
+        throw new Error(`Invalid search regex: ${error instanceof Error ? getErrorMessage(error) : 'pattern could not be compiled'}`);
     }
 
     if (isUnsafeSearchRegexPattern(query)) {
@@ -813,7 +824,7 @@ export function normalizeOptionalSearchRequestId(raw: unknown) {
     if (requestId.length > SEARCH_REQUEST_ID_MAX_LENGTH) {
         throw new Error(`requestId exceeds maximum length (${SEARCH_REQUEST_ID_MAX_LENGTH})`);
     }
-    return requestId;
+    return requireRequestId(requestId);
 }
 
 /**
@@ -836,7 +847,7 @@ export function normalizeOptionalSearchPageCount(raw: unknown) {
     return raw;
 }
 
-function normalizeSearchPdfPath(raw: unknown) {
+function normalizeSearchPdfPath(raw: unknown): TDocumentRef {
     const pdfPath = typeof raw === 'string' ? raw.trim() : '';
     if (!pdfPath) {
         throw new Error('Invalid PDF path');
@@ -844,7 +855,11 @@ function normalizeSearchPdfPath(raw: unknown) {
     if (pdfPath.length > SEARCH_PDF_PATH_MAX_LENGTH) {
         throw new Error(`Invalid PDF path: maximum length is ${SEARCH_PDF_PATH_MAX_LENGTH} characters`);
     }
-    return pdfPath;
+    const documentRef = parseDocumentRef(pdfPath);
+    if (documentRef === null) {
+        throw new Error('Invalid PDF path');
+    }
+    return documentRef;
 }
 
 function normalizeSearchBooleanOption(raw: unknown) {
@@ -869,11 +884,11 @@ function normalizeOptionalSearchDocumentRevision(raw: unknown) {
 }
 
 export interface INormalizedPdfSearchRequest extends IPdfSearchRequestOptions {
-    pdfPath: string;
+    pdfPath: TDocumentRef;
     query: string;
 }
 
-export interface INormalizedPdfSearchWarmIndexRequest extends IPdfSearchRequestOptions {pdfPath: string;}
+export interface INormalizedPdfSearchWarmIndexRequest extends IPdfSearchRequestOptions {pdfPath: TDocumentRef;}
 
 export function normalizePdfSearchRequestPayload(
     raw: unknown,
@@ -1001,7 +1016,7 @@ export function* iteratePdfSearchMatches(
     const regexDeadline = options?.useRegex === true
         ? Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS
         : null;
-    while (true) {
+    for (;;) {
         if (regexDeadline !== null && Date.now() >= regexDeadline) {
             throw new SearchRegexLimitError(
                 `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms page budget`,

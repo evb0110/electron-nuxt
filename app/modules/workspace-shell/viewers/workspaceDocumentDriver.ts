@@ -4,7 +4,11 @@ import type {
     Ref,
     ShallowRef,
 } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
 import type {
     IDocumentRevisionInfo,
@@ -16,6 +20,10 @@ import type {
     TPdfViewMode,
     TPrintOrientation,
     TZoomMode,
+} from '@contracts/shared';
+import {
+    createJobId,
+    createRequestId,
 } from '@contracts/shared';
 import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
@@ -290,8 +298,7 @@ export interface IWorkspaceDocumentDriverOptions {
 }
 
 function createDriverPrintRequestId() {
-    return globalThis.crypto?.randomUUID?.()
-        ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return createRequestId('djvu-print');
 }
 
 function createDriverPrintAbortError() {
@@ -337,7 +344,7 @@ async function prepareDjvuPrint(
         };
     }
     const requestId = createDriverPrintRequestId();
-    const jobId = `djvu-print-${requestId}`;
+    const jobId = createJobId('djvu-print');
     let cancelRequested = false;
     const cancelPrint = () => {
         cancelRequested = true;
@@ -354,8 +361,15 @@ async function prepareDjvuPrint(
         });
         const projectionSignal = command.signal ?? new AbortController().signal;
         await ensurePdfProjection(printSession, {build: async () => {
+            const {
+                pageNumbers,
+                ...printRequest
+            } = command.request;
             const result = await getDjvuCapability().printDjvuPath(sourcePath, {
-                ...command.request,
+                ...printRequest,
+                ...(pageNumbers === undefined
+                    ? {}
+                    : {pageNumbers: pageNumbers.map(pageNumber => requirePageNumber(pageNumber))}),
                 requestId,
                 pdfStrategy: 'compact-djvu-aware',
                 ...(command.fileName ? { fileName: command.fileName } : {}),
@@ -458,7 +472,7 @@ export const useWorkspaceDocumentDriver = (
             pdfSourcePath: isPathPdfSource(options.pdfSrc.value)
                 ? options.pdfSrc.value.path
                 : options.pdfSrc.value
-                    ? 'document.pdf'
+                    ? parseDocumentRef('browser://documents/in-memory-pdf')
                     : pendingDocumentKind.value === 'pdf'
                         ? options.pendingDocumentPath?.value ?? null
                         : null,

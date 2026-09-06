@@ -18,6 +18,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
     setMainDiagnosticsPreference: vi.fn(),
+    waitForMainDiagnosticsTransportReady: vi.fn(async () => undefined),
     userDataPath: '',
     logger: {
         debug: vi.fn(),
@@ -29,7 +30,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({app: {getPath: () => mocks.userDataPath}}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
-vi.mock('@electron/features/diagnostics/public', () => ({setMainDiagnosticsPreference: mocks.setMainDiagnosticsPreference}));
+vi.mock('@electron/features/diagnostics/public', () => ({
+    setMainDiagnosticsPreference: mocks.setMainDiagnosticsPreference,
+    waitForMainDiagnosticsTransportReady: mocks.waitForMainDiagnosticsTransportReady,
+}));
 
 describe('settings corruption quarantine', () => {
     afterEach(() => {

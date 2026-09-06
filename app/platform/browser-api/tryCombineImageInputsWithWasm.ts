@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     IBrowserPdfCombineInput,
     IBrowserPdfCombinePageSize,
@@ -277,12 +278,7 @@ function canUsePdfImageCombineWasm(
 }
 
 function resolveWasmUrl() {
-    const location = globalThis.location;
-    if (!location) {
-        return WASM_PATH;
-    }
-
-    return new URL(WASM_PATH, location.href).toString();
+    return new URL(WASM_PATH, globalThis.location.href).toString();
 }
 
 async function loadPdfImageCombineWasm() {
@@ -582,9 +578,13 @@ function buildV1WasmRequest(
         index,
         input,
     ] of inputs.entries()) {
+        const name = encodedNames[index];
+        if (name === undefined) {
+            throw new Error('Missing encoded PDF combine input name');
+        }
         offset = writeInput(request, view, offset, {
             input,
-            name: encodedNames[index]!,
+            name,
         });
     }
 
@@ -801,7 +801,7 @@ export async function tryCombineImageInputsWithWasm(
             status: 'fatal',
             error: {
                 code: 'native-failure',
-                message: error instanceof Error ? error.message : String(error),
+                message: getErrorMessage(error),
             },
         };
     } finally {

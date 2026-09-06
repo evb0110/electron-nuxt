@@ -22,7 +22,7 @@ type TRuntimeErrorLogStreamWindow = Window & { __evbRuntimeErrorLogStreamState?:
 async function waitForRuntimeErrorLogBridge() {
     const routePath = typeof window === 'undefined'
         ? null
-        : window.location?.pathname ?? null;
+        : window.location.pathname;
     const bridgeResolution = await waitForPreferredDesktopPlatformBridge({ routePath });
     return !bridgeResolution.shouldWait
         || bridgeResolution.bridgeReady
@@ -146,7 +146,7 @@ export default defineNuxtPlugin((nuxtApp) => {
 
         void (async () => {
             try {
-                if (!await waitForRuntimeErrorLogBridge() || cleanedUp || unsubscribeDebugLog) {
+                if (!await waitForRuntimeErrorLogBridge() || Boolean(cleanedUp) || Boolean(unsubscribeDebugLog)) {
                     return;
                 }
 

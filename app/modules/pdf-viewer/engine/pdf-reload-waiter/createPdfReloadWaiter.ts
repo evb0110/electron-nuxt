@@ -100,7 +100,7 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
             } catch (error) {
                 logReloadWaiterRecovery('post-reload tick', error);
             }
-            if (isCancelled.value || options.pdfDocument.value !== matchedDoc) {
+            if (Boolean(isCancelled.value) || options.pdfDocument.value !== matchedDoc) {
                 return;
             }
             if (!shouldRestoreScroll) {

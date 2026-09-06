@@ -1,3 +1,4 @@
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     beforeEach,
     describe,
@@ -47,7 +48,7 @@ describe('scanDocumentForEmbeddedShapeCandidates', () => {
             };
         });
 
-        await expect(documentHasEmbeddedShapeCandidates('/tmp/large.pdf')).resolves.toBe(true);
+        await expect(documentHasEmbeddedShapeCandidates(requireDocumentRef('/tmp/large.pdf'))).resolves.toBe(true);
         expect(deliveredCount).toBe(2);
     });
 
@@ -62,7 +63,7 @@ describe('scanDocumentForEmbeddedShapeCandidates', () => {
             };
         });
 
-        await expect(documentHasEmbeddedShapeCandidates('/tmp/linearized.pdf')).resolves.toBe(false);
+        await expect(documentHasEmbeddedShapeCandidates(requireDocumentRef('/tmp/linearized.pdf'))).resolves.toBe(false);
     });
 
     it('scans a logical sparse PDF above 64 MiB with bounded chunks and no whole-file allocation', async () => {
@@ -85,7 +86,7 @@ describe('scanDocumentForEmbeddedShapeCandidates', () => {
             };
         });
 
-        await expect(documentHasEmbeddedShapeCandidates('/tmp/sparse-large.pdf')).resolves.toBe(false);
+        await expect(documentHasEmbeddedShapeCandidates(requireDocumentRef('/tmp/sparse-large.pdf'))).resolves.toBe(false);
         expect(maxDeliveredBytes).toBe(1024 * 1024);
         expect(mockDocuments.readFileChunks).toHaveBeenCalledOnce();
     });

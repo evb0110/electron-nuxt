@@ -1,27 +1,30 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import {clamp} from 'es-toolkit/math';
 import type {IPdfSemanticAnchor} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import {getRequestAnchor} from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 
-function getMountedPageElement(container: HTMLElement, pageNumber: number) {
+function getMountedPageElement(container: HTMLElement, pageNumber: TPageNumber) {
     return container.querySelector<HTMLElement>(
         `.page_container[data-page="${String(Math.max(1, Math.trunc(pageNumber)))}"]`,
     );
 }
 
-export function hasMeasurableMountedPage(container: HTMLElement, pageNumber: number) {
+export function hasMeasurableMountedPage(container: HTMLElement, pageNumber: TPageNumber) {
     const rect = getMountedPageElement(container, pageNumber)?.getBoundingClientRect();
     return rect !== undefined && rect.width > 0 && rect.height > 0;
 }
 
 export function resolvePagedAnchorFromViewport(
     container: HTMLElement,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     viewportFraction = {
         x: 0.5,
         y: 0.5,
     },
 ): IPdfSemanticAnchor {
-    const page = Math.max(1, Math.trunc(pageNumber));
+    const page = requirePageNumber(Math.max(1, Math.trunc(pageNumber)));
     const element = getMountedPageElement(container, page);
     if (!element) {
         return getRequestAnchor(undefined, page);
@@ -45,7 +48,7 @@ export function resolvePagedScrollForAnchor(
     anchor: IPdfSemanticAnchor,
     scaledMargin: number,
 ) {
-    const element = getMountedPageElement(container, anchor.page);
+    const element = getMountedPageElement(container, requirePageNumber(anchor.page));
     if (!element) {
         return {
             left: container.scrollLeft,

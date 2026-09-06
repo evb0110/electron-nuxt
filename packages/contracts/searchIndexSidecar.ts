@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 export const COMPACT_SEARCH_INDEX_SCHEMA_VERSION = 2;
@@ -33,33 +35,29 @@ const MAX_UINT32 = 0xFFFFFFFF;
 const MAX_UINT16 = 0xFFFF;
 
 export interface ICompactSearchIndexTextSource {
-    kind: number;
-    version: number;
+    readonly kind: number;
+    readonly version: number;
 }
 
 export interface ICompactSearchIndexPage {
-    pageNumber: number;
-    text: string;
+    readonly pageNumber: TPageNumber;
+    readonly text: string;
 }
 
 export interface ICompactSearchIndexPayload {
-    documentRevision: TDocumentRevisionToken;
-    pageCount: number;
-    pages: readonly ICompactSearchIndexPage[];
-    textSource?: ICompactSearchIndexTextSource;
+    readonly documentRevision: TDocumentRevisionToken;
+    readonly pageCount: number;
+    readonly pages: readonly ICompactSearchIndexPage[];
+    readonly textSource?: ICompactSearchIndexTextSource;
 }
 
 export interface ICompactSearchIndexStreamingOptions {
     documentRevision: TDocumentRevisionToken;
     pageCount: number;
     textSource?: ICompactSearchIndexTextSource;
-    /** @deprecated Pass coverage fields to the writer's finalize options. */
     partialCoverage?: boolean;
-    /** @deprecated Pass coverage fields to the writer's finalize options. */
     truncatedCoverage?: boolean;
-    /** @deprecated Pass coverage fields to the writer's finalize options. */
     pagesScanned?: number;
-    /** @deprecated Pass the hook to the writer's finalize options. */
     beforePublish?: () => Promise<void>;
     signal?: AbortSignal;
 }
@@ -76,20 +74,20 @@ export interface ICompactSearchIndexStreamingFinalizeOptions {
 }
 
 export interface ICompactSearchIndexCoverageMetadata {
-    flags: number;
-    pagesScanned: number;
-    pagesWritten: number;
-    bytesWritten: number;
-    complete: boolean;
-    partialCoverage: boolean;
-    truncatedCoverage: boolean;
+    readonly flags: number;
+    readonly pagesScanned: number;
+    readonly pagesWritten: number;
+    readonly bytesWritten: number;
+    readonly complete: boolean;
+    readonly partialCoverage: boolean;
+    readonly truncatedCoverage: boolean;
 }
 
 export interface ICompactSearchIndexPageRecord {
-    pageNumber: number;
-    textUtf16Length: number;
-    byteOffset: bigint;
-    byteLength: bigint;
+    readonly pageNumber: TPageNumber;
+    readonly textUtf16Length: number;
+    readonly byteOffset: bigint;
+    readonly byteLength: bigint;
 }
 
 function assertUInt32(value: number, label: string) {

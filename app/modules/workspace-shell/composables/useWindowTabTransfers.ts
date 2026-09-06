@@ -16,6 +16,7 @@ import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHas
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
+import { parseSessionId } from '@contracts/shared';
 import { withTimeout } from 'es-toolkit/promise';
 import { createWorkspaceSplitCacheSessionState } from '@app/modules/workspace-shell/document-sessions/createWorkspaceSplitCacheSessionState';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
@@ -142,7 +143,15 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     }
 
     function getTransferSessionState(tabId: string): IWindowTabTransferSessionState | null {
-        return createWorkspaceSplitCacheSessionState(getDocumentSession(tabId));
+        const state = createWorkspaceSplitCacheSessionState(getDocumentSession(tabId));
+        if (!state) {
+            return null;
+        }
+        const sessionId = parseSessionId(state.sessionId);
+        return sessionId === null ? null : {
+            ...state,
+            sessionId,
+        };
     }
 
     function isCommandTargetCurrent(

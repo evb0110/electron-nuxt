@@ -17,6 +17,8 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import {
     createDeleteRangeIdentityDelta,
@@ -68,10 +70,10 @@ function revisionInfo(token: string, documentRef: string): IDocumentRevisionInfo
     return {
         version: 1,
         token: requireDocumentRevisionToken(token),
-        documentRef,
+        documentRef: requireDocumentRef(documentRef),
         authority: 'electron-working-copy',
         contentRevision: 1,
-        mintedAt: Date.now(),
+        mintedAt: requireEpochMs(Date.now()),
     };
 }
 
@@ -551,7 +553,7 @@ describe('migrateOcrIndexV3ToV4', () => {
         const manifest: IOcrIndexV3Manifest = {
             version: 3,
             documentRevision: {token: revision},
-            createdAt: Date.now(),
+            createdAt: requireEpochMs(Date.now()),
             source: {pdfPath: join(root, 'document.pdf')},
             pageCount: 1,
             pageBox: 'crop',
@@ -621,7 +623,7 @@ describe('migrateOcrIndexV3ToV4', () => {
         const manifest: IOcrIndexV3Manifest = {
             version: 3,
             documentRevision: {token: revision},
-            createdAt: Date.now(),
+            createdAt: requireEpochMs(Date.now()),
             source: {pdfPath: sourcePdfPath},
             pageCount: 1_000_000,
             pageBox: 'crop',
@@ -682,7 +684,7 @@ describe('migrateOcrIndexV3ToV4 artifact validation (SRCH-004)', () => {
         const manifest: IOcrIndexV3Manifest = {
             version: 3,
             documentRevision: {token: revision},
-            createdAt: Date.now(),
+            createdAt: requireEpochMs(Date.now()),
             source: {pdfPath: join(root, 'document.pdf')},
             pageCount: 3,
             pageBox: 'crop',

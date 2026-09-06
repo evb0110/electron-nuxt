@@ -11,6 +11,7 @@ import type {
     IDocumentPageSource,
 } from '@app/utils/document-viewer/source/documentPageSource';
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 /**
  * Shared mounting machinery for the thumbnail rail: the DOM globals it needs
@@ -223,7 +224,7 @@ export function createDocumentThumbnailSourceHarness(
     });
     const source: IDocumentPageSource = {
         kind: 'pdf',
-        documentRef,
+        documentRef: requireDocumentRef(documentRef),
         pageCount,
         getPageMetrics: vi.fn(async (pageNumber: number) => {
             sourceActivity += 1;

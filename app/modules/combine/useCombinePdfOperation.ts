@@ -34,8 +34,9 @@ export const useCombinePdfOperation = <T extends {
     let abortController: AbortController | null = null;
 
     function buildOutputName(operationFiles: readonly T[]) {
-        return operationFiles.length === 1
-            ? operationFiles[0]!.name.replace(/\.[^.]+$/u, '.pdf')
+        const firstFile = operationFiles[0];
+        return operationFiles.length === 1 && firstFile
+            ? firstFile.name.replace(/\.[^.]+$/u, '.pdf')
             : `combined-${Date.now()}.pdf`;
     }
 
@@ -113,6 +114,9 @@ export const useCombinePdfOperation = <T extends {
     async function savePendingAs() {
         const pending = pendingCombinedResult.value;
         if (!pending || pending.kind !== 'pdf' || isCombining.value) {
+            return;
+        }
+        if (pending.kind !== 'pdf' || !pending.workingPath) {
             return;
         }
         try {

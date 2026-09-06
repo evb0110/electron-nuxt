@@ -9,6 +9,7 @@ import type {
     TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     ComputedRef,
     Ref,
@@ -137,6 +138,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     // bridge. The ask outlives that window, so the attempt either never starts
     // or is canceled the moment it has an id.
     const stopRequested = ref(false);
+    const isStopRequested = () => stopRequested.value;
     // A run is under way from the click, not from the job id: everything the
     // click set in motion — waiting for detection and the start request itself
     // — is work the user must be able to stop.
@@ -175,7 +177,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const hasIncludedPage = computed(() => {
         const selected = runPageNumbers.value;
         if (selected !== null) {
-            return selected.some(page => !getScanCleanupPageOverride(options.settings.pageOverrides, page).excluded);
+            return selected.some(page => !getScanCleanupPageOverride(
+                options.settings.pageOverrides,
+                requirePageNumber(page, Math.max(1, options.totalPages.value)),
+            ).excluded);
         }
         const totalPages = runPageCount.value;
         const defaultExcluded = options.settings.pageOverrideDefaults?.excluded === true;
@@ -236,7 +241,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         for (const pageNumber of requested) {
             const pageOverride = getScanCleanupPageOverride(
                 resolvedOptions.pageOverrides,
-                pageNumber,
+                requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
             );
             if (pageOverride.excluded) {
                 continue;
@@ -271,6 +276,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         }
         return null;
     });
+    const isInkPlacementAnchorMissing = () => missingInkPlacementAnchorPage.value !== null;
     const progress = computed(() => scanCleanupRun.jobState?.progress ?? {
         stage: 'queued' as const,
         completedUnits: 0,
@@ -315,7 +321,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         if (inkPlacementCapacityExceeded.value) {
             return SCAN_CLEANUP_INK_ANCHOR_CAPACITY_MESSAGE;
         }
-        if (missingInkPlacementAnchorPage.value !== null) {
+        if (isInkPlacementAnchorMissing()) {
             return SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE;
         }
         if (getScanCleanupCapability() === null) {
@@ -390,7 +396,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             );
             return;
         }
-        if (missingInkPlacementAnchorPage.value !== null) {
+        if (isInkPlacementAnchorMissing()) {
             reportScanCleanupRunError(
                 options.ownerId,
                 SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE,
@@ -489,7 +495,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 ...(requestedSourcePageNumbers === null
                     ? {}
                     : {sourcePageNumbers: requestedSourcePageNumbers}),
-                ...(detectionResultStoreId === null || detectionResultStoreId === undefined
+                ...(detectionResultStoreId === null
                     ? {}
                     : {detectionResultStoreId}),
                 ...(placementAnchorSummary === null
@@ -516,11 +522,11 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                     options.waitForDetectionBeforeRun(),
                     stopWait,
                 ]);
-                if (stopRequested.value) {
+                if (isStopRequested()) {
                     return;
                 }
             }
-            if (stopRequested.value) {
+            if (isStopRequested()) {
                 return;
             }
             if (
@@ -574,7 +580,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 return;
             }
             const pagePlanEvidence = options.resolvePagePlanEvidence(requestedPageNumbers);
-            if (missingInkPlacementAnchorPage.value !== null) {
+            if (isInkPlacementAnchorMissing()) {
                 reportScanCleanupRunError(
                     options.ownerId,
                     SCAN_CLEANUP_INK_ANCHOR_MISSING_MESSAGE,
@@ -600,9 +606,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 );
                 return;
             }
-            let missingAutomaticModeDecisions = false;
+            let missingAutomaticModeDecisions = false as boolean;
             const checkAutomaticModeDecision = (pageNumber: number) => {
-                const pageOverride = getScanCleanupPageOverride(requestOptions.pageOverrides, pageNumber);
+                const pageOverride = getScanCleanupPageOverride(
+                    requestOptions.pageOverrides,
+                    requirePageNumber(pageNumber, Math.max(1, options.totalPages.value)),
+                );
                 if (
                     !pageOverride.excluded
                     && (pageOverride.outputModeOverride ?? requestOptions.outputMode) === 'auto'
@@ -640,12 +649,12 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             await nextTick();
             await options.beforeRun();
             setScanCleanupRunError(options.ownerId, '');
-            if (stopRequested.value) {
+            if (isStopRequested()) {
                 return;
             }
             const request = buildRequest();
             const result = await startScanCleanup(request);
-            if (stopRequested.value) {
+            if (isStopRequested()) {
                 // The stop arrived while the start was in flight. The job it
                 // came back with is the one the user already asked to stop.
                 if (result.started) await cancelScanCleanup();

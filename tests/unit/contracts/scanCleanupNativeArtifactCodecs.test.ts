@@ -13,6 +13,7 @@ import {
     MAX_SCAN_CLEANUP_WARNING_EVENTS,
     SCAN_CLEANUP_WARNING_EVENT_CODES,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     INativeScanCleanupSplitDiagnosticsV3,
     TScanCleanupWarningEvent,
@@ -313,9 +314,9 @@ describe('scan-cleanup native artifact codecs', () => {
             {
                 code: 'matched-canvas-content-fitted-pages',
                 pages: [
-                    1,
-                    2,
-                    5,
+                    requirePageNumber(1),
+                    requirePageNumber(2),
+                    requirePageNumber(5),
                 ],
             },
             {code: 'matched-canvas-margins-reduced'},
@@ -344,14 +345,14 @@ describe('scan-cleanup native artifact codecs', () => {
             {
                 code: 'matched-canvas-pages-resampled',
                 pages: [
-                    3,
-                    1,
-                    SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
+                    requirePageNumber(3),
+                    requirePageNumber(1),
+                    requirePageNumber(SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES),
                 ],
             },
             {
                 code: 'matched-canvas-pages-scaled-in-place',
-                pages: [1],
+                pages: [requirePageNumber(1)],
             },
             {
                 code: 'matched-canvas-document-dpi-normalized',
@@ -360,7 +361,7 @@ describe('scan-cleanup native artifact codecs', () => {
             },
             {
                 code: 'matched-canvas-page-dpi-capped',
-                pageNumber: 3,
+                pageNumber: requirePageNumber(3),
                 appliedDpiThousandths: 200_000,
                 requestedDpiThousandths: 300_000,
             },

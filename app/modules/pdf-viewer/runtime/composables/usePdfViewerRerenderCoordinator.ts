@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import { delay } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
@@ -11,6 +14,7 @@ import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-
 import type { TPdfViewerTransactionState } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { IUsePdfViewerRerenderCoordinatorOptions } from '@app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes';
 import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import {
     PDF_RERENDER_SOURCE,
     isZoomRestorePdfRerenderSource,
@@ -263,7 +267,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         return page >= range.start && page <= range.end;
     }
 
-    function resolvePageRowRange(pageNumber: number): IPageRange {
+    function resolvePageRowRange(pageNumber: TPageNumber): IPageRange {
         if (numPages.value <= 0) {
             return {
                 start: 1,
@@ -329,7 +333,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         page: number,
         isRunActive: () => boolean,
     ) {
-        const range = resolvePageRowRange(page);
+        const pageNumber = requirePageNumber(page);
+        const range = resolvePageRowRange(pageNumber);
         await ensurePageMetricsInRange?.(range.start, range.end);
         await nextTick();
         void document;
@@ -338,7 +343,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             return null;
         }
 
-        computeFitWidthScale(viewerContainer.value, { page });
+        computeFitWidthScale(viewerContainer.value, {page: pageNumber});
         setupPagePlaceholders();
         syncHorizontalScrollAfterLayoutUpdate();
         return range;
@@ -460,7 +465,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                     ? false
                     : applyResizeAnchorPreview(resizeAnchor.semanticAnchor);
                 if (restored === false) {
-                    await Promise.resolve(scrollToPage(resizeAnchor.page, {
+                    await Promise.resolve(scrollToPage(requirePageNumber(resizeAnchor.page), {
                         preferExactDom: true,
                         suppressRenderAfterSnap: true,
                     }));
@@ -555,8 +560,20 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             : null;
         const updated = pageToSnapTo === null
             ? computeFitWidthScale(viewerContainer.value)
-            : computeFitWidthScale(viewerContainer.value, { page: pageToSnapTo });
+            : computeFitWidthScale(viewerContainer.value, {page: requirePageNumber(pageToSnapTo)});
         if (!(updated || options.forceRerender === true) || !document) {
+            return;
+        }
+        // The fit refs already changed during the click, but the toolbar's
+        // patch is queued with the viewer's render work. Give Vue and the
+        // browser one completed frame before replacing page geometry, so a
+        // fit command cannot change the document first and paint its active
+        // button afterwards.
+        await waitForVisualFrames({ frames: 2 });
+        if (
+            !isRunActive()
+            || !canConfirmFitAnchor(source, runId, physicalNavigationEpoch)
+        ) {
             return;
         }
         // Both fit modes rewrite every row's physical top, so the pre-fit pixel
@@ -684,9 +701,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             return;
         }
 
-        const previousViewRotation = previous?.[1];
-        const rotationChanged = previousViewRotation !== undefined
-            && targetViewRotation !== previousViewRotation;
+        const previousViewRotation = previous[1];
+        const rotationChanged = targetViewRotation !== previousViewRotation;
         resetContinuousScrollState();
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated) {
@@ -706,7 +722,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
         syncHorizontalScrollAfterLayoutUpdate();
         if (activeNavigationAnchorPage !== null) {
-            scrollToPage(activeNavigationAnchorPage, { preferExactDom: true });
+            scrollToPage(requirePageNumber(activeNavigationAnchorPage), { preferExactDom: true });
         }
         syncHorizontalScrollAfterLayoutUpdate();
     });
@@ -749,14 +765,12 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             if (fitMode.value === 'height') {
                 if (
                     !isCurrentPageFitRerenderRunActive(runId, document, next)
-                    || fitMode.value !== 'height'
                 ) {
                     return;
                 }
                 await cancelCurrentPageFitRendersAndWaitForSettle();
                 if (
                     !isCurrentPageFitRerenderRunActive(runId, document, next)
-                    || fitMode.value !== 'height'
                 ) {
                     return;
                 }
@@ -766,7 +780,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 });
                 if (
                     !isCurrentPageFitRerenderRunActive(runId, document, next)
-                    || fitMode.value !== 'height'
                 ) {
                     return;
                 }
@@ -781,14 +794,12 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             });
             if (
                 !isCurrentPageFitRerenderRunActive(runId, document, next)
-                || fitMode.value !== 'width'
             ) {
                 return;
             }
             await cancelCurrentPageFitRendersAndWaitForSettle();
             if (
                 !isCurrentPageFitRerenderRunActive(runId, document, next)
-                || fitMode.value !== 'width'
             ) {
                 return;
             }
@@ -830,7 +841,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 ) {
                     return;
                 }
-                scrollToPage(pageToSnapTo, { preferExactDom: true });
+                scrollToPage(requirePageNumber(pageToSnapTo), { preferExactDom: true });
                 syncHorizontalScrollAfterLayoutUpdate();
             }
         },

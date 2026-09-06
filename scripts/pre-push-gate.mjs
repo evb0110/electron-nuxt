@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {spawnSync} from 'node:child_process';
 import {
     existsSync,
@@ -31,12 +32,18 @@ const WASM_WORKSPACE_MANIFEST_PATHS = new Set([
     'native/Cargo.toml',
     'native/rust-toolchain.toml',
 ]);
+// Vitest intersects --project with named paths instead of adding to them, and a
+// path that matches no selected project is dropped without an error. The topology
+// test lives in unit-policy, so omitting that project made this step exit 0 while
+// silently running only the syntax test.
 const PRE_PUSH_WORKFLOW_TEST_ARGS = [
     'exec',
     'vitest',
     'run',
     '--project',
     'unit-scripts',
+    '--project',
+    'unit-policy',
     'tests/unit/scripts/githubActionsSyntax.test.ts',
     'tests/unit/scripts/ciTopologyPolicy.test.ts',
 ];
@@ -318,7 +325,7 @@ export function runPrePushGate({
                 timeoutMs: remainingMs,
             });
         } catch (error) {
-            writeError(`pre-push: ${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+            writeError(`pre-push: ${label} failed: ${getCliErrorMessage(error)}`);
             return null;
         }
 
@@ -362,7 +369,7 @@ export function runPrePushGate({
                 try {
                     return parseShaOutput(result, 'origin/main SHA');
                 } catch (error) {
-                    writeError(`pre-push: origin/main SHA lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+                    writeError(`pre-push: origin/main SHA lookup failed: ${getCliErrorMessage(error)}`);
                     return null;
                 }
             })()
@@ -614,7 +621,7 @@ if (isEntryPoint) {
         const result = runPrePushGate({input: readFileSync(0, 'utf8')});
         process.exitCode = result.passed ? 0 : 1;
     } catch (error) {
-        console.error(`pre-push: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`pre-push: ${getCliErrorMessage(error)}`);
         process.exitCode = 1;
     }
 }

@@ -14,11 +14,12 @@ import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/cha
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import { observeDocumentViewportWheelInteraction } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
 import { cast } from '@tests/helpers/cast';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSource {
     return {
         kind,
-        documentRef: `document.${kind}`,
+        documentRef: requireDocumentRef(`/document.${kind}`),
         pageCount,
         getPageMetrics: async () => ({
             widthPoints: 612,

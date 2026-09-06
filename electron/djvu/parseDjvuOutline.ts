@@ -1,5 +1,9 @@
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
+    requirePageIndex,
+    type TPageIndex,
+} from '@contracts/pageNumbers';
+import {
     DJVU_OUTLINE_MAX_DEPTH,
     DJVU_OUTLINE_MAX_NODES,
     DJVU_OUTLINE_MAX_TITLE_CHARS,
@@ -26,7 +30,7 @@ export function parseDjvuOutline(sexpression: string): IPdfBookmarkEntry[] {
     const tokens = tokenize(sexpression);
     const ast = parseTokens(tokens);
 
-    if (!ast || !Array.isArray(ast) || ast.length === 0) {
+    if (!Array.isArray(ast) || ast.length === 0) {
         return [];
     }
 
@@ -182,11 +186,11 @@ function parseBookmarkNode(node: TSexpToken): IPdfBookmarkEntry | null {
     const dest = typeof node[1] === 'string' ? node[1] : '';
 
     // Parse page reference: "#N" where N is 1-based
-    let pageIndex: number | null = null;
+    let pageIndex: TPageIndex | null = null;
     if (dest.startsWith('#')) {
         const pageNum = parseInt(dest.slice(1), 10);
         if (Number.isFinite(pageNum) && pageNum >= 1) {
-            pageIndex = pageNum - 1; // Convert to 0-based
+            pageIndex = requirePageIndex(pageNum - 1);
         }
     }
 

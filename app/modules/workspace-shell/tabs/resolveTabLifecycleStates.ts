@@ -1,5 +1,6 @@
 import type { TTabMemoryPolicy } from '@contracts/shared';
 import type { IEditorPaneState } from '@contracts/editorPanes';
+import { parseTabId } from '@contracts/windowTabs';
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import type { ITab } from '@app/types/tabs';
 import type {
@@ -23,19 +24,27 @@ export function resolveTabLifecycleStates(options: {
     const warmCount = options.policy === 'conservative'
         ? Math.min(options.targetWarmViewers, tierWarmCap)
         : 0;
-    const tabIds = new Set(options.tabs.map(tab => tab.id));
+    const tabIds = new Set(options.tabs.flatMap((tab) => {
+        const tabId = parseTabId(tab.id);
+        return tabId === null ? [] : [tabId];
+    }));
     const visibleTabIds = new Set(
         options.panes.flatMap(pane => pane.activeTabId ? [pane.activeTabId] : []),
     );
     const recentWarmTabIds = options.activationOrder
+        .flatMap((tabId) => {
+            const parsedTabId = parseTabId(tabId);
+            return parsedTabId !== null ? [parsedTabId] : [];
+        })
         .filter(tabId => tabIds.has(tabId) && !visibleTabIds.has(tabId))
         .slice(0, warmCount);
     const warmTabIds = new Set([...recentWarmTabIds]);
 
     return options.tabs.map((tab) => {
-        const isHot = visibleTabIds.has(tab.id);
+        const tabId = parseTabId(tab.id);
+        const isHot = tabId !== null && visibleTabIds.has(tabId);
         const isSaveProtected = tab.isDirty;
-        const isWarm = !isHot && (warmTabIds.has(tab.id) || isSaveProtected);
+        const isWarm = !isHot && (tabId !== null && warmTabIds.has(tabId) || isSaveProtected);
         const temperature: TTabTemperature = isHot ? 'hot' : isWarm ? 'warm' : 'cold';
 
         return {

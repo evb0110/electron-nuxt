@@ -13,6 +13,11 @@ import type {
     IScanCleanupOptions,
     IScanCleanupPreviewResult,
 } from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    requireJobId,
+    requireRequestId,
+} from '@contracts/shared';
 import {
     SCAN_CLEANUP_PLATFORM_FEATURE,
     type IScanCleanupInvokeMap,
@@ -75,7 +80,7 @@ const documentPrior = {
 
 function previewResult(): IScanCleanupPreviewResult {
     return {
-        pageNumber: 2,
+        pageNumber: requirePageNumber(2),
         totalPages: 12,
         rawImageData: new Uint8Array([1]),
         rawWidthPx: 2400,
@@ -216,9 +221,9 @@ describe('scan-cleanup IPC structured-clone contract', () => {
         const decodedResponses = await Promise.all([
             client.preview({
                 ...owner,
-                requestId: 'clone-boundary-preview',
+                requestId: requireRequestId('clone-boundary-preview'),
                 sourcePdfPath: '/documents/source.pdf',
-                pageNumber: 2,
+                pageNumber: requirePageNumber(2),
                 options: reactiveOptions,
                 documentPrior: reactiveDocumentPrior,
                 visible: true,
@@ -233,22 +238,22 @@ describe('scan-cleanup IPC structured-clone contract', () => {
                 sourcePdfPath: '/documents/source.pdf',
                 options: reactiveOptions,
             }),
-            client.cancelDetection('detect-1', reactiveOwner),
-            client.getDetectionJobState('detect-1', reactiveOwner),
-            client.subscribeDetectionJob('detect-1', reactiveOwner),
+            client.cancelDetection(requireJobId('detect-1'), reactiveOwner),
+            client.getDetectionJobState(requireJobId('detect-1'), reactiveOwner),
+            client.subscribeDetectionJob(requireJobId('detect-1'), reactiveOwner),
             client.start({
                 ...reactiveOwner,
                 sourcePdfPath: '/documents/source.pdf',
                 options: reactiveOptions,
                 sourcePageNumbers: [
-                    2,
-                    4,
+                    requirePageNumber(2),
+                    requirePageNumber(4),
                 ],
             }),
-            client.cancel('cleanup-1', reactiveOwner),
-            client.getJobState('cleanup-1', reactiveOwner),
-            client.subscribeJob('cleanup-1', reactiveOwner),
-            client.reconnectJob('cleanup-1', reactiveOwner),
+            client.cancel(requireJobId('cleanup-1'), reactiveOwner),
+            client.getJobState(requireJobId('cleanup-1'), reactiveOwner),
+            client.subscribeJob(requireJobId('cleanup-1'), reactiveOwner),
+            client.reconnectJob(requireJobId('cleanup-1'), reactiveOwner),
             client.pruneGeneratedOutputs(),
             client.getSettings!({}),
             client.updateSettings!({}),

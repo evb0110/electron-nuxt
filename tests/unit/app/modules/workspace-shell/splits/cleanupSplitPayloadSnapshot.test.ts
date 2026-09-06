@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type { TSplitPayload } from '@contracts/windowTabs';
 import { cleanupSplitPayloadSnapshot } from '@app/modules/workspace-shell/splits/cleanupSplitPayloadSnapshot';
 
@@ -22,8 +23,8 @@ function pdfSnapshotPayload(): TSplitPayload {
     return {
         kind: 'pdfSnapshot',
         fileName: 'sample.pdf',
-        originalPath: '/tmp/sample.pdf',
-        snapshotPath: '/tmp/snapshot.pdf',
+        originalPath: requireDocumentRef('/tmp/sample.pdf'),
+        snapshotPath: requireDocumentRef('/tmp/snapshot.pdf'),
         isDirty: false,
     };
 }

@@ -28,6 +28,7 @@ import {
     normalizeCanonicalApplicationFrames,
     type CanonicalAppFrame,
 } from '@contracts/diagnostics/canonicalAppFrames';
+import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { parseClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
 import { DIAGNOSTICS_MAX_SUPPRESSED_COUNT } from '@contracts/diagnostics/diagnosticsCapability';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -305,7 +306,7 @@ function buildClosedRecord(
         return decoded;
     }
 
-    return decodeDiagnosticRecord({
+    const fallback = decodeDiagnosticRecord({
         schemaVersion: 1,
         eventId,
         code: 'UNCLASSIFIED_RENDERER_ERROR',
@@ -315,7 +316,11 @@ function buildClosedRecord(
         occurredAt,
         frames: [],
         context: {},
-    })!;
+    });
+    if (fallback === null) {
+        throw new Error('Unable to create an unclassified renderer failure record');
+    }
+    return fallback;
 }
 
 function createReceipt(record: DiagnosticRecord): FailureReceipt {
@@ -371,12 +376,12 @@ function resolveRuntime(host: TRendererDiagnosticsHost): DiagnosticRuntime {
 
 export function detectRendererDiagnosticsHost(): TRendererDiagnosticsHost {
     try {
-        const rendererWindow = Reflect.get(globalThis, 'window');
-        if (typeof rendererWindow !== 'object' || rendererWindow === null) {
+        const rendererWindow: unknown = Reflect.get(globalThis, 'window');
+        if (rendererWindow === null || typeof rendererWindow !== 'object') {
             return 'hosted-browser';
         }
-        const electronApi = Reflect.get(rendererWindow, 'electronAPI');
-        return typeof electronApi === 'object' && electronApi !== null
+        const electronApi: unknown = Reflect.get(rendererWindow, 'electronAPI');
+        return electronApi !== null && typeof electronApi === 'object'
             ? 'electron'
             : 'hosted-browser';
     } catch {
@@ -386,23 +391,23 @@ export function detectRendererDiagnosticsHost(): TRendererDiagnosticsHost {
 
 function getElectronDiagnosticSender(): TRendererDiagnosticSender | null {
     try {
-        const rendererWindow = Reflect.get(globalThis, 'window');
-        if (typeof rendererWindow !== 'object' || rendererWindow === null) {
+        const rendererWindow: unknown = Reflect.get(globalThis, 'window');
+        if (rendererWindow === null || typeof rendererWindow !== 'object') {
             return null;
         }
-        const electronApi = Reflect.get(rendererWindow, 'electronAPI');
-        if (typeof electronApi !== 'object' || electronApi === null) {
+        const electronApi: unknown = Reflect.get(rendererWindow, 'electronAPI');
+        if (electronApi === null || typeof electronApi !== 'object') {
             return null;
         }
-        const diagnostics = Reflect.get(electronApi, 'diagnostics');
-        if (typeof diagnostics !== 'object' || diagnostics === null) {
+        const diagnostics: unknown = Reflect.get(electronApi, 'diagnostics');
+        if (diagnostics === null || typeof diagnostics !== 'object') {
             return null;
         }
-        const sender = Reflect.get(diagnostics, 'sendRecord');
-        if (typeof sender !== 'function') {
+        const sender = getOptionalFunction<[DiagnosticRecord, number | undefined]>(diagnostics, 'sendRecord');
+        if (!sender) {
             return null;
         }
-        return (record, suppressedCount) => sender(record, suppressedCount);
+        return (record, suppressedCount) => sender.call(diagnostics, record, suppressedCount);
     } catch {
         return null;
     }
@@ -410,20 +415,20 @@ function getElectronDiagnosticSender(): TRendererDiagnosticSender | null {
 
 function readElectronDiagnosticsPreferenceSync(): TRendererDiagnosticsPreference {
     try {
-        const rendererWindow = Reflect.get(globalThis, 'window');
-        if (typeof rendererWindow !== 'object' || rendererWindow === null) {
+        const rendererWindow: unknown = Reflect.get(globalThis, 'window');
+        if (rendererWindow === null || typeof rendererWindow !== 'object') {
             return 'unknown';
         }
-        const electronApi = Reflect.get(rendererWindow, 'electronAPI');
-        if (typeof electronApi !== 'object' || electronApi === null) {
+        const electronApi: unknown = Reflect.get(rendererWindow, 'electronAPI');
+        if (electronApi === null || typeof electronApi !== 'object') {
             return 'unknown';
         }
-        const diagnostics = Reflect.get(electronApi, 'diagnostics');
-        if (typeof diagnostics !== 'object' || diagnostics === null) {
+        const diagnostics: unknown = Reflect.get(electronApi, 'diagnostics');
+        if (diagnostics === null || typeof diagnostics !== 'object') {
             return 'unknown';
         }
-        const startupPolicy = Reflect.get(diagnostics, 'startupPolicy');
-        if (typeof startupPolicy !== 'object' || startupPolicy === null) {
+        const startupPolicy: unknown = Reflect.get(diagnostics, 'startupPolicy');
+        if (startupPolicy === null || typeof startupPolicy !== 'object') {
             return 'unknown';
         }
         return normalizePreference(Reflect.get(startupPolicy, 'mode'));
@@ -735,7 +740,7 @@ export function createRendererFailureReporter(
                         && liveSender === sendLiveRecord,
                 );
             } catch {
-                if (generationAtAdmission === generation && preference === 'granted') {
+                if (generationAtAdmission === generation && preference.valueOf() === 'granted') {
                     reportTransportFailure(record);
                 }
             }

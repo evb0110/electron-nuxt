@@ -101,7 +101,10 @@ describe('external stress operator handoff', () => {
         const task = await readFile(join(directory, 'task-card.txt'), 'utf8');
         expect(task).toContain('http://127.0.0.1:4321');
         expect(task).toContain('/working/doc.pdf');
-        expect(task).toContain('--session=external-test');
+        expect(task).toContain('Session: external-test');
+        expect(task).toContain('Session metadata:');
+        expect(task).toContain('Use the Electron PID from the session metadata JSON');
+        expect(task).not.toContain('resolve-target.mjs');
         expect(task).toContain('Use the native Open dialog');
         expect(task).not.toContain('Do not use File > Open');
         expect(JSON.parse(await readFile(join(directory, 'operator-request.json'), 'utf8'))).toMatchObject({ status: 'closed' });

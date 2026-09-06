@@ -291,7 +291,10 @@ function rebasePendingPreferencesAfterHydration() {
     // The pre-hydration snapshot contains defaults for untouched keys. Rebase
     // the pending snapshot on the merged remote state before computing the
     // next patch, so hydration never overwrites remote preferences by accident.
-    pendingPreferences = cloneScanCleanupPreferenceValue(preferences!);
+    if (!preferences) {
+        return;
+    }
+    pendingPreferences = cloneScanCleanupPreferenceValue(preferences);
     void flushScanCleanupPreferencesStore().catch(() => undefined);
 }
 
@@ -308,7 +311,7 @@ async function hydratePreferences() {
             true,
         ));
         remoteSettingsFile = result;
-        const localPatch = pendingPreferences && hydrationBaseline
+        const localPatch = pendingPreferences
             ? buildGlobalPreferencesPatch(hydrationBaseline, pendingPreferences)
             : {};
         applyingRemotePreferences = true;

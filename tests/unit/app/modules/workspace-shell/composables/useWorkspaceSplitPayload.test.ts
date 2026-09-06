@@ -10,6 +10,8 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/public';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireLeaseId } from '@contracts/shared';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
@@ -58,7 +60,7 @@ function pathPdfSource(
 ): TPdfSource {
     return {
         kind: 'path',
-        path,
+        path: requireDocumentRef(path),
         size,
     };
 }
@@ -91,7 +93,7 @@ const nativeProjection: INativePdfMutationProjection = {
 const nativeStagedArtifact: ITypedStagedArtifact = {
     receiptVersion: 1,
     artifactKind: 'pdf',
-    path: '/tmp/native-staged.pdf',
+    path: requireDocumentRef('/tmp/native-staged.pdf'),
     size: 3,
     sha256: 'b'.repeat(64),
     fileIdentity: {
@@ -106,7 +108,7 @@ const nativeStagedArtifact: ITypedStagedArtifact = {
         semanticScopeSha256: 'c'.repeat(64),
         fsynced: true,
     },
-    leaseId: 'staged-lease',
+    leaseId: requireLeaseId('staged-lease'),
     revision: requireDocumentRevisionToken('split-revision'),
 };
 
@@ -120,8 +122,8 @@ function createOptions(
         currentPage: ref(2),
         totalPages: ref(5),
         fileName: ref('sample.pdf'),
-        originalPath: ref('/tmp/original.pdf'),
-        workingCopyPath: ref('/tmp/working.pdf'),
+        originalPath: ref(requireDocumentRef('/tmp/original.pdf')),
+        workingCopyPath: ref(requireDocumentRef('/tmp/working.pdf')),
         hasPendingTabChanges: ref(false),
         pdfViewerRef: ref(null),
         documentViewerRef: ref(null),

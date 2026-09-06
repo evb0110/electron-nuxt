@@ -1,3 +1,6 @@
+import {parsePageNumber} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     ComputedRef,
     Ref,
@@ -39,7 +42,7 @@ interface IUsePdfViewportViewModelOptions {
     }>;
     navigationAnchorPage: ComputedRef<number | null>;
     navigationVisualHandoffTargetPage?: ComputedRef<number | null> | undefined;
-    getCommittedPageScale?: ((pageNumber: number) => number | null) | undefined;
+    getCommittedPageScale?: ((pageNumber: TPageNumber) => number | null) | undefined;
     resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     scaleContainerStyle: ComputedRef<Record<string, string>>;
@@ -129,13 +132,21 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             return false;
         }
 
+        const currentPage = parsePageNumber(
+            options.currentPage.value,
+            options.numPages.value,
+        );
+        if (currentPage === null) {
+            return false;
+        }
+
         const renderedSpreadBounds = getCurrentSpreadRenderedBoundsFromMetrics({
             container,
             basePageWidth: options.basePageWidth.value,
             basePageHeight: options.basePageHeight.value,
             numPages: options.numPages.value,
             pageMetrics: options.pageMetrics.value,
-            currentPage: options.currentPage.value,
+            currentPage,
             viewMode: options.viewMode.value,
             viewRotation: viewRotation.value,
             effectiveScale: options.effectiveScale.value,
@@ -190,10 +201,19 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             return null;
         }
 
+        const currentPage = parsePageNumber(
+            options.currentPage.value,
+            options.numPages.value,
+        );
+        if (currentPage === null) {
+            fitWidthHorizontalScrollLocked.value = false;
+            return null;
+        }
+
         const scrollClamp = resolveActiveSpreadHorizontalScrollClamp({
             container,
             fitMode: options.classState.fitMode.value,
-            pageNumber: options.currentPage.value,
+            pageNumber: currentPage,
             viewMode: options.viewMode.value,
             viewRotation: viewRotation.value,
             numPages: options.numPages.value,

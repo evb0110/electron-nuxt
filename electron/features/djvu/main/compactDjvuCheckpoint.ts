@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import {
@@ -144,6 +145,8 @@ function getManifestArtifactPaths(manifestLine: string) {
                 fields[4],
                 fields[5],
             ] : null;
+        case undefined:
+            return null;
         default:
             return null;
     }
@@ -254,7 +257,7 @@ export async function loadOrBuildCompactDjvuPage(
     } catch (error) {
         await job.updateRange(index, {
             status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error),
         });
         throw error;
     }

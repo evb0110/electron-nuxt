@@ -385,7 +385,7 @@ async function maybeClearSupersededDownloadedVersion() {
 
         if (!await hasUpdaterMetadataForVersion(latestVersion)) {
             logger.info(
-                `Keeping cached downloaded update ${downloadedVersion}; newer release ${latestVersion} has no ${getUpdaterMetadataAssetName()} updater feed`,
+                `Keeping cached downloaded update ${downloadedVersion}; newer release ${latestVersion} has no ${getUpdaterMetadataAssetName() ?? '<unsupported platform>'} updater feed`,
             );
             return false;
         }
@@ -398,7 +398,7 @@ async function maybeClearSupersededDownloadedVersion() {
         return true;
     } catch (error) {
         logger.warn(
-            `Unable to verify whether downloaded update ${downloadedVersion} is current: ${
+            `Unable to verify whether downloaded update ${downloadedVersion ?? '<unknown>'} is current: ${
                 getErrorMessage(error)
             }`,
         );
@@ -699,12 +699,12 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
 
     try {
         if (!await hasUpdaterMetadataForVersion(latestVersion)) {
-            logger.info(`Release ${latestVersion} has no ${getUpdaterMetadataAssetName()} updater feed; skipping in-app updater check`);
+            logger.info(`Release ${latestVersion} has no ${getUpdaterMetadataAssetName() ?? '<unsupported platform>'} updater feed; skipping in-app updater check`);
             pendingVersion = null;
             return {
                 shouldCheck: false,
                 targetVersion: latestVersion,
-                errorMessage: `Update ${latestVersion} is available, but its ${getUpdaterMetadataAssetName()} feed is not published. Download the release manually.`,
+                errorMessage: `Update ${latestVersion} is available, but its ${getUpdaterMetadataAssetName() ?? '<unsupported platform>'} feed is not published. Download the release manually.`,
             };
         }
     } catch (error) {
@@ -1152,7 +1152,7 @@ export async function shutdownUpdates() {
     currentDownloadCancellationToken?.cancel();
 
     if (currentCheckPromise) {
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
         try {
             await Promise.race([
                 currentCheckPromise,
@@ -1171,7 +1171,7 @@ export async function shutdownUpdates() {
     }
 
     if (currentDownloadPromise) {
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
         try {
             await Promise.race([
                 currentDownloadPromise,

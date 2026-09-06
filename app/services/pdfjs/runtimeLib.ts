@@ -260,8 +260,11 @@ function isBrowserAssetVersionCheckRequired(force: boolean | undefined) {
         return false;
     }
 
-    const locationLike = (globalThis as typeof globalThis & {location?: {protocol?: string} | undefined}).location;
-    const protocol = locationLike?.protocol ?? '';
+    const locationLike: unknown = Reflect.get(globalThis, 'location');
+    const protocolValue: unknown = typeof locationLike === 'object' && locationLike !== null
+        ? Reflect.get(locationLike, 'protocol')
+        : '';
+    const protocol = typeof protocolValue === 'string' ? protocolValue : '';
     return protocol === 'http:' || protocol === 'https:' || protocol === 'evb-viewer:';
 }
 

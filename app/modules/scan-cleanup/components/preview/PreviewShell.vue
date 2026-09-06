@@ -481,6 +481,8 @@ import {
     unrotatePreviewRect,
 } from '@app/modules/scan-cleanup/geometry/coordinates';
 import {
+    type IScanCleanupPreviewFitArea,
+    type IScanCleanupPreviewFitPlacement,
     resolvePreviewFitPlacement,
     resolvePreviewOutputFitRects,
     resolvePreviewOutputFitSizes,
@@ -744,7 +746,7 @@ const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSPr
     return styles;
 });
 const isStalePage = computed(() => props.stalePage
-    ?? Boolean(props.result && props.result.pageNumber !== props.pageNumber));
+    || Boolean(props.result && props.result.pageNumber !== props.pageNumber));
 // A source sheet is not a cleaned output. Until this page's cleaned result
 // exists, Cleaned mode owns a topology-aware loading shell; the raw sheet is
 // available only through Original mode. This prevents an unsplit landscape
@@ -907,7 +909,7 @@ const loadingFrames = computed(() => {
 
 const analysisWidth = computed(() => {
     const metadata = presentationResult.value?.pageMetadata;
-    if (!metadata || !presentationResult.value) {
+    if (!metadata) {
         return 1;
     }
     return scanCleanupAnalysisWidth(
@@ -1040,9 +1042,12 @@ const cutterStyle = computed(() => {
     }
     const areas = orderedHalves
         .map(half => outputFitAreaSizes[half])
-        .filter(area => area !== undefined);
+        .filter((area): area is IScanCleanupPreviewFitArea => area !== undefined && 'left' in area && 'top' in area);
     const renderedGapCenter = areas.length === canvases.length
-        ? resolvePreviewSpreadCutterCenter(resolvePreviewOutputFitRects(areas, canvases))
+        ? resolvePreviewSpreadCutterCenter(
+            resolvePreviewOutputFitRects(areas, canvases)
+                .filter((area): area is IScanCleanupPreviewFitPlacement => 'left' in area && 'top' in area),
+        )
         : null;
     if (renderedGapCenter !== null) {
         return {insetInlineStart: `${renderedGapCenter}px`};
@@ -1486,7 +1491,9 @@ function nudgePlacement(event: KeyboardEvent, output: IRenderedScanCleanupOutput
     if (event.key === 'ArrowRight') x = Math.min(2, x + 1);
     if (event.key === 'ArrowUp') y = Math.max(0, y - 1);
     if (event.key === 'ArrowDown') y = Math.min(2, y + 1);
-    const next = x === 1 && y === 1 ? 'center' : `${verticalAxes[y]}-${axes[x]}`;
+    const nextVertical = verticalAxes[y] ?? 'center';
+    const nextHorizontal = axes[x] ?? 'center';
+    const next = x === 1 && y === 1 ? 'center' : `${nextVertical}-${nextHorizontal}`;
     emit('update:placement', output.metadata.half, next as TScanCleanupPageAlignment);
 }
 
@@ -1791,7 +1798,7 @@ const placementAnchors = computed(() => {
     } = resolveRetainedPlacementGeometry(output);
     return outerPlacementAnchors.map(anchor => {
         const axes = anchor.alignment.split('-');
-        const vertical = axes[0]!;
+        const vertical = axes[0] ?? 'center';
         const horizontal = axes[1] ?? vertical;
         return {
             alignment: anchor.alignment,

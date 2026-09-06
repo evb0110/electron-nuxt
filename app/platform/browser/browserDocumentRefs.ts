@@ -1,5 +1,9 @@
 import { decodeDocumentRefSegment } from '@app/utils/documentRef';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 
 const BROWSER_REF_PREFIX = 'browser://documents/';
 
@@ -11,8 +15,13 @@ function getDocumentFileName(ref: string) {
     return decodeDocumentRefSegment(trimmed.split('/').at(-1) ?? 'document');
 }
 
-export function createBrowserDocumentRef(fileName: string) {
-    return `${BROWSER_REF_PREFIX}${createBrowserSafeId()}/${encodeURIComponent(fileName)}`;
+export function createBrowserDocumentRef(fileName: string): TDocumentRef {
+    const ref = `${BROWSER_REF_PREFIX}${createBrowserSafeId()}/${encodeURIComponent(fileName)}`;
+    const parsed = parseDocumentRef(ref);
+    if (parsed === null) {
+        throw new Error('Failed to create a browser document reference');
+    }
+    return parsed;
 }
 
 export function isBrowserDocumentRef(path: string) {

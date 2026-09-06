@@ -1,3 +1,9 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type {
+    TPageNumber,
+    IPageMoveRangeSegment,
+} from '@contracts/pageNumbers';
+
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IDocumentRevisionInfo,
@@ -5,7 +11,6 @@ import type {
 } from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
-import type {IPageMoveRangeSegment} from '@contracts/pageNumbers';
 
 export type TPageOpsRotationAngle = 90 | 180 | 270;
 
@@ -18,12 +23,12 @@ export type TPageOpsPageSelection = number[] | IPageOpsCompactSelection;
 
 export interface IPageOpsMetadataSnapshot {
     /** Omitted until the viewer has read the document's page labels. */
-    pageLabels?: string[] | null;
+    readonly pageLabels?: readonly string[] | null;
     /** Compact page-label source of truth, including when pageLabels is null. */
-    pageLabelRanges?: IPdfPageLabelRange[];
+    readonly pageLabelRanges?: readonly IPdfPageLabelRange[];
     /** Omitted until the viewer has read the document's outline tree. */
-    bookmarks?: IPdfBookmarkEntry[];
-    untitledBookmarkLabel: string;
+    readonly bookmarks?: readonly IPdfBookmarkEntry[];
+    readonly untitledBookmarkLabel: string;
 }
 
 export interface IPageOpsMutationOptions {
@@ -33,42 +38,42 @@ export interface IPageOpsMutationOptions {
 
 /** A contiguous page mapping in a structural page operation. */
 export interface IPageIdentityRangeMapping {
-    kind: 'retain' | 'move';
+    readonly kind: 'retain' | 'move';
     /** One-based source page at the start of the range. */
-    fromPageNumber: number;
+    readonly fromPageNumber: number;
     /** One-based destination page at the start of the range. */
-    toPageNumber: number;
+    readonly toPageNumber: number;
     /** Number of pages in the range. */
-    count: number;
+    readonly count: number;
 }
 
 /** A contiguous run of newly inserted pages. */
 export interface IPageIdentityRangeInsert {
-    kind: 'insert';
+    readonly kind: 'insert';
     /** One-based destination page at the start of the run. */
-    toPageNumber: number;
-    count: number;
+    readonly toPageNumber: number;
+    readonly count: number;
     /** Seed used to derive one UUID per inserted page without an array. */
-    identitySeed: string;
+    readonly identitySeed: string;
     /** Small legacy-compatible insertions may carry their concrete UUIDs. */
-    insertedIds?: string[];
+    readonly insertedIds?: readonly string[];
 }
 
 /** A contiguous run of source pages removed by a structural operation. */
 export interface IPageIdentityRangeDelete {
-    kind: 'delete';
+    readonly kind: 'delete';
     /** One-based source page at the start of the removed run. */
-    fromPageNumber: number;
-    count: number;
+    readonly fromPageNumber: number;
+    readonly count: number;
 }
 
 /** A contiguous run whose bytes changed but whose page identities did not. */
 export interface IPageIdentityRangeTouch {
-    kind: 'touch';
+    readonly kind: 'touch';
     /** One-based destination page at the start of the touched run. */
-    toPageNumber: number;
-    count: number;
-    reason: 'rotate' | 'crop' | 'remove-crop';
+    readonly toPageNumber: number;
+    readonly count: number;
+    readonly reason: 'rotate' | 'crop' | 'remove-crop';
 }
 
 export type TPageIdentityRangeOperation =
@@ -77,20 +82,20 @@ export type TPageIdentityRangeOperation =
     | IPageIdentityRangeDelete
     | IPageIdentityRangeTouch;
 
-export type TPageIdentityDeltaPage = {fromPageNumber: number} | {insertedId: string};
+export type TPageIdentityDeltaPage = {readonly fromPageNumber: number} | {readonly insertedId: string};
 
 export interface IPageIdentityDelta {
-    previousPageCount: number;
+    readonly previousPageCount: number;
     /**
      * The v1 full permutation. New large-document deltas omit this field and
      * use ranges instead. Keeping it optional lets the IPC contract carry a
      * million-page operation without allocating a million objects.
      */
-    pages?: TPageIdentityDeltaPage[];
+    readonly pages?: readonly TPageIdentityDeltaPage[];
     /** Number of pages after the operation, required when pages is omitted. */
-    nextPageCount?: number;
+    readonly nextPageCount?: number;
     /** Sparse range mappings and structural edits for large documents. */
-    ranges?: TPageIdentityRangeOperation[];
+    readonly ranges?: readonly TPageIdentityRangeOperation[];
 }
 
 /** Returns the page count published by either the v1 or sparse delta form. */
@@ -105,7 +110,7 @@ export function getPageIdentityDeltaNextPageCount(delta: IPageIdentityDelta) {
  */
 export function mapPageNumberThroughPageIdentityDelta(
     delta: IPageIdentityDelta,
-    pageNumber: number,
+    pageNumber: TPageNumber,
 ) {
     if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
         return null;
@@ -114,7 +119,7 @@ export function mapPageNumberThroughPageIdentityDelta(
         const nextPageIndex = delta.pages.findIndex(page => (
             'fromPageNumber' in page && page.fromPageNumber === pageNumber
         ));
-        return nextPageIndex < 0 ? null : nextPageIndex + 1;
+        return nextPageIndex < 0 ? null : requirePageNumber(nextPageIndex + 1);
     }
     for (const range of delta.ranges ?? []) {
         if (
@@ -122,28 +127,28 @@ export function mapPageNumberThroughPageIdentityDelta(
             && pageNumber >= range.fromPageNumber
             && pageNumber < range.fromPageNumber + range.count
         ) {
-            return range.toPageNumber + pageNumber - range.fromPageNumber;
+            return requirePageNumber(range.toPageNumber + pageNumber - range.fromPageNumber);
         }
     }
     return null;
 }
 
 export interface IPageOpsResult {
-    success: boolean;
-    pageCount?: number;
-    documentRevision?: IDocumentRevisionInfo;
-    pageIdentityDelta?: IPageIdentityDelta;
+    readonly success: boolean;
+    readonly pageCount?: number;
+    readonly documentRevision?: IDocumentRevisionInfo;
+    readonly pageIdentityDelta?: IPageIdentityDelta;
 }
 
 export interface IPageOpsExtractResult {
-    success: boolean;
-    canceled?: boolean;
-    destPath?: TDocumentRef;
+    readonly success: boolean;
+    readonly canceled?: boolean;
+    readonly destPath?: TDocumentRef;
 }
 
 export interface IPageOpsInsertResult {
-    success: boolean;
-    canceled?: boolean;
-    documentRevision?: IDocumentRevisionInfo;
-    pageIdentityDelta?: IPageIdentityDelta;
+    readonly success: boolean;
+    readonly canceled?: boolean;
+    readonly documentRevision?: IDocumentRevisionInfo;
+    readonly pageIdentityDelta?: IPageIdentityDelta;
 }

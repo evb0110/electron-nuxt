@@ -448,14 +448,18 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         if (isPageMoveOperationNoOp(move)) {
             return false;
         }
+        const firstMoveRange = move.ranges[0];
+        if (!firstMoveRange) {
+            return false;
+        }
 
         event.preventDefault();
         markUserInteraction('keyboard-reorder');
         const operation: TPageMoveOperation = move.ranges.length === 1
             ? createPageMoveRange(
                 move.pageCount,
-                move.ranges[0]!.startPage,
-                move.ranges[0]!.endPage,
+                firstMoveRange.startPage,
+                firstMoveRange.endPage,
                 move.insertAt,
             )
             : move;

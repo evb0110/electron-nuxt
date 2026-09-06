@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -38,7 +39,7 @@ describe('isPdfInitialVisualCanvasReady', () => {
     it('accepts the connected, painted current-page canvas when it intersects the viewport', () => {
         const { container } = createSurface();
 
-        expect(isPdfInitialVisualCanvasReady(container, 2, 2)).toBe(true);
+        expect(isPdfInitialVisualCanvasReady(container, requirePageNumber(2), 2)).toBe(true);
     });
 
     it('rejects a non-current, unpainted, or disconnected canvas', () => {
@@ -47,16 +48,16 @@ describe('isPdfInitialVisualCanvasReady', () => {
             container,
         } = createSurface();
 
-        expect(isPdfInitialVisualCanvasReady(container, 2, 1)).toBe(false);
+        expect(isPdfInitialVisualCanvasReady(container, requirePageNumber(2), 1)).toBe(false);
         canvas.width = 0;
-        expect(isPdfInitialVisualCanvasReady(container, 2, 2)).toBe(false);
+        expect(isPdfInitialVisualCanvasReady(container, requirePageNumber(2), 2)).toBe(false);
         canvas.width = 300;
         container.remove();
-        expect(isPdfInitialVisualCanvasReady(container, 2, 2)).toBe(false);
+        expect(isPdfInitialVisualCanvasReady(container, requirePageNumber(2), 2)).toBe(false);
     });
 
     it('rejects canvases outside the viewport on either axis', () => {
-        expect(isPdfInitialVisualCanvasReady(createSurface(rect(0, 601, 200, 300)).container, 2, 2)).toBe(false);
-        expect(isPdfInitialVisualCanvasReady(createSurface(rect(801, 0, 200, 300)).container, 2, 2)).toBe(false);
+        expect(isPdfInitialVisualCanvasReady(createSurface(rect(0, 601, 200, 300)).container, requirePageNumber(2), 2)).toBe(false);
+        expect(isPdfInitialVisualCanvasReady(createSurface(rect(801, 0, 200, 300)).container, requirePageNumber(2), 2)).toBe(false);
     });
 });

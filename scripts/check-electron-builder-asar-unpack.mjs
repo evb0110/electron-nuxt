@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,7 +65,7 @@ if (isDirectCliRun) {
         assertAsarUnpackMatchesWorkerBundles(readFileSync(builderConfigPath, 'utf8'));
         console.log('electron-builder.yml asarUnpack matches WORKER_BUNDLES.');
     } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getCliErrorMessage(error));
         process.exit(1);
     }
 }

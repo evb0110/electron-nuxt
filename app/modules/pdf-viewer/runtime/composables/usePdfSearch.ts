@@ -1,3 +1,7 @@
+import { getErrorMessage } from '@app/utils/error';
+import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -15,6 +19,10 @@ import type {
     ISearchMatchOptions,
 } from '@contracts/search';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    createRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import type { MaybeRefOrGetter } from 'vue';
 import {
     findSearchErrorEnvelope,
@@ -22,14 +30,12 @@ import {
 } from '@contracts/search';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import {
     bucketPageCount,
     bucketQueryLength,
 } from '@app/utils/analytics';
 import { getSearchCapability } from '@app/utils/getSearchCapability';
-import { createBrowserSafeId } from '@app/utils/browserSafe';
 
 interface IUsePdfSearchOptions { documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null | undefined>; }
 
@@ -102,7 +108,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     let searchRunId = 0;
     const scheduledResolvers = new Map<number, (applied: boolean) => void>();
     let progressCleanup: (() => void) | null = null;
-    let activeRequestId: string | null = null;
+    let activeRequestId: TRequestId | null = null;
     let pendingSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
     const totalMatches = computed(() => results.value.length);
@@ -194,7 +200,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     }
 
     function normalizeSearchError(error: unknown) {
-        if (error instanceof Error && error.message === 'ERR_BROWSER_SEARCH_TOO_LARGE') {
+        if (error instanceof Error && getErrorMessage(error) === 'ERR_BROWSER_SEARCH_TOO_LARGE') {
             return t('errors.search.browserTooLarge');
         }
         const envelope = findSearchErrorEnvelope(error);
@@ -240,7 +246,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             return mapPdfSearchResultToUiMatch(result);
         });
 
-        const pageResults = new Map<typeof resultsWithPageIndex[number]['pageIndex'], IPdfSearchResponse['results']>();
+        const pageResults = new Map<typeof resultsWithPageIndex[number]['pageIndex'], IPdfSearchResult[]>();
         resultsWithPageIndex.forEach((item) => {
             const pageSearchResults = pageResults.get(item.pageIndex) ?? [];
             if (pageSearchResults.length === 0) {
@@ -326,7 +332,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
 
     function applySearchProgressResults(
         currentResults: IPdfSearchResult[],
-        incomingResults: IPdfSearchResult[],
+        incomingResults: readonly IPdfSearchResult[],
         resultsStartIndex: number | undefined,
     ) {
         if (resultsStartIndex === undefined) {
@@ -454,7 +460,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             return;
         }
 
-        const requestId = createBrowserSafeId('search');
+        const requestId = createRequestId('search');
 
         try {
             isSearching.value = true;
@@ -675,7 +681,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         wasSearchCanceled.value = false;
     }
 
-    function getMatchesForPage(pageIndex: number) {
+    function getMatchesForPage(pageIndex: TPageIndex) {
         return pageMatches.value.get(pageIndex) ?? null;
     }
 

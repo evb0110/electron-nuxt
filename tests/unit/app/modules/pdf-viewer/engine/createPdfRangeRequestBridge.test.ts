@@ -1,3 +1,4 @@
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     afterEach,
     beforeEach,
@@ -64,7 +65,7 @@ function attachTransport(
         transport,
         {
             kind: 'path',
-            path: '/tmp/sparse-2gib.pdf',
+            path: requireDocumentRef('/tmp/sparse-2gib.pdf'),
             size: 2 * 1024 * 1024 * 1024,
         },
         1,

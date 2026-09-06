@@ -59,7 +59,7 @@ export interface IPerformanceProfile {
 let cachedPerformanceProfile: IPerformanceProfile | null = null;
 
 function readNavigatorPerformanceEnvironment(): IPerformanceProfileEnvironment {
-    const resourceProfile = getHostCapability()?.getResourceProfile?.() ?? null;
+    const resourceProfile = getHostCapability().getResourceProfile();
     if (resourceProfile) {
         return {
             hardwareConcurrency: resourceProfile.logicalCpus,

@@ -26,10 +26,10 @@ export interface IPdfConformanceAnalysisOptions {purpose?: 'full' | 'save-restri
 export type TPdfConformanceProfileBase = Except<IPdfConformanceProfile, 'saveRestrictions'>;
 
 export interface IPdfValidationResult {
-    isValid: boolean;
-    tool: 'qpdf' | 'browser' | 'native';
-    errors: string[];
-    warnings: string[];
+    readonly isValid: boolean;
+    readonly tool: 'qpdf' | 'browser' | 'native';
+    readonly errors: readonly string[];
+    readonly warnings: readonly string[];
 }
 
 export function isPdfValidationResult(value: unknown): value is IPdfValidationResult {

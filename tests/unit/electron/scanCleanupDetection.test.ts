@@ -19,6 +19,7 @@ import {
     type IScanCleanupDetectionRetention,
 } from '@scan-cleanup-core/detection';
 import type {IScanCleanupDetectionRequest} from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     INativeScanCleanupManifestV3,
     INativeScanCleanupPageV3,
@@ -390,7 +391,7 @@ function createStagedSidecar(options: {
                 stage: 'page-input-required' as const,
                 completedPages: 0,
                 totalPages,
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
             });
             const deadline = Date.now() + 5_000;
             for (;;) {
@@ -414,7 +415,7 @@ function createStagedSidecar(options: {
                 stage: 'page-input-released' as const,
                 completedPages: 0,
                 totalPages,
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
             });
         };
         let completedPages = 0;
@@ -440,7 +441,7 @@ function createStagedSidecar(options: {
                         stage: 'page-analyzed' as const,
                         completedPages,
                         totalPages,
-                        pageNumber: page.sourcePageIndex + 1,
+                        pageNumber: requirePageNumber(page.sourcePageIndex + 1),
                         classification: 'single-uncut-page',
                         confidence: 0.9,
                     });
@@ -461,7 +462,7 @@ function createStagedSidecar(options: {
                 stage: 'page-complete' as const,
                 completedPages: totalPages,
                 totalPages,
-                pageNumber: page.sourcePageIndex + 1,
+                pageNumber: requirePageNumber(page.sourcePageIndex + 1),
                 classification: 'single-uncut-page',
                 confidence: 0.9,
                 reconciled: true,
@@ -1555,7 +1556,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                     stage: 'page-complete',
                     completedPages: pageNumber,
                     totalPages: manifest.pages.length,
-                    pageNumber,
+                    pageNumber: requirePageNumber(pageNumber),
                     classification: retry
                         ? 'two-page-spread'
                         : 'single-uncut-page',

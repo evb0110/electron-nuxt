@@ -23,6 +23,11 @@ export const guestPowerShellScriptNames = [
     'uia-action.ps1',
     'install-nsis-per-user.ps1',
     'register-worker-logon-task.ps1',
+    'disable-test-audio.ps1',
+    'configure-test-printer.ps1',
+    'start-worker-logon.ps1',
+    'mute-test-audio.ps1',
+    'test-lab-helpers.ps1',
 ] as const;
 
 export type TGuestPowerShellScriptName = typeof guestPowerShellScriptNames[number];

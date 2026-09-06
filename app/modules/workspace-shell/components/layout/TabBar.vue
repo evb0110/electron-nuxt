@@ -221,7 +221,7 @@ const clickedTabFilePath = computed(() => {
         ? path
         : null;
 });
-const canRevealClickedPath = computed(() => clickedTabFilePath.value !== null);
+const canRevealClickedPath = computed(() => Boolean(clickedTabFilePath.value));
 
 function resolveTabTitle(tab: ITab) {
     return getDocumentRefBaseName(tab.originalPath) ?? tab.fileName ?? t('tabs.newTab');

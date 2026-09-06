@@ -19,6 +19,8 @@ import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { useNativeWindowCloseHandshake } from '@app/modules/workspace-shell/composables/useNativeWindowCloseHandshake';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireRequestId } from '@contracts/shared';
 
 const scopes: Array<ReturnType<typeof effectScope>> = [];
 
@@ -26,7 +28,7 @@ function createTab(id: string): ITab {
     return {
         id,
         fileName: `${id}.pdf`,
-        originalPath: `/documents/${id}.pdf`,
+        originalPath: requireDocumentRef(`/documents/${id}.pdf`),
         documentInstanceId: `${id}-instance` as Exclude<ITab['documentInstanceId'], undefined>,
         isDirty: true,
         isDjvu: false,
@@ -118,7 +120,7 @@ describe('useNativeWindowCloseHandshake', () => {
             tabs: [tab],
         });
 
-        await expect(harness.closeHandler({requestId: 'close-1'})).resolves.toBe('save');
+        await expect(harness.closeHandler({requestId: requireRequestId('close-1')})).resolves.toBe('save');
         expect(harness.requestDirtyCloseConfirmation).not.toHaveBeenCalled();
     });
 
@@ -137,7 +139,7 @@ describe('useNativeWindowCloseHandshake', () => {
             ],
         });
 
-        await expect(harness.closeHandler({requestId: 'close-2'})).resolves.toBe('save');
+        await expect(harness.closeHandler({requestId: requireRequestId('close-2')})).resolves.toBe('save');
         expect(harness.requestDirtyCloseConfirmation).toHaveBeenCalledOnce();
         expect(first.handleSave).toHaveBeenCalledOnce();
         expect(second.handleSave).toHaveBeenCalledOnce();
@@ -154,7 +156,7 @@ describe('useNativeWindowCloseHandshake', () => {
             tabs: [createTab('dirty')],
         });
 
-        await expect(harness.closeHandler({requestId: `close-${decision}`})).resolves.toBe(decision);
+        await expect(harness.closeHandler({requestId: requireRequestId(`close-${decision}`)})).resolves.toBe(decision);
         expect(dirty.handleSave).not.toHaveBeenCalled();
     });
 
@@ -166,7 +168,7 @@ describe('useNativeWindowCloseHandshake', () => {
             tabs: [createTab('dirty')],
         });
 
-        await expect(harness.closeHandler({requestId: 'close-failed-save'})).resolves.toBe('cancel');
+        await expect(harness.closeHandler({requestId: requireRequestId('close-failed-save')})).resolves.toBe('cancel');
         expect(dirty.handleSave).toHaveBeenCalledOnce();
     });
 
@@ -178,7 +180,7 @@ describe('useNativeWindowCloseHandshake', () => {
             tabs: [createTab('dirty')],
         });
 
-        const close = harness.closeHandler({requestId: 'close-late-workspace'});
+        const close = harness.closeHandler({requestId: requireRequestId('close-late-workspace')});
         await vi.waitFor(() => expect(dirty.session.waitForWorkspace).toHaveBeenCalledOnce());
         dirty.resolveWorkspace();
 
@@ -194,7 +196,7 @@ describe('useNativeWindowCloseHandshake', () => {
             tabs: [createTab('dirty')],
         });
 
-        const close = harness.closeHandler({requestId: 'close-missing-workspace'});
+        const close = harness.closeHandler({requestId: requireRequestId('close-missing-workspace')});
         await vi.waitFor(() => expect(dirty.session.waitForWorkspace).toHaveBeenCalledOnce());
         dirty.resolveWorkspace(null);
 

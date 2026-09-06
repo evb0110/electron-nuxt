@@ -121,4 +121,18 @@ describe('guest identity probe', () => {
             args: [executablePath],
         }]);
     });
+
+    it('identifies the persistent worker instead of the temporary PowerShell probe', async () => {
+        const powerShell = fakePowerShell(payload({ workerPid: 4321 }));
+        const probe = await probeGuestEnvironment(powerShell.runner, '', 4321);
+        expect(probe.identity.workerPid).toBe(4321);
+        expect(powerShell.calls).toEqual([{
+            scriptName: 'probe-identity.ps1',
+            args: [
+                '',
+                '-WorkerPid',
+                '4321',
+            ],
+        }]);
+    });
 });

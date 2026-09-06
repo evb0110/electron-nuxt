@@ -79,6 +79,9 @@
 </template>
 
 <script setup lang="ts">
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import PdfViewerPortalLayers from '@app/modules/pdf-viewer/components/PdfViewerPortalLayers.vue';
 import PdfViewerViewport from '@app/modules/pdf-viewer/components/PdfViewerViewport.vue';
 import PdfRegionSnipOverlay from '@app/modules/pdf-viewer/components/PdfRegionSnipOverlay.vue';
@@ -115,13 +118,10 @@ const emitBase = defineEmits<IPdfViewerEmit>();
 const openErrorLatch = createDocumentOpenGenerationErrorLatch();
 const isCommittedInitialPageTransition = computed(() => {
     const snapshot = chassisAuthority?.openSurface.snapshot.value;
-    return snapshot !== undefined
-        && (
-            snapshot.phase === 'pending'
-            || snapshot.phase === 'geometry-committed'
-            || snapshot.phase === 'canvas-committed'
-            || snapshot.phase === 'viewport-committed'
-        );
+    return snapshot.phase === 'pending'
+        || snapshot.phase === 'geometry-committed'
+        || snapshot.phase === 'canvas-committed'
+        || snapshot.phase === 'viewport-committed';
 });
 const emit = ((event: string, ...args: unknown[]) => {
     if (event === 'initial-visual-ready') {
@@ -188,14 +188,16 @@ const showInitialSurfacePlaceholder = computed(() => (
 ));
 
 const initialSurfacePlaceholderPageStyle = computed(() => buildPdfInitialSurfacePlaceholderStyle({
-    pageStyle: getPagePlaceholderStyle(1),
+    pageStyle: getPagePlaceholderStyle(requirePageNumber(1)),
     scaledMargin: scaledMargin.value,
     viewportOwnsPadding: injectedChassisAuthority !== null,
 }));
-const committedInitialPageNumber = computed(() => Math.max(1, Math.trunc(props.currentPage ?? 1)));
+const committedInitialPageNumber = computed<TPageNumber>(() => requirePageNumber(
+    Math.max(1, Math.trunc(props.currentPage ?? 1)),
+));
 const openingPageFrameOwnerId = createPdfOpeningPageFrameOwnerId();
 const openingPageFrameOwnedByRenderer = computed(() => (
-    chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.ownerId === openingPageFrameOwnerId
+    chassisAuthority.openSurface.snapshot.value.openingPageFrame?.ownerId === openingPageFrameOwnerId
 ));
 const openingPageFrameRecord = computed<IPdfOpeningPageFrameRecord | null>(() => {
     const frame = chassisAuthority?.openSurface.snapshot.value.openingPageFrame;
@@ -208,7 +210,7 @@ const openingPageFrameRecord = computed<IPdfOpeningPageFrameRecord | null>(() =>
     ] = frame.intentKey.split(':');
     return {
         generation: frame.generation,
-        pageNumber: frame.pageNumber,
+        pageNumber: requirePageNumber(frame.pageNumber),
         zoomMode: zoomMode as IPdfOpeningPageFrameRecord['zoomMode'],
         zoom: Number(zoom),
         style: frame.style,
@@ -227,30 +229,27 @@ const showCommittedInitialPageShell = computed(() => (
     isCommittedInitialPageTransition.value
     && chassisAuthority?.openSurface.viewportSession.value.visual.kind === 'page'
 ));
-function shouldShowViewportPageSkeleton(pageNumber: number) {
+function shouldShowViewportPageSkeleton(pageNumber: TPageNumber) {
     const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
     const visual = viewportSession?.visual;
-    if (visual) {
-        return shouldShowPdfViewportPageSkeleton({
-            fallbackVisible: shouldShowPageSkeleton(pageNumber),
-            isEmptyToDocumentTransition: isCommittedInitialPageTransition.value,
-            isViewportTransitionActive: viewportSession.lifecycle !== 'ready',
-            pageNumber,
-            totalPages: chassisAuthority?.pageCount.value ?? 0,
-            viewMode: props.viewMode ?? 'single',
-            visual,
-        });
-    }
-    return shouldShowPageSkeleton(pageNumber);
+    return shouldShowPdfViewportPageSkeleton({
+        fallbackVisible: shouldShowPageSkeleton(pageNumber),
+        isEmptyToDocumentTransition: isCommittedInitialPageTransition.value,
+        isViewportTransitionActive: viewportSession.lifecycle !== 'ready',
+        pageNumber,
+        totalPages: chassisAuthority.pageCount.value,
+        viewMode: props.viewMode ?? 'single',
+        visual,
+    });
 }
 const shouldApplyOpeningPageFrame = computed(() => {
     const snapshot = chassisAuthority?.openSurface.snapshot.value;
     const frame = openingPageFrameRecord.value;
-    return Boolean(snapshot && shouldApplyPdfOpeningPageFrame({
+    return shouldApplyPdfOpeningPageFrame({
         activeGeneration: snapshot.generation,
         frameGeneration: frame?.generation ?? null,
         phase: snapshot.phase,
-    }));
+    });
 });
 const hasProjectedOpeningPageFrame = computed(() => (
     shouldApplyOpeningPageFrame.value
@@ -258,9 +257,6 @@ const hasProjectedOpeningPageFrame = computed(() => (
 ));
 
 watchEffect(() => {
-    if (!chassisAuthority) {
-        return;
-    }
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     const pageNumber = committedInitialPageNumber.value;
     const zoomMode = props.zoomMode ?? 'fit-width';
@@ -312,9 +308,6 @@ watchEffect(() => {
 });
 
 watchEffect(() => {
-    if (!chassisAuthority) {
-        return;
-    }
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     if (snapshot.phase === 'ready' && openingPageFrameOwnedByRenderer.value) {
         chassisAuthority.openSurface.clearOpeningPageFrame(snapshot.generation, openingPageFrameOwnerId);
@@ -325,12 +318,11 @@ let openingGeometryAnimationFrame: number | null = null;
 let openingGeometryDisposed = false;
 function commitOpeningPageGeometryAfterDomUpdate(
     expectedGeneration: number,
-    pageNumber: number,
+    pageNumber: TPageNumber,
 ) {
     if (
         openingGeometryDisposed
         || !showCommittedInitialPageShell.value
-        || !chassisAuthority
         || openingPageFrameRecord.value === null
         || chassisAuthority.openSurface.snapshot.value.generation !== expectedGeneration
         || committedInitialPageNumber.value !== pageNumber
@@ -358,10 +350,10 @@ function commitOpeningPageGeometryAfterDomUpdate(
     return didCommit;
 }
 
-async function handleOpeningPageContainerMounted(pageNumber: number) {
+async function handleOpeningPageContainerMounted(pageNumber: TPageNumber) {
     alignProvisionalOpeningPageShell(pageNumber);
     handlePageContainerMounted(pageNumber);
-    if (!chassisAuthority || pageNumber !== committedInitialPageNumber.value) {
+    if (pageNumber !== committedInitialPageNumber.value) {
         return;
     }
     const expectedGeneration = chassisAuthority.openSurface.snapshot.value.generation;
@@ -385,8 +377,8 @@ async function handleOpeningPageContainerMounted(pageNumber: number) {
     });
 }
 
-function alignProvisionalOpeningPageShell(pageNumber: number) {
-    if (!chassisAuthority || pageNumber !== committedInitialPageNumber.value) {
+function alignProvisionalOpeningPageShell(pageNumber: TPageNumber) {
+    if (pageNumber !== committedInitialPageNumber.value) {
         return false;
     }
     const snapshot = chassisAuthority.openSurface.snapshot.value;
@@ -464,7 +456,7 @@ watchPostEffect(() => {
     alignProvisionalOpeningPageShell(committedInitialPageNumber.value);
 });
 
-function handleOpeningPageContainerUnmounted(pageNumber: number) {
+function handleOpeningPageContainerUnmounted(pageNumber: TPageNumber) {
     handlePageContainerUnmounted(pageNumber);
     if (pageNumber === committedInitialPageNumber.value && openingGeometryAnimationFrame !== null) {
         cancelAnimationFrame(openingGeometryAnimationFrame);
@@ -477,9 +469,6 @@ onBeforeUnmount(() => {
     if (openingGeometryAnimationFrame !== null) {
         cancelAnimationFrame(openingGeometryAnimationFrame);
         openingGeometryAnimationFrame = null;
-    }
-    if (!chassisAuthority) {
-        return;
     }
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     chassisAuthority.openSurface.clearOpeningPageFrame(snapshot.generation, openingPageFrameOwnerId);

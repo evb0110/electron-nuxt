@@ -13,9 +13,11 @@ import {
     shouldScanPublicArtifactContent,
 } from '../check-build-artifacts-hygiene.mjs';
 
-const { WORKER_BUNDLES } = await import(
+/** @typedef {{fileName: string}} IWorkerBundle */
+
+const { WORKER_BUNDLES } = /** @type {{WORKER_BUNDLES: IWorkerBundle[]}} */ (await import(
     new URL('../../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href
-);
+));
 
 const RELEASE_DIR = path.resolve(process.cwd(), process.argv[2] ?? 'release');
 
@@ -53,12 +55,16 @@ export const EXPECTED_UNPACKED_DIST_ELECTRON = [
     'pdf.worker.mjs',
 ].sort();
 
+/** @param {string} rootDir */
 function findAsarArchives(rootDir) {
     const archives = [];
     const stack = [rootDir];
 
     while (stack.length > 0) {
         const current = stack.pop();
+        if (current === undefined) {
+            continue;
+        }
         let entries;
         try {
             entries = readdirSync(current, { withFileTypes: true });
@@ -81,15 +87,18 @@ function findAsarArchives(rootDir) {
     return archives;
 }
 
+/** @param {string} entry */
 export function normalizeAsarEntry(entry) {
     const normalizedEntry = entry.replaceAll('\\', '/');
     return normalizedEntry.startsWith('/') ? normalizedEntry : `/${normalizedEntry}`;
 }
 
+/** @param {string[]} entries */
 export function normalizeAsarEntries(entries) {
     return [...new Set(entries.map(normalizeAsarEntry))];
 }
 
+/** @param {string[]} entries */
 export function collectEntryViolations(entries) {
     const problems = [];
     const entrySet = new Set(entries);
@@ -155,6 +164,7 @@ export function collectEntryViolations(entries) {
     return problems;
 }
 
+/** @param {string} asarPath */
 export function collectUnpackedViolations(asarPath) {
     const unpackedDistElectron = path.join(`${asarPath}.unpacked`, 'dist-electron');
     let actual;
@@ -203,6 +213,7 @@ export function collectUnpackedViolations(asarPath) {
     return problems;
 }
 
+/** @returns {Promise<void>} */
 export async function main() {
     const { default: asar } = await import('@electron/asar');
 
@@ -214,7 +225,7 @@ export async function main() {
 
     const failures = [];
     for (const asarPath of archives) {
-        const entries = normalizeAsarEntries(asar.listPackage(asarPath));
+        const entries = normalizeAsarEntries(asar.listPackage(asarPath, {isPack: false}));
         const contentProblems = [];
         for (const entry of entries) {
             if (!shouldScanPublicArtifactContent(entry)) {

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { joinGuestPath } from '@scripts/windows-test/guest/guestPaths';
 import { saveThroughFileDialog } from '@scripts/windows-test/guest/cases/nativeDialogs';
 import {
@@ -241,7 +242,7 @@ export async function runWinSave04(context: ICaseContext) {
     ]).catch((error: unknown): IGuestCommandResult => ({
         exitCode: -1,
         stdout: '',
-        stderr: error instanceof Error ? error.message : String(error),
+        stderr: getErrorMessage(error),
     }));
     let session: IViewerSession | null = null;
     try {

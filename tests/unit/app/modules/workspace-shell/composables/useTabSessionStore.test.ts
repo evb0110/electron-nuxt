@@ -11,12 +11,15 @@ import {
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePaneId } from '@contracts/editorPanes';
+import { requireTabId } from '@contracts/windowTabs';
 
 function tab(id: string): ITab {
     return {
         id,
         fileName: `${id}.pdf`,
-        originalPath: `/docs/${id}.pdf`,
+        originalPath: requireDocumentRef(`/docs/${id}.pdf`),
         isDirty: false,
         isDjvu: false,
     };
@@ -24,9 +27,9 @@ function tab(id: string): ITab {
 
 function pane(id: string, activeTabId: string, tabIds: string[]): IEditorPaneState {
     return {
-        paneId: id,
-        activeTabId,
-        tabIds,
+        paneId: requirePaneId(id),
+        activeTabId: requireTabId(activeTabId),
+        tabIds: tabIds.map(tabId => requireTabId(tabId)),
     };
 }
 

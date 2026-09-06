@@ -1,4 +1,8 @@
-import type { IOcrWord } from '@contracts/shared';
+import type {
+    IOcrWord,
+    TJobId,
+    TRequestId,
+} from '@contracts/shared';
 import type {
     IOcrErrorEnvelope,
     IOcrDiagnostic,
@@ -66,29 +70,29 @@ export interface IOcrWorkerStartPayload {
 export type TOcrWorkerInboundMessage =
     | {
         type: 'start';
-        jobId: string;
+        jobId: TJobId;
         data: IOcrWorkerStartPayload;
     }
     | {
         type: 'cancel';
-        jobId: string;
+        jobId: TJobId;
     }
     | {
         type: 'resource-acquired';
-        jobId: string;
-        requestId: string;
+        jobId: TJobId;
+        requestId: TRequestId;
         token: string;
         effectiveDpi: number;
     }
     | {
         type: 'resource-denied';
-        jobId: string;
-        requestId: string;
+        jobId: TJobId;
+        requestId: TRequestId;
         reason: string;
     };
 
 interface IOcrWorkerProgressPayload {
-    requestId: string;
+    requestId: TRequestId;
     currentPage: number;
     processedCount: number;
     totalPages: number;
@@ -115,19 +119,19 @@ export type TOcrWorkerCompleteResult =
 
 export interface IOcrWorkerProgressMessage {
     type: 'progress';
-    jobId: string;
+    jobId: TJobId;
     progress: IOcrWorkerProgressPayload;
 }
 
 export interface IOcrWorkerCompleteMessage {
     type: 'complete';
-    jobId: string;
+    jobId: TJobId;
     result: TOcrWorkerCompleteResult;
 }
 
 export interface IOcrWorkerCleanupCompleteMessage {
     type: 'cleanup-complete';
-    jobId: string;
+    jobId: TJobId;
 }
 
 export interface IOcrWorkerLogMessage {
@@ -138,8 +142,8 @@ export interface IOcrWorkerLogMessage {
 
 export interface IOcrWorkerResourceAcquireMessage {
     type: 'resource-acquire';
-    jobId: string;
-    requestId: string;
+    jobId: TJobId;
+    requestId: TRequestId;
     pageNumber: number;
     requestedDpi: number;
     pageWidthIn?: number;
@@ -148,7 +152,7 @@ export interface IOcrWorkerResourceAcquireMessage {
 
 export interface IOcrWorkerResourceReleaseMessage {
     type: 'resource-release';
-    jobId: string;
+    jobId: TJobId;
     token: string;
 }
 

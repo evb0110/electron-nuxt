@@ -10,6 +10,10 @@ import { getUpdaterMetadataFileNames } from './policy.mjs';
 
 const HASH_BUFFER_BYTES = 1024 * 1024;
 
+/** @typedef {{url: string, sha512?: string | undefined, size?: number | undefined}} IUpdaterArtifactEntry */
+/** @typedef {{artifactNames: string[], artifactsDir: string, readArtifactInfo?: ((artifactName: string) => {sha512: string, size: number}) | undefined, readMetadataText: (metadataFileName: string) => string}} IUpdaterArtifactIntegrityOptions */
+
+/** @param {string} path */
 export function calculateArtifactSha512(path) {
     const descriptor = openSync(path, 'r');
     const buffer = Buffer.allocUnsafe(HASH_BUFFER_BYTES);
@@ -28,11 +32,17 @@ export function calculateArtifactSha512(path) {
     return hash.digest('base64');
 }
 
+/** @param {string} metadataFileName @param {string} metadataText */
 function readMetadataEntries(metadataFileName, metadataText) {
+    /** @type {IUpdaterArtifactEntry[]} */
     const entries = [];
+    /** @type {IUpdaterArtifactEntry | null} */
     let current = null;
+    /** @type {string | undefined} */
     let topLevelPath;
+    /** @type {string | undefined} */
     let topLevelSha512;
+    /** @type {number | undefined} */
     let topLevelSize;
     for (const line of metadataText.split(/\r?\n/u)) {
         const url = line.match(/^\s*-\s+url:\s*(.+?)\s*$/u)?.[1];
@@ -75,6 +85,7 @@ function readMetadataEntries(metadataFileName, metadataText) {
     };
 }
 
+/** @param {IUpdaterArtifactIntegrityOptions} options */
 export function assertUpdaterArtifactIntegrity({
     artifactNames,
     artifactsDir,

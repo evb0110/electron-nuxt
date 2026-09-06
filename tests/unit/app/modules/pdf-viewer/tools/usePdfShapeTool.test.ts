@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     afterEach,
     describe,
@@ -81,7 +82,7 @@ function createEmbeddedShape(overrides?: Partial<IShapeAnnotation>): IShapeAnnot
 
 function drawLocalShape(harness: ReturnType<typeof createShapeToolHarness>) {
     const {shapeComposable} = harness.tool;
-    shapeComposable.startDrawing(1, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+    shapeComposable.startDrawing(requirePageIndex(1), 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
     shapeComposable.continueDrawing(0.15, 0.25);
     shapeComposable.continueDrawing(0.25, 0.35);
     const created = shapeComposable.finishDrawing();

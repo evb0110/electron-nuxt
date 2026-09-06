@@ -12,7 +12,7 @@
  */
 const UNPROVEN_NATIVE_TERMINATION = Symbol.for('evb.unprovenNativeTermination');
 
-interface IUnprovenNativeTerminationCarrier {[UNPROVEN_NATIVE_TERMINATION]?: string;}
+interface IUnprovenNativeTerminationCarrier {[UNPROVEN_NATIVE_TERMINATION]?: string | null;}
 
 export function markUnprovenNativeTermination<T>(error: T, detail: string): T {
     if (typeof error === 'object' && error !== null) {

@@ -8,12 +8,13 @@ import { handleWorkspaceHostOpenFileFromUi } from '@app/modules/workspace-shell/
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { cast } from '@tests/helpers/cast';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 function createOpenResult(): TOpenFileResult {
     return {
         kind: 'pdf',
-        originalPath: '/docs/source.pdf',
-        workingPath: '/docs/source-working.pdf',
+        originalPath: requireDocumentRef('/docs/source.pdf'),
+        workingPath: requireDocumentRef('/docs/source-working.pdf'),
     };
 }
 

@@ -11,6 +11,10 @@ import {
     ref,
 } from 'vue';
 import { createRangePageSelection } from '@contracts/pageNumbers';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { useWorkspaceExport } from '@app/modules/workspace-shell/composables/useWorkspaceExport';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 
@@ -64,9 +68,9 @@ function createComposable(options: {
     ) => Promise<T>;
 } = {}) {
     const scope = effectScope();
-    const workingCopyPath = ref('/tmp/work.pdf');
+    const workingCopyPath = ref<TDocumentRef>(requireDocumentRef('/tmp/work.pdf'));
     const sourceKind = ref<'pdf' | 'djvu'>(options.sourceKind ?? 'pdf');
-    const sourcePath = ref(options.sourcePath ?? '/tmp/work.pdf');
+    const sourcePath = ref<TDocumentRef>(requireDocumentRef(options.sourcePath ?? '/tmp/work.pdf'));
     const state = scope.run(() => useWorkspaceExport({
         workingCopyPath,
         sourceKind,
@@ -644,7 +648,7 @@ describe('useWorkspaceExport', () => {
             await Promise.resolve();
             expect(state.exportOverlay.value?.state).toBe('running');
 
-            sourcePath.value = '/tmp/replacement.pdf';
+            sourcePath.value = requireDocumentRef('/tmp/replacement.pdf');
             exportResult.resolve({
                 success: true,
                 outputPaths: ['browser://documents/output/stale.png'],
@@ -675,7 +679,7 @@ describe('useWorkspaceExport', () => {
             await Promise.resolve();
 
             sourceKind.value = 'djvu';
-            sourcePath.value = '/tmp/replacement.djvu';
+            sourcePath.value = requireDocumentRef('/tmp/replacement.djvu');
             freshness.resolve(true);
             await exportPromise;
 

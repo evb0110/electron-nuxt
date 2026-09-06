@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     basename,
     join,
@@ -98,7 +99,8 @@ function sanitizeSnapshotName(name: string) {
 }
 
 function parsePositiveInt(value: unknown, fallback: number, max: number) {
-    const parsed = Number.parseInt(String(value ?? ''), 10);
+    const input = typeof value === 'string' || typeof value === 'number' ? value : '';
+    const parsed = Number.parseInt(String(input), 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
         return fallback;
     }
@@ -106,7 +108,8 @@ function parsePositiveInt(value: unknown, fallback: number, max: number) {
 }
 
 function parseNonNegativeInt(value: unknown, fallback: number, max: number) {
-    const parsed = Number.parseInt(String(value ?? ''), 10);
+    const input = typeof value === 'string' || typeof value === 'number' ? value : '';
+    const parsed = Number.parseInt(String(input), 10);
     if (!Number.isFinite(parsed) || parsed < 0) {
         return fallback;
     }
@@ -330,7 +333,7 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
             tagName: el.tagName.toLowerCase(),
             id: el.id || null,
             className: className || null,
-            text: (el.textContent ?? '').trim().slice(0, 200),
+            text: el.textContent.trim().slice(0, 200),
             rect: {
                 x: rect.x,
                 y: rect.y,
@@ -359,7 +362,7 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
             const path = typeof event.composedPath === 'function'
                 ? event.composedPath().slice(0, 8).map((node) => {
                     if (!(node instanceof Element)) {
-                        return String(node);
+                        return '<non-element>';
                     }
                     const id = node.id ? `#${node.id}` : '';
                     const className = typeof node.className === 'string' && node.className.trim().length > 0
@@ -388,7 +391,7 @@ async function handleClickCommand(context: ICommandContext, args: unknown[]) {
                                 ? target.className
                                 : ((target.className as SVGAnimatedString | undefined)?.baseVal ?? '')
                         ) || null,
-                        text: (target.textContent ?? '').trim().slice(0, 200),
+                        text: target.textContent.trim().slice(0, 200),
                     }
                     : null,
                 path,
@@ -673,12 +676,13 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
     const beforeState = await readViewerState();
     const triggerToken = await page.evaluate((path: string, triggerTimeoutMs: number) => {
         type TElectronRunOpenPdfWindow = Window & {
-            __allowRendererFileOpenForAutomation?: (path: string) => Promise<boolean>;
+            __allowRendererFileOpenForAutomation?: unknown;
             __electronRunOpenPdfTrigger?: IElectronRunOpenPdfTrigger;
-            __openFileDirect?: (path: string) => Promise<boolean>;
+            __openFileDirect?: unknown;
         };
 
         const automationWindow = window as TElectronRunOpenPdfWindow;
+        const isPathHandler = (value: unknown): value is (path: string) => Promise<boolean> => typeof value === 'function';
         const token = `open-${crypto.randomUUID()}`;
         automationWindow.__electronRunOpenPdfTrigger = {
             token,
@@ -687,7 +691,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         };
 
         const openFileDirect = automationWindow.__openFileDirect;
-        if (typeof openFileDirect !== 'function') {
+        if (!isPathHandler(openFileDirect)) {
             automationWindow.__electronRunOpenPdfTrigger = {
                 token,
                 status: 'rejected',
@@ -699,7 +703,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
         Promise.resolve()
             .then(async () => {
                 const allowRendererFileOpenForAutomation = automationWindow.__allowRendererFileOpenForAutomation;
-                if (typeof allowRendererFileOpenForAutomation === 'function') {
+                if (isPathHandler(allowRendererFileOpenForAutomation)) {
                     await allowRendererFileOpenForAutomation(path);
                 }
 
@@ -716,7 +720,7 @@ async function handleOpenPdfCommand(context: ICommandContext, args: unknown[]) {
                 };
             })
             .catch((error: unknown) => {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = getErrorMessage(error);
                 automationWindow.__electronRunOpenPdfTrigger = {
                     token,
                     status: 'rejected',
@@ -787,19 +791,20 @@ async function handleHealthCommand(context: ICommandContext) {
             electronAPI?: unknown;
         };
         const nuxtRoot = document.querySelector('#__nuxt');
+        // lib.dom declares document.body non-null, but this probe runs while the
+        // renderer may still be parsing, so query for the element instead.
+        const body = document.querySelector('body');
         return {
-            bodyExists: document.body !== null,
             nuxtRootChildren: nuxtRoot?.children.length ?? 0,
             openFileDirect: typeof automationWindow.__openFileDirect,
             electronAPI: typeof automationWindow.electronAPI,
-            bodyTextLength: (document.body?.innerText ?? '').trim().length,
+            bodyTextLength: body === null ? 0 : body.innerText.trim().length,
             title: document.title,
             url: window.location.href,
         };
     });
     const ready = health.openFileDirect === 'function'
         && health.electronAPI === 'object'
-        && health.bodyExists
         && health.nuxtRootChildren > 0;
     return {
         ready,
