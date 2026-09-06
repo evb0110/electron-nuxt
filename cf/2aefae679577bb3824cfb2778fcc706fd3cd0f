@@ -1,0 +1,144 @@
+tests/unit/app/modules/workspace-shell/composables/useSidebarResize.test.ts
+  s_0afd208e8e7201::t_aead197f560d00 23-44,69,74,80,96,101,143
+tests/unit/app/modules/workspace-shell/composables/useTabsShellBindings.test.ts
+  s_0afd208e8e7201::t_10bf66c694f959 85,94-95,137
+  s_0afd208e8e7201::t_dfd7933d4f9bd4 24-27
+  s_0afd208e8e7201::t_52bac5377287ae 584,616,660
+  s_0afd208e8e7201::t_2ba7c96ba70a93 28,86,138
+tests/unit/app/modules/workspace-shell/composables/useAppShellTabLifecycle.test.ts
+  s_0afd208e8e7201::t_8f6c572577cf8e 31,233,235-241,303,378
+tests/unit/app/modules/workspace-shell/expose/fallbackToolbarCommandListeners.test.ts
+  s_0afd208e8e7201::t_bc7af001ae6b60 11-14,25,27-36,60-63
+  s_0afd208e8e7201::t_2ba7c96ba70a93 15,26
+tests/unit/app/modules/workspace-shell/workspaceTestFixtures.ts
+  s_0afd208e8e7201::t_92ed0466ae1ad4 1-46,48-54,61-63,68-69,71-76,81-83
+  s_0afd208e8e7201::t_19204514054a6c 47,55-60
+  s_0afd208e8e7201::t_f347147dca2180 64-67,70,77-80
+tests/unit/app/modules/workspace-shell/composables/useExternalFileDrop.test.ts
+  s_0afd208e8e7201::t_81af4360a9b13e 45-54,56-61,63-78
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceNativePersistence.test.ts
+  s_0afd208e8e7201::t_8d94005bbce832 267
+  s_0afd208e8e7201::t_bca4183045fa0b 14,30,65,181,220
+  s_0afd208e8e7201::t_ed4e7c11c41146 18,24,72,133,142,147,152,157,193,198,203,208,227,235,254,287-290,303,309,312,323,329,338,344,353,766,1164,1257-1258,1270
+tests/unit/app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.test.ts
+  s_0afd208e8e7201::t_5e516e676747b0 48-82,1320
+  s_0afd208e8e7201::t_6d839bcbc29d21 1319
+  s_0afd208e8e7201::t_28e2c5fb234a67 1295,1317,1331,1365
+tests/unit/app/modules/workspace-shell/host/deferredWorkspaceHostState.test.ts
+  s_0afd208e8e7201::t_aa8bcc2af5e632 21,44,50
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceInteractionControls.test.ts
+  s_0afd208e8e7201::t_a3a69b90c39cf3 19-22,35,104
+  s_0afd208e8e7201::t_e5cdf13810e10c 107
+  s_0afd208e8e7201::t_3af515db52f20d 73-74
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_0afd208e8e7201::t_9f420fe9e835b5 20,73,138,206,293,394,398,501,505,626
+tests/unit/app/modules/workspace-shell/composables/usePageFileOperations.test.ts
+  s_0afd208e8e7201::t_e5cdf13810e10c 63-64,92
+tests/unit/app/modules/workspace-shell/viewers/documentPageSourcePresentationLifecycle.test.ts
+  s_0afd208e8e7201::t_0f61510d69642c 21-24,36,95-103,105,107,116,321,323-324,326
+  s_0afd208e8e7201::t_42dba5e3513931 26-33,263,370,380,390,407
+  s_0afd208e8e7201::t_47bcc5d1f86a0e 25
+tests/unit/app/modules/workspace-shell/composables/workspaceHostOpen.test.ts
+  s_0afd208e8e7201::t_aa8bcc2af5e632 10,21
+tests/unit/app/modules/workspace-shell/components/documentWorkspaceNavigationCommand.test.ts
+  s_0afd208e8e7201::t_178e4a27f974dd 155-160,166,169
+  s_0afd208e8e7201::t_8a0da6b3a29fc8 31,162-165,167-168,170-173,218,236,240,307-311
+tests/unit/app/modules/workspace-shell/composables/useAppShellWorkspaceRouting.test.ts
+  s_0afd208e8e7201::t_cee53a6f2b9363 712,715,1022,1025,1080,1087,1130,1133,1301,1305,1351,1355,1400,1404,1406,1452,1455
+  s_0afd208e8e7201::t_ce8e93bf53a368 24-27,29-30,63-73,88,92-93
+  s_0afd208e8e7201::t_2ba7c96ba70a93 33
+tests/unit/app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot.test.ts
+  s_0afd208e8e7201::t_79598ba9cd36d5 43,62,197
+  s_0afd208e8e7201::t_50cd5d02c08bec 47-53,132,165,215
+  s_0afd208e8e7201::t_c0441a02d0e755 202
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.test.ts
+  s_0afd208e8e7201::t_8a788fef123b21 14
+  s_0afd208e8e7201::t_ecb8fca8fe482e 16
+  s_0afd208e8e7201::t_b9321e068f2773 66,71
+  s_0afd208e8e7201::t_236b6eca780cdc 15,17,19-22,49,54,72-77,100
+tests/unit/app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers.test.ts
+  s_0afd208e8e7201::t_0f61510d69642c 26-34,36
+tests/unit/app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions.test.ts
+  s_0afd208e8e7201::t_aa8bcc2af5e632 16,30
+  s_0afd208e8e7201::t_1b1be2d4757c50 13
+tests/unit/app/modules/workspace-shell/composables/appShellLifecycleAndUpdates.test.ts
+  s_0afd208e8e7201::t_3af515db52f20d 60
+  s_0afd208e8e7201::t_82b689ab22fa15 22-23,129,131
+  s_0afd208e8e7201::t_e5cdf13810e10c 73,121,134
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveService.test.ts
+  s_0afd208e8e7201::t_2c9ef708477e8e 525,580
+  s_0afd208e8e7201::t_815df355c3cebe 384-389,392-393,399
+  s_0afd208e8e7201::t_bad1f2ba0dd9f4 17-18,22
+  s_0afd208e8e7201::t_13f481e6c01829 876,879,1050
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture.ts
+  s_0afd208e8e7201::t_7b25de3101b681 417
+  s_0afd208e8e7201::t_cb067f5b48f971 32
+  s_0afd208e8e7201::t_fbd9a6f10ae713 21,24,33,36-37,362,371
+  s_0afd208e8e7201::t_b6cf0a31cb76b8 105-119
+  s_0afd208e8e7201::t_a7c7c2562d4ca7 339,348,386
+  s_0afd208e8e7201::t_a3e80770b95717 353,418
+  s_0afd208e8e7201::t_be41c57e43a349 15-18
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_0afd208e8e7201::t_8cec80ec3cffdf 16
+  s_0afd208e8e7201::t_5e516e676747b0 13-15,17,19-22,26,36,39,45-47,132,143,146,151-153,254
+tests/unit/app/modules/workspace-shell/document-sessions/workspaceDocumentController.test.ts
+  s_0afd208e8e7201::t_aa8bcc2af5e632 26,40
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_0afd208e8e7201::t_f7097c6d9f9c9b 20,93-98
+  s_0afd208e8e7201::t_e23d86bc538101 27,41,92,102,119
+  s_0afd208e8e7201::t_a5637390ed1076 18-19,21-22,28-31,89-91
+tests/unit/app/modules/workspace-shell/host/deferredWorkspaceHostDocumentOpen.test.ts
+  s_0afd208e8e7201::t_7e516c07f6dc3a 33,113,180,219,331,349
+tests/unit/app/modules/workspace-shell/components/editorPanePresentationFallback.test.ts
+  s_0afd208e8e7201::t_319e913fd1c858 113
+tests/unit/app/modules/workspace-shell/composables/tabsMenuBindings.test.ts
+  s_0afd208e8e7201::t_4a5f6d07694ebf 40
+  s_0afd208e8e7201::t_ecbfa5748678ac 12,34-36,50,52,108-116,146-148,152-159,164,166-167,169-170,179-180
+  s_0afd208e8e7201::t_2ba7c96ba70a93 13
+tests/unit/app/modules/workspace-shell/composables/workspaceExposeContract.test.ts
+  s_0afd208e8e7201::t_f18780a5afc8cf 75,95-96,137-139,141-146,167,170,174,191
+  s_0afd208e8e7201::t_c0441a02d0e755 23,159
+  s_0afd208e8e7201::t_0c5222327f92ff 123,150,171-173,175
+  s_0afd208e8e7201::t_b6308e71f7d176 158
+tests/unit/app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.test.ts
+  s_0afd208e8e7201::t_30459050930f30 35-38
+  s_0afd208e8e7201::t_1f95c230b4ef81 26,32
+  s_0afd208e8e7201::t_af02a325861069 19
+  s_0afd208e8e7201::t_c0441a02d0e755 21-25,34,39-41,44,213,215-217,228,230-237
+  s_0afd208e8e7201::t_bc7af001ae6b60 17-18,29,42,45,62-67
+  s_0afd208e8e7201::t_2281cd0d16813d 10,20,43,47,68-70,239-240
+tests/unit/app/modules/workspace-shell/components/deferredDocumentWorkspaceHostModule.test.ts
+  s_0afd208e8e7201::t_319e913fd1c858 60
+tests/unit/app/modules/workspace-shell/composables/usePageSaveOrchestration.test.ts
+  s_0afd208e8e7201::t_cd17b7d4e4a1ea 14,18-22,24-25,35,46,71-110,112-116,118-151,167-172,183-184,186
+  s_0afd208e8e7201::t_a5c335d16b87e5 28-32
+  s_0afd208e8e7201::t_6973429ad0f65c 174-179,181,218-233
+  s_0afd208e8e7201::t_731b96f9222edb 385-386,389-390
+  s_0afd208e8e7201::t_bf1088f150e312 387-388
+  s_0afd208e8e7201::t_1424948c6af3d1 23,26,111,117,152-166
+  s_0afd208e8e7201::t_52c84d6920a6bd 27,173,182,203,216-217,271-272,278,281,297,342,346-347,377,383-384,394-395,398,404,417,420,428,431-432,438,441
+tests/unit/app/modules/workspace-shell/composables/usePageShortcuts.test.ts
+  s_0afd208e8e7201::t_3dbd1f4c7c099c 161,174,187,207,231,254,276,306,330,356,382,408,432,453,480,506,528,547,578,599,620,642,655,679,695
+  s_0afd208e8e7201::t_1df511f0b7b35a 15-17,81-92,693,891
+  s_0afd208e8e7201::t_2ba7c96ba70a93 18,80
+tests/unit/app/modules/workspace-shell/composables/createDeferredWorkspaceHostBindings.test.ts
+  s_0afd208e8e7201::t_e5cdf13810e10c 13,17
+tests/unit/app/modules/workspace-shell/document-sessions/workspaceDocumentControllerQueue.test.ts
+  s_0afd208e8e7201::t_dd495150f634cf 8-9,92,129,162,185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "cf2aefae679577bb3824cfb2778fcc706fd3cd0f",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
