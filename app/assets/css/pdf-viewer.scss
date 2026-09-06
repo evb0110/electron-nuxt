@@ -263,8 +263,15 @@
     height: 100%;
 }
 
+.pdfViewer .pdf-annotation-editor-surface__background {
+    position: absolute;
+    inset: 0;
+    pointer-events: auto;
+}
+
 .pdfViewer .pdf-annotation-editor-surface__svg {
     overflow: visible;
+    pointer-events: none;
 }
 
 .pdfViewer .pdf-annotation-editor-entity {

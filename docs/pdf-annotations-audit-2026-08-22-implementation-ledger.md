@@ -953,3 +953,52 @@ main verification, and the reproducible report under
 `docs/reliability/issue-167-vps-interop-<date>.md`. Required fixtures may not
 be absent or silently skipped. Issue #167 remains open until those checks pass
 on the integrated tree.
+
+### 2026-09-06, exact 882-page note-placement diagnosis
+
+The candidate source comparison for the legacy-note path remains green and
+unchanged. The Rust reader recognizes `FreeText` plus `Popup` with a blank
+appearance as a persisted note, `mapPdfAnnotationParseEntity` preserves the
+legacy NM and PDF reference, the application projects a persisted canonical
+Text note, and the store-owned mutation path routes deletion and edits without
+reintroducing the retired PDF.js editor dependency. The candidate #350 gate
+`2026-09-06T09-38-32-773Z-4030766-cc17cea8` passed all four required legacy
+identity, sidebar, popup, and neighbor-preservation cases.
+
+The exact 882-page red gate
+`2026-09-06T09-43-22-143Z-4036099-542d315c` and focused reproduction
+`2026-09-06T09-53-32-443Z-4055032-32521550` failed while creating a new note
+with real pointer input. The event trace showed trusted pointerdown and
+pointerup events targeting the page canvas even though the ready interactive
+annotation layer covered the point. The computed DOM stack contained an empty
+full-page SVG surface above the layer. Chromium listed that SVG in
+`elementsFromPoint`, but its unpainted background did not provide a native
+hit target, so the event fell through to the canvas and the layer's creation
+gesture never began. The exact 882 fixture was not modified.
+
+The smallest repair adds a transparent HTML background hit target before the
+SVG surface, makes the empty SVG surface non-interactive, and leaves
+`.pdf-annotation-editor-entity` nodes interactive for markup and shape
+selection. This keeps blank-page placement and existing entity interaction on
+the same canonical pointer path. The focused exact case passed without test-
+only DOM injection, waits, or diagnostics at
+`2026-09-06T10-18-15-332Z-4090655-48d12517`, and the component event unit
+suite passed 3/3 under `unit-app`. The helper diagnostics were removed after
+the red/green result. The remaining exact-882 cases, the mixed-size broad
+failure, exact 2646 acceptance, integrated-main verification, and #167 corpus
+acceptance remain open.
+
+### 2026-09-06, exact 882-page annotation save acceptance
+
+After the hit-target repair, the full exact 882-page annotation-save gate
+`2026-09-06T10-21-24-168Z-4094602-098a72bd` passed all 8/8 tests in
+475.54 seconds. It used the required local fixture at
+`/home/ubuntu/evb-fixtures/zaliznyak-exact-1660bced.pdf` with 882 pages,
+722,178,517 bytes, and SHA-256
+`1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6`.
+The two prior failures, canonical note and text-box edits and sticky-note
+reopen after hard restart, both passed without test-only intervention. The
+runner stopped the isolated session normally and preserved the gate artifact.
+Exact 2,646-page acceptance, the unresolved mixed-size broad failure,
+integrated-main verification, and the rewritten #167 corpus acceptance remain
+open.

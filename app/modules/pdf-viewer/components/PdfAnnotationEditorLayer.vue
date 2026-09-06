@@ -16,6 +16,10 @@
         @dblclick.stop="handleSurfaceDblClick"
         @keydown="handleKeydown"
     >
+        <div
+            class="pdf-annotation-editor-surface__background"
+            aria-hidden="true"
+        />
         <svg
             class="pdf-annotation-editor-surface__svg"
             viewBox="0 0 1 1"
