@@ -19,6 +19,8 @@ import {
     semanticSnapshotsEqual,
     toLegacyShapeAnnotation,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const identity = (id: string, pdfRef?: string) => ({
     id: asAnnotationId(id),
@@ -36,12 +38,12 @@ function textBox(overrides: Partial<ITextBoxEntity> = {}): ITextBoxEntity {
     return {
         kind: 'text-box',
         identity: identity('text-box'),
-        pageIndex: 2,
+        pageIndex: requirePageIndex(2),
         revision: 3,
         persistedRevision: 2,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 2,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(2),
         author: 'Author',
         text: 'Text',
         rect,
@@ -56,12 +58,12 @@ function note(overrides: Partial<INoteEntity> = {}): INoteEntity {
     return {
         kind: 'note',
         identity: identity('note'),
-        pageIndex: 2,
+        pageIndex: requirePageIndex(2),
         revision: 3,
         persistedRevision: 2,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 2,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(2),
         author: 'Author',
         contents: 'Contents',
         position: rect,
@@ -75,12 +77,12 @@ function textMarkup(overrides: Partial<ITextMarkupEntity> = {}): ITextMarkupEnti
     return {
         kind: 'text-markup',
         identity: identity('text-markup'),
-        pageIndex: 2,
+        pageIndex: requirePageIndex(2),
         revision: 3,
         persistedRevision: 2,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 2,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(2),
         author: 'Author',
         subtype: 'Highlight',
         contents: 'Contents',
@@ -95,12 +97,12 @@ function placedImage(overrides: Partial<IPlacedImageEntity> = {}): IPlacedImageE
     return {
         kind: 'placed-image',
         identity: identity('placed-image'),
-        pageIndex: 2,
+        pageIndex: requirePageIndex(2),
         revision: 3,
         persistedRevision: 2,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 2,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(2),
         author: 'Author',
         rect,
         rotation: 90,
@@ -118,12 +120,12 @@ function shape(overrides: Partial<IShapeEntity> = {}): IShapeEntity {
     return {
         kind: 'shape',
         identity: identity('shape'),
-        pageIndex: 2,
+        pageIndex: requirePageIndex(2),
         revision: 3,
         persistedRevision: 2,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 2,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(2),
         author: 'Author',
         tool: 'rectangle',
         rect,
@@ -228,7 +230,7 @@ describe('annotation entity semantic equality', () => {
         expect(legacy).toMatchObject({
             id: 'shape',
             type: 'arrow',
-            pageIndex: 2,
+            pageIndex: requirePageIndex(2),
             x: 0.2,
             y: 0.3,
             width: 0.4,
@@ -262,16 +264,16 @@ describe('annotation entity semantic equality', () => {
             generationNumber: 0,
             contents: 'Reply',
             author: 'Other author',
-            createdAt: 10,
-            modifiedAt: 11,
+            createdAt: requireEpochMs(10),
+            modifiedAt: requireEpochMs(11),
         }];
         const baseline = note({replies});
         const reopened = note({
             identity: identity('reopened-note', '18R'),
             revision: 19,
             persistedRevision: 18,
-            createdAt: 100,
-            modifiedAt: 200,
+            createdAt: requireEpochMs(100),
+            modifiedAt: requireEpochMs(200),
             replies: [{
                 ...replies[0]!,
                 contents: 'A changed derived reply',
@@ -288,25 +290,25 @@ describe('annotation entity semantic equality', () => {
         expect(semanticEntityFingerprint(note({author: 'A'})))
             .not.toBe(semanticEntityFingerprint(note({author: 'B'})));
         expect(semanticEntityFingerprint(note({
-            createdAt: 1,
-            modifiedAt: 2,
+            createdAt: requireEpochMs(1),
+            modifiedAt: requireEpochMs(2),
         })))
             .toBe(semanticEntityFingerprint(note({
-                createdAt: 3,
-                modifiedAt: 4,
+                createdAt: requireEpochMs(3),
+                modifiedAt: requireEpochMs(4),
             })));
     });
 
     it('keeps page and deletion state in the in-app snapshot oracle', () => {
         const baseline = semanticSnapshot([note()]);
-        expect(semanticSnapshotsEqual(baseline, semanticSnapshot([note({pageIndex: 3})]))).toBe(false);
+        expect(semanticSnapshotsEqual(baseline, semanticSnapshot([note({pageIndex: requirePageIndex(3)})]))).toBe(false);
         expect(semanticSnapshotsEqual(baseline, semanticSnapshot([note({deleted: true})]))).toBe(false);
         expect(semanticSnapshotsEqual(baseline, semanticSnapshot([note({
             identity: identity('note', '44R'),
             revision: 99,
             persistedRevision: 99,
-            createdAt: 99,
-            modifiedAt: 100,
+            createdAt: requireEpochMs(99),
+            modifiedAt: requireEpochMs(100),
             replies: [],
         })]))).toBe(true);
     });

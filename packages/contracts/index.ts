@@ -195,6 +195,10 @@ export type {
 
 export type { TDocumentRef } from '@contracts/documentRef';
 export type * from '@contracts/documentRef';
+export {
+    parseDocumentRef,
+    requireDocumentRef,
+} from '@contracts/documentRef';
 export type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 export {
     parseDocumentInstanceId,
@@ -349,6 +353,25 @@ export type {
     TPageSelection,
     TPageSelectionPredicate,
 } from '@contracts/pageNumbers';
+
+export {
+    createJobId,
+    createLeaseId,
+    createRequestId,
+    createSessionId,
+    isJobId,
+    isLeaseId,
+    isRequestId,
+    isSessionId,
+    parseJobId,
+    parseLeaseId,
+    parseRequestId,
+    parseSessionId,
+    requireJobId,
+    requireLeaseId,
+    requireRequestId,
+    requireSessionId,
+} from '@contracts/shared';
 export {
     buildPageMoveOrder,
     buildPageMoveRangesOrder,

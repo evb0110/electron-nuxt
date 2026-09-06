@@ -32,19 +32,21 @@ import {
     toNativeMarkupHint,
 } from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'ann-1',
         stableKey: 'ann:0:12R0',
         sortIndex: null,
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         pageNumber: 1,
         text: 'Original note',
         kindLabel: 'Note',
         subtype: 'Text',
         author: 'Tester',
-        createdAt: 1781009077123,
+        createdAt: requireEpochMs(1781009077123),
         modifiedAt: null,
         color: '#ffcc00',
         uid: null,
@@ -84,7 +86,7 @@ function createShape(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotatio
     return {
         id: 'shape-1',
         type: 'rectangle',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         x: 0.1,
         y: 0.2,
         width: 0.3,
@@ -95,8 +97,8 @@ function createShape(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotatio
         annotationId: '22R0',
         stableKey: 'ann:0:22R0',
         pdfSubtype: 'Square',
-        createdAt: 1781009077123,
-        modifiedAt: 1781009077999,
+        createdAt: requireEpochMs(1781009077123),
+        modifiedAt: requireEpochMs(1781009077999),
         ...overrides,
     };
 }
@@ -108,12 +110,12 @@ function createShapeEntity(overrides: Partial<IShapeEntity> = {}): IShapeEntity 
             id: asAnnotationId('shape-entity'),
             pdfRef: '22R0',
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 1,
         persistedRevision: 0,
         deleted: false,
-        createdAt: 1781009077123,
-        modifiedAt: 1781009077999,
+        createdAt: requireEpochMs(1781009077123),
+        modifiedAt: requireEpochMs(1781009077999),
         author: 'Tester',
         tool: 'rectangle',
         rect: {
@@ -194,7 +196,7 @@ describe('native FreeText note builders', () => {
 
         expect(isReplayableEditorOnlyFreeTextNote(comment)).toBe(true);
         expect(toNativeFreeTextNote(comment)).toEqual({
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             stableKey: 'ann:0:pdfjs_internal_editor_0',
             text: 'Editor note',
             markerRect: {
@@ -205,7 +207,7 @@ describe('native FreeText note builders', () => {
             },
             author: 'Tester',
             color: '#ffcc00',
-            createdAt: 1781009077123,
+            createdAt: requireEpochMs(1781009077123),
         });
     });
 
@@ -282,14 +284,14 @@ describe('native note text and delete builders', () => {
 
         expect(deletes.value).toEqual([
             {
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 objectNumber: 12,
                 generationNumber: 0,
             },
             {
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 stableKey: 'ann:0:pdfjs_internal_editor_0',
-                createdAt: 1781009077123,
+                createdAt: requireEpochMs(1781009077123),
             },
         ]);
         expect(deletes.skipEvents).toEqual([]);
@@ -434,7 +436,7 @@ describe('native markup builders', () => {
 
         expect(toNativeMarkupHint({
             subtype: 'Highlight',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect,
             markupGeometry: [markerRect],
             annotationId: '44R0',
@@ -446,7 +448,7 @@ describe('native markup builders', () => {
             consumed: false,
         })).toEqual({
             subtype: 'Highlight',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect,
             markupGeometry: [markerRect],
             annotationId: '44R0',
@@ -482,7 +484,7 @@ describe('native markup builders', () => {
             ]]),
             markupSubtypeHints: [{
                 subtype: 'Squiggly',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect,
                 annotationId: '45R0',
                 color: null,
@@ -519,7 +521,7 @@ describe('native markup builders', () => {
         };
         const nativeHint = toNativeMarkupHint({
             subtype: 'Squiggly',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect,
             markupGeometry: Array.from(
                 {length: PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems + 1},
@@ -559,7 +561,7 @@ describe('native markup builders', () => {
             markupSubtypeHints: [{
                 appAnnotationId: 'app-markup-1',
                 subtype: 'Highlight',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect,
                 annotationId: null,
                 color: '#ffee00',
@@ -601,7 +603,7 @@ describe('native markup builders', () => {
             markupSubtypeHints: [{
                 appAnnotationId: 'app-markup-1',
                 subtype: 'Highlight',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect,
                 annotationId: '9R0',
                 color: '#ffee00',
@@ -638,7 +640,7 @@ describe('native markup builders', () => {
             ]]),
             markupSubtypeHints: [{
                 subtype: 'Squiggly',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect,
                 annotationId: '45R0',
                 color: null,

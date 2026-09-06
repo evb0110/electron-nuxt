@@ -35,11 +35,12 @@ import {
     parseDocumentRevisionToken,
     requireDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import {parseDocumentRef} from '@contracts/documentRef';
 import {
     appendOptionalDocumentArg as appendOptional,
-    decodeOptionalDocumentObject as decodeOptionalObject,
+    decodeOptionalDocumentObject as decodeOptionalDocumentObjectRaw,
     decodePdfRevisionOptions as decodeRevisionOptions,
-    decodeRequiredDocumentObject as decodeRequiredObject,
+    decodeRequiredDocumentObject,
 } from '@contracts/documentsPersistenceSchemas';
 import {isPdfNativeNormalizedRectInsidePageBounds} from '@contracts/nativePdfPageBounds';
 import {
@@ -61,6 +62,13 @@ function rejectUnknownFields(value: Record<string, unknown>, fieldName: string, 
 const fixtureRevisionToken = requireDocumentRevisionToken('drt1:annotation-parse-fixture');
 const fixtureRevisionOptions = {expectedDocumentRevisionToken: fixtureRevisionToken};
 const SHA256_PATTERN = /^[0-9a-f]{64}$/iu;
+
+function decodeRequiredObject<T>(value: unknown, fieldName: string): T {
+    return decodeRequiredDocumentObject(value, fieldName) as T;
+}
+function decodeOptionalObject<T>(value: unknown, fieldName: string): T | undefined {
+    return decodeOptionalDocumentObjectRaw(value, fieldName) as T | undefined;
+}
 
 function decodeStringValue(value: unknown, fieldName: string, allowEmpty = false) {
     if (typeof value !== 'string' || (!allowEmpty && value.length === 0)) {
@@ -593,12 +601,12 @@ const beginPdfAnnotationParseArgs = documentArgs<'beginPdfAnnotationParse'>(
     value => {
         const args = decodeArgumentArray(value, 2);
         return [
-            decodeStringValue(args[0], 'path'),
+            parseDocumentRef(args[0]) ?? fail('path must be an absolute document reference'),
             decodeParseOptions(args[1]),
         ];
     },
     () => [
-        '/tmp/document.pdf',
+        parseDocumentRef('/tmp/document.pdf') ?? fail('path must be an absolute document reference'),
         fixtureRevisionOptions,
     ],
 );
@@ -628,12 +636,12 @@ const parsePdfAnnotationsArgs = documentArgs<'parsePdfAnnotations'>(
     value => {
         const args = decodeArgumentArray(value, 2);
         return [
-            decodeStringValue(args[0], 'path'),
+            parseDocumentRef(args[0]) ?? fail('path must be an absolute document reference'),
             decodeParseOptions(args[1]),
         ];
     },
     () => [
-        '/tmp/document.pdf',
+        parseDocumentRef('/tmp/document.pdf') ?? fail('path must be an absolute document reference'),
         fixtureRevisionOptions,
     ],
 );
@@ -658,11 +666,11 @@ const pdfAnnotationParseSessionResult = documentResult<'beginPdfAnnotationParse'
             entryCount?: unknown;
             totalBytes?: unknown;
         }>(value, 'annotation parse session');
+        const documentRef = parseDocumentRef(decoded.documentRef);
         if (
             typeof decoded.sessionId !== 'string'
             || decoded.sessionId.length === 0
-            || typeof decoded.documentRef !== 'string'
-            || decoded.documentRef.length === 0
+            || documentRef === null
         ) {
             fail('invalid annotation parse session identifiers');
         }
@@ -672,7 +680,7 @@ const pdfAnnotationParseSessionResult = documentResult<'beginPdfAnnotationParse'
         if (documentRevisionToken === null) fail('annotation parse documentRevisionToken is invalid');
         return {
             sessionId: decoded.sessionId,
-            documentRef: decoded.documentRef,
+            documentRef,
             documentRevisionToken,
             pageCount: decodeSafeIntegerValue(decoded.pageCount, 'annotation parse pageCount'),
             entryCount: decodeSafeIntegerValue(decoded.entryCount, 'annotation parse entryCount'),
@@ -681,7 +689,7 @@ const pdfAnnotationParseSessionResult = documentResult<'beginPdfAnnotationParse'
     },
     () => ({
         sessionId: 'annotation-parse-1',
-        documentRef: '/tmp/document.pdf',
+        documentRef: parseDocumentRef('/tmp/document.pdf') ?? fail('invalid annotation parse documentRef'),
         documentRevisionToken: fixtureRevisionToken,
         pageCount: 1,
         entryCount: 1,

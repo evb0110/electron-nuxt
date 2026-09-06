@@ -124,24 +124,24 @@ describe('restoreWorkspaceCheckpoint', () => {
 
         await restoreWorkspaceCheckpoint({
             version: 1,
-            capturedAt: 123,
-            activePaneId: 'pane-1',
-            activeTabId: 'tab-1',
+            capturedAt: requireEpochMs(123),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('tab-1'),
             layout: {
                 type: 'leaf',
-                paneId: 'pane-1',
+                paneId: requirePaneId('pane-1'),
             },
             panes: [{
-                paneId: 'pane-1',
-                tabIds: ['tab-1'],
-                activeTabId: 'tab-1',
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('tab-1')],
+                activeTabId: requireTabId('tab-1'),
             }],
             tabs: [{
-                tabId: 'tab-1',
-                paneId: 'pane-1',
+                tabId: requireTabId('tab-1'),
+                paneId: requirePaneId('pane-1'),
                 fileName: 'saved.pdf',
-                sourceRef: '/documents/saved.pdf',
-                workingCopyRef: '/tmp/working/saved.pdf',
+                sourceRef: requireDocumentRef('/documents/saved.pdf'),
+                workingCopyRef: requireDocumentRef('/tmp/working/saved.pdf'),
                 isDirty: false,
                 isDjvu: false,
                 currentPage: null,
@@ -149,10 +149,10 @@ describe('restoreWorkspaceCheckpoint', () => {
                 zoomMode: null,
             }],
         }, {
-            tabs: ref([{
-                id: 'tab-1',
+            tabs: ref<ITab[]>([{
+                id: requireTabId('tab-1'),
                 fileName: 'saved.pdf',
-                originalPath: '/documents/saved.pdf',
+                originalPath: requireDocumentRef('/documents/saved.pdf'),
                 isDirty: false,
                 isDjvu: false,
             }]),

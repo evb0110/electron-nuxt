@@ -219,7 +219,7 @@ describe('createDocumentsPreloadFileClient', () => {
             oversizedPassword,
         )).toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
         expect(() => client.createWorkingCopyFromPath(
-            '/tmp/protected.pdf',
+            requireDocumentRef('/tmp/protected.pdf'),
             undefined,
             null as never,
         )).toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
@@ -574,7 +574,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.parsePdfAnnotations('/tmp/working.pdf', {expectedDocumentRevisionToken: revision})).resolves.toEqual(parsed);
+        await expect(client.parsePdfAnnotations(requireDocumentRef('/tmp/working.pdf'), {expectedDocumentRevisionToken: revision})).resolves.toEqual(parsed);
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.parsePdfAnnotations,
             '/tmp/working.pdf',

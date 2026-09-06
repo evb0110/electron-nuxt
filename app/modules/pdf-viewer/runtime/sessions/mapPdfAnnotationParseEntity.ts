@@ -8,6 +8,7 @@ import type {
     IPdfAnnotationParseEntry,
     TPdfAnnotationParseEntity,
 } from '@contracts/pdfAnnotationParseTypes';
+import {parseEpochMs} from '@contracts/timestamps';
 
 export function pdfAnnotationRefKey(objectNumber: number, generationNumber: number) {
     return `${objectNumber} ${generationNumber} R`;
@@ -30,8 +31,8 @@ function parsedEntityBase(entry: TPdfAnnotationParseEntity) {
         revision: 0,
         persistedRevision: 0,
         deleted: false,
-        createdAt: entry.createdAt,
-        modifiedAt: entry.modifiedAt,
+        createdAt: parseEpochMs(entry.createdAt),
+        modifiedAt: parseEpochMs(entry.modifiedAt),
         author: entry.author,
     };
 }

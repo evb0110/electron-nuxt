@@ -90,7 +90,9 @@ type TEditorShapeOverrides =
     | 'stableKey'
     | 'strokes'
     | 'x2'
-    | 'y2';
+    | 'y2'
+    | 'createdAt'
+    | 'modifiedAt';
 
 /**
  * Legacy shape DTO retained for the existing drawing tools and serializers.

@@ -31,13 +31,14 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type {TAnnotationTool} from '@app/types/annotations';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 const annotationId = 'reopened-markup' as ITextMarkupEntity['identity']['id'];
 
 const entity: ITextMarkupEntity = {
     kind: 'text-markup',
     identity: {id: annotationId},
-    pageIndex: 25,
+    pageIndex: requirePageIndex(25),
     revision: 2,
     persistedRevision: 2,
     deleted: false,
@@ -129,7 +130,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         document.body.append(host);
         const app = createApp({setup() {
             provide(annotationEditorSurfaceKey, harness.surface);
-            return () => h(PdfAnnotationEditorLayer, {pageIndex: 25});
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
         }});
         app.mount(host);
         await nextTick();
@@ -244,7 +245,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         document.body.append(host);
         const app = createApp({setup() {
             provide(annotationEditorSurfaceKey, surface);
-            return () => h(PdfAnnotationEditorLayer, {pageIndex: 25});
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
         }});
         app.mount(host);
         await nextTick();
@@ -323,7 +324,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         const image: IPlacedImageEntity = {
             kind: 'placed-image',
             identity: {id: 'placed-image-test' as IPlacedImageEntity['identity']['id']},
-            pageIndex: 25,
+            pageIndex: requirePageIndex(25),
             revision: 1,
             persistedRevision: 1,
             deleted: false,

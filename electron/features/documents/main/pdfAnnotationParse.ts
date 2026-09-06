@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {
     lstat,
     mkdtemp,
@@ -25,6 +24,14 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import {decodePdfAnnotationParseEntry} from '@contracts/pdfAnnotationParseSchemas';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
+    createSessionId,
+    type TSessionId,
+} from '@contracts/shared';
 import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsService';
 import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/documentFilePathResolution';
 import {
@@ -69,9 +76,9 @@ const PARSE_MODIFIED_AT = 'D:19700101000000Z';
 const logger = createLogger('pdf-annotation-parse');
 
 interface IParseSessionState {
-    sessionId: string;
+    sessionId: TSessionId;
     ownerId: number;
-    documentRef: string;
+    documentRef: TDocumentRef;
     resolvedPath: string;
     expectedRevisionToken: TDocumentRevisionToken;
     sidecarDirectory: string;
@@ -255,21 +262,21 @@ export async function beginPdfAnnotationParse(
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
-            documentRef: resolvedPath,
+            documentRef: requireDocumentRef(resolvedPath),
             expectedRevision: expectedRevisionToken,
             actualRevision: revision.token,
         });
     }
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
-    const sessionId = randomUUID();
+    const sessionId = createSessionId('pdf-annotation-parse');
     const sidecarDirectory = await mkdtemp(join(getAppTempDir(), PARSE_DIRECTORY_PREFIX));
     const sidecarPath = join(sidecarDirectory, PARSE_FILE_NAME);
     const abortController = new AbortController();
     const session: IParseSessionState = {
         sessionId,
         ownerId: getOwnerId(context),
-        documentRef: filePath,
+        documentRef: requireDocumentRef(filePath),
         resolvedPath,
         expectedRevisionToken,
         sidecarDirectory,
@@ -372,7 +379,7 @@ export async function beginPdfAnnotationParse(
     }
     return {
         sessionId,
-        documentRef: filePath,
+        documentRef: requireDocumentRef(filePath),
         documentRevisionToken: expectedRevisionToken,
         pageCount: session.index.pageCount,
         entryCount: session.index.entryCount,

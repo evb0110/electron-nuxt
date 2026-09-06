@@ -5,6 +5,7 @@ import type {
     useAnalytics,
 } from '@app/composables/useAnalytics';
 import type { TTranslateFn } from '@i18n-app';
+import {parseDocumentRef} from '@contracts/documentRef';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     getFailureReceipt,
@@ -18,6 +19,7 @@ import type {
     IDocumentMutationRevisionOptions,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
+import {createRequestId} from '@contracts/shared';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
@@ -36,7 +38,7 @@ import {
     getLowercaseExtension,
 } from '@app/utils/analytics';
 import { readDocumentBytes } from '@app/utils/documentBytes';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import {getDocumentRefBaseName} from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
@@ -596,8 +598,8 @@ export function createDocumentOpenFlow(
         try {
             const documentOpen = getDocumentOpenCapability();
             const normalizedPaths = paths
-                .map((path) => path.trim())
-                .filter((path) => path.length > 0);
+                .map(path => parseDocumentRef(path.trim()))
+                .filter((path): path is TDocumentRef => path !== null);
 
             if (normalizedPaths.length === 0) {
                 const message = deps.t('errors.file.invalid');
@@ -610,7 +612,7 @@ export function createDocumentOpenFlow(
                 } satisfies TDocumentOpenOutcome;
             }
 
-            const requestId = crypto.randomUUID();
+            const requestId = createRequestId('document-open');
             state.openBatchProgress.value = {
                 processed: 0,
                 total: normalizedPaths.length,

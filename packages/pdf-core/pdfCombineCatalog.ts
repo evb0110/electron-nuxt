@@ -10,6 +10,8 @@ import {
     type PDFObject,
 } from 'pdf-lib';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {TPageIndex} from '@contracts/pageNumbers';
 
 export const PDF_COMBINE_CATALOG_POLICY = Object.freeze({
     pages: 'preserve',
@@ -103,7 +105,7 @@ function findNamedDestination(document: PDFDocument, name: string): PDFObject | 
     return root ? visit(root) : undefined;
 }
 
-function destinationPageIndex(document: PDFDocument, value: PDFObject | undefined, pageRefs: Map<string, number>): number | null {
+function destinationPageIndex(document: PDFDocument, value: PDFObject | undefined, pageRefs: Map<string, number>): TPageIndex | null {
     let destination = value;
     const named = textValue(destination) ?? nameValue(destination);
     if (named) destination = findNamedDestination(document, named);
@@ -112,7 +114,8 @@ function destinationPageIndex(document: PDFDocument, value: PDFObject | undefine
     if (!(destination instanceof PDFArray) || destination.size() === 0) {
         return null;
     }
-    return pageRefs.get(refKey(destination.get(0)) ?? '') ?? null;
+    const pageIndex = pageRefs.get(refKey(destination.get(0)) ?? '');
+    return pageIndex === undefined ? null : requirePageIndex(pageIndex);
 }
 
 function readOutlineItems(
@@ -196,7 +199,9 @@ export function offsetPdfCombineBookmarks(
 ): IPdfBookmarkEntry[] {
     return bookmarks.map(bookmark => ({
         ...bookmark,
-        pageIndex: bookmark.pageIndex === null ? null : bookmark.pageIndex + pageOffset,
+        pageIndex: bookmark.pageIndex === null
+            ? null
+            : requirePageIndex(bookmark.pageIndex + pageOffset),
         namedDest: null,
         items: offsetPdfCombineBookmarks(bookmark.items, pageOffset),
     }));

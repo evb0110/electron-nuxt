@@ -36,8 +36,8 @@
                 :placeholder-style="getEffectivePagePlaceholderStyle(item.page)"
                 :placed-image="pendingImagePlacement?.pageNumber === item.page ? pendingImagePlacement : null"
                 :placed-image-busy="isPendingImagePlacementFinalizing"
-                @page-container-mounted="emit('page-container-mounted', $event)"
-                @page-container-unmounted="emit('page-container-unmounted', $event)"
+                @page-container-mounted="emit('page-container-mounted', requirePageNumber($event))"
+                @page-container-unmounted="emit('page-container-unmounted', requirePageNumber($event))"
                 @update-placed-image-rect="emit('update-placed-image-rect', $event)"
                 @finalize-placed-image="emit('finalize-placed-image')"
                 @cancel-placed-image="emit('cancel-placed-image')"
@@ -52,6 +52,8 @@
 </template>
 
 <script setup lang="ts">
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 import type {
     ComponentPublicInstance,
     StyleValue,
@@ -76,17 +78,17 @@ interface IProps {
     containerStyle: StyleValue;
     virtualPageSegments: IPdfVirtualPageSegment[];
     initialPageShell?: boolean;
-    initialPageShellPage?: number;
-    openingPageFramePage?: number | null;
+    initialPageShellPage?: TPageNumber;
+    openingPageFramePage?: TPageNumber | null;
     openingPageFrameStyle?: Record<string, string> | null;
-    shouldShowSkeleton: (page: number) => boolean;
-    isPageRenderFailed: (page: number) => boolean;
+    shouldShowSkeleton: (pageNumber: TPageNumber) => boolean;
+    isPageRenderFailed: (pageNumber: TPageNumber) => boolean;
     pageRenderErrorLabel: string;
-    isSpreadSingle: (page: number) => boolean;
-    isBufferedPage: (page: number) => boolean;
-    isRenderedPage: (page: number) => boolean;
-    getPageScale: (page: number) => IPdfPageScale | null;
-    getPagePlaceholderStyle: (page: number) => Record<string, string> | null;
+    isSpreadSingle: (pageNumber: TPageNumber) => boolean;
+    isBufferedPage: (pageNumber: TPageNumber) => boolean;
+    isRenderedPage: (pageNumber: TPageNumber) => boolean;
+    getPageScale: (pageNumber: TPageNumber) => IPdfPageScale | null;
+    getPagePlaceholderStyle: (pageNumber: TPageNumber) => Record<string, string> | null;
     bottomVirtualSpacerStyle?: Record<string, string> | null;
     pendingImagePlacement?: IPdfImagePlacementDraft | null;
     isPendingImagePlacementFinalizing?: boolean;
@@ -98,7 +100,7 @@ const {
     containerStyle,
     virtualPageSegments,
     initialPageShell = false,
-    initialPageShellPage = 1,
+    initialPageShellPage = requirePageNumber(1),
     openingPageFramePage = null,
     openingPageFrameStyle = null,
     shouldShowSkeleton,
@@ -125,8 +127,8 @@ const emit = defineEmits<{
     dblclick: [event: MouseEvent];
     contextmenu: [event: MouseEvent];
     selectstart: [event: Event];
-    'page-container-mounted': [page: number];
-    'page-container-unmounted': [page: number];
+    'page-container-mounted': [pageNumber: TPageNumber];
+    'page-container-unmounted': [pageNumber: TPageNumber];
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];
@@ -142,17 +144,17 @@ const virtualPageItems = computed(() => {
     });
 });
 
-function shouldRenderPageSkeleton(page: number) {
+function shouldRenderPageSkeleton(pageNumber: TPageNumber) {
     // The viewport-session projection is the only presentation authority.
     // An opening shell remains a frame during the debounce window; it does not
     // independently force a skeleton before the session delay elapses.
-    return shouldShowSkeleton(page);
+    return shouldShowSkeleton(pageNumber);
 }
 
-function getEffectivePagePlaceholderStyle(page: number) {
-    return page === openingPageFramePage && openingPageFrameStyle
+function getEffectivePagePlaceholderStyle(pageNumber: TPageNumber) {
+    return pageNumber === openingPageFramePage && openingPageFrameStyle
         ? openingPageFrameStyle
-        : getPagePlaceholderStyle(page);
+        : getPagePlaceholderStyle(pageNumber);
 }
 
 function setViewerContainerElement(element: Element | ComponentPublicInstance | null) {

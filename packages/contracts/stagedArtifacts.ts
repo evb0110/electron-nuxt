@@ -1,5 +1,6 @@
 import {
     isBrowserLegacyDocumentRef,
+    parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {
@@ -9,6 +10,10 @@ import {
 import { isPdfValidationResult } from '@contracts/pdfConformance';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    parseLeaseId,
+    type TLeaseId,
+} from '@contracts/shared';
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const DECIMAL_BIGINT_PATTERN = /^(?:0|[1-9]\d*)$/u;
@@ -59,7 +64,7 @@ interface ITypedStagedArtifactBase {
     size: number;
     fileIdentity: TArtifactFileIdentity;
     validations: IStagedArtifactValidations;
-    leaseId: string;
+    leaseId: TLeaseId;
     revision: TDocumentRevisionToken | null;
 }
 
@@ -212,12 +217,12 @@ function decodeValidations(value: unknown): IStagedArtifactValidations | null {
 }
 
 export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact | null {
+    const path = isRecord(value) ? parseDocumentRef(value.path) : null;
     if (
         !isRecord(value)
         || (value.receiptVersion !== 1 && value.receiptVersion !== 2)
         || value.artifactKind !== 'pdf'
-        || typeof value.path !== 'string'
-        || value.path.length === 0
+        || path === null
         || typeof value.size !== 'number'
         || !Number.isSafeInteger(value.size)
         || value.size < 0
@@ -226,8 +231,7 @@ export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact 
             || !SHA256_PATTERN.test(value.sha256)
         ))
         || (value.receiptVersion === 2 && value.sha256 !== undefined)
-        || typeof value.leaseId !== 'string'
-        || value.leaseId.length === 0
+        || parseLeaseId(value.leaseId) === null
         || (value.revision !== null && typeof value.revision !== 'string')
     ) {
         return null;
@@ -241,7 +245,7 @@ export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact 
     if (
         fileIdentity.platform === 'browser'
         && (
-            fileIdentity.documentRef !== value.path
+            fileIdentity.documentRef !== path
             || revision === null
             || fileIdentity.revisionToken !== revision
         )
@@ -256,23 +260,23 @@ export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact 
         return {
             receiptVersion: 2,
             artifactKind: 'pdf',
-            path: value.path,
+            path,
             size: value.size,
             fileIdentity: posixIdentity,
             validations,
-            leaseId: value.leaseId,
+            leaseId: parseLeaseId(value.leaseId)!,
             revision,
         };
     }
     return {
         receiptVersion: 1,
         artifactKind: 'pdf',
-        path: value.path,
+        path,
         size: value.size,
         sha256: value.sha256 as string,
         fileIdentity,
         validations,
-        leaseId: value.leaseId,
+        leaseId: parseLeaseId(value.leaseId)!,
         revision,
     };
 }

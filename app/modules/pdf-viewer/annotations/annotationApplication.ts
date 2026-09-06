@@ -5,6 +5,8 @@ import type {
 } from '@app/types/annotations';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {parseEpochMs} from '@contracts/timestamps';
 import type {
     AnnotationEntity,
     AnnotationId,
@@ -101,12 +103,12 @@ export function toCanonicalShapeEntity(
             id,
             ...(pdfRef ? {pdfRef} : {}),
         },
-        pageIndex: shape.pageIndex,
+        pageIndex: requirePageIndex(shape.pageIndex),
         revision: 0,
         persistedRevision: pdfRef ? 0 : -1,
         deleted: false,
-        createdAt: shape.createdAt ?? null,
-        modifiedAt: shape.modifiedAt ?? null,
+        createdAt: parseEpochMs(shape.createdAt),
+        modifiedAt: parseEpochMs(shape.modifiedAt),
         author: null,
         tool,
         rect: {

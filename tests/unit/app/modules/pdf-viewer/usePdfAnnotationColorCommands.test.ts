@@ -9,13 +9,15 @@ import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfAnnotationColorCommands} from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 function createComment(appAnnotationId: string): IAnnotationCommentSummary {
     return {
         appAnnotationId,
         id: '12R0',
         stableKey: 'ann:0:12R0',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         pageNumber: 1,
         text: 'Marked text',
         subtype: 'Underline',
@@ -39,7 +41,7 @@ function createNoteComment(): IAnnotationCommentSummary {
         annotationId: '12 0 R',
         author: 'Document author',
         color: '#f59e0b',
-        createdAt: 1,
+        createdAt: requireEpochMs(1),
         hasNote: true,
         id: '12R0',
         markerRect: {
@@ -48,8 +50,8 @@ function createNoteComment(): IAnnotationCommentSummary {
             width: 0.03,
             height: 0.03,
         },
-        modifiedAt: 1,
-        pageIndex: 0,
+        modifiedAt: requireEpochMs(1),
+        pageIndex: requirePageIndex(0),
         pageNumber: 1,
         source: 'pdf',
         stableKey: 'ann:0:12R0',
@@ -68,7 +70,7 @@ function createHarness() {
             id,
             pdfRef: '12R0',
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
@@ -115,12 +117,12 @@ describe('usePdfAnnotationColorCommands', () => {
                 id,
                 pdfRef: '12 0 R',
             },
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
-            createdAt: 1,
-            modifiedAt: 1,
+            createdAt: requireEpochMs(1),
+            modifiedAt: requireEpochMs(1),
             author: 'Document author',
             contents: 'Foreign note',
             position: {

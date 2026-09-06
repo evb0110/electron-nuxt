@@ -809,7 +809,7 @@ describe('createDocumentOpenFlow', () => {
             state,
         } = createOpenFlowHarness();
         const prompt = useDocumentPasswordPrompt();
-        const protectedPath = '/documents/protected.pdf';
+        const protectedPath = requireDocumentRef('/documents/protected.pdf');
         const needsPassword: TOpenFileResult = {
             kind: 'pdf-needs-password',
             originalPath: protectedPath,
@@ -817,7 +817,7 @@ describe('createDocumentOpenFlow', () => {
         const openedPdf: TOpenFileResult = {
             kind: 'pdf',
             originalPath: protectedPath,
-            workingPath: '/tmp/protected-working.pdf',
+            workingPath: requireDocumentRef('/tmp/protected-working.pdf'),
             wasEncrypted: true,
         };
         mocks.documentOpen.openDocumentDirect
@@ -866,7 +866,7 @@ describe('createDocumentOpenFlow', () => {
             state,
         } = createOpenFlowHarness();
         const prompt = useDocumentPasswordPrompt();
-        const protectedPath = '/documents/protected.pdf';
+        const protectedPath = requireDocumentRef('/documents/protected.pdf');
         mocks.documentOpen.openDocumentDirect.mockResolvedValueOnce({
             kind: 'pdf-needs-password',
             originalPath: protectedPath,
@@ -889,12 +889,12 @@ describe('createDocumentOpenFlow', () => {
     it('returns a stale outcome when a second open supersedes a password prompt', async () => {
         const {openFlow} = createOpenFlowHarness();
         const prompt = useDocumentPasswordPrompt();
-        const firstPath = '/documents/first-protected.pdf';
-        const secondPath = '/documents/second.pdf';
+        const firstPath = requireDocumentRef('/documents/first-protected.pdf');
+        const secondPath = requireDocumentRef('/documents/second.pdf');
         const secondResult: TOpenFileResult = {
             kind: 'pdf',
             originalPath: secondPath,
-            workingPath: '/tmp/second-working.pdf',
+            workingPath: requireDocumentRef('/tmp/second-working.pdf'),
         };
         mocks.documentOpen.openDocumentDirect.mockImplementation(async (path: string) => (
             path === firstPath
@@ -925,7 +925,7 @@ describe('createDocumentOpenFlow', () => {
             state,
         } = createOpenFlowHarness({reportOpenFailure});
         const prompt = useDocumentPasswordPrompt();
-        const protectedPath = '/documents/unsupported.pdf';
+        const protectedPath = requireDocumentRef('/documents/unsupported.pdf');
         mocks.documentOpen.openDocumentDirect.mockResolvedValueOnce({
             kind: 'pdf-unsupported-encryption',
             originalPath: protectedPath,

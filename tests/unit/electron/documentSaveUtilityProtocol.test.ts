@@ -12,6 +12,8 @@ import {
 } from '@electron/features/documents/main/documentSaveUtilityProtocol';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {createBrowserStoreFileIdentity} from '@contracts/stagedArtifacts';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireLeaseId} from '@contracts/shared';
 
 function createStagedArtifact(overrides: {
     changedObjectRefsSha256?: string;
@@ -24,7 +26,7 @@ function createStagedArtifact(overrides: {
     return {
         receiptVersion: 1,
         artifactKind: 'pdf',
-        path: '/tmp/output.tmp',
+        path: requireDocumentRef('/tmp/output.tmp'),
         size: 100,
         sha256: 'a'.repeat(64),
         fileIdentity: process.platform === 'win32'
@@ -56,7 +58,7 @@ function createStagedArtifact(overrides: {
                 ? {}
                 : {semanticScopeSha256: overrides.semanticScopeSha256}),
         },
-        leaseId: 'lease-1',
+        leaseId: requireLeaseId('lease-1'),
         revision: null,
     } as const;
 }
@@ -307,7 +309,7 @@ describe('document save utility protocol', () => {
     });
 
     it('does not route a browser-store receipt through native utility reuse', () => {
-        const browserRef = 'browser://documents/staged/browser-output.pdf';
+        const browserRef = requireDocumentRef('browser://documents/staged/browser-output.pdf');
         const browserRevision = requireDocumentRevisionToken('drt1:browser:staged-output');
         const changedObjectRefs = [
             '12 0 R',
@@ -327,8 +329,8 @@ describe('document save utility protocol', () => {
 
         expect(getDocumentSaveUtilityReusePlan({
             type: 'commit',
-            sourcePath: '/tmp/output.tmp',
-            targetPath: '/tmp/output.pdf',
+            sourcePath: requireDocumentRef('/tmp/output.tmp'),
+            targetPath: requireDocumentRef('/tmp/output.pdf'),
             expectedBytes: 100,
             changedObjectRefs,
             stagedArtifact: browserArtifact,

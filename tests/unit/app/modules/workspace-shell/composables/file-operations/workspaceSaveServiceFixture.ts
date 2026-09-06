@@ -23,6 +23,8 @@ import {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import { cast } from '@tests/helpers/cast';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 export const toastAddMock = vi.fn();
 const TEST_BROWSER_SOURCE_REF = 'browser://documents/source.pdf';
@@ -250,12 +252,16 @@ function canonicalEntityFromSummary(
     const text = pendingTexts.get(summary.stableKey) ?? summary.text;
     const common = {
         identity,
-        pageIndex: summary.pageIndex,
+        pageIndex: requirePageIndex(summary.pageIndex),
         revision: 1,
         persistedRevision: 0,
         deleted,
-        createdAt: summary.createdAt ?? null,
-        modifiedAt: summary.modifiedAt ?? null,
+        createdAt: summary.createdAt === null || summary.createdAt === undefined
+            ? null
+            : requireEpochMs(summary.createdAt),
+        modifiedAt: summary.modifiedAt === null || summary.modifiedAt === undefined
+            ? null
+            : requireEpochMs(summary.modifiedAt),
         author: summary.author ?? null,
     } as const;
     if (

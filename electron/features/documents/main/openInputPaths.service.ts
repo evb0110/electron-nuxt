@@ -33,6 +33,7 @@ import { addRecentInputs } from '@electron/features/documents/main/addRecentInpu
 import {getErrorMessage} from '@electron/utils/error';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { abortErrorFromSignal } from '@electron/utils/abort';
@@ -202,7 +203,7 @@ export async function openInputPaths(
         return {
             kind: 'djvu',
             workingPath: '',
-            originalPath: trustedDjvuPath,
+            originalPath: requireDocumentRef(trustedDjvuPath),
         };
     }
 
@@ -267,8 +268,8 @@ export async function openInputPaths(
                 })}`);
                 const result: TOpenFileResult = {
                     kind: 'pdf',
-                    workingPath: unownedWorkingPath,
-                    originalPath,
+                    workingPath: requireDocumentRef(unownedWorkingPath),
+                    originalPath: requireDocumentRef(originalPath),
                     ...(isGenerated ? {isGenerated: true} : {}),
                     ...(workingCopy.wasEncrypted ? {wasEncrypted: true as const} : {}),
                 };
@@ -280,7 +281,7 @@ export async function openInputPaths(
                         kind: error.outcome === 'needs-password'
                             ? 'pdf-needs-password'
                             : 'pdf-unsupported-encryption',
-                        originalPath,
+                        originalPath: requireDocumentRef(originalPath),
                     };
                 }
                 throw error;
@@ -358,8 +359,8 @@ export async function openInputPaths(
 
     return {
         kind: 'pdf',
-        workingPath,
-        originalPath: outputPath,
+        workingPath: requireDocumentRef(workingPath),
+        originalPath: requireDocumentRef(outputPath),
         isGenerated: true,
     };
 }

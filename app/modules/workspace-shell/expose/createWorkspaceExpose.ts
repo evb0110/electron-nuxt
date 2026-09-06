@@ -14,7 +14,10 @@ import type {
     TPageMoveOperation,
     TPageSelection,
 } from '@contracts/pageNumbers';
-import { pageSelectionCount } from '@contracts/pageNumbers';
+import {
+    pageSelectionCount,
+    parsePageNumber,
+} from '@contracts/pageNumbers';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type {
     TFitMode,
@@ -583,9 +586,13 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         getDeletedEmbeddedShapeAnnotationIds: () => deps.pdfAutomationViewerRef?.value?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
         getDeletedEmbeddedShapeStableKeys: () => deps.pdfAutomationViewerRef?.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
         highlightSelection: () => deps.pdfAutomationViewerRef?.value?.highlightSelection?.() ?? Promise.resolve(false),
-        commentAtPoint: (pageNumber, pageX, pageY, options) => (
-            deps.pdfAutomationViewerRef?.value?.commentAtPoint?.(pageNumber, pageX, pageY, options) ?? Promise.resolve(false)
-        ),
+        commentAtPoint: (pageNumber, pageX, pageY, options) => {
+            const parsedPageNumber = parsePageNumber(pageNumber);
+            return parsedPageNumber === null
+                ? Promise.resolve(false)
+                : deps.pdfAutomationViewerRef?.value?.commentAtPoint?.(parsedPageNumber, pageX, pageY, options)
+                    ?? Promise.resolve(false);
+        },
     };
 
     const depsHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = deps;

@@ -15,11 +15,20 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import {
+    parseRequestId,
+    type TRequestId,
+} from '@contracts/shared';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     decodeDebugLogEntry,
     type TMenuEventUnsubscribe,
 } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import type { DiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
+import {isRecord} from '@contracts/runtimeGuards';
 import type {
     TWindowCloseDecision,
     TWindowCloseUnavailableReason,
@@ -64,7 +73,6 @@ import {
     CORE_IPC_SEND_CHANNELS,
     type IPreloadDiagnosticsApi,
     type ICoreEventMap,
-    type IShutdownSaveFlushRequest,
     type IShutdownSaveFlushResult,
     decodeWindowCloseRequest,
 } from '@electron/platform-ipc/coreContract';
@@ -264,7 +272,7 @@ export function createElectronApi(
         });
     }
 
-    const openDocumentDirect = async (path: string, password?: string) => {
+    const openDocumentDirect = async (path: TDocumentRef, password?: string) => {
         const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
         if (pendingAllow && !await pendingAllow) {
             return null;
@@ -275,8 +283,8 @@ export function createElectronApi(
             : baseDocuments.openDocumentDirect(path, password);
     };
     const openDocumentDirectBatch = async (
-        paths: string[],
-        requestId?: string,
+        paths: TDocumentRef[],
+        requestId?: TRequestId,
         options?: {forceCombine?: boolean},
     ) => {
         const allowed = await Promise.all(paths.map(async (path) => {
@@ -291,15 +299,17 @@ export function createElectronApi(
             : baseDocuments.openDocumentDirectBatch(paths, requestId, options);
     };
 
-    const extractPathsForFiles = (files: File[]) => files
+    const extractPathsForFiles = (files: File[]): TDocumentRef[] => files
         .map(file => electronWebUtils.getPathForFile(file))
-        .filter(filePath => filePath.length > 0);
+        .map(filePath => parseDocumentRef(filePath))
+        .filter((filePath): filePath is TDocumentRef => filePath !== null);
 
-    const getPathForFile = (file: File) => {
-        const filePath = electronWebUtils.getPathForFile(file);
-        if (filePath) {
-            observeRendererFileOpenGrant(allowRendererFileOpen(filePath), { filePath });
+    const getPathForFile = (file: File): TDocumentRef => {
+        const filePath = parseDocumentRef(electronWebUtils.getPathForFile(file));
+        if (filePath === null) {
+            throw new Error('Selected file does not have an absolute document path');
         }
+        observeRendererFileOpenGrant(allowRendererFileOpen(filePath), { filePath });
         return filePath;
     };
     const getPathsForFiles = (files: File[]) => {
@@ -313,9 +323,9 @@ export function createElectronApi(
         return allowed ? filePaths : [];
     };
 
-    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest, (_event, payload: IShutdownSaveFlushRequest) => {
-        const requestId = typeof payload?.requestId === 'string' ? payload.requestId : '';
-        if (!requestId) {
+    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest, (_event, payload: unknown) => {
+        const requestId = parseRequestId(isRecord(payload) ? payload.requestId : undefined);
+        if (requestId === null) {
             return;
         }
         void (async () => {
@@ -365,14 +375,14 @@ export function createElectronApi(
             const callbacks = Array.from(windowCloseCallbacks);
             const callback = callbacks.length === 1 ? callbacks[0] : undefined;
             let response: {
-                requestId: string;
+                requestId: TRequestId;
                 decision?: TWindowCloseDecision;
                 status?: 'unavailable';
                 reason?: TWindowCloseUnavailableReason;
             };
             if (callback) {
                 try {
-                    const candidate = await callback(request);
+                    const candidate: unknown = await callback(request);
                     if (candidate === 'save' || candidate === 'discard' || candidate === 'cancel') {
                         response = {
                             decision: candidate,

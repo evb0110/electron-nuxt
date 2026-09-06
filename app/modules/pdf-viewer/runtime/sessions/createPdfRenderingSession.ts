@@ -879,7 +879,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }, {flush: 'sync'});
     const stopVisualReadyWatch = watch(viewport.visualReadySignal, (signal, previous) => {
         if (signal.revision !== previous.revision && signal.pageNumber !== null) {
-            initialVisual.adoptResidentCanvas(signal.pageNumber);
+            initialVisual.adoptResidentCanvas(requirePageNumber(signal.pageNumber));
         }
     }, {flush: 'sync'});
     const chassisOpenSurface = options.chassisAuthority?.openSurface;

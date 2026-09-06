@@ -8,6 +8,7 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TSessionId } from '@contracts/shared';
+import {requireSessionId} from '@contracts/shared';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import {
     assertEmbeddedShapeImportSize,
@@ -354,6 +355,7 @@ async function readNativeEmbeddedShapeIndexChunks(
     signal?.throwIfAborted();
     const files = getNativeEmbeddedShapeIndexFiles(path, expectedRevision);
     let session: IPdfEmbeddedShapeIndexSession | null = null;
+    let sessionId: TSessionId | null = null;
     let primaryError: unknown = null;
     let operationFailed = false;
     let importedShapes: IShapeAnnotation[] | null = null;
@@ -377,6 +379,7 @@ async function readNativeEmbeddedShapeIndexChunks(
         if (session.documentRef !== path || session.documentRevisionToken !== revision) {
             throw new Error('Native embedded shape index session identity does not match the requested document');
         }
+        sessionId = requireSessionId(session.sessionId);
 
         importedShapes = [];
         let offset = 0;
@@ -385,7 +388,7 @@ async function readNativeEmbeddedShapeIndexChunks(
             signal?.throwIfAborted();
             const requestedOffset = offset;
             const chunk = await files.readPdfEmbeddedShapeIndexChunk(
-                session.sessionId,
+                sessionId,
                 requestedOffset,
                 {chunkBytes: EMBEDDED_SHAPE_INDEX_CHUNK_BYTES},
             );
@@ -419,14 +422,18 @@ async function readNativeEmbeddedShapeIndexChunks(
         if (session) {
             if (operationFailed || signal?.aborted) {
                 try {
-                    await files.cancelPdfEmbeddedShapeIndex(session.sessionId);
+                    if (sessionId !== null) {
+                        await files.cancelPdfEmbeddedShapeIndex(sessionId);
+                    }
                 } catch {
                     // Preserve the source/index error. Release below still
                     // owns the host session even when cancellation races it.
                 }
             }
             try {
-                await files.releasePdfEmbeddedShapeIndex(session.sessionId);
+                if (sessionId !== null) {
+                    await files.releasePdfEmbeddedShapeIndex(sessionId);
+                }
             } catch (caughtReleaseError) {
                 releaseError = caughtReleaseError;
             }

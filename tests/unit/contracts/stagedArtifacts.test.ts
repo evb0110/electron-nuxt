@@ -11,16 +11,18 @@ import {
     isTypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireLeaseId} from '@contracts/shared';
 
 const SHA256 = 'a'.repeat(64);
-const BROWSER_DOCUMENT_REF = 'browser://documents/browser-id/staged.pdf';
+const BROWSER_DOCUMENT_REF = requireDocumentRef('browser://documents/browser-id/staged.pdf');
 const BROWSER_REVISION = requireDocumentRevisionToken('drt1:browser:revision-1');
 
 function createArtifact() {
     return {
         receiptVersion: 1 as const,
         artifactKind: 'pdf' as const,
-        path: '/tmp/staged.pdf',
+        path: requireDocumentRef('/tmp/staged.pdf'),
         size: 512,
         sha256: SHA256,
         fileIdentity: {
@@ -42,7 +44,7 @@ function createArtifact() {
             semanticScopeSha256: 'b'.repeat(64),
             changedObjectRefsSha256: 'c'.repeat(64),
         },
-        leaseId: 'lease-1',
+        leaseId: requireLeaseId('lease-1'),
         revision: null,
     };
 }
@@ -209,7 +211,7 @@ describe('typed staged artifact contracts', () => {
     });
 
     it('rejects browser identity construction for non-browser refs', () => {
-        expect(() => createBrowserStoreFileIdentity('/tmp/staged.pdf', BROWSER_REVISION))
+        expect(() => createBrowserStoreFileIdentity(requireDocumentRef('/tmp/staged.pdf'), BROWSER_REVISION))
             .toThrow(TypeError);
         expect(() => createBrowserStoreFileIdentity(BROWSER_DOCUMENT_REF, ' ' as typeof BROWSER_REVISION))
             .toThrow(TypeError);

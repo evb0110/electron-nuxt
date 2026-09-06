@@ -1,9 +1,13 @@
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
+import {parsePageNumber} from '@contracts/pageNumbers';
+import {parseDocumentRef} from '@contracts/documentRef';
+import type {TPageNumber} from '@contracts/pageNumbers';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewer-metrics/summarizeViewerMetrics';
 import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
 import { shouldShowPdfNavigationSkeleton } from '@app/modules/pdf-viewer/runtime/rendering/pdf-navigation-skeleton-eligibility/shouldShowPdfNavigationSkeleton';
+import { createPdfRenderPagePredicate } from '@app/modules/pdf-viewer/runtime/rendering/createPdfRenderPagePredicate';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
 import { createPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {
@@ -21,6 +25,7 @@ import {
 import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
 import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { usePdfViewerNavigationDiagnostics } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerNavigationDiagnostics';
 import { usePdfViewerMouseInteractions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions';
 import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
@@ -36,6 +41,13 @@ import type {
     IPdfViewerProps,
     IPdfViewerEmit,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
+
+function resolveOpenSurfaceDocumentId(source: TPdfSource | null | undefined) {
+    if (source && typeof source === 'object' && 'path' in source && typeof source.path === 'string') {
+        return source.path;
+    }
+    return 'pdf-open';
+}
 
 /**
  * Composition root for the PDF viewer feature.
@@ -99,7 +111,9 @@ export const usePdfViewerFeatureController = (
 
     const documentSession = createPdfDocumentSession({
         chassisAuthority,
-        openSurfaceDocumentId: () => String(props.originalPath ?? workingCopyPath.value ?? src.value ?? 'pdf-open'),
+        openSurfaceDocumentId: () => props.originalPath
+            ?? workingCopyPath.value
+            ?? resolveOpenSurfaceDocumentId(src.value),
         emitInitialVisualPending: viewerEvents.initialVisualPending,
         src,
         reloadSrc,
@@ -174,15 +188,28 @@ export const usePdfViewerFeatureController = (
         isResizing,
         requestedCurrentPage,
         outputScale,
-        isPageFreshlyRenderedForNavigation: pageNumber => (
-            renderingSessionRef.value?.isPageVisualReady(pageNumber) ?? false
-        ),
+        isPageFreshlyRenderedForNavigation: pageNumber => {
+            const parsedPageNumber = parsePageNumber(pageNumber, documentSession.numPages.value);
+            return parsedPageNumber === null
+                ? false
+                : renderingSessionRef.value?.isPageVisualReady(parsedPageNumber) ?? false;
+        },
         waitForPageTextLayerReady: (pageNumber, signal) => (
-            renderingSessionRef.value?.waitForPageTextLayerReady(pageNumber, signal)
-                ?? Promise.resolve(false)
+            (() => {
+                const parsedPageNumber = parsePageNumber(pageNumber, documentSession.numPages.value);
+                return parsedPageNumber === null
+                    ? Promise.resolve(false)
+                    : renderingSessionRef.value?.waitForPageTextLayerReady(parsedPageNumber, signal)
+                ?? Promise.resolve(false);
+            })()
         ),
         getCommittedPageScale: pageNumber => (
-            renderingSessionRef.value?.getCommittedPageScale?.(pageNumber) ?? null
+            (() => {
+                const parsedPageNumber = parsePageNumber(pageNumber, documentSession.numPages.value);
+                return parsedPageNumber === null
+                    ? null
+                    : renderingSessionRef.value?.getCommittedPageScale?.(parsedPageNumber) ?? null;
+            })()
         ),
         selectionMarkupStyle,
         classState: {
@@ -255,7 +282,7 @@ export const usePdfViewerFeatureController = (
         immediate: true,
     });
 
-    let markDelayedSkeletonPageRendered = (_pageNumber: number) => {};
+    let markDelayedSkeletonPageRendered = (_pageNumber: TPageNumber) => {};
     const renderingSession = createPdfRenderingSession({
         document: documentSession,
         viewport: viewportSession,
@@ -296,7 +323,7 @@ export const usePdfViewerFeatureController = (
         viewport: viewportSession,
         rendering: renderingSession,
         viewerContainer,
-        originalPath: computed(() => props.originalPath ?? null),
+        originalPath: computed(() => parseDocumentRef(props.originalPath)),
         src,
         sourcePdfData,
         workingCopyPath,
@@ -326,6 +353,23 @@ export const usePdfViewerFeatureController = (
     });
     annotationSessionRef.value = annotationSession;
 
+    const isPageBufferedForView = createPdfRenderPagePredicate(
+        () => documentSession.numPages.value,
+        viewportSession.viewModel.isPageBuffered,
+    );
+    const isPageRenderedForView = createPdfRenderPagePredicate(
+        () => documentSession.numPages.value,
+        renderingSession.isPageRenderedForClass,
+    );
+    const isPageRenderingForView = createPdfRenderPagePredicate(
+        () => documentSession.numPages.value,
+        renderingSession.isPageRendering,
+    );
+    const isPageRenderFailedForView = createPdfRenderPagePredicate(
+        () => documentSession.numPages.value,
+        renderingSession.isPageRenderFailed,
+    );
+
     const renderViewModel = usePdfRenderViewModel({
         src,
         isLoading: documentSession.isLoading,
@@ -336,21 +380,31 @@ export const usePdfViewerFeatureController = (
         suppressLoadingOverlay,
         skeletonContentInsets: viewportSession.skeletonInsets.skeletonContentInsets,
         pagesToRender: viewportSession.viewModel.pagesToRender,
-        isPageBuffered: viewportSession.viewModel.isPageBuffered,
-        isPageRenderedForClass: renderingSession.isPageRenderedForClass,
-        isPageRendering: renderingSession.isPageRendering,
-        isPageRenderFailed: renderingSession.isPageRenderFailed,
-        shouldShowSkeleton: pageNumber => shouldShowPdfNavigationSkeleton({
-            pageNumber,
-            navigationAnchorPage: viewportSession.singlePageScroll.navigationAnchorPage.value
-                ?? (viewportSession.singlePageScroll.isProgrammaticNavigationActive.value
-                    ? viewportSession.currentPage.value
-                    : null),
-            totalPages: documentSession.numPages.value,
-            viewMode: viewMode.value,
-            isPageRendered: renderingSession.isPageVisualReady,
-            shouldShowSkeleton: isPageNearVisibleAndUnrendered,
-        }),
+        isPageBuffered: isPageBufferedForView,
+        isPageRenderedForClass: isPageRenderedForView,
+        isPageRendering: isPageRenderingForView,
+        isPageRenderFailed: isPageRenderFailedForView,
+        shouldShowSkeleton: pageNumber => {
+            const totalPages = documentSession.numPages.value;
+            const brandedPageNumber = parsePageNumber(pageNumber, totalPages);
+            if (brandedPageNumber === null) {
+                return false;
+            }
+            const navigationAnchorPageValue = viewportSession.singlePageScroll.navigationAnchorPage.value;
+            const navigationAnchorPage = navigationAnchorPageValue === null
+                ? (viewportSession.singlePageScroll.isProgrammaticNavigationActive.value
+                    ? parsePageNumber(viewportSession.currentPage.value, totalPages)
+                    : null)
+                : parsePageNumber(navigationAnchorPageValue, totalPages);
+            return shouldShowPdfNavigationSkeleton({
+                pageNumber: brandedPageNumber,
+                navigationAnchorPage,
+                totalPages,
+                viewMode: viewMode.value,
+                isPageRendered: renderingSession.isPageVisualReady,
+                shouldShowSkeleton: isPageNearVisibleAndUnrendered,
+            });
+        },
         visibleRange: viewportSession.visibleRange,
         currentPage: viewportSession.currentPage,
         zoom,
@@ -364,7 +418,7 @@ export const usePdfViewerFeatureController = (
     markDelayedSkeletonPageRendered = renderViewModel.markPageRendered;
 
     const SKELETON_BUFFER = 3;
-    function isPageNearVisibleAndUnrendered(pageNumber: number) {
+    function isPageNearVisibleAndUnrendered(pageNumber: TPageNumber) {
         const start = Math.max(1, viewportSession.visibleRange.value.start - SKELETON_BUFFER);
         const end = Math.min(documentSession.numPages.value, viewportSession.visibleRange.value.end + SKELETON_BUFFER);
         return pageNumber >= start
@@ -483,10 +537,10 @@ export const usePdfViewerFeatureController = (
         pagesToRender: viewportSession.viewModel.pagesToRender,
         virtualPageSegments: viewportSession.viewModel.virtualPageSegments,
         shouldShowPageSkeleton: renderViewModel.shouldShowPageSkeleton,
-        isPageRenderFailed: renderingSession.isPageRenderFailed,
+        isPageRenderFailed: isPageRenderFailedForView,
         isSpreadSingle: (page: number) => isStandaloneSpreadPage(page, viewMode.value, documentSession.numPages.value),
-        isPageBuffered: viewportSession.viewModel.isPageBuffered,
-        isPageRenderedForClass: renderingSession.isPageRenderedForClass,
+        isPageBuffered: isPageBufferedForView,
+        isPageRenderedForClass: isPageRenderedForView,
         getPageScale: viewportSession.viewModel.getPageScale,
         getPagePlaceholderStyle: viewportSession.viewModel.getPagePlaceholderStyle,
         getExactPagePlaceholderStyle: viewportSession.openVirtualSurfaceGeometry.getExactPagePlaceholderStyle,
@@ -507,7 +561,10 @@ export const usePdfViewerFeatureController = (
         handlePageContainerMounted: (pageNumber: number) => viewportSession.markPageMounted(pageNumber),
         handlePageContainerUnmounted: (pageNumber: number) => {
             viewportSession.markPageUnmounted(pageNumber);
-            renderingSession.releaseUnmountedPage(pageNumber);
+            const parsedPageNumber = parsePageNumber(pageNumber, documentSession.numPages.value);
+            if (parsedPageNumber !== null) {
+                renderingSession.releaseUnmountedPage(parsedPageNumber);
+            }
         },
         updatePendingImagePlacementRect,
         requestPendingImagePlacementFinalize,

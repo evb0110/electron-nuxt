@@ -12,6 +12,7 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requireRequestId} from '@contracts/shared';
 import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
 import {
@@ -661,7 +662,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                     firstRef,
                     secondRef,
                 ],
-                { requestId: 'browser-batch-1' },
+                { requestId: requireRequestId('browser-batch-1') },
             );
         } finally {
             stopListening();

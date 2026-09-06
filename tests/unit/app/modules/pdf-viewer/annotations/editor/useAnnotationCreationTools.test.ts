@@ -11,11 +11,12 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IAnnotationEditorSurface } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import { useAnnotationCreationTools } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 const entity = {
     kind: 'text-box',
     identity: {id: 'text-box' as ITextBoxEntity['identity']['id']},
-    pageIndex: 2,
+    pageIndex: requirePageIndex(2),
     revision: 0,
     persistedRevision: -1,
     deleted: false,
@@ -37,7 +38,7 @@ const entity = {
 const note = {
     kind: 'note',
     identity: {id: 'note' as INoteEntity['identity']['id']},
-    pageIndex: 2,
+    pageIndex: requirePageIndex(2),
     revision: 0,
     persistedRevision: -1,
     deleted: false,
@@ -53,7 +54,7 @@ const note = {
 const stamp = {
     kind: 'placed-image',
     identity: {id: 'stamp' as IPlacedImageEntity['identity']['id']},
-    pageIndex: 2,
+    pageIndex: requirePageIndex(2),
     revision: 0,
     persistedRevision: -1,
     deleted: false,

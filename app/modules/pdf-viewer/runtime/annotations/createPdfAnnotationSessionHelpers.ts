@@ -10,6 +10,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import {getAnnotationCreationExpectedOutcome} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import {BrowserLogger} from '@app/utils/browserLogger';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 function reportAnnotationCreationFailure(
     report: ((failure: IAnnotationCreationFailureReport) => void) | undefined,
@@ -23,6 +24,7 @@ function reportAnnotationCreationFailure(
     if (outcome) {
         report?.({
             ...input,
+            pageNumber: input.pageNumber === null ? null : requirePageNumber(input.pageNumber),
             kind: 'expected',
             outcome,
         });
@@ -34,6 +36,7 @@ function reportAnnotationCreationFailure(
     });
     report?.({
         ...input,
+        pageNumber: input.pageNumber === null ? null : requirePageNumber(input.pageNumber),
         kind: 'fault',
         failure,
     });

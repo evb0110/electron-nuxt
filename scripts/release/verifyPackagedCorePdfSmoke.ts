@@ -17,6 +17,7 @@ import puppeteer from 'puppeteer-core';
 import type {Page} from 'puppeteer-core';
 import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     applyCombinedPdfPageLabels,
     inspectPdfCombineCatalog,
@@ -54,7 +55,7 @@ type TConnectedBrowser = Awaited<ReturnType<typeof puppeteer.connect>>;
 const PACKAGED_SMOKE_BOOKMARKS: IPdfBookmarkEntry[] = [
     {
         title: 'First page',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         namedDest: null,
         bold: false,
         italic: false,
@@ -63,7 +64,7 @@ const PACKAGED_SMOKE_BOOKMARKS: IPdfBookmarkEntry[] = [
     },
     {
         title: 'Second page',
-        pageIndex: 1,
+        pageIndex: requirePageIndex(1),
         namedDest: null,
         bold: false,
         italic: false,

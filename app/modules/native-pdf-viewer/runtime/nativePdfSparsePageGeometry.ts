@@ -143,7 +143,11 @@ export function createNativePdfPageGeometry(pageSizes: TPdfNativePageSizes): INa
         };
     }
 
-    if (!isValidPageSize(pageSizes.defaultPageSize)) {
+    if (
+        typeof pageSizes !== 'object'
+        || pageSizes === null
+        || !isValidPageSize(pageSizes.defaultPageSize)
+    ) {
         throw new Error('Native PDF page geometry metadata is invalid');
     }
     const pageCount = normalizePageCount(pageSizes.pageCount);

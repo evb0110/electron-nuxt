@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {
     lstat,
     mkdtemp,
@@ -20,6 +19,14 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import {PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES} from '@contracts/electronApiDocuments';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
+    createSessionId,
+    type TSessionId,
+} from '@contracts/shared';
 import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsService';
 import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/documentFilePathResolution';
 import {
@@ -67,9 +74,9 @@ const ANNOTATION_INDEX_NATIVE_STDERR_BYTES = 512 * 1_024;
 const logger = createLogger('pdf-annotation-index');
 
 interface IAnnotationIndexSessionState {
-    sessionId: string;
+    sessionId: TSessionId;
     ownerId: number;
-    documentRef: string;
+    documentRef: TDocumentRef;
     resolvedPath: string;
     expectedRevisionToken: TDocumentRevisionToken;
     sidecarDirectory: string;
@@ -328,14 +335,14 @@ export async function beginPdfAnnotationIndex(
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
-            documentRef: resolvedPath,
+            documentRef: requireDocumentRef(resolvedPath),
             expectedRevision: expectedRevisionToken,
             actualRevision: revision.token,
         });
     }
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
-    const sessionId = randomUUID();
+    const sessionId = createSessionId('pdf-annotation-index');
     const sidecarDirectory = await mkdtemp(join(getAppTempDir(), ANNOTATION_INDEX_DIRECTORY_PREFIX));
     const sidecarPath = join(sidecarDirectory, ANNOTATION_INDEX_FILE_NAME);
     const abortController = new AbortController();
@@ -343,7 +350,7 @@ export async function beginPdfAnnotationIndex(
     const session: IAnnotationIndexSessionState = {
         sessionId,
         ownerId: getOwnerId(context),
-        documentRef: filePath,
+        documentRef: requireDocumentRef(filePath),
         resolvedPath,
         expectedRevisionToken,
         sidecarDirectory,
@@ -439,7 +446,7 @@ export async function beginPdfAnnotationIndex(
     }
     return {
         sessionId,
-        documentRef: filePath,
+        documentRef: requireDocumentRef(filePath),
         documentRevisionToken: expectedRevisionToken,
         pageCount: session.index.pageCount,
         entryCount: session.index.entryCount,

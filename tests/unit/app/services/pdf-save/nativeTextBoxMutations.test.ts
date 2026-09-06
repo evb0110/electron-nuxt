@@ -12,6 +12,8 @@ import {
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {collectNativeTextBoxMutationsForSave} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 function textBox(
     id: string,
@@ -20,12 +22,12 @@ function textBox(
     return {
         kind: 'text-box',
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 1,
         persistedRevision: 0,
         deleted: false,
-        createdAt: 1_781_000_000_000,
-        modifiedAt: 1_781_000_000_100,
+        createdAt: requireEpochMs(1_781_000_000_000),
+        modifiedAt: requireEpochMs(1_781_000_000_100),
         author: 'Tester',
         text: 'Canonical text box',
         rect: {
@@ -84,7 +86,7 @@ describe('native canonical text-box mutations', () => {
             documentWithPages(getPage),
             planFor([entity]),
         )).resolves.toEqual([{
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             stableKey: 'text-box-one',
             annotationId: '10R',
             text: 'Edited text',
@@ -102,8 +104,8 @@ describe('native canonical text-box mutations', () => {
                 204,
             ],
             author: 'Tester',
-            createdAt: 1_781_000_000_000,
-            modifiedAt: 1_781_000_000_100,
+            createdAt: requireEpochMs(1_781_000_000_000),
+            modifiedAt: requireEpochMs(1_781_000_000_100),
         }]);
         expect(getPage).toHaveBeenCalledOnce();
         expect(getPage).toHaveBeenCalledWith(1);
@@ -121,7 +123,7 @@ describe('native canonical text-box mutations', () => {
         }));
         const first = textBox('text-box-one');
         const second = textBox('text-box-two', {
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             text: 'Second text',
         });
 

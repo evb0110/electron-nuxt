@@ -75,15 +75,17 @@ import type {
     ICreateTextMarkupFromTextResult,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 export interface ICreatePdfAnnotationSessionOptions {
     document: TPdfDocumentSession;
     viewport: TPdfViewportSession;
     rendering: TPdfRenderingSession;
     viewerContainer: Ref<HTMLElement | null>;
-    originalPath: ComputedRef<string | null>;
+    originalPath: ComputedRef<TDocumentRef | null>;
     src: ComputedRef<TPdfSource | null>;
     sourcePdfData: ComputedRef<Uint8Array | null>;
-    workingCopyPath: ComputedRef<string | null>;
+    workingCopyPath: ComputedRef<TDocumentRef | null>;
     documentRevisionToken: ComputedRef<TDocumentRevisionToken | null>;
     isAnySaving: ComputedRef<boolean>;
     isActive: ComputedRef<boolean>;
@@ -206,12 +208,10 @@ function buildRangeFromPageText(
     }
     return null;
 }
-
 // Pathless sources are keyed by Blob instance because their metadata can collide.
 // The `blob-instance:` prefix avoids collisions with file paths.
 const annotationBlobIdentities = new WeakMap<Blob, string>();
 let nextAnnotationBlobIdentity = 0;
-
 function annotationBlobIdentity(source: Blob) {
     const existing = annotationBlobIdentities.get(source);
     if (existing) {
@@ -222,7 +222,6 @@ function annotationBlobIdentity(source: Blob) {
     annotationBlobIdentities.set(source, identity);
     return identity;
 }
-
 function annotationDocumentKey(source: TPdfSource | null) {
     if (!source) {
         return 'no-document';
@@ -231,7 +230,6 @@ function annotationDocumentKey(source: TPdfSource | null) {
         ? annotationBlobIdentity(source)
         : `path:${source.path}`;
 }
-
 function resolveAnnotationStoreDocumentIdentity(
     input: IAnnotationStoreDocumentIdentityInput,
 ) {
@@ -532,7 +530,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!options.viewerContainer.value) {
             return failCommentAtPoint('viewer-not-ready', pageNumber);
         }
-        if (!findPdfPageContainer(options.viewerContainer.value, pageNumber)) {
+        if (!findPdfPageContainer(options.viewerContainer.value, requirePageNumber(pageNumber, documentSession.numPages.value))) {
             return failCommentAtPoint('page-not-rendered', pageNumber);
         }
         const position = markerRectFromPoint(pageX, pageY);
@@ -580,9 +578,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         target: ICreateTextMarkupFromTextOptions,
     ): Promise<ICreateTextMarkupFromTextResult> {
         await Promise.resolve();
-        const pageNumber = Number.isFinite(target.pageNumber)
-            ? Math.max(1, Math.trunc(target.pageNumber))
-            : viewport.currentPage.value;
+        const pageNumber = requirePageNumber(
+            Number.isFinite(target.pageNumber)
+                ? Math.max(1, Math.trunc(target.pageNumber))
+                : viewport.currentPage.value,
+        );
         const requestedText = target.text.trim();
         const occurrence = typeof target.occurrence === 'number' && Number.isFinite(target.occurrence)
             ? Math.max(1, Math.trunc(target.occurrence))
@@ -659,7 +659,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             clientY,
             hasSelection: Boolean(selectionRange),
             selectionText: selectionRange?.toString() ?? '',
-            pageNumber: target?.pageNumber ?? null,
+            pageNumber: target?.pageNumber === undefined || target.pageNumber === null
+                ? null
+                : requirePageNumber(target.pageNumber),
             pageX: target?.pageX ?? null,
             pageY: target?.pageY ?? null,
         };
@@ -737,7 +739,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 annotationEditorSurface.select([id]);
             }
             setActiveSummary(comment);
-            viewport.singlePageScroll.scrollToPage(comment.pageNumber, {markerRect: comment.markerRect});
+            viewport.singlePageScroll.scrollToPage(requirePageNumber(comment.pageNumber), {markerRect: comment.markerRect});
             await nextTick();
         },
         updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => {
@@ -951,7 +953,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     async function feedStoreFromWriterParse(
         transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
     ) {
-        const parsePath = options.workingCopyPath.value ?? options.originalPath.value ?? (options.src.value instanceof Blob ? null : options.src.value?.path ?? null);
+        const parsePath = options.workingCopyPath.value
+            ?? options.originalPath.value
+            ?? (options.src.value instanceof Blob ? null : options.src.value?.path ?? null);
         const expectedRevisionToken = options.documentRevisionToken.value
             ?? (parsePath
                 ? await getDocumentFilesCapability().getDocumentRevision(parsePath)

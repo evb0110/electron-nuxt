@@ -1,5 +1,8 @@
 /* eslint-disable max-lines -- This file is the public desktop document protocol contract. */
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type {
     IPlatformUnsupportedResult,
     TPlatformUnsupportedReason,
@@ -21,7 +24,10 @@ import type {
     IPdfPageLabelRange,
     TPdfPageLabelStyle,
 } from '@contracts/pdfPageLabels';
-import type { TPageIndex } from '@contracts/pageNumbers';
+import type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
 import type {
     TPdfAnnotationLineEndStyle,
     TPdfAnnotationMarkupSubtype,
@@ -35,10 +41,20 @@ import {
 } from '@contracts/runtimeGuards';
 import type {
     IRecentFile,
+    TLeaseId,
+    TRequestId,
+    TSessionId,
     TPdfViewRotation,
     TPdfViewMode,
     TPrintOrientation,
 } from '@contracts/shared';
+import {
+    parseLeaseId,
+    parseRequestId,
+} from '@contracts/shared';
+import type {TEpochMs} from '@contracts/timestamps';
+import {parseEpochMs} from '@contracts/timestamps';
+import type {TPdfDateString} from '@contracts/pdfDateString';
 import type {
     IPdfConformanceAnalysisOptions,
     IPdfConformanceProfile,
@@ -67,13 +83,13 @@ export interface IDocumentChunkReadResult {
     chunks: number;
 }
 export interface IPdfPathPrintOptions {
-    pageNumbers?: number[];
-    requestId?: string;
+    pageNumbers?: TPageNumber[];
+    requestId?: TRequestId;
     viewMode: TPdfViewMode;
     orientation: TPrintOrientation;
 }
-export interface IPdfDataPrintOptions {requestId?: string;}
-export interface IPdfNativePrintDialogOpenedEvent {requestId: string;}
+export interface IPdfDataPrintOptions {requestId?: TRequestId;}
+export interface IPdfNativePrintDialogOpenedEvent {requestId: TRequestId;}
 /** A PDF indirect-object reference returned by the native annotation index. */
 export interface IPdfAnnotationIndexObjectRef {
     objectNumber: number;
@@ -99,7 +115,7 @@ export interface IPdfAnnotationIndexOptions {expectedDocumentRevisionToken: TDoc
 export interface IPdfAnnotationIndexChunkOptions extends PdfAnnotationParse.IPdfSidecarChunkOptions {}
 
 export interface IPdfAnnotationIndexSession {
-    sessionId: string;
+    sessionId: TSessionId;
     documentRef: TDocumentRef;
     documentRevisionToken: TDocumentRevisionToken;
     pageCount: number;
@@ -150,8 +166,8 @@ export interface IPdfEmbeddedShapeIndexEntry {
     strokes: IPdfEmbeddedShapeIndexPoint[][] | null;
     lineStartStyle: TPdfNativeShapeLineEndStyle | null;
     lineEndStyle: TPdfNativeShapeLineEndStyle | null;
-    createdAt: number | null;
-    modifiedAt: number | null;
+    createdAt: TEpochMs | null;
+    modifiedAt: TEpochMs | null;
 }
 
 /** The renderer requests at most 512 KiB of decoded shape-index data. */
@@ -164,7 +180,7 @@ export interface IPdfEmbeddedShapeIndexOptions {expectedDocumentRevisionToken: T
 export interface IPdfEmbeddedShapeIndexChunkOptions extends PdfAnnotationParse.IPdfSidecarChunkOptions {}
 
 export interface IPdfEmbeddedShapeIndexSession {
-    sessionId: string;
+    sessionId: TSessionId;
     documentRef: TDocumentRef;
     documentRevisionToken: TDocumentRevisionToken;
     pageCount: number;
@@ -186,7 +202,7 @@ export interface IManagedTempFileHandle {
     path: TDocumentRef;
     size: number;
     sha256: string;
-    leaseId: string;
+    leaseId: TLeaseId;
     revision: TDocumentRevisionToken | null;
 }
 
@@ -223,10 +239,10 @@ export interface IWorkingCopyBackingStatus {
 }
 
 export function decodeWorkingCopyBackingStatus(value: unknown): IWorkingCopyBackingStatus | null {
+    const documentRef = isRecord(value) ? parseDocumentRef(value.documentRef) : null;
     if (
         !isRecord(value)
-        || typeof value.documentRef !== 'string'
-        || value.documentRef.trim().length === 0
+        || documentRef === null
         || !isFiniteNumber(value.progress)
         || value.progress < 0
         || value.progress > 1
@@ -246,7 +262,7 @@ export function decodeWorkingCopyBackingStatus(value: unknown): IWorkingCopyBack
         return null;
     }
     return {
-        documentRef: value.documentRef,
+        documentRef,
         failure: failure === null
             ? null
             : {
@@ -259,17 +275,17 @@ export function decodeWorkingCopyBackingStatus(value: unknown): IWorkingCopyBack
 }
 
 export function decodeManagedTempFileHandle(value: unknown): IManagedTempFileHandle | null {
+    const path = isRecord(value) ? parseDocumentRef(value.path) : null;
+    const leaseId = isRecord(value) ? parseLeaseId(value.leaseId) : null;
     if (
         !isRecord(value)
-        || typeof value.path !== 'string'
-        || value.path.length === 0
+        || path === null
         || typeof value.size !== 'number'
         || !Number.isSafeInteger(value.size)
         || value.size < 0
         || typeof value.sha256 !== 'string'
         || !/^[a-f0-9]{64}$/u.test(value.sha256)
-        || typeof value.leaseId !== 'string'
-        || value.leaseId.length === 0
+        || leaseId === null
         || (value.revision !== null && typeof value.revision !== 'string')
     ) {
         return null;
@@ -279,10 +295,10 @@ export function decodeManagedTempFileHandle(value: unknown): IManagedTempFileHan
         return null;
     }
     return {
-        path: value.path,
+        path,
         size: value.size,
         sha256: value.sha256,
-        leaseId: value.leaseId,
+        leaseId,
         revision,
     };
 }
@@ -294,7 +310,7 @@ export function decodeFileStatResult(
     maxBytes = Number.MAX_SAFE_INTEGER,
 ): {
     size: number;
-    modifiedAt?: number
+    modifiedAt?: TEpochMs
 } | null {
     if (
         !isRecord(value)
@@ -305,12 +321,8 @@ export function decodeFileStatResult(
     ) {
         return null;
     }
-    const modifiedAt = value.modifiedAt;
-    if (modifiedAt !== undefined && (
-        typeof modifiedAt !== 'number'
-        || !Number.isSafeInteger(modifiedAt)
-        || modifiedAt < 0
-    )) {
+    const modifiedAt = value.modifiedAt === undefined ? undefined : parseEpochMs(value.modifiedAt);
+    if (modifiedAt === null) {
         return null;
     }
     return {
@@ -334,7 +346,7 @@ export type TDocumentChunkSource = Iterable<Uint8Array> | AsyncIterable<Uint8Arr
 
 export interface IOpenPdfDirectBatchProgress {
     operation: TOpenBatchProgressOperation;
-    requestId: string;
+    requestId: TRequestId;
     processed: number;
     total: number;
     percent: number;
@@ -440,7 +452,7 @@ export interface IPdfNativeStagedCommitOptions extends IDocumentMutationRevision
 }
 
 export interface IPdfOptimizeProgress {
-    requestId: string;
+    requestId: TRequestId;
     preset: TPdfOptimizePreset;
     phase: TPdfOptimizeProgressPhase;
     processed: number;
@@ -479,16 +491,17 @@ function decodeProgressCounters(value: Record<string, unknown>, label: string) {
 }
 
 export function decodeOptimizeProgress(value: unknown): IPdfOptimizeProgress {
+    const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
     if (
         !isRecord(value)
-        || typeof value.requestId !== 'string'
+        || requestId === null
         || !isPdfOptimizePreset(value.preset)
         || !isOneOf(PDF_OPTIMIZE_PROGRESS_PHASES, value.phase)
     ) {
         throw new Error('invalid PDF optimize progress event');
     }
     return {
-        requestId: value.requestId,
+        requestId,
         preset: value.preset,
         phase: value.phase,
         ...decodeProgressCounters(value, 'PDF optimize'),
@@ -496,9 +509,10 @@ export function decodeOptimizeProgress(value: unknown): IPdfOptimizeProgress {
 }
 
 export function decodeOpenBatchProgress(value: unknown): TOpenDocumentDirectBatchProgress {
+    const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
     if (
         !isRecord(value)
-        || typeof value.requestId !== 'string'
+        || requestId === null
         || !isOneOf(OPEN_BATCH_PROGRESS_OPERATIONS, value.operation)
         || !isFiniteNumber(value.elapsedMs)
         || value.elapsedMs < 0
@@ -508,7 +522,7 @@ export function decodeOpenBatchProgress(value: unknown): TOpenDocumentDirectBatc
     }
     return {
         operation: value.operation,
-        requestId: value.requestId,
+        requestId,
         ...decodeProgressCounters(value, 'open-batch'),
         elapsedMs: value.elapsedMs,
         estimatedRemainingMs: value.estimatedRemainingMs,
@@ -529,7 +543,7 @@ export interface IPdfNativePageSize {
     height: number;
 }
 
-export interface IPdfNativePageSizeOverride extends IPdfNativePageSize {pageNumber: number;}
+export interface IPdfNativePageSizeOverride extends IPdfNativePageSize {pageNumber: TPageNumber;}
 
 /** Compact native page metadata carries only bounded early/late overrides. */
 export const PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT = 256;
@@ -541,24 +555,24 @@ export const PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT = 256;
 export interface IPdfNativePageSizes {
     pageCount: number;
     defaultPageSize: IPdfNativePageSize;
-    overrides: IPdfNativePageSizeOverride[];
+    overrides: readonly IPdfNativePageSizeOverride[];
 }
 
-export type TPdfNativePageSizes = IPdfNativePageSize[] | IPdfNativePageSizes;
+export type TPdfNativePageSizes = readonly IPdfNativePageSize[] | IPdfNativePageSizes;
 
 export interface IPdfOpeningGeometry {
-    pageNumber: 1;
+    pageNumber: TPageNumber;
     pageCount: number;
     width: number;
     height: number;
     rotation: 0 | 90 | 180 | 270;
     size: number;
-    modifiedAt: number;
+    modifiedAt: TEpochMs;
     linearized?: boolean;
 }
 
 export interface IPdfNativePagePreviewOptions {
-    previewRequestId?: string;
+    previewRequestId?: TRequestId;
     targetWidthPx?: number;
 }
 
@@ -594,7 +608,7 @@ export interface IPdfNativeFreeTextNote {
     markerRect: IPdfNativeFreeTextNoteMarkerRect;
     author?: string | null;
     color?: string | null;
-    createdAt?: number | null;
+    createdAt?: TEpochMs | null;
 }
 
 export interface IPdfNativeTextBoxMutation {
@@ -608,8 +622,8 @@ export interface IPdfNativeTextBoxMutation {
     fontSize: number;
     color: [number, number, number];
     author?: string | null;
-    createdAt?: number | null;
-    modifiedAt?: number | null;
+    createdAt?: TEpochMs | null;
+    modifiedAt?: TEpochMs | null;
 }
 export type IPdfNativeFreeTextEditor = IPdfNativeTextBoxMutation;
 export interface IPdfNativeAnnotationDelete {
@@ -617,7 +631,7 @@ export interface IPdfNativeAnnotationDelete {
     objectNumber?: number;
     generationNumber?: number;
     stableKey?: string;
-    createdAt?: number | null;
+    createdAt?: TEpochMs | null;
 }
 export interface IPdfNativeNoteChanges {
     updates?: IPdfNoteTextUpdate[];
@@ -662,8 +676,8 @@ export interface IPdfNativeShapeAnnotation {
     pdfSubtype?: TPdfNativeShapePdfSubtype | null;
     lineStartStyle?: TPdfNativeShapeLineEndStyle | null;
     lineEndStyle?: TPdfNativeShapeLineEndStyle | null;
-    createdAt?: number | null;
-    modifiedAt?: number | null;
+    createdAt?: TEpochMs | null;
+    modifiedAt?: TEpochMs | null;
 }
 
 export interface IPdfNativeShapesMutation {
@@ -888,10 +902,10 @@ export interface IDocumentsFileCapability {
     openDocumentDirect: (path: TDocumentRef, password?: string) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (
         paths: TDocumentRef[],
-        requestId?: string,
+        requestId?: TRequestId,
         options?: {forceCombine?: boolean},
     ) => Promise<TOpenFileResult | null>;
-    cancelOpenDocumentDirectBatch?: (requestId: string) => Promise<boolean>;
+    cancelOpenDocumentDirectBatch?: (requestId: TRequestId) => Promise<boolean>;
     savePdfAs: (
         workingCopyPath: TDocumentRef,
         options: IPdfSaveAsOptions | undefined,
@@ -902,18 +916,18 @@ export interface IDocumentsFileCapability {
     readFile: (path: TDocumentRef) => Promise<Uint8Array>;
     statFile: (path: TDocumentRef) => Promise<{
         size: number;
-        modifiedAt?: number
+        modifiedAt?: TEpochMs
     }>;
     readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
     createManagedTempFileHandle?: (path: TDocumentRef) => Promise<IManagedTempFileHandle>;
-    releaseManagedTempFileHandle?: (leaseId: string) => Promise<boolean>;
+    releaseManagedTempFileHandle?: (leaseId: TLeaseId) => Promise<boolean>;
     parsePdfAnnotations: PdfAnnotationParse.TPdfAnnotationParse;
     getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry | null>;
     getPdfNativePageSizes?: (path: TDocumentRef) => Promise<TPdfNativePageSizes>;
-    cancelPdfNativePagePreview?: (requestId: string) => Promise<{ canceled: boolean }>;
+    cancelPdfNativePagePreview?: (requestId: TRequestId) => Promise<{ canceled: boolean }>;
     renderPdfNativePagePreview?: (
         path: TDocumentRef,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         options?: IPdfNativePagePreviewOptions,
     ) => Promise<IPdfNativePagePreview>;
     beginPdfAnnotationIndex?: (
@@ -921,12 +935,12 @@ export interface IDocumentsFileCapability {
         options: IPdfAnnotationIndexOptions,
     ) => Promise<IPdfAnnotationIndexSession>;
     readPdfAnnotationIndexChunk?: (
-        sessionId: string,
+        sessionId: TSessionId,
         offset: number,
         options?: IPdfAnnotationIndexChunkOptions,
     ) => Promise<IPdfAnnotationIndexChunk>;
-    releasePdfAnnotationIndex?: (sessionId: string) => Promise<boolean>;
-    cancelPdfAnnotationIndex?: (sessionId: string) => Promise<{canceled: boolean}>;
+    releasePdfAnnotationIndex?: (sessionId: TSessionId) => Promise<boolean>;
+    cancelPdfAnnotationIndex?: (sessionId: TSessionId) => Promise<{canceled: boolean}>;
     beginPdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseBegin;
     readPdfAnnotationParseChunk?: PdfAnnotationParse.TPdfAnnotationParseReadChunk;
     releasePdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseRelease;
@@ -936,12 +950,12 @@ export interface IDocumentsFileCapability {
         options: IPdfEmbeddedShapeIndexOptions,
     ) => Promise<IPdfEmbeddedShapeIndexSession>;
     readPdfEmbeddedShapeIndexChunk?: (
-        sessionId: string,
+        sessionId: TSessionId,
         offset: number,
         options?: IPdfEmbeddedShapeIndexChunkOptions,
     ) => Promise<IPdfEmbeddedShapeIndexChunk>;
-    releasePdfEmbeddedShapeIndex?: (sessionId: string) => Promise<boolean>;
-    cancelPdfEmbeddedShapeIndex?: (sessionId: string) => Promise<{canceled: boolean}>;
+    releasePdfEmbeddedShapeIndex?: (sessionId: TSessionId) => Promise<boolean>;
+    cancelPdfEmbeddedShapeIndex?: (sessionId: TSessionId) => Promise<{canceled: boolean}>;
     decryptPdfWorkingCopy?: (path: TDocumentRef, request?: IPdfDecryptRequest) => Promise<IPdfDecryptResult>;
     readFileChunks: (
         path: TDocumentRef,
@@ -973,7 +987,7 @@ export interface IDocumentsFileCapability {
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
-    cancelPdfPrint?: (requestId: string) => Promise<{canceled: boolean}>;
+    cancelPdfPrint?: (requestId: TRequestId) => Promise<{canceled: boolean}>;
     printPdfPath: (path: TDocumentRef, fileName?: string, options?: IPdfPathPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
@@ -1012,31 +1026,31 @@ export interface IDocumentsFileCapability {
     optimizePdfAsCopy?: (
         path: TDocumentRef,
         options: IPdfOptimizeOptions,
-        requestId?: string,
+        requestId?: TRequestId,
         revisionOptions?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfOptimizeResult>;
     savePdfNoteTextUpdates?: (
         path: TDocumentRef,
         updates: IPdfNoteTextUpdate[],
-        modifiedAt: string,
+        modifiedAt: TPdfDateString,
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeNoteTextSaveResult>;
     savePdfNoteChanges?: (
         path: TDocumentRef,
         changes: IPdfNativeNoteChanges,
-        modifiedAt: string,
+        modifiedAt: TPdfDateString,
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeNoteTextSaveResult>;
     savePdfNativeMutations?: (
         path: TDocumentRef,
         mutations: IPdfNativeMutationSet,
-        modifiedAt: string,
+        modifiedAt: TPdfDateString,
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeSaveResult>;
     applyPdfNativeMutationsToWorkingCopy?: (
         path: TDocumentRef,
         mutations: IPdfNativeMutationSet,
-        modifiedAt: string,
+        modifiedAt: TPdfDateString,
         options: IDocumentMutationRevisionOptions,
     ) => Promise<IPdfNativeSaveResult>;
     commitStagedPdfNativeMutations?: (

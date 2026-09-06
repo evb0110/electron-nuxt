@@ -11,6 +11,11 @@ import {
     BROWSER_MAX_FULL_READ_BYTES,
     browserDocumentStore,
 } from '@app/platform/browserDocumentStore';
+import {
+    requireDocumentRef,
+    type TLegacyDocumentRef,
+} from '@contracts/documentRef';
+import {requirePdfDateString} from '@contracts/pdfDateString';
 
 const FULL_READ_CAP_MESSAGE = 'Use the native app for files this large.';
 
@@ -51,7 +56,7 @@ function createCapability() {
 }
 
 async function runUnderCapFlow() {
-    const sourcePath = await browserDocumentStore.createStoredDocument(
+    const sourcePath: TLegacyDocumentRef = requireDocumentRef(await browserDocumentStore.createStoredDocument(
         'browser-annotation-acceptance.pdf',
         await createAnnotatedFixture(),
         {
@@ -60,9 +65,9 @@ async function runUnderCapFlow() {
             retention: 'transient',
             saveKind: 'pdf',
         },
-    );
+    ));
     const capability = createCapability();
-    let workingPath: string | undefined;
+    let workingPath: TLegacyDocumentRef | undefined;
     try {
         const opened = await capability.openDocumentDirect(sourcePath);
         if (!opened || opened.kind !== 'pdf') {
@@ -83,7 +88,7 @@ async function runUnderCapFlow() {
                 generationNumber: note.generationNumber,
                 text: 'after',
             }]},
-            'D:20260102000000Z',
+            requirePdfDateString('D:20260102000000Z'),
             {expectedDocumentRevisionToken: openedRevision.token},
         );
         if (!applied.applied || !applied.stagedOutput || !applied.nativeMutationPostconditionsVerified) {
@@ -120,7 +125,7 @@ async function runUnderCapFlow() {
 
 async function runOverCapFlow() {
     const oversized = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
-    const sourcePath = await browserDocumentStore.createStoredDocument(
+    const sourcePath: TLegacyDocumentRef = requireDocumentRef(await browserDocumentStore.createStoredDocument(
         'browser-annotation-over-cap.pdf',
         oversized,
         {
@@ -129,7 +134,7 @@ async function runOverCapFlow() {
             retention: 'transient',
             saveKind: 'pdf',
         },
-    );
+    ));
     const capability = createCapability();
     let openMessage = '';
     let saveMessage = '';
@@ -138,7 +143,7 @@ async function runOverCapFlow() {
     } catch (error) {
         openMessage = error instanceof Error ? error.message : String(error);
     }
-    const workingPath = await browserDocumentStore.createStoredDocument(
+    const workingPath: TLegacyDocumentRef = requireDocumentRef(await browserDocumentStore.createStoredDocument(
         'browser-annotation-over-cap-working.pdf',
         oversized,
         {
@@ -147,7 +152,7 @@ async function runOverCapFlow() {
             retention: 'transient',
             saveKind: 'pdf',
         },
-    );
+    ));
     try {
         const revision = await browserDocumentStore.getDocumentRevision(workingPath);
         try {
@@ -158,7 +163,7 @@ async function runOverCapFlow() {
                     generationNumber: 0,
                     text: 'after',
                 }]},
-                'D:20260102000000Z',
+                requirePdfDateString('D:20260102000000Z'),
                 {expectedDocumentRevisionToken: revision.token},
             );
         } catch (error) {

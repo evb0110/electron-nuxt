@@ -99,6 +99,8 @@ import type {
     ITextBoxEntity,
     ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {parseEpochMs} from '@contracts/timestamps';
 import {
     annotationEditorSurfaceKey,
     type IAnnotationEditorSurface,
@@ -305,12 +307,12 @@ const shapeDraftEntity = computed(() => {
     return {
         kind: 'shape',
         identity: {id: asAnnotationId(draft.id)},
-        pageIndex: draft.pageIndex,
+        pageIndex: requirePageIndex(draft.pageIndex),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: draft.createdAt ?? null,
-        modifiedAt: draft.modifiedAt ?? null,
+        createdAt: parseEpochMs(draft.createdAt),
+        modifiedAt: parseEpochMs(draft.modifiedAt),
         author: null,
         tool: draft.type === 'polyline' || draft.type === 'polygon' ? 'draw' : draft.type,
         rect: {

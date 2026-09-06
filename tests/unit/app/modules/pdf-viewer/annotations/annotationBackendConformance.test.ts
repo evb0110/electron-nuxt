@@ -7,6 +7,8 @@ import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 import {
     ANNOTATION_PERSISTENCE_BACKENDS,
     assertAnnotationBackendSemanticConformance,
@@ -25,7 +27,7 @@ describe('annotation persistence backend conformance', () => {
                 id: noteId,
                 pdfRef: '12R0',
             },
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -48,7 +50,7 @@ describe('annotation persistence backend conformance', () => {
                 id: markupId,
                 pdfRef: '13 0 R',
             },
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -104,12 +106,12 @@ describe('annotation persistence backend conformance', () => {
         store.createNote({
             kind: 'note',
             identity: {id: noteId},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
-            createdAt: 1,
-            modifiedAt: 2,
+            createdAt: requireEpochMs(1),
+            modifiedAt: requireEpochMs(2),
             author: 'Author',
             contents: 'עברית Ω',
             position: {
@@ -155,12 +157,12 @@ describe('annotation persistence backend conformance', () => {
         const plan = buildSerializationPlan(store.beginSave(requireDocumentRevisionToken('revision-global')), [], [], {
             pageOperations: [{
                 operation: 'rotate',
-                pageIndexes: [0],
+                pageIndexes: [requirePageIndex(0)],
                 fields: {degrees: 90},
             }],
             metadata: {pageLabels},
             ocrOperations: [{
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 operation: 'replace-text-layer',
                 payloadHash: 'ocr-hash',
             }],
@@ -186,7 +188,7 @@ describe('annotation persistence backend conformance', () => {
         expect(plan.metadata.pageLabels?.[0]?.prefix).toBe('');
         expect(plan.pageOperations).toEqual([{
             operation: 'rotate',
-            pageIndexes: [0],
+            pageIndexes: [requirePageIndex(0)],
             fields: {degrees: 90},
         }]);
         expect(plan.ocrOperations).toHaveLength(1);

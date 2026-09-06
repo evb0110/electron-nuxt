@@ -156,7 +156,7 @@ describe('PDF annotation session authority', () => {
         const staleStore = new AnnotationStore();
         const local = staleStore.createTextBox({
             identity: {id: asAnnotationId('local-text-box')},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,

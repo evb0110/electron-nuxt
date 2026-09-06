@@ -37,6 +37,8 @@ import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import type {KeyInput} from 'puppeteer-core';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import type { TAnnotationResizeHandle } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+import type {TLegacyDocumentRef} from '@contracts/documentRef';
+import type {TRequestId} from '@contracts/shared';
 
 const NATIVE_SAVE_REOPEN_TIMEOUT_MS = 120_000;
 const OUTLINE_METADATA_MATRIX_TIMEOUT_MS = 15 * 60_000;
@@ -1080,7 +1082,7 @@ describe('Electron E2E - native save and reopen', () => {
                     3,
                     4,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef) => {
                     return evaluateInPage(page, async ({workingCopyPath}) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
@@ -1097,7 +1099,7 @@ describe('Electron E2E - native save and reopen', () => {
                     2,
                     3,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef) => {
                     return evaluateInPage(page, async ({workingCopyPath}) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
@@ -1114,7 +1116,7 @@ describe('Electron E2E - native save and reopen', () => {
                     4,
                     1,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef) => {
                     return evaluateInPage(page, async ({workingCopyPath}) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
@@ -1136,7 +1138,7 @@ describe('Electron E2E - native save and reopen', () => {
                     3,
                     4,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef) => {
                     return evaluateInPage(page, async ({workingCopyPath}) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
@@ -1158,7 +1160,7 @@ describe('Electron E2E - native save and reopen', () => {
                     2,
                     3,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef) => {
                     return evaluateInPage(page, async ({workingCopyPath}) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
@@ -1175,7 +1177,7 @@ describe('Electron E2E - native save and reopen', () => {
                     4,
                     5,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string, sourcePath?: string) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef, sourcePath?: TLegacyDocumentRef) => {
                     if (!sourcePath) throw new Error('Insert fixture source is unavailable');
                     return evaluateInPage(page, async ({
                         workingCopyPath,
@@ -1184,7 +1186,7 @@ describe('Electron E2E - native save and reopen', () => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
-                        return api.pageOps.insertFile(workingCopyPath, 4, 2, [source], 'outline-matrix-insert', {expectedDocumentRevisionToken: revision?.token});
+                        return api.pageOps.insertFile(workingCopyPath, 4, 2, [source], 'outline-matrix-insert' as TRequestId, {expectedDocumentRevisionToken: revision?.token});
                     }, {
                         workingCopyPath: path,
                         sourcePath,
@@ -1196,7 +1198,7 @@ describe('Electron E2E - native save and reopen', () => {
         for (const testCase of cases) {
             const pdfPath = await createOutlinePageLabelFixturePdf(`outline-matrix-${testCase.name}-${Date.now()}.pdf`);
             const sourcePath = testCase.name === 'insert'
-                ? await createMultiPageTextFixturePdf(`outline-matrix-${testCase.name}-source-${Date.now()}.pdf`, 1)
+                ? await createMultiPageTextFixturePdf(`outline-matrix-${testCase.name}-source-${Date.now()}.pdf`, 1) as TLegacyDocumentRef
                 : undefined;
             session = await startElectronE2ESession(`e2e-outline-matrix-${testCase.name}-${Date.now()}`, {
                 clean: true,
@@ -1217,7 +1219,10 @@ describe('Electron E2E - native save and reopen', () => {
             const workingCopyPath = await evaluateInPage(session.page, async path => {
                 const api = (window as IE2EWindow).electronAPI;
                 if (!api) throw new Error('electronAPI is unavailable');
-                return api.documentWorkingCopy.createWorkingCopyFromPath(path, path);
+                return api.documentWorkingCopy.createWorkingCopyFromPath(
+                    path as TLegacyDocumentRef,
+                    path as TLegacyDocumentRef,
+                );
             }, pdfPath);
             const result = await testCase.run(session.page, workingCopyPath, sourcePath);
             expect(result?.success, `${testCase.name} native page operation`).toBe(true);

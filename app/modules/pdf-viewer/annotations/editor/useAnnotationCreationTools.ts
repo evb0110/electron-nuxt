@@ -13,6 +13,7 @@ import type {
     TDrawableShapeType,
 } from '@app/types/annotations';
 import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     createDrawingShape,
     isDrawableFinishedShape,
@@ -66,7 +67,7 @@ export const useAnnotationCreationTools = (
     },
     beginShape(pageIndex, tool, point) {
         const settings = options.surface.settings.value ?? DEFAULT_ANNOTATION_SETTINGS;
-        return createDrawingShape(pageIndex, tool, point.x, point.y, settings);
+        return createDrawingShape(requirePageIndex(pageIndex), tool, point.x, point.y, settings);
     },
     updateShape(draft, point) {
         const rawDraft = toRaw(draft);

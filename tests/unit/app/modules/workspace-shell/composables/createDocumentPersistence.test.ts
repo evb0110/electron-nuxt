@@ -725,8 +725,8 @@ describe('createDocumentPersistence', () => {
 
         const result = await persistence.trySavePdfNativeMutations(mutations, {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628123456+03\'00\''),
         });
 
         expect(result).toMatchObject({
@@ -1026,8 +1026,8 @@ describe('createDocumentPersistence', () => {
 
         const result = await persistence.trySavePdfNativeMutations({freeTextNotes}, {
             saveMode: 'incremental',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123632+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628123632+03\'00\''),
         });
 
         expect(result).toBeNull();

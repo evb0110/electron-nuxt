@@ -1,5 +1,6 @@
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import {parsePageNumber} from '@contracts/pageNumbers';
 import * as VueUse from '@vueuse/core';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -814,8 +815,13 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             if (!file) {
                 return;
             }
+            const normalizedPageNumber = pageNumber === undefined
+                ? undefined
+                : pageNumber === null
+                    ? null
+                    : parsePageNumber(pageNumber);
             await viewer.startImagePlacement(file, {
-                ...(pageNumber !== undefined ? { pageNumber } : {}),
+                ...(normalizedPageNumber === undefined ? {} : {pageNumber: normalizedPageNumber}),
                 ...(pageX !== undefined ? { pageX } : {}),
                 ...(pageY !== undefined ? { pageY } : {}),
                 ...(existingImage ?? {}),
@@ -846,7 +852,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             if (!file) {
                 return false;
             }
-            const targetPage = pageNumber ?? viewer.getCurrentPage?.() ?? deps.currentPage.value;
+            const targetPage = parsePageNumber(pageNumber ?? viewer.getCurrentPage?.() ?? deps.currentPage.value);
+            if (targetPage === null) {
+                return false;
+            }
             return await viewer.startImagePlacement(file, {
                 pageNumber: targetPage,
                 ...(pageX !== undefined ? { pageX } : {}),
@@ -993,7 +1002,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
 
         const contextMenu = annotationContextMenu.value;
-        const pageNumber = typeof contextMenu.pageNumber === 'number' && Number.isFinite(contextMenu.pageNumber) ? contextMenu.pageNumber : null;
+        const pageNumber = parsePageNumber(contextMenu.pageNumber ?? 0);
         const pageX = typeof contextMenu.pageX === 'number' && Number.isFinite(contextMenu.pageX) ? contextMenu.pageX : null;
         const pageY = typeof contextMenu.pageY === 'number' && Number.isFinite(contextMenu.pageY) ? contextMenu.pageY : null;
         if (

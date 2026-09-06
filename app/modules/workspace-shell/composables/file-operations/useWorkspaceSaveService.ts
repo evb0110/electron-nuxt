@@ -15,6 +15,8 @@ import type {
 } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TPdfDateString } from '@contracts/pdfDateString';
+import type { TRequestId } from '@contracts/shared';
 import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
 import type {
     IPdfNativeAnnotationDelete,
@@ -176,7 +178,7 @@ export interface IWorkspaceSaveDependencies {
         }) => Promise<IPdfPersistResult>;
         optimizeWorkingCopyAsCopy?: (
             options: IPdfOptimizeOptions,
-            requestId: string | undefined,
+            requestId: TRequestId | undefined,
             opts: {
                 saveMode: TPdfSaveMode;
                 expectedWorkingPath?: TDocumentRef | null;
@@ -190,7 +192,7 @@ export interface IWorkspaceSaveDependencies {
                 preserveLoadedSource?: boolean;
                 expectedWorkingPath?: TDocumentRef | null;
                 expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                modifiedAt: string;
+                modifiedAt: TPdfDateString;
                 verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
                 assertBeforeExpose?: () => Promise<void> | void;
             },
@@ -202,7 +204,7 @@ export interface IWorkspaceSaveDependencies {
                 preserveLoadedSource?: boolean;
                 expectedWorkingPath?: TDocumentRef | null;
                 expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                modifiedAt: string;
+                modifiedAt: TPdfDateString;
                 geometryUpdates?: IPdfNoteGeometryUpdate[];
                 freeTextNotes?: IPdfNativeFreeTextNote[];
                 deletes?: IPdfNativeAnnotationDelete[];
@@ -1253,7 +1255,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         handleOptimizePdfForInteraction: () => save({kind: 'optimize'}),
         handleOptimizePdfAsCopy: (
             options: IPdfOptimizeOptions,
-            requestId?: string,
+            requestId?: TRequestId,
         ) => save({
             kind: 'optimize-copy',
             options,

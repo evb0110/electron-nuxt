@@ -18,6 +18,14 @@ import {
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
+    requireDocumentRef,
+    type TLegacyDocumentRef,
+} from '@contracts/documentRef';
+import {
+    requireLeaseId,
+    type TLeaseId,
+} from '@contracts/shared';
+import {
     copyProjectFixture,
     createCanonicalAnnotationSurfaceFixturePdf,
     createForeignNoteReplyFixturePdf,
@@ -84,6 +92,7 @@ interface IStampVisualSnapshot {
 }
 
 async function installManagedJpegClipboard(page: Page, imagePath: string) {
+    const documentPath = requireDocumentRef(imagePath);
     return page.evaluate(async (input: {imagePath: string;}) => {
         const files = window.electronAPI?.documentFiles;
         if (!files?.createManagedTempFileHandle) {
@@ -109,7 +118,7 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
                 }
             },
         });
-        const handle = await files.createManagedTempFileHandle(input.imagePath);
+        const handle = await files.createManagedTempFileHandle(input.imagePath as TLegacyDocumentRef);
         const ManagedFile = new Proxy(NativeFile, {construct(target, args) {
             return Object.assign(Reflect.construct(target, args), {nativeSourceHandle: handle});
         }});
@@ -117,7 +126,7 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
             configurable: true,
             value: ManagedFile,
         });
-        const bytes = await files.readFile(input.imagePath);
+        const bytes = await files.readFile(input.imagePath as TLegacyDocumentRef);
         const blob = new Blob([bytes as BlobPart], {type: 'image/jpeg'});
         const probeFile = new ManagedFile([blob], 'clipboard-probe.jpg', {type: 'image/jpeg'});
         const bitmap = await createImageBitmap(probeFile);
@@ -138,7 +147,7 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
             hasNativeSourceHandle: 'nativeSourceHandle' in probeFile,
             leaseId: handle.leaseId,
         };
-    }, {imagePath});
+    }, {imagePath: documentPath});
 }
 
 async function uninstallManagedJpegClipboard(page: Page) {
@@ -258,9 +267,10 @@ async function readCanonicalStampSnapshot(page: Page): Promise<IStampVisualSnaps
 }
 
 async function releaseManagedImageHandle(page: Page, leaseId: string) {
-    await page.evaluate(async (id: string) => {
+    const managedLeaseId = requireLeaseId(leaseId);
+    await page.evaluate(async (id: TLeaseId) => {
         await window.electronAPI?.documentFiles.releaseManagedTempFileHandle?.(id);
-    }, leaseId);
+    }, managedLeaseId);
 }
 
 interface IAnnotationDirtyStateSnapshot extends Record<string, unknown> {dirtyState?: {hasAnnotationChanges?: boolean;};}

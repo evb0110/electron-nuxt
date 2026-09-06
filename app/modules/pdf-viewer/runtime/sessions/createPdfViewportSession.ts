@@ -2,6 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import {clampPageNumber} from '@contracts/pageNumbers';
 import type {
     TFitMode,
     TPdfViewRotation,
@@ -231,7 +232,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     }
     async function prepareNavigationLayout(pageNumber: number, signal: AbortSignal) {
         const range = getPageRowBoundsForViewMode({
-            pageNumber,
+            pageNumber: clampPageNumber(pageNumber, numPages.value),
             viewMode: options.viewMode.value,
             totalPages: numPages.value,
         });
@@ -260,7 +261,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     function getVisibleRange(): IPageRange {
         if (!options.continuousScroll.value && numPages.value > 0) {
             const rowBounds = getPageRowBoundsForViewMode({
-                pageNumber: currentPage.value,
+                pageNumber: clampPageNumber(currentPage.value, numPages.value),
                 viewMode: options.viewMode.value,
                 totalPages: numPages.value,
             });
@@ -293,7 +294,15 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         isLoading,
         pdfDocument,
         getMostVisiblePage: scroll.getMostVisiblePage,
-        scrollToPageInternal: scroll.scrollToPage,
+        scrollToPageInternal: (container, pageNumber, totalPages, margin, scrollOptions) => (
+            scroll.scrollToPage(
+                container,
+                clampPageNumber(pageNumber, totalPages),
+                totalPages,
+                margin,
+                scrollOptions,
+            )
+        ),
         updateVisibleRange: projectViewportVisibleRange,
         updateCurrentPage: scroll.updateCurrentPage,
         commitVisibleRange: (range, commitOptions) => transactionController.commitVisibleRange(range, commitOptions),
@@ -412,7 +421,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         viewportWritePort,
         classState: options.classState,
     });
-    pageLayoutScaleResolver.value = viewModel.getPageLayoutScale;
+    pageLayoutScaleResolver.value = pageNumber => viewModel.getPageLayoutScale(
+        clampPageNumber(pageNumber, numPages.value),
+    );
     const openVirtualSurfaceGeometry = usePdfOpenVirtualSurfaceGeometry({
         chassisAuthority,
         continuousScroll: options.continuousScroll,
@@ -638,14 +649,15 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     function applyReloadViewport(pageNumber: number, scrollOptions?: IScrollToPageOptions) {
         scroll.scrollToPage(
             options.viewerContainer.value,
-            pageNumber,
+            clampPageNumber(pageNumber, numPages.value),
             numPages.value,
             scale.scaledMargin.value,
             scrollOptions,
         );
-        const committed = singlePageScroll.commitCurrentViewportIfSettled(pageNumber)
-            || singlePageScroll.applyOpeningViewportAnchor(pageNumber) === true
-            && singlePageScroll.commitCurrentViewportIfSettled(pageNumber);
+        const targetPage = clampPageNumber(pageNumber, numPages.value);
+        const committed = singlePageScroll.commitCurrentViewportIfSettled(targetPage)
+            || singlePageScroll.applyOpeningViewportAnchor(targetPage) === true
+            && singlePageScroll.commitCurrentViewportIfSettled(targetPage);
         logPdfRenderTrace('pdf-reload-viewport-reanchor', {
             pageNumber,
             afterScrollTop: options.viewerContainer.value?.scrollTop ?? null,
@@ -912,7 +924,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             const terminalOutcome = singlePageScroll.viewportAuthority.getTerminalOutcome(previousIntent.id);
             if (terminalOutcome === 'settled') {
                 singlePageScroll.commitCurrentViewportIfSettled(
-                    singlePageScroll.viewportAuthority.currentPage.value,
+                    clampPageNumber(singlePageScroll.viewportAuthority.currentPage.value, numPages.value),
                 );
             }
         }

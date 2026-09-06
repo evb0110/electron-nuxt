@@ -27,6 +27,8 @@ import {
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {createBrowserStoreFileIdentity} from '@contracts/stagedArtifacts';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireLeaseId} from '@contracts/shared';
 
 const mocks = vi.hoisted(() => ({
     inspect: vi.fn(),
@@ -197,7 +199,7 @@ describe('managed temporary file handles', () => {
 
     it('does not send browser-store receipts through native file leases', async () => {
         const {resolveTypedStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
-        const browserRef = 'browser://documents/staged/browser-output.pdf';
+        const browserRef = requireDocumentRef('browser://documents/staged/browser-output.pdf');
         const revision = requireDocumentRevisionToken('drt1:browser:staged-output');
         const browserArtifact = {
             receiptVersion: 1 as const,
@@ -216,7 +218,7 @@ describe('managed temporary file handles', () => {
                 semanticCheck: false,
                 fsynced: false,
             },
-            leaseId: 'browser-lease',
+            leaseId: requireLeaseId('browser-lease'),
             revision,
         };
 
@@ -461,7 +463,7 @@ describe('managed temporary file handles', () => {
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, {
             ...artifact,
-            path: otherPath,
+            path: requireDocumentRef(otherPath),
         })).rejects.toThrow('altered');
     });
 
@@ -506,7 +508,20 @@ describe('managed temporary file handles', () => {
             mocks.path,
             validations,
         );
-        const rendererArtifact = structuredClone(artifact);
+        const rendererQpdfResult = artifact.validations.qpdfResult
+            ? {
+                ...artifact.validations.qpdfResult,
+                errors: [...artifact.validations.qpdfResult.errors],
+                warnings: [...artifact.validations.qpdfResult.warnings],
+            }
+            : undefined;
+        const rendererArtifact = {
+            ...artifact,
+            validations: {
+                ...artifact.validations,
+                ...(rendererQpdfResult === undefined ? {} : {qpdfResult: rendererQpdfResult}),
+            },
+        };
         expect(Object.isFrozen(artifact)).toBe(true);
         expect(Object.isFrozen(artifact.validations)).toBe(true);
         expect(Object.isFrozen(artifact.validations.qpdfResult)).toBe(true);
@@ -514,7 +529,7 @@ describe('managed temporary file handles', () => {
         validations.tailCheck = false;
         validations.qpdfResult.warnings.push('input mutation');
         rendererArtifact.validations.fsynced = false;
-        rendererArtifact.validations.qpdfResult?.warnings.push('receipt mutation');
+        rendererQpdfResult?.warnings.push('receipt mutation');
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, rendererArtifact))
             .rejects.toThrow('altered');

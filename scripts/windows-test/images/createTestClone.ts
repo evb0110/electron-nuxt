@@ -28,6 +28,24 @@ const IMPORT_CLONE_SCRIPT = [
     'end tell',
     'end run',
 ].join('\n');
+const INPUT_MEDIA_FILE_NAME = 'evb-test-inputs.iso';
+
+async function validateInputMediaPath(inputMediaPath: string | undefined) {
+    if (inputMediaPath === undefined) {
+        return null;
+    }
+    const resolved = path.resolve(inputMediaPath);
+    const mediaInfo = await lstat(resolved).catch((error: unknown) => {
+        throw new Error(`The Windows test input media ${resolved} could not be inspected: ${String(error)}.`);
+    });
+    if (mediaInfo.isSymbolicLink()) {
+        throw new Error(`The Windows test input media ${resolved} is a symbolic link.`);
+    }
+    if (!mediaInfo.isFile()) {
+        throw new Error(`The Windows test input media ${resolved} is not a regular file.`);
+    }
+    return resolved;
+}
 
 async function refuseLinks(directory: string): Promise<void> {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -50,6 +68,7 @@ export async function createTestClone(options: {
     cloneName: string;
     runner: ICommandRunner;
     utmctl: IUtmctlClient;
+    inputMediaPath?: string;
 }) {
     const {
         config,
@@ -58,6 +77,7 @@ export async function createTestClone(options: {
         runner,
         utmctl,
     } = options;
+    const inputMediaPath = await validateInputMediaPath(options.inputMediaPath);
     if (!/^evb-win-test-\d{8}T\d{6}Z-[a-f0-9]{12}$/u.test(cloneName)) {
         throw new Error('Refusing an invalid Windows test clone name.');
     }
@@ -161,6 +181,32 @@ export async function createTestClone(options: {
             `Network.${index}.MacAddress`,
             '-string',
             mac,
+            cloneConfig,
+        ]);
+    }
+    if (inputMediaPath !== null) {
+        const inputMediaDestination = path.join(destination, 'Data', INPUT_MEDIA_FILE_NAME);
+        if (await lstat(inputMediaDestination).catch(() => null)) {
+            throw new Error(`The clone input media destination already exists at ${inputMediaDestination}.`);
+        }
+        await cp(inputMediaPath, inputMediaDestination, {
+            force: false,
+            errorOnExist: true,
+            mode: constants.COPYFILE_FICLONE,
+        });
+        const inputMediaDrive = {
+            Identifier: randomUUID(),
+            ImageName: INPUT_MEDIA_FILE_NAME,
+            ImageType: 'CD',
+            Interface: 'USB',
+            InterfaceVersion: 1,
+            ReadOnly: true,
+        };
+        await runChecked('/usr/bin/plutil', [
+            '-insert',
+            `Drive.${decoded.Drive.length}`,
+            '-json',
+            JSON.stringify(inputMediaDrive),
             cloneConfig,
         ]);
     }

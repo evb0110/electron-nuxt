@@ -51,6 +51,7 @@
 </template>
 
 <script setup lang="ts">
+import type {TPageNumber} from '@contracts/pageNumbers';
 
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
@@ -69,7 +70,7 @@ import {
 import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 
 interface IProps {
-    page: number;
+    page: TPageNumber;
     showSkeleton: boolean;
     renderFailed?: boolean;
     renderErrorLabel?: string;
@@ -97,8 +98,8 @@ const {
 } = defineProps<IProps>();
 const { t } = useTypedI18n();
 const emit = defineEmits<{
-    'page-container-mounted': [page: number];
-    'page-container-unmounted': [page: number];
+    'page-container-mounted': [pageNumber: TPageNumber];
+    'page-container-unmounted': [pageNumber: TPageNumber];
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];

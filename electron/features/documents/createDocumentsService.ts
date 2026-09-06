@@ -126,6 +126,7 @@ import {
 } from '@electron/menu';
 import { createLogger } from '@electron/utils/createLogger';
 import type { IDocumentsService } from '@electron/features/documents/documentsService';
+import {parseDocumentRef} from '@contracts/documentRef';
 import type {
     IWorkingCopyBackingFailure,
     IWorkingCopyBackingStatus,
@@ -172,8 +173,12 @@ function toBackingFailure(
 function toProgressStatus(
     progress: IWorkingCopyMaterializationProgress,
 ): IWorkingCopyBackingStatus {
+    const documentRef = parseDocumentRef(progress.documentRef);
+    if (documentRef === null) {
+        throw new Error('Working-copy progress has an invalid document ref');
+    }
     return {
-        documentRef: progress.documentRef,
+        documentRef,
         failure: toBackingFailure(progress.errorCode),
         progress: progress.status === 'completed'
             ? 1
@@ -311,7 +316,9 @@ export function createDocumentsService(): IDocumentsService {
             const key = normalizePathForLookup(filePath) || filePath;
             const latestStatus = latestBackingStatus.get(key);
             return {
-                documentRef: filePath,
+                documentRef: parseDocumentRef(filePath) ?? (() => {
+                    throw new Error('Working-copy backing status has an invalid document ref');
+                })(),
                 failure: toBackingFailure(entry.sourceBackingErrorCode),
                 progress: state === 'materialized'
                     ? 1

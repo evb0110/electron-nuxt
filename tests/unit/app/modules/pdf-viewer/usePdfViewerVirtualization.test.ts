@@ -18,6 +18,7 @@ import {
     type IPdfRenderPerformancePolicy,
 } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 const normalPerformancePolicy = resolvePdfRenderPerformancePolicy({
     lowCpu: false,
@@ -31,7 +32,7 @@ const constrainedPerformancePolicy = resolvePdfRenderPerformancePolicy({
 describe('getPageRowBoundsForViewMode', () => {
     it('returns the current spread bounds without building full layout metrics', () => {
         expect(getPageRowBoundsForViewMode({
-            pageNumber: 9,
+            pageNumber: requirePageNumber(9),
             viewMode: 'facing',
             totalPages: 20,
         })).toEqual({
@@ -42,7 +43,7 @@ describe('getPageRowBoundsForViewMode', () => {
 
     it('keeps the first page single in facing-first-single mode', () => {
         expect(getPageRowBoundsForViewMode({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             viewMode: 'facing-first-single',
             totalPages: 20,
         })).toEqual({
@@ -218,10 +219,10 @@ describe('usePdfViewerVirtualization', () => {
             13,
             14,
         ]);
-        expect(virtualization.isPageBuffered(8)).toBe(true);
-        expect(virtualization.isPageBuffered(9)).toBe(false);
-        expect(virtualization.isPageBuffered(10)).toBe(false);
-        expect(virtualization.isPageBuffered(11)).toBe(true);
+        expect(virtualization.isPageBuffered(requirePageNumber(8))).toBe(true);
+        expect(virtualization.isPageBuffered(requirePageNumber(9))).toBe(false);
+        expect(virtualization.isPageBuffered(requirePageNumber(10))).toBe(false);
+        expect(virtualization.isPageBuffered(requirePageNumber(11))).toBe(true);
         expect(virtualization.topVirtualSpacerStyle.value).toBeNull();
         expect(virtualization.bottomVirtualSpacerStyle.value).toBeNull();
     });
@@ -249,10 +250,10 @@ describe('usePdfViewerVirtualization', () => {
         ]);
         expect(virtualization.virtualWindowStartPage.value).toBe(10);
         expect(virtualization.virtualWindowEndPage.value).toBe(11);
-        expect(virtualization.isPageBuffered(9)).toBe(true);
-        expect(virtualization.isPageBuffered(10)).toBe(false);
-        expect(virtualization.isPageBuffered(11)).toBe(false);
-        expect(virtualization.isPageBuffered(12)).toBe(true);
+        expect(virtualization.isPageBuffered(requirePageNumber(9))).toBe(true);
+        expect(virtualization.isPageBuffered(requirePageNumber(10))).toBe(false);
+        expect(virtualization.isPageBuffered(requirePageNumber(11))).toBe(false);
+        expect(virtualization.isPageBuffered(requirePageNumber(12))).toBe(true);
     });
 
     it('mounts only the target paged window while a far navigation target is pending', () => {
@@ -272,7 +273,7 @@ describe('usePdfViewerVirtualization', () => {
             19,
             20,
         ]);
-        expect(virtualization.isPageBuffered(18)).toBe(false);
+        expect(virtualization.isPageBuffered(requirePageNumber(18))).toBe(false);
     });
 
     it('keeps committed outgoing geometry until the pending target row is ready', () => {
@@ -311,21 +312,21 @@ describe('usePdfViewerVirtualization', () => {
             zoomVirtualizationFreeze: ref(null),
         });
 
-        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
             width: '300px',
             height: '100px',
             '--scale-factor': '1',
         });
-        expect(virtualization.getPagePlaceholderStyle(2)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(2))).toMatchObject({
             width: '240px',
             height: '96px',
             '--scale-factor': '0.8',
         });
-        expect(virtualization.getPageScale(1)).toMatchObject({scaleFactor: 1});
+        expect(virtualization.getPageScale(requirePageNumber(1))).toMatchObject({scaleFactor: 1});
 
         navigationAnchorPage.value = null;
 
-        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
             width: '300px',
             height: '100px',
             '--scale-factor': '1',
@@ -333,7 +334,7 @@ describe('usePdfViewerVirtualization', () => {
 
         navigationVisualHandoffTargetPage.value = null;
 
-        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
             width: '240px',
             height: '80px',
             '--scale-factor': '0.8',
@@ -375,12 +376,12 @@ describe('usePdfViewerVirtualization', () => {
             zoomVirtualizationFreeze: ref(null),
         });
 
-        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
             width: '300px',
             height: '100px',
             '--scale-factor': '1',
         });
-        expect(virtualization.getPagePlaceholderStyle(2)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(2))).toMatchObject({
             width: '270px',
             height: '108px',
             '--scale-factor': '0.9',
@@ -388,12 +389,12 @@ describe('usePdfViewerVirtualization', () => {
 
         navigationVisualHandoffTargetPage.value = null;
 
-        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
             width: '300px',
             height: '100px',
             '--scale-factor': '1',
         });
-        expect(virtualization.getPagePlaceholderStyle(2)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(2))).toMatchObject({
             width: '300px',
             height: '120px',
             '--scale-factor': '1',
@@ -434,8 +435,8 @@ describe('usePdfViewerVirtualization', () => {
             zoomVirtualizationFreeze: ref(null),
         });
 
-        expect(virtualization.getPageScale(1)).toMatchObject({scaleFactor: 1});
-        expect(virtualization.getPageScale(2)).toMatchObject({scaleFactor: 0.8});
+        expect(virtualization.getPageScale(requirePageNumber(1))).toMatchObject({scaleFactor: 1});
+        expect(virtualization.getPageScale(requirePageNumber(2))).toMatchObject({scaleFactor: 0.8});
     });
 
     it('stages a preceding target as buffered until the outgoing page hands off', () => {
@@ -476,15 +477,15 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.pagesToRender.value).toContain(1);
         expect(virtualization.pagesToRender.value).toContain(10);
         expect(virtualization.pagesToRender.value).not.toContain(5);
-        expect(virtualization.isPageBuffered(1)).toBe(true);
-        expect(virtualization.isPageBuffered(10)).toBe(false);
-        expect(virtualization.getPageScale(1)).toMatchObject({scaleFactor: 1});
-        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+        expect(virtualization.isPageBuffered(requirePageNumber(1))).toBe(true);
+        expect(virtualization.isPageBuffered(requirePageNumber(10))).toBe(false);
+        expect(virtualization.getPageScale(requirePageNumber(1))).toMatchObject({scaleFactor: 1});
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
             width: '300px',
             height: '100px',
             '--scale-factor': '1',
         });
-        expect(virtualization.getPagePlaceholderStyle(10)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(10))).toMatchObject({
             width: '240px',
             height: '96px',
             '--scale-factor': '0.8',
@@ -492,8 +493,8 @@ describe('usePdfViewerVirtualization', () => {
 
         navigationVisualHandoffTargetPage.value = null;
 
-        expect(virtualization.isPageBuffered(1)).toBe(false);
-        expect(virtualization.isPageBuffered(10)).toBe(true);
+        expect(virtualization.isPageBuffered(requirePageNumber(1))).toBe(false);
+        expect(virtualization.isPageBuffered(requirePageNumber(10))).toBe(true);
     });
 
     it('does not size skeleton placeholders from a wider document fallback while page metrics hydrate', () => {
@@ -528,21 +529,21 @@ describe('usePdfViewerVirtualization', () => {
             zoomVirtualizationFreeze: ref(null),
         });
 
-        expect(virtualization.getPagePlaceholderStyle(2)).toEqual({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(2))).toEqual({
             width: '600px',
             height: '1000px',
             '--scale-factor': '2',
             '--user-unit': '1',
             '--total-scale-factor': 'calc(var(--scale-factor, 1) * var(--user-unit, 1))',
         });
-        expect(virtualization.getPagePlaceholderStyle(4)).toEqual({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(4))).toEqual({
             width: '640px',
             height: '1040px',
             '--scale-factor': '2',
             '--user-unit': '1',
             '--total-scale-factor': 'calc(var(--scale-factor, 1) * var(--user-unit, 1))',
         });
-        expect(virtualization.getPageScale(2)).toEqual({
+        expect(virtualization.getPageScale(requirePageNumber(2))).toEqual({
             scaleFactor: 2,
             userUnit: 1,
             totalScaleFactor: 2,
@@ -628,11 +629,11 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.pagesToRender.value.length).toBeLessThan(100);
         expect(virtualization.topVirtualSpacerStyle.value).toBeNull();
         expect(virtualization.bottomVirtualSpacerStyle.value).toMatchObject({height: expect.stringMatching(/^\d+px$/)});
-        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
             width: '300px',
             height: '500px',
         });
-        expect(virtualization.getPagePlaceholderStyle(totalPages)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(totalPages))).toMatchObject({
             width: '320px',
             height: '520px',
         });
@@ -644,7 +645,7 @@ describe('usePdfViewerVirtualization', () => {
         pageMetricsVersion.value = 2;
 
         expect(virtualization.pageLayout.value?.base.pageHeights[500_000]).toBe(900);
-        expect(virtualization.getPagePlaceholderStyle(500_001)).toMatchObject({
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(500_001))).toMatchObject({
             width: '360px',
             height: '900px',
         });

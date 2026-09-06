@@ -15,6 +15,7 @@ import {
     assertPdfSidecarChunkOffset,
 } from '@electron/features/documents/preloadShared';
 import {PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES} from '@contracts/electronApiDocuments';
+import {requireSessionId} from '@contracts/shared';
 
 type TFeatureInvoker<TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec}> = <
     TChannel extends Extract<keyof TMap, string>,
@@ -41,19 +42,19 @@ export function createPdfAnnotationParsePreloadMethods(options: {
         readPdfAnnotationParseChunk: (sessionId: string, offset: number, parseOptions: unknown) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfAnnotationParseChunk,
-                assertNonEmptyString(sessionId, 'readPdfAnnotationParseChunk.sessionId'),
+                requireSessionId(assertNonEmptyString(sessionId, 'readPdfAnnotationParseChunk.sessionId')),
                 assertPdfSidecarChunkOffset(offset, 'readPdfAnnotationParseChunk.offset'),
                 assertPdfIndexChunkOptions(parseOptions, 'readPdfAnnotationParseChunk.options', PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES),
             ),
         releasePdfAnnotationParse: (sessionId: string) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfAnnotationParse,
-                assertNonEmptyString(sessionId, 'releasePdfAnnotationParse.sessionId'),
+                requireSessionId(assertNonEmptyString(sessionId, 'releasePdfAnnotationParse.sessionId')),
             ),
         cancelPdfAnnotationParse: (sessionId: string) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfAnnotationParse,
-                assertNonEmptyString(sessionId, 'cancelPdfAnnotationParse.sessionId'),
+                requireSessionId(assertNonEmptyString(sessionId, 'cancelPdfAnnotationParse.sessionId')),
             ),
         parsePdfAnnotations: (path: string, parseOptions: unknown) =>
             invokeWorkingCopy(

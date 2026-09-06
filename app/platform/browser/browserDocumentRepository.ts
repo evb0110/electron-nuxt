@@ -63,6 +63,7 @@ import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
 
 export interface IBrowserDocumentMutation {
@@ -86,7 +87,7 @@ function createBrowserFileDocumentEntry(
 ): IBrowserDocumentEntry {
     const kind = options.kind ?? 'source';
     return {
-        ref,
+        ref: requireDocumentRef(ref),
         fileName: file.name,
         mimeType: file.type || 'application/octet-stream',
         kind,
@@ -127,7 +128,7 @@ function getPersistedDocumentRevisionToken(
 
     return createBrowserDocumentRevisionInfo(
         createEntryFromPersistedRecord(revisionRecord),
-        record.ref,
+        requireDocumentRef(record.ref),
     ).token;
 }
 

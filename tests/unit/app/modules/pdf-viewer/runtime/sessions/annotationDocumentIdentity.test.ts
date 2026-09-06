@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { requireDocumentRef } from '@contracts/documentRef';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     afterEach,
     describe,
@@ -45,7 +46,7 @@ function createPlacedImageComment(annotationId: string): IAnnotationCommentSumma
         source: 'pdf',
         id: annotationId,
         stableKey: 'nm:placed-image-session-1',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         pageNumber: 1,
         text: '',
         subtype: 'Stamp',
@@ -179,7 +180,7 @@ function mountAnnotationSession(initial: {
         ingest: (id: string) => activeSession.annotationApplication.value.store.createTextMarkup({
             kind: 'text-markup',
             identity: {id: asAnnotationId(id)},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,

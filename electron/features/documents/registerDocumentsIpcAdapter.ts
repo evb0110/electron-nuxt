@@ -53,6 +53,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import type { IWorkingCopyBackingStatus } from '@contracts/electronApiDocuments';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {revokeManagedTempFileHandlesForSender} from '@electron/features/documents/main/managedTempFileHandles';
 import {cancelMainOperationsForOwner} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
@@ -377,10 +378,16 @@ export function registerDocumentsIpcAdapter(
         cancelOpenDocumentDirectBatch: (context, requestId) =>
             service.cancelOpenDocumentDirectBatch(context, requestId),
         createWorkingCopyFromData: (context, fileName, data, originalPath, password) =>
-            service.createWorkingCopyFromData(context, fileName, data, originalPath, password),
+            service.createWorkingCopyFromData(context, fileName, data, originalPath, password)
+                .then(result => requireDocumentRef(result)),
         createWorkingCopyFromPath: async (context, sourcePath, originalPath, password) => {
             const trustedSourcePath = await requireWorkingCopySourcePath(context, sourcePath);
-            return service.createWorkingCopyFromPath(context, trustedSourcePath, originalPath, password);
+            return requireDocumentRef(await service.createWorkingCopyFromPath(
+                context,
+                trustedSourcePath,
+                originalPath,
+                password,
+            ));
         },
         parsePdfAnnotations: (context, filePath, options) =>
             service.parsePdfAnnotations(context, filePath, options),
@@ -494,7 +501,8 @@ export function registerDocumentsIpcAdapter(
         commitStagedPdfNativeMutations: (context, workingPath, stagedOutput, revisionOptions) =>
             service.commitStagedPdfNativeMutations(context, workingPath, stagedOutput, revisionOptions),
         cloneStagedPdfNativeMutationToWorkingCopy: (context, stagedOutput, originalPath) =>
-            service.cloneStagedPdfNativeMutationToWorkingCopy(context, stagedOutput, originalPath),
+            service.cloneStagedPdfNativeMutationToWorkingCopy(context, stagedOutput, originalPath)
+                .then(result => requireDocumentRef(result)),
         replaceWorkingCopyFromStagedPdfNativeMutation: (context, workingPath, stagedOutput, revisionOptions) =>
             service.replaceWorkingCopyFromStagedPdfNativeMutation(
                 context,
@@ -624,7 +632,11 @@ export function registerDocumentsIpcAdapter(
             serializedSaveOptions,
         ]: TDocumentsIpcArgs<typeof DOCUMENTS_CHANNELS.savePdfDataAs>
     ) =>
-        service.savePdfDataAs(createDialogContext(event), workingPath, data, options, serializedSaveOptions));
+        service.savePdfDataAs(createDialogContext(event), workingPath, data, options, serializedSaveOptions)
+            .then(result => ({
+                ...result,
+                path: result.path === null ? null : requireDocumentRef(result.path),
+            })));
     register(DOCUMENTS_CHANNELS.savePdfDataAsBegin, (
         event: IpcMainInvokeEvent,
         ...[
@@ -663,7 +675,10 @@ export function registerDocumentsIpcAdapter(
         createSenderIdContext(event),
         sessionId,
         stagedOutput,
-    ));
+    ).then(result => ({
+        ...result,
+        path: result.path === null ? null : requireDocumentRef(result.path),
+    })));
     register(DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf, (
         event: IpcMainInvokeEvent,
         ...[

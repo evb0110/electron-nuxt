@@ -7,19 +7,20 @@ import {
     offsetPdfCombineBookmarks,
     PDF_COMBINE_CATALOG_POLICY,
 } from '@pdf-core';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 describe('PDF combine catalog policy', () => {
     it('offsets outline destinations recursively', () => {
         const bookmarks = [{
             title: 'Chapter',
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             namedDest: null,
             bold: false,
             italic: false,
             color: null,
             items: [{
                 title: 'Section',
-                pageIndex: 2,
+                pageIndex: requirePageIndex(2),
                 namedDest: null,
                 bold: false,
                 italic: false,

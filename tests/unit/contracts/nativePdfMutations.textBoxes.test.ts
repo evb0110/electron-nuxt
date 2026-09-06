@@ -10,6 +10,7 @@ import {
     splitPdfNativeMutationSetIntoBoundedChunks,
 } from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 import type {IPdfNativeTextBoxMutation} from '@contracts/electronApiDocuments';
 
 const textBox: IPdfNativeTextBoxMutation = {
@@ -30,8 +31,8 @@ const textBox: IPdfNativeTextBoxMutation = {
         39,
     ],
     author: 'Ada Lovelace',
-    createdAt: 1_780_000_000_000,
-    modifiedAt: 1_780_000_060_000,
+    createdAt: requireEpochMs(1_780_000_000_000),
+    modifiedAt: requireEpochMs(1_780_000_060_000),
 };
 
 describe('native PDF text-box mutation contracts', () => {

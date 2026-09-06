@@ -58,13 +58,13 @@ describe('workspace save failure surfacing', () => {
         }];
         const trySavePdfNativeMutations: TPdfNativeMutationSave = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
         const { deps } = createDeps({
-            originalPath: ref('/tmp/source.pdf'),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             annotationDirty: ref(true),
             hasAnnotationChanges: vi.fn(() => true),
             trySavePdfNativeMutations,

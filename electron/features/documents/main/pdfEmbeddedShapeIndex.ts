@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {
     lstat,
     mkdtemp,
@@ -19,6 +18,15 @@ import type {
     IPdfEmbeddedShapeIndexPoint,
     IPdfEmbeddedShapeIndexSession,
 } from '@contracts/electronApiDocuments';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
+    createSessionId,
+    type TSessionId,
+} from '@contracts/shared';
+import {parseEpochMs} from '@contracts/timestamps';
 import {
     PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
     PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
@@ -76,9 +84,9 @@ const MAX_SHAPE_STROKES = 4_096;
 const logger = createLogger('pdf-embedded-shape-index');
 
 interface IShapeIndexSessionState {
-    sessionId: string;
+    sessionId: TSessionId;
     ownerId: number;
-    documentRef: string;
+    documentRef: TDocumentRef;
     resolvedPath: string;
     expectedRevisionToken: TDocumentRevisionToken;
     sidecarDirectory: string;
@@ -158,7 +166,11 @@ function decodeOptionalTimestamp(value: unknown, fieldName: string) {
     if (value === undefined || value === null) {
         return null;
     }
-    return decodeSafeInteger(value, fieldName, Number.MIN_SAFE_INTEGER);
+    const timestamp = parseEpochMs(value);
+    if (timestamp === null) {
+        throw new Error(`${fieldName} must be an epoch millisecond timestamp`);
+    }
+    return timestamp;
 }
 
 function decodeOptionalEnum<T extends string>(
@@ -374,21 +386,21 @@ export async function beginPdfEmbeddedShapeIndex(
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
-            documentRef: resolvedPath,
+            documentRef: requireDocumentRef(resolvedPath),
             expectedRevision: expectedRevisionToken,
             actualRevision: revision.token,
         });
     }
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
-    const sessionId = randomUUID();
+    const sessionId = createSessionId('pdf-embedded-shape-index');
     const sidecarDirectory = await mkdtemp(join(getAppTempDir(), SHAPE_INDEX_DIRECTORY_PREFIX));
     const sidecarPath = join(sidecarDirectory, SHAPE_INDEX_FILE_NAME);
     const abortController = new AbortController();
     const session: IShapeIndexSessionState = {
         sessionId,
         ownerId: getOwnerId(context),
-        documentRef: filePath,
+        documentRef: requireDocumentRef(filePath),
         resolvedPath,
         expectedRevisionToken,
         sidecarDirectory,
@@ -482,7 +494,7 @@ export async function beginPdfEmbeddedShapeIndex(
     }
     return {
         sessionId,
-        documentRef: filePath,
+        documentRef: requireDocumentRef(filePath),
         documentRevisionToken: expectedRevisionToken,
         pageCount: session.index.pageCount,
         entryCount: session.index.entryCount,

@@ -25,6 +25,7 @@ import type {
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
+import {isPdfDateString} from '@contracts/pdfDateString';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
     PDF_ANNOTATION_LINE_END_STYLES,
@@ -43,6 +44,7 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {requireEpochMs} from '@contracts/timestamps';
 
 export const PDF_NATIVE_MUTATION_LIMITS = {
     collectionItems: 100_000,
@@ -255,7 +257,7 @@ function normalizeOptionalTimestamp(value: unknown, label: string, options: IPdf
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
         fail(`${label} must be a finite positive timestamp or null`, options);
     }
-    return Math.trunc(value);
+    return requireEpochMs(Math.trunc(value));
 }
 
 function normalizeNativeMarkerRect(
@@ -509,7 +511,7 @@ function normalizeAnnotationDeletes(
         const normalizedDelete = {
             pageIndex: requirePageIndex(item.pageIndex),
             ...(stableKey ? {stableKey} : {}),
-            ...(createdAt !== null ? {createdAt: Math.trunc(createdAt)} : {}),
+            ...(createdAt !== null ? {createdAt: requireEpochMs(Math.trunc(createdAt))} : {}),
         };
         if (!hasValidRef) {
             return normalizedDelete;
@@ -704,7 +706,7 @@ function normalizeBookmarkItems(
         }
         return {
             title,
-            pageIndex: pageIndex,
+            pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
             pageYRatio: typeof pageYRatio === 'number' ? pageYRatio : null,
             namedDest: namedDest,
             bold: item.bold === true,
@@ -1202,7 +1204,7 @@ export function normalizePdfNativeModifiedAt(
     options: IPdfNativeValidationOptions = {},
 ) {
     const normalized = typeof value === 'string' ? value.trim() : '';
-    if (!PDF_NATIVE_DATE_PATTERN.test(normalized)) {
+    if (!isPdfDateString(normalized)) {
         fail(`${label} must be a PDF date string`, options);
     }
     return normalized;

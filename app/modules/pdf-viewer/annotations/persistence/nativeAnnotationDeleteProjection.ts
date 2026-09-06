@@ -3,6 +3,7 @@ import { parsePdfAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import type { IPdfNativeAnnotationDelete } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
+import {parseEpochMs} from '@contracts/timestamps';
 import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';
 import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
@@ -87,9 +88,7 @@ export function projectNativeAnnotationDeletes(
             deletesByStableKey.set(stableKey, {
                 pageIndex,
                 stableKey,
-                createdAt: typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
-                    ? Math.trunc(comment.createdAt)
-                    : null,
+                createdAt: parseEpochMs(comment.createdAt) ?? null,
             });
             continue;
         }

@@ -11,6 +11,7 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {requireEpochMs} from '@contracts/timestamps';
 import type {
     AnnotationEntity,
     AnnotationId,
@@ -23,6 +24,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {mintAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {nudgeMarkerRectByPdfPoints} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/nudgeMarkerRectByPdfPoints';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 type TAnnotationHistoryAction = () => boolean | Promise<boolean>;
 
@@ -163,7 +165,7 @@ function newIdentity(): IAnnotationIdentity {
 }
 
 function baseEntityFields() {
-    const now = timestamp();
+    const now = requireEpochMs(timestamp());
     return {
         revision: 0,
         persistedRevision: -1,
@@ -494,7 +496,7 @@ export const usePdfAnnotationEditorSurface = (
         const created = store().createTextBox({
             kind: 'text-box',
             identity: newIdentity(),
-            pageIndex,
+            pageIndex: requirePageIndex(pageIndex),
             ...baseEntityFields(),
             text: '',
             rect,
@@ -514,7 +516,7 @@ export const usePdfAnnotationEditorSurface = (
         return store().createNote({
             kind: 'note',
             identity: newIdentity(),
-            pageIndex,
+            pageIndex: requirePageIndex(pageIndex),
             ...baseEntityFields(),
             contents: '',
             position,
@@ -533,7 +535,7 @@ export const usePdfAnnotationEditorSurface = (
         return store().createPlacedImage({
             kind: 'placed-image',
             identity: newIdentity(),
-            pageIndex,
+            pageIndex: requirePageIndex(pageIndex),
             ...baseEntityFields(),
             rect,
             rotation: 0,
@@ -552,7 +554,7 @@ export const usePdfAnnotationEditorSurface = (
         return store().createTextMarkup({
             kind: 'text-markup',
             identity: newIdentity(),
-            pageIndex,
+            pageIndex: requirePageIndex(pageIndex),
             ...baseEntityFields(),
             subtype,
             contents: '',
