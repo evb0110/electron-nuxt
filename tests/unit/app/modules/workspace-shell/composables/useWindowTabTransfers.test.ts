@@ -17,7 +17,7 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import type { ITab } from '@app/types/tabs';
 import {
     requireDocumentInstanceId,
@@ -70,7 +70,7 @@ describe('useWindowTabTransfers', () => {
             activeTabId: 'tab-1',
             tabIds: ['tab-1'],
         };
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: true,
             captureSplitPayload: vi.fn(async () => payload),
             handleCloseFileFromUi: vi.fn(async () => true),
@@ -135,7 +135,7 @@ describe('useWindowTabTransfers', () => {
                 tabIds: ['tab-1'],
             };
             const captureDeferred: {resolve?: (payload: TSplitPayload) => void} = {};
-            const workspace = cast<IWorkspaceExpose>({
+            const workspace = createWorkspaceExposeFixture({
                 hasPdf: true,
                 captureSplitPayload: vi.fn(() => new Promise<TSplitPayload>((resolve) => {
                     captureDeferred.resolve = resolve;
@@ -203,7 +203,7 @@ describe('useWindowTabTransfers', () => {
             activeTabId: 'tab-1',
             tabIds: ['tab-1'],
         };
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: true,
             captureSplitPayload: vi.fn(async () => payload),
             handleCloseFileFromUi: vi.fn(async () => true),
@@ -290,7 +290,7 @@ describe('useWindowTabTransfers', () => {
             activeTabId: 'tab-1',
             tabIds: ['tab-1'],
         };
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: true,
             captureSplitPayload: vi.fn(async () => payload),
             handleCloseFileFromUi: vi.fn(async () => true),
@@ -391,11 +391,11 @@ describe('useWindowTabTransfers', () => {
         };
         const tabsState = ref<ITab[]>([existingTab]);
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
-        const restoredWorkspace = cast<IWorkspaceExpose>({
+        const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: true,
             restoreSplitPayload: vi.fn(async () => undefined),
         });
-        const existingWorkspace = cast<IWorkspaceExpose>({ hasPdf: true });
+        const existingWorkspace = createWorkspaceExposeFixture({ hasPdf: true });
         workspaceRefs.value.set('tab-existing', existingWorkspace);
         let destinationMounted = false;
         const createTab = vi.fn((options: {
@@ -498,11 +498,11 @@ describe('useWindowTabTransfers', () => {
         const tabsState = ref<ITab[]>([existingTab]);
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const documentSessionsByTabId = shallowRef<Record<string, ReturnType<typeof createWorkspaceDocumentController>>>({});
-        const restoredWorkspace = cast<IWorkspaceExpose>({
+        const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: true,
             restoreSplitPayload: vi.fn(async () => undefined),
         });
-        workspaceRefs.value.set('tab-existing', cast<IWorkspaceExpose>({ hasPdf: true }));
+        workspaceRefs.value.set('tab-existing', createWorkspaceExposeFixture({ hasPdf: true }));
         let destinationMounted = false;
         const removeTabFromState = vi.fn();
         const createTab = vi.fn(() => {
@@ -623,7 +623,7 @@ describe('useWindowTabTransfers', () => {
             activeTabId: 'tab-placeholder',
             tabIds: ['tab-placeholder'],
         };
-        const restoredWorkspace = cast<IWorkspaceExpose>({
+        const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: true,
             restoreSplitPayload: vi.fn(async () => undefined),
         });

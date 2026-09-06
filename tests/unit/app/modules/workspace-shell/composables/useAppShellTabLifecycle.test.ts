@@ -28,11 +28,10 @@ import {
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
-    type IWorkspaceExpose,
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import {requireDocumentRevisionToken} from '@contracts';
@@ -231,9 +230,15 @@ describe('useAppShellTabLifecycle', () => {
             }}),
             createTransactionId: () => 'close-transaction-1',
         });
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: true,
-            getToolbarSnapshot: vi.fn(() => ({viewerCapabilities: {closeableDocument: true}})),
+            getToolbarSnapshot: vi.fn(() => ({
+                ...createDefaultWorkspaceToolbarSnapshot(),
+                viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
+                    closeableDocument: true,
+                },
+            })),
             handleCloseFileFromUi: vi.fn(async () => {
                 expect(session.snapshot.value.phase).toBe('closing');
                 expect(session.snapshot.value.activeTransaction).toMatchObject({
@@ -295,7 +300,7 @@ describe('useAppShellTabLifecycle', () => {
         const tabs = ref<ITab[]>([createTab('tab-1', 'sample.pdf', '/tmp/sample.pdf')]);
         const workspaceHasPdf = ref(true);
         let toolbarSnapshot = createReadyRecord('sample.pdf', '/tmp/sample.pdf', {canSave: false}).toolbarSnapshot;
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: workspaceHasPdf,
             getToolbarSnapshot: vi.fn(() => toolbarSnapshot),
             handleCloseFileFromUi: vi.fn(async () => {
@@ -370,7 +375,7 @@ describe('useAppShellTabLifecycle', () => {
         const emptyToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
         let workspaceToolbarSnapshot = emptyToolbarSnapshot;
         const workspaceHasPdf = ref(false);
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: workspaceHasPdf,
             getToolbarSnapshot: vi.fn(() => workspaceToolbarSnapshot),
             handleCloseFileFromUi: vi.fn(async () => false),

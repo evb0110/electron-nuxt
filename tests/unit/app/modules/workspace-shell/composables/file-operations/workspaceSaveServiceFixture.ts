@@ -12,11 +12,16 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/public';
+import type {
+    IMarkupSubtypeHint,
+    IPdfViewerSaveTransactionResult,
+} from '@app/modules/pdf-viewer/public';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { requireEpochMs } from '@contracts/timestamps';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import {
     asAnnotationId,
@@ -24,11 +29,12 @@ import {
     type AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
-import { cast } from '@tests/helpers/cast';
+import { TEST_PDF_SAVE_BYTE_ROUTE_DECISION } from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 export const toastAddMock = vi.fn();
-const TEST_BROWSER_SOURCE_REF = 'browser://documents/source.pdf';
-export const TEST_BROWSER_WORKING_COPY_REF = 'browser://documents/work.pdf';
+const TEST_BROWSER_SOURCE_REF = requireDocumentRef('browser://documents/source.pdf');
+export const TEST_BROWSER_WORKING_COPY_REF = requireDocumentRef('browser://documents/work.pdf');
 type TFileOperationsSaveControllerTestDeps =
     IWorkspaceSaveDependencies['status']
     & {
@@ -95,6 +101,21 @@ type TFileOperationsSaveControllerTestDeps =
 export type TPdfNativeMutationSave = NonNullable<
     IWorkspaceSaveDependencies['persistence']['trySavePdfNativeMutations']
 >;
+
+export function createPdfSaveTransactionResult(
+    overrides: Partial<IPdfViewerSaveTransactionResult> = {},
+): IPdfViewerSaveTransactionResult {
+    return {
+        source: 'serialized-rewrite',
+        baseBytes: null,
+        serializedBytes: null,
+        serializedResult: null,
+        nativeMutationProjection: null,
+        fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
+        annotationSavePlan: TEST_PDF_SAVE_BYTE_ROUTE_DECISION.annotationPlan,
+        ...overrides,
+    };
+}
 
 vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
@@ -315,7 +336,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         _opts: Parameters<IWorkspaceSaveDependencies['persistence']['saveSerialized']>[1],
     ) => ({
         success: true,
-        outPath: '/tmp/work.pdf',
+        outPath: requireDocumentRef('/tmp/work.pdf'),
         saveMode: 'rewrite' as const,
         didSaveAs: false,
     }));
@@ -324,12 +345,12 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         _opts?: Parameters<IWorkspaceSaveDependencies['persistence']['saveAs']>[1],
     ) => ({
         success: true,
-        outPath: '/tmp/new.pdf',
+        outPath: requireDocumentRef('/tmp/new.pdf'),
         saveMode: 'save_as_rewrite' as const,
         didSaveAs: true,
     }));
 
-    const deps = cast<Parameters<typeof useWorkspaceSaveServiceForTest>[0]>({
+    const deps: TFileOperationsSaveControllerTestDeps = {
         isSaving: ref(false),
         isSavingAs: ref(false),
         // Most service tests exercise renderer fallback. Native-path cases opt
@@ -338,7 +359,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         originalPath: ref(TEST_BROWSER_SOURCE_REF),
         workingCopyPath: ref(TEST_BROWSER_WORKING_COPY_REF),
         documentSessionKey: ref('document-session-1'),
-        documentRevisionToken: ref('rev-1'),
+        documentRevisionToken: ref(requireDocumentRevisionToken('rev-1')),
         annotationDirty: ref(false),
         canonicalAnnotationComments: ref([]),
         pageLabelsDirty: ref(false),
@@ -347,7 +368,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         bookmarkItems: ref([]),
         totalPages: ref(1),
         untitledBookmarkLabel: 'Untitled',
-        pdfDocument: shallowRef(cast({annotationStorage: {
+        pdfDocument: shallowRef(createPdfDocumentProxy({annotationStorage: {
             modifiedIds: {ids: new Set<string>()},
             resetModified,
         }})),
@@ -362,7 +383,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         saveFile,
         saveWorkingCopy: vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         })),
@@ -393,7 +414,8 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         adoptPersistedShapeStateForNextReload: vi.fn(),
         clearPendingPersistedShapeStateForNextReload: vi.fn(),
         ...overrides,
-    });
+        runSaveTransaction: overrides.runSaveTransaction ?? vi.fn(),
+    };
     if (!overrides.runSaveTransaction) {
         const hasCanonicalAnnotationPlan = overrides.canonicalAnnotationComments !== undefined
             || overrides.captureCanonicalPendingTextUpdates !== undefined

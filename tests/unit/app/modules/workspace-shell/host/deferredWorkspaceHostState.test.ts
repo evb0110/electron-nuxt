@@ -7,7 +7,6 @@ import {
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
-    type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
@@ -19,7 +18,7 @@ import {
     workspaceHasOpenedDocument,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
 import { requireDocumentRef } from '@contracts/documentRef';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 function createColdDocumentSession(tabId: string, path: string) {
     return createWorkspaceDocumentController({
@@ -42,13 +41,13 @@ function createColdDocumentSession(tabId: string, path: string) {
 }
 
 function createEmptyMountedWorkspace() {
-    return cast<IWorkspaceExpose>({getToolbarSnapshot: vi.fn(() => createDefaultWorkspaceToolbarSnapshot())});
+    return createWorkspaceExposeFixture({getToolbarSnapshot: vi.fn(() => createDefaultWorkspaceToolbarSnapshot())});
 }
 
 function createMountedWorkspace(
     toolbarSnapshot: ReturnType<typeof createDefaultWorkspaceToolbarSnapshot>,
 ) {
-    return cast<IWorkspaceExpose>({getToolbarSnapshot: vi.fn(() => toolbarSnapshot)});
+    return createWorkspaceExposeFixture({getToolbarSnapshot: vi.fn(() => toolbarSnapshot)});
 }
 
 describe('deferredWorkspaceHostState', () => {

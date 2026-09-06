@@ -21,7 +21,11 @@ import {
 } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { requireDocumentRef } from '@contracts/documentRef';
-import { cast } from '@tests/helpers/cast';
+import {
+    createKeyboardEventFixture,
+    createWorkspaceAutomationStateSnapshot,
+    createWorkspaceExposeFixture,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 const mocks = vi.hoisted(() => ({
     lifecycleOrder: [] as string[],
@@ -78,15 +82,8 @@ vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => 
 
 function createOptions() {
     const toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
-    const workspace = {
-        getAutomationStateSnapshot: vi.fn(() => ({
-            annotationComments: [],
-            annotationCommentsStatus: 'ready',
-            annotationDirty: false,
-            originalPath: null,
-            sortedAnnotationNoteWindows: [],
-            workingCopyPath: '/tmp/active.pdf',
-        })),
+    const workspace = createWorkspaceExposeFixture({
+        getAutomationStateSnapshot: vi.fn(() => createWorkspaceAutomationStateSnapshot({workingCopyPath: requireDocumentRef('/tmp/active.pdf')})),
         getToolbarSnapshot: vi.fn(() => toolbarSnapshot),
         handleSaveAs: vi.fn(),
         handleRepairSave: vi.fn(),
@@ -94,8 +91,8 @@ function createOptions() {
         handleUndo: vi.fn(),
         handleRedo: vi.fn(),
         waitForDocumentOpenSettled: vi.fn(async () => {}),
-    };
-    const activeWorkspace = ref(cast<IWorkspaceExpose>(workspace));
+    });
+    const activeWorkspace = ref<IWorkspaceExpose>(workspace);
 
     return {
         tabs: ref([{
@@ -137,15 +134,8 @@ function createOptions() {
 }
 
 function createWorkspaceForAutomation(snapshot: Partial<IWorkspaceToolbarSnapshot>) {
-    return cast<IWorkspaceExpose>({
-        getAutomationStateSnapshot: vi.fn(() => ({
-            annotationComments: [],
-            annotationCommentsStatus: 'ready',
-            annotationDirty: false,
-            originalPath: null,
-            sortedAnnotationNoteWindows: [],
-            workingCopyPath: `/tmp/page-${snapshot.currentPage ?? 1}.pdf`,
-        })),
+    return createWorkspaceExposeFixture({
+        getAutomationStateSnapshot: vi.fn(() => createWorkspaceAutomationStateSnapshot({workingCopyPath: requireDocumentRef(`/tmp/page-${snapshot.currentPage ?? 1}.pdf`)})),
         getToolbarSnapshot: vi.fn(() => ({
             ...createDefaultWorkspaceToolbarSnapshot(),
             ...snapshot,
@@ -591,7 +581,7 @@ describe('useTabsShellBindings', () => {
             const preventDefault = vi.fn();
             const stopPropagation = vi.fn();
             const stopImmediatePropagation = vi.fn();
-            capturedKeydown?.(cast<KeyboardEvent>({
+            capturedKeydown?.(createKeyboardEventFixture({
                 key: shortcut.key,
                 metaKey: true,
                 ctrlKey: false,
@@ -623,7 +613,7 @@ describe('useTabsShellBindings', () => {
             () => ({}) as ReturnType<typeof BrowserLogger.error>,
         );
 
-        capturedKeydown?.(cast<KeyboardEvent>({
+        capturedKeydown?.(createKeyboardEventFixture({
             key: 'o',
             metaKey: true,
             ctrlKey: false,
@@ -667,7 +657,7 @@ describe('useTabsShellBindings', () => {
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
         const preventDefault = vi.fn();
-        capturedKeydown?.(cast<KeyboardEvent>({
+        capturedKeydown?.(createKeyboardEventFixture({
             key: 'z',
             metaKey: true,
             ctrlKey: false,

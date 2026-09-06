@@ -10,16 +10,29 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
+import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { cast } from '@tests/helpers/cast';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
+import { TEST_PDF_SAVE_BYTE_ROUTE_DECISION } from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
+import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+
+type TPageSaveOrchestrationDeps = Parameters<typeof usePageSaveOrchestration>[0];
+type TPageSaveViewer = NonNullable<TPageSaveOrchestrationDeps['pdfViewerRef']['value']>;
+type TPageSaveOrchestrationOverrides = Omit<Partial<TPageSaveOrchestrationDeps>, 'hasPendingUnsavedChanges'> & {hasPendingUnsavedChanges?: TPageSaveOrchestrationDeps['hasPendingUnsavedChanges'] | undefined;};
+type TCreateTextMarkupOptions = Parameters<IPdfViewerExpose['createTextMarkupFromText']>[0];
+type TSaveTransactionResult = Awaited<ReturnType<IPdfViewerExpose['runSaveTransaction']>>;
 
 const saveMocks = vi.hoisted(() => ({
-    capturedDeps: null as unknown,
+    capturedDeps: null as IWorkspaceSaveDependencies | null,
     handleSave: vi.fn(),
     handleRepairSave: vi.fn(),
     handleOptimizePdfForInteraction: vi.fn(),
@@ -30,7 +43,7 @@ const platformMocks = vi.hoisted(() => ({statFile: vi.fn()}));
 
 vi.mock(
     '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService',
-    () => ({useWorkspaceSaveService: vi.fn((deps: unknown) => {
+    () => ({useWorkspaceSaveService: vi.fn((deps: IWorkspaceSaveDependencies) => {
         saveMocks.capturedDeps = deps;
         return {
             handleSave: saveMocks.handleSave,
@@ -55,19 +68,122 @@ vi.mock(
     })}),
 );
 
-function createDeps(overrides: Record<string, unknown> = {}) {
-    return cast<Parameters<typeof usePageSaveOrchestration>[0]>({
+function createPdfViewerFixture(overrides: Partial<TPageSaveViewer> = {}): TPageSaveViewer {
+    const viewer: IPdfViewerExpose = {
+        getViewerContainer: () => null,
+        scrollToPage: vi.fn(),
+        captureRegionToClipboard: vi.fn(async () => false),
+        isCapturingRegion: false,
+        startCropSelection: vi.fn(async () => null),
+        cancelCropSelection: vi.fn(),
+        isCropSelecting: false,
+        runSaveTransaction: vi.fn(async () => ({
+            source: 'pdfjs-materialize' as const,
+            baseBytes: null,
+            serializedBytes: null,
+            serializedResult: null,
+            nativeMutationProjection: null,
+            fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
+            annotationSavePlan: {
+                route: 'source-clean' as const,
+                expectedCost: 'small' as const,
+                reason: 'no-live-pdfjs-annotation-work' as const,
+                unreplayableLiveAnnotationIds: [],
+            },
+        })),
+        saveDocument: vi.fn(async () => null),
+        materializePdfJsDocumentForInternalUse: vi.fn(async () => null),
+        highlightSelection: vi.fn(async () => false),
+        commentSelection: vi.fn(async () => false),
+        createTextMarkupFromText: vi.fn(async (options: TCreateTextMarkupOptions) => ({
+            created: false,
+            pageNumber: options.pageNumber,
+            requestedText: options.text,
+            matchedText: null,
+            occurrence: options.occurrence ?? 1,
+            subtype: 'Highlight' as const,
+        })),
+        commentAtPoint: vi.fn(async () => false),
+        createPointNoteAnnotation: vi.fn(async () => ({
+            created: false,
+            pageNumber: requirePageNumber(1),
+            pageX: 0,
+            pageY: 0,
+        })),
+        createShapeAnnotation: vi.fn(async () => ({
+            created: false,
+            pageNumber: requirePageNumber(1),
+            shape: null,
+        })),
+        startCommentPlacement: vi.fn(),
+        cancelCommentPlacement: vi.fn(),
+        focusAnnotationComment: vi.fn(async () => {}),
+        updateAnnotationComment: vi.fn(() => false),
+        deleteAnnotationComment: vi.fn(async () => false),
+        moveAnnotationMarker: vi.fn(() => false),
+        rerenderAnnotationPage: vi.fn(async () => false),
+        removeAnnotationFromDom: vi.fn(),
+        removeAnnotationFromInternalCache: vi.fn(),
+        getMarkupSubtypeOverrides: () => new Map(),
+        getAllShapes: () => [],
+        getDeletedEmbeddedShapeAnnotationIds: () => [],
+        clearShapes: vi.fn(),
+        clearSelectedShape: vi.fn(),
+        deleteSelectedShape: vi.fn(),
+        hasShapes: false,
+        selectedShapeId: null,
+        updateShape: vi.fn(),
+        getSelectedShape: () => null,
+        startImagePlacement: vi.fn(async () => false),
+        clearPendingImagePlacement: vi.fn(),
+        restorePendingImagePlacement: vi.fn(),
+        invalidatePages: vi.fn(),
+        requestScrollToCurrentResult: vi.fn(),
+    };
+
+    return {
+        ...viewer,
+        ...overrides,
+    };
+}
+
+function createSaveTransactionResult(
+    overrides: Partial<TSaveTransactionResult> = {},
+): TSaveTransactionResult {
+    return {
+        source: 'serialized-rewrite',
+        baseBytes: null,
+        serializedBytes: null,
+        serializedResult: null,
+        nativeMutationProjection: null,
+        fallbackDecision: TEST_PDF_SAVE_BYTE_ROUTE_DECISION,
+        annotationSavePlan: TEST_PDF_SAVE_BYTE_ROUTE_DECISION.annotationPlan,
+        ...overrides,
+    };
+}
+
+function requireCapturedDependencies(): IWorkspaceSaveDependencies {
+    if (!saveMocks.capturedDeps) {
+        throw new Error('Expected save service dependencies to be captured');
+    }
+    return saveMocks.capturedDeps;
+}
+
+function createDeps(overrides: TPageSaveOrchestrationOverrides = {}): TPageSaveOrchestrationDeps {
+    const {
+        hasPendingUnsavedChanges: pendingOverride,
+        ...otherOverrides
+    } = overrides;
+    const omitPending = Object.hasOwn(overrides, 'hasPendingUnsavedChanges')
+        && pendingOverride === undefined;
+    const defaults = {
         pdfData: ref(new Uint8Array([1])),
-        pdfDocument: shallowRef({numPages: 1} as PDFDocumentProxy),
-        pdfViewerRef: ref({
-            scrollToPage: vi.fn(),
-            runSaveTransaction: vi.fn(),
-            getAllShapes: vi.fn(() => []),
-        }),
-        workingCopyPath: ref('/tmp/document.pdf'),
-        originalPath: ref('/tmp/source.pdf'),
+        pdfDocument: shallowRef(createPdfDocumentProxy({numPages: 1})),
+        pdfViewerRef: ref<TPageSaveViewer | null>(createPdfViewerFixture()),
+        workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/document.pdf')),
+        originalPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.pdf')),
         documentSessionKey: ref('document-session-1'),
-        documentRevisionToken: ref(null),
+        documentRevisionToken: ref<TDocumentRevisionToken | null>(null),
         totalPages: ref(1),
         pageLabelsDirty: ref(false),
         pageLabelRanges: ref([]),
@@ -84,7 +200,7 @@ function createDeps(overrides: Record<string, unknown> = {}) {
         markBookmarksSaved: vi.fn(),
         isDirty: ref(false),
         hasPendingUnsavedChanges: computed(() => false),
-        validatePdfPath: vi.fn(async () => ({
+        validatePdfPath: vi.fn< IWorkspaceSaveDependencies['persistence']['validatePdfPath']>(async () => ({
             isValid: true,
             tool: 'qpdf',
             errors: [],
@@ -97,8 +213,24 @@ function createDeps(overrides: Record<string, unknown> = {}) {
         loadRecentFiles: vi.fn(),
         currentPage: ref(1),
         resetSearchCache: vi.fn(),
-        ...overrides,
-    });
+    } satisfies TPageSaveOrchestrationDeps;
+
+    if (omitPending) {
+        const {
+            hasPendingUnsavedChanges: _defaultPending,
+            ...defaultsWithoutPending
+        } = defaults;
+        return {
+            ...defaultsWithoutPending,
+            ...otherOverrides,
+        };
+    }
+
+    return {
+        ...defaults,
+        ...otherOverrides,
+        hasPendingUnsavedChanges: pendingOverride ?? defaults.hasPendingUnsavedChanges,
+    };
 }
 
 describe('usePageSaveOrchestration', () => {
@@ -136,17 +268,17 @@ describe('usePageSaveOrchestration', () => {
             bookmarksDirty: ref(true),
             preserveMetadataForNextSourceReload,
             clearPreservedSourceReloadMetadata,
-            pdfDocument: shallowRef({numPages: 50} as PDFDocumentProxy),
-            pdfViewerRef: ref({
+            pdfDocument: shallowRef(createPdfDocumentProxy({numPages: 50})),
+            pdfViewerRef: ref(createPdfViewerFixture({
                 scrollToPage: vi.fn(),
                 runSaveTransaction: vi.fn(),
                 getAllShapes: vi.fn(() => []),
                 captureScrollSnapshot: vi.fn(() => scrollSnapshot),
                 preserveNextSourceReloadVisibleContent,
-            }),
+            })),
         }));
 
-        const dependencies = cast<IWorkspaceSaveDependencies>(saveMocks.capturedDeps);
+        const dependencies = requireCapturedDependencies();
         const reloadWaiter = dependencies.lifecycle.preparePostSaveReload?.();
         expect(reloadWaiter).toBeDefined();
         reloadWaiter?.cancel();
@@ -162,7 +294,7 @@ describe('usePageSaveOrchestration', () => {
 
     it('gets the working-copy size through the split file capability', async () => {
         usePageSaveOrchestration(createDeps());
-        const dependencies = cast<IWorkspaceSaveDependencies>(saveMocks.capturedDeps);
+        const dependencies = requireCapturedDependencies();
 
         await expect(
             dependencies.persistence.getWorkingCopySize?.(requireDocumentRef('/tmp/document.pdf')),
@@ -207,12 +339,12 @@ describe('usePageSaveOrchestration', () => {
 
     it('exposes the viewer editor commit before workspace save planning', async () => {
         const commitPdfEditorsForSave = vi.fn(async () => undefined);
-        usePageSaveOrchestration(createDeps({pdfViewerRef: ref({
+        usePageSaveOrchestration(createDeps({pdfViewerRef: ref(createPdfViewerFixture({
             commitPdfEditorsForSave,
             getAllShapes: vi.fn(() => []),
             runSaveTransaction: vi.fn(),
-        })}));
-        const dependencies = cast<IWorkspaceSaveDependencies>(saveMocks.capturedDeps);
+        }))}));
+        const dependencies = requireCapturedDependencies();
 
         await dependencies.pdf.commitEditorsForSave?.();
 
@@ -242,33 +374,34 @@ describe('usePageSaveOrchestration', () => {
         const assertAnnotationSaveCurrent = vi.fn(async () => undefined);
         const verifyAnnotationSave = vi.fn(async () => undefined);
         const commitAnnotationSave = vi.fn();
-        const runSaveTransaction = vi.fn(async () => ({
-            source: 'serialized-rewrite' as const,
-            baseBytes: null,
+        const runSaveTransaction = vi.fn(async () => createSaveTransactionResult({
             serializedBytes: Uint8Array.of(4, 5, 6),
-            serializedResult: null,
-            nativeMutationProjection: null,
-            fallbackDecision: {},
-            annotationSavePlan: {},
             assertAnnotationSaveCurrent,
             verifyAnnotationSave,
             commitAnnotationSave,
         }));
-        const runWithDocumentOperationLease = vi.fn(async (_kind, operation: () => Promise<unknown>) => operation());
+        const runWithDocumentOperationLeaseSpy = vi.fn();
+        const runWithDocumentOperationLease = async <T>(
+            _kind: TDocumentOperationKind,
+            operation: () => Promise<T>,
+        ): Promise<T> => {
+            runWithDocumentOperationLeaseSpy(_kind, operation);
+            return operation();
+        };
         const orchestration = usePageSaveOrchestration(createDeps({
             annotationDirty: ref(true),
             hasPendingUnsavedChanges: computed(() => true),
-            workingCopyPath: ref('browser://documents/recovery.pdf'),
-            pdfViewerRef: ref({
+            workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('browser://documents/recovery.pdf')),
+            pdfViewerRef: ref(createPdfViewerFixture({
                 runSaveTransaction,
                 getAllShapes: vi.fn(() => []),
-            }),
+            })),
             runWithDocumentOperationLease,
         }));
 
         await expect(orchestration.createRecoverySnapshotBytes()).resolves.toEqual(Uint8Array.of(4, 5, 6));
 
-        expect(runWithDocumentOperationLease).toHaveBeenCalledWith('recovery-snapshot', expect.any(Function));
+        expect(runWithDocumentOperationLeaseSpy).toHaveBeenCalledWith('recovery-snapshot', expect.any(Function));
         expect(runSaveTransaction).toHaveBeenCalledWith(expect.objectContaining({
             mode: 'snapshot',
             saveFlowMode: 'save',
@@ -281,10 +414,10 @@ describe('usePageSaveOrchestration', () => {
 
     it('does not serialize a recovery snapshot for a clean document', async () => {
         const runSaveTransaction = vi.fn();
-        const orchestration = usePageSaveOrchestration(createDeps({pdfViewerRef: ref({
+        const orchestration = usePageSaveOrchestration(createDeps({pdfViewerRef: ref(createPdfViewerFixture({
             runSaveTransaction,
             getAllShapes: vi.fn(() => []),
-        })}));
+        }))}));
 
         await expect(orchestration.createRecoverySnapshotBytes()).resolves.toBeNull();
         expect(runSaveTransaction).not.toHaveBeenCalled();
@@ -292,28 +425,20 @@ describe('usePageSaveOrchestration', () => {
 
     it('discards a recovery snapshot when the document revision changes during serialization', async () => {
         const documentRevisionToken = ref<TDocumentRevisionToken | null>(
-            'revision-1' as TDocumentRevisionToken,
+            requireDocumentRevisionToken('revision-1'),
         );
         const runSaveTransaction = vi.fn(async () => {
-            documentRevisionToken.value = 'revision-2' as TDocumentRevisionToken;
-            return {
-                source: 'serialized-rewrite' as const,
-                baseBytes: null,
-                serializedBytes: Uint8Array.of(4, 5, 6),
-                serializedResult: null,
-                nativeMutationProjection: null,
-                fallbackDecision: {},
-                annotationSavePlan: {},
-            };
+            documentRevisionToken.value = requireDocumentRevisionToken('revision-2');
+            return createSaveTransactionResult({serializedBytes: Uint8Array.of(4, 5, 6)});
         });
         const orchestration = usePageSaveOrchestration(createDeps({
             annotationDirty: ref(true),
             documentRevisionToken,
             hasPendingUnsavedChanges: computed(() => true),
-            pdfViewerRef: ref({
+            pdfViewerRef: ref(createPdfViewerFixture({
                 runSaveTransaction,
                 getAllShapes: vi.fn(() => []),
-            }),
+            })),
         }));
 
         await expect(orchestration.createRecoverySnapshotBytes()).resolves.toBeNull();

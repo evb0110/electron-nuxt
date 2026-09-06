@@ -30,7 +30,7 @@ import {
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import { workspaceSessionHasOpenedDocument } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 const PDF_GEOMETRY: IPdfOpeningGeometry = {
     pageNumber: requirePageNumber(1),
@@ -110,7 +110,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
                 },
             };
         });
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             getToolbarSnapshot: () => toolbarSnapshot,
             waitForDocumentOpenSettled,
         });
@@ -177,7 +177,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
                 isOpeningDocument: false,
             };
         });
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             getToolbarSnapshot: () => toolbarSnapshot,
             waitForDocumentOpenSettled,
         });
@@ -216,7 +216,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
     it('does not let a stale failed open clear a newer transaction presentation', async () => {
         const documentOpenSurface = createDocumentOpenSurfaceSession();
         const toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             getToolbarSnapshot: () => toolbarSnapshot,
             waitForDocumentOpenSettled: vi.fn(async () => {}),
         });
@@ -328,7 +328,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
             requestWorkspaceMount,
             isHostUnmounted: () => false,
         });
-        controller.attachWorkspace(cast<IWorkspaceExpose>({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
+        controller.attachWorkspace(createWorkspaceExposeFixture({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
             options?.onCloseCommit?.();
             return true;
         }}));
@@ -346,7 +346,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         await expect(controller.close({persist: false})).resolves.toBe(true);
         await expect(opening).resolves.toBe(false);
 
-        mountedWorkspace.value = cast<IWorkspaceExpose>({handleOpenFileDirectWithPersist: realOpen});
+        mountedWorkspace.value = createWorkspaceExposeFixture({handleOpenFileDirectWithPersist: realOpen});
         await Promise.resolve();
         await Promise.resolve();
 

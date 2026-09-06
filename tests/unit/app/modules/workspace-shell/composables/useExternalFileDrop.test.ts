@@ -9,7 +9,6 @@ import {
 import { delay } from 'es-toolkit/promise';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { requireDocumentRef } from '@contracts/documentRef';
-import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 type TCapturedListener = (event: DragEvent) => void;
@@ -43,22 +42,40 @@ function createDragEvent(
     types: string[] = ['Files'],
     options: { defaultPrevented?: boolean } = {},
 ) {
-    const files = paths.map((path, index) => cast<File>({
-        name: `file-${index}`,
-        path,
-    }));
-    const event = {
-        defaultPrevented: options.defaultPrevented ?? false,
-        target: null,
+    const files = paths.map((path, index) => {
+        const file = new File([], `file-${index}`);
+        Object.defineProperty(file, 'path', {
+            configurable: true,
+            value: path,
+        });
+        return file;
+    });
+    const event = new Event('drop', {cancelable: true});
+    Object.defineProperties(event, {
         dataTransfer: {
-            types,
-            files,
-            dropEffect: 'none',
+            configurable: true,
+            value: {
+                types,
+                files,
+                dropEffect: 'none',
+            },
         },
-        preventDefault: vi.fn(),
-        stopPropagation: vi.fn(),
-    };
-    return cast<DragEvent>(event);
+        defaultPrevented: {
+            configurable: true,
+            value: options.defaultPrevented ?? false,
+        },
+        preventDefault: {
+            configurable: true,
+            value: vi.fn(),
+        },
+        stopPropagation: {
+            configurable: true,
+            value: vi.fn(),
+        },
+    });
+
+    // The drop handler only consumes this small Electron DataTransfer shim.
+    return event as DragEvent;
 }
 
 async function flushDropQueue() {

@@ -19,7 +19,8 @@ import {
 import type {IUpdateDialogState} from '@app/composables/useAppUpdates';
 import {useAppShellLifecycle} from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
 import {useAppShellUpdatesDialog} from '@app/modules/workspace-shell/composables/useAppShellUpdatesDialog';
-import {cast} from '@tests/helpers/cast';
+import {createDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const mocks = vi.hoisted(() => ({
     logError: vi.fn(),
@@ -56,7 +57,7 @@ describe('app shell lifecycle', () => {
         const cleanupExternalFileDrop = vi.fn();
         const resolveDirtyTabCloseDialog = vi.fn();
         const closeUpdatesDialog = vi.fn();
-        const handleIncomingTabTransfer = vi.fn(async () => {
+        const handleIncomingTabTransfer = vi.fn(async (_transfer: {transferId: string}) => {
             throw new Error('local transfer detail');
         });
         const dirtyTabCloseDialogOpen = ref(true);
@@ -69,7 +70,7 @@ describe('app shell lifecycle', () => {
                 updatesDialogOpen,
                 cleanupEmptyPanes,
                 ensureUpdatesInitialized,
-                handleIncomingTabTransfer: cast(handleIncomingTabTransfer),
+                handleIncomingTabTransfer,
                 cleanupDirectionalTabs,
                 cleanupExternalFileDrop,
                 resolveDirtyTabCloseDialog,
@@ -117,7 +118,7 @@ describe('app shell update dialog bindings', () => {
         const downloadUpdate = vi.fn(async () => undefined);
         const skipUpdateVersion = vi.fn(async () => undefined);
         const installUpdateNow = vi.fn(async () => undefined);
-        const updatesDialog = ref(cast<IUpdateDialogState>({
+        const updatesDialog = ref<IUpdateDialogState>({
             open: true,
             kind: 'status',
             phase: 'error',
@@ -125,12 +126,12 @@ describe('app shell update dialog bindings', () => {
             percent: null,
             message: 'Update failed',
             failure: {failure: {
-                eventId: '0123456789abcdef0123456789abcdef',
+                eventId: createDiagnosticEventId(),
                 code: 'UPDATE_OPERATION_FAILED',
-                occurredAt: 1,
+                occurredAt: requireEpochMs(1),
                 severity: 'error',
             }},
-        }));
+        });
         const bindings = useAppShellUpdatesDialog({
             updatesDialog,
             updatesDialogVersion: computed(() => updatesDialog.value.version),

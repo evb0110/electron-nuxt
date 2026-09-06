@@ -7,7 +7,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { TDocumentRef } from '@contracts/documentRef';
 import {
     createDocumentPageSourcePresentation,
     type IDocumentPageSourceVisualState,
@@ -19,10 +18,22 @@ import type {
 import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { cast } from '@tests/helpers/cast';
+import { createDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { createDocumentPageSlotRegistry } from '@app/utils/document-viewer/page-slots/createDocumentPageSlotRegistry';
+
+function createCurrentTargetEvent(target: EventTarget): Event {
+    const event = new Event('load');
+    Object.defineProperty(event, 'currentTarget', {
+        configurable: true,
+        value: target,
+    });
+    return event;
+}
 
 function createPresentationHarness() {
-    const documentRef = '/documents/scan.djvu' as TDocumentRef;
+    const documentRef = requireDocumentRef('/documents/scan.djvu');
     const viewport = document.createElement('div');
     Object.defineProperties(viewport, {
         clientHeight: {value: 600},
@@ -81,11 +92,19 @@ function createPresentationHarness() {
         renderPage: vi.fn(() => replacement),
     };
     let nextRenderGeneration = 1;
-    const renderSession = cast<IDocumentViewerRenderSession>({
+    const renderSession: IDocumentViewerRenderSession = {
+        ownerId: 'presentation-test',
+        pageSlots: createDocumentPageSlotRegistry().createOwner('presentation-test'),
+        beginPageRender: () => ++nextRenderGeneration,
+        commitPageRender: () => true,
+        failPageRender: () => true,
+        getPageVisual: () => 'skeleton',
+        resolveMountedPages: () => [],
+        dispose: vi.fn(),
         releasePage: vi.fn(),
-        runPageRender: async (
+        runPageRender: async <T>(
             _pageNumber: number,
-            render: (generation: number) => Promise<IDocumentSurfaceLease>,
+            render: (generation: number) => Promise<T>,
         ) => {
             const generation = ++nextRenderGeneration;
             return {
@@ -94,7 +113,7 @@ function createPresentationHarness() {
                 value: await render(generation),
             };
         },
-    });
+    };
     const renderMountedPages = vi.fn(async () => {});
     const emit = vi.fn();
     const scheduleRender = vi.fn();
@@ -241,7 +260,7 @@ describe('document page-source presentation lifecycle', () => {
         await harness.presentation.handleSurfaceLoad(
             1,
             'old-surface',
-            cast<Event>({currentTarget: harness.image}),
+            createCurrentTargetEvent(harness.image),
         );
         expect(harness.presentation.pageStates.get(1)?.ready).toBe(true);
 
@@ -299,12 +318,12 @@ describe('document page-source presentation lifecycle', () => {
     it('exhausts render failures without resetting or rescheduling terminal work', async () => {
         const harness = createPresentationHarness();
         const render = vi.mocked(harness.source.renderPage);
-        const receipt = {
+        const receipt: FailureReceipt = {
             code: 'UNCLASSIFIED_RENDERER_ERROR',
-            eventId: 'page-failure-123456789',
-            occurredAt: 1,
+            eventId: createDiagnosticEventId(),
+            occurredAt: requireEpochMs(1),
             severity: 'error',
-        } as FailureReceipt;
+        };
         const capture = vi.spyOn(BrowserLogger, 'error').mockReturnValue(receipt);
         render.mockRejectedValue(new Error('render failed'));
         harness.presentation.beginSourceGeneration();
@@ -348,7 +367,7 @@ describe('document page-source presentation lifecycle', () => {
         harness.presentation.handleSurfaceError(
             1,
             'old-surface',
-            cast<Event>({currentTarget: harness.image}),
+            createCurrentTargetEvent(harness.image),
         );
         await vi.waitFor(() => expect(harness.presentation.pageStates.get(1)?.lease?.surface)
             .toBe('retry-surface-1'));
@@ -358,7 +377,7 @@ describe('document page-source presentation lifecycle', () => {
         harness.presentation.handleSurfaceError(
             1,
             'retry-surface-1',
-            cast<Event>({currentTarget: harness.image}),
+            createCurrentTargetEvent(harness.image),
         );
         await vi.waitFor(() => expect(harness.presentation.pageStates.get(1)?.lease?.surface)
             .toBe('retry-surface-2'));
@@ -368,7 +387,7 @@ describe('document page-source presentation lifecycle', () => {
         harness.presentation.handleSurfaceError(
             1,
             'retry-surface-2',
-            cast<Event>({currentTarget: harness.image}),
+            createCurrentTargetEvent(harness.image),
         );
         expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
         expect(harness.source.renderPage).toHaveBeenCalledTimes(2);
@@ -385,7 +404,7 @@ describe('document page-source presentation lifecycle', () => {
         await harness.presentation.handleSurfaceLoad(
             1,
             'old-surface',
-            cast<Event>({currentTarget: harness.image}),
+            createCurrentTargetEvent(harness.image),
         );
 
         expect(state.ready).toBe(true);

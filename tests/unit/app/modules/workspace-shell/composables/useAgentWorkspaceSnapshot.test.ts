@@ -39,11 +39,18 @@ import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import {requireDocumentRevisionToken} from '@contracts';
 
 interface IWindowWithElectronApi extends Window {electronAPI?: IElectronAPI;}
+type TAgentHarnessCapability = Pick<IAgentCapability,
+    | 'onCommandCancelRequest'
+    | 'onCommandRequest'
+    | 'onWorkspaceSnapshotRequest'
+    | 'submitCommandResponse'
+    | 'submitWorkspaceSnapshot'
+>;
 
 const initialElectronApi = (window as IWindowWithElectronApi).electronAPI;
 type TWorkspaceDocumentRecordMap = Record<string, ReturnType<typeof createWorkspaceDocumentRecord>>;
@@ -52,7 +59,7 @@ function createWorkspace(
     overrides: Partial<ReturnType<IWorkspaceExpose['getToolbarSnapshot']>>,
     workspaceOverrides: Partial<IWorkspaceExpose> = {},
 ) {
-    return cast<IWorkspaceExpose>({
+    return createWorkspaceExposeFixture({
         getToolbarSnapshot: () => ({
             ...createDefaultWorkspaceToolbarSnapshot(),
             ...overrides,
@@ -122,7 +129,7 @@ function createTestSession(path = '/tmp/document.pdf') {
     });
 }
 
-function createElectronApiFixture(agent: IAgentCapability) {
+function createElectronApiFixture(agent: Partial<TAgentHarnessCapability>) {
     return createElectronPlatformApiFixture({agent});
 }
 
@@ -155,7 +162,7 @@ async function waitForAssertion(assertion: () => void) {
 
 async function mountAgentWorkspaceSnapshotHarness(options: {
     activateTab?: () => void;
-    agent?: IAgentCapability;
+    agent?: TAgentHarnessCapability;
     getPaneByTabId?: (tabId: string) => IEditorPaneState | null;
     installElectronApi?: boolean;
     session?: IWorkspaceDocumentController;
@@ -187,12 +194,12 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
     const commandCallbacks: Array<(request: IAgentCommandRequest) => void> = [];
     const snapshotCallbacks: Array<(request: IAgentWorkspaceSnapshotRequest) => void> = [];
     const commandResponses: IAgentCommandResponse[] = [];
-    const agent = options.agent ?? cast<IAgentCapability>({
+    const agent = options.agent ?? ({
         onWorkspaceSnapshotRequest: vi.fn((callback) => {
             snapshotCallbacks.push(callback);
             return vi.fn();
         }),
-        submitWorkspaceSnapshot: vi.fn(async () => ({accepted: true})),
+        submitWorkspaceSnapshot: vi.fn<IAgentCapability['submitWorkspaceSnapshot']>(async (_response) => ({accepted: true})),
         onCommandRequest: vi.fn((callback) => {
             commandCallbacks.push(callback);
             return vi.fn();
@@ -205,7 +212,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
             commandResponses.push(response);
             return {accepted: true};
         }),
-    });
+    } satisfies TAgentHarnessCapability);
     if (options.installElectronApi !== false) {
         (window as IWindowWithElectronApi).electronAPI = createElectronApiFixture(agent);
     }

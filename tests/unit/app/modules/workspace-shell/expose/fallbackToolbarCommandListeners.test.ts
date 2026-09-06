@@ -7,8 +7,12 @@ import {
     vi,
 } from 'vitest';
 import {createFallbackToolbarCommandListeners} from '@app/modules/workspace-shell/expose/createFallbackToolbarCommandListeners';
-import {cast} from '@tests/helpers/cast';
 import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import {
+    createWorkspaceExposeCommandHandlers,
+    createWorkspaceExposeFromCommandHandlers,
+} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
+import type * as WorkspaceExposeDescriptors from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 
 const mocks = vi.hoisted(() => ({
     guardAsync: vi.fn(),
@@ -18,14 +22,18 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/utils/asyncGuard', () => ({guardAsync: mocks.guardAsync}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
-vi.mock('@app/modules/workspace-shell/expose/workspaceExposeDescriptors', () => ({
-    invokeWorkspaceExposeCommand: mocks.invoke,
-    workspaceExposeToolbarCommandDescriptors: [{
-        name: 'handleSave',
-        toolbar: {eventName: 'save'},
-    }],
-    WorkspaceExposeCommandUnavailableError: class WorkspaceExposeCommandUnavailableError extends Error {},
-}));
+vi.mock('@app/modules/workspace-shell/expose/workspaceExposeDescriptors', async importOriginal => {
+    const original = await importOriginal<typeof WorkspaceExposeDescriptors>();
+    return {
+        ...original,
+        invokeWorkspaceExposeCommand: mocks.invoke,
+        workspaceExposeToolbarCommandDescriptors: [{
+            name: 'handleSave',
+            toolbar: {eventName: 'save'},
+        }],
+        WorkspaceExposeCommandUnavailableError: class WorkspaceExposeCommandUnavailableError extends Error {},
+    };
+});
 
 describe('fallback toolbar command listeners', () => {
     beforeEach(() => {
@@ -49,7 +57,10 @@ describe('fallback toolbar command listeners', () => {
         expect(mocks.invoke).not.toHaveBeenCalled();
 
         const pending = Promise.resolve(true);
-        const workspace = cast<IWorkspaceExpose>({});
+        const workspace = createWorkspaceExposeFromCommandHandlers(
+            true,
+            createWorkspaceExposeCommandHandlers(() => vi.fn()),
+        );
         activeWorkspace.value = workspace;
         mocks.invoke.mockReturnValue(pending);
 

@@ -9,23 +9,25 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import { requireEpochMs } from '@contracts/timestamps';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 import {
     createDeferred,
     createDeps,
     createEditorFreeTextNote,
     createPdfNoteComment,
+    createPdfSaveTransactionResult,
     createShapeAnnotation,
     expectWorkspaceSaveMarked,
     expectWorkspaceSaveNotMarked,
     TEST_BROWSER_WORKING_COPY_REF,
     toastAddMock,
+    type TPdfNativeMutationSave,
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 
@@ -60,14 +62,14 @@ describe('workspaceSaveService native persistence', () => {
         const commitAnnotationSave = vi.fn(() => {
             callOrder.push('commit');
         });
-        const trySavePdfNativeMutations = vi.fn(async () => ({
+        const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async () => ({
             success: true,
             outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
             materializedIdentityBindings: [binding],
         }));
-        const runSaveTransaction = vi.fn(async () => cast({
+        const runSaveTransaction = vi.fn(async () => createPdfSaveTransactionResult({
             source: 'native-mutation-projection' as const,
             baseBytes: null,
             serializedBytes: null,
@@ -87,8 +89,6 @@ describe('workspaceSaveService native persistence', () => {
                 hasMarkupMutations: true,
                 phase: 'native-markup',
             },
-            fallbackDecision: {},
-            annotationSavePlan: {},
             recordMaterializedIdentityBinding,
             commitAnnotationSave,
         }));
@@ -130,7 +130,7 @@ describe('workspaceSaveService native persistence', () => {
     const strictNativeMutationRows: readonly IStrictNativeMutationRow[] = [
         {
             name: 'notes',
-            configure: () => cast<TSaveFixtureOverrides>({
+            configure: () => ({
                 annotationDirty: ref(true),
                 canonicalAnnotationComments: shallowRef([createPdfNoteComment()]),
                 captureCanonicalPendingTextUpdates: vi.fn(() => new Map([[
@@ -139,22 +139,22 @@ describe('workspaceSaveService native persistence', () => {
                 ]])),
                 hasAnnotationChanges: vi.fn(() => true),
                 pdfDocument: shallowRef(null),
-            }),
+            } satisfies TSaveFixtureOverrides),
             expectedMutationKeys: ['updates'],
         },
         {
             name: 'editor FreeText',
-            configure: () => cast<TSaveFixtureOverrides>({
+            configure: () => ({
                 annotationDirty: ref(true),
                 canonicalAnnotationComments: shallowRef([createEditorFreeTextNote()]),
                 hasAnnotationChanges: vi.fn(() => true),
                 pdfDocument: shallowRef(null),
-            }),
+            } satisfies TSaveFixtureOverrides),
             expectedMutationKeys: ['freeTextNotes'],
         },
         {
             name: 'markup',
-            configure: () => cast<TSaveFixtureOverrides>({
+            configure: () => ({
                 annotationDirty: ref(true),
                 canonicalAnnotationComments: shallowRef([createPdfNoteComment({
                     id: '44R',
@@ -178,7 +178,7 @@ describe('workspaceSaveService native persistence', () => {
                     annotationId: '44R',
                     id: '44R',
                     subtype: 'Highlight' as const,
-                    pageIndex: 0,
+                    pageIndex: requirePageIndex(0),
                     markerRect: {
                         left: 0.1,
                         top: 0.2,
@@ -190,22 +190,22 @@ describe('workspaceSaveService native persistence', () => {
                     pageMarkupIndex: 0,
                     source: 'pdf' as const,
                 }]),
-            }),
+            } satisfies TSaveFixtureOverrides),
             expectedMutationKeys: ['markup'],
         },
         {
             name: 'shapes',
-            configure: () => cast<TSaveFixtureOverrides>({
+            configure: () => ({
                 annotationDirty: ref(false),
                 hasShapeChanges: vi.fn(() => true),
                 getAllShapes: vi.fn(() => [createShapeAnnotation()]),
                 totalPages: ref(2),
-            }),
+            } satisfies TSaveFixtureOverrides),
             expectedMutationKeys: ['shapes'],
         },
         {
             name: 'page labels and bookmarks',
-            configure: () => cast<TSaveFixtureOverrides>({
+            configure: () => ({
                 totalPages: ref(3),
                 pageLabelsDirty: ref(true),
                 pageLabelRanges: ref([{
@@ -217,14 +217,14 @@ describe('workspaceSaveService native persistence', () => {
                 bookmarksDirty: ref(true),
                 bookmarkItems: ref([{
                     title: 'Chapter 1',
-                    pageIndex: 0,
+                    pageIndex: requirePageIndex(0),
                     namedDest: null,
                     bold: false,
                     italic: false,
                     color: null,
                     items: [],
                 }]),
-            }),
+            } satisfies TSaveFixtureOverrides),
             expectedMutationKeys: [
                 'pageLabels',
                 'bookmarks',
@@ -232,7 +232,7 @@ describe('workspaceSaveService native persistence', () => {
         },
         {
             name: 'mixed payload',
-            configure: () => cast<TSaveFixtureOverrides>({
+            configure: () => ({
                 annotationDirty: ref(true),
                 canonicalAnnotationComments: shallowRef([createPdfNoteComment()]),
                 captureCanonicalPendingTextUpdates: vi.fn(() => new Map([[
@@ -251,7 +251,7 @@ describe('workspaceSaveService native persistence', () => {
                     prefix: '',
                     startNumber: 1,
                 }]),
-            }),
+            } satisfies TSaveFixtureOverrides),
             expectedMutationKeys: [
                 'updates',
                 'pageLabels',
@@ -264,7 +264,7 @@ describe('workspaceSaveService native persistence', () => {
         configure,
         expectedMutationKeys,
     }) => {
-        const trySavePdfNativeMutations = vi.fn(async () => ({
+        const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async () => ({
             success: true,
             outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
@@ -284,7 +284,10 @@ describe('workspaceSaveService native persistence', () => {
         expect(result).toBe(true);
 
         expect(trySavePdfNativeMutations).toHaveBeenCalledOnce();
-        const nativeCall = cast<unknown[]>(trySavePdfNativeMutations.mock.calls[0]);
+        const nativeCall = trySavePdfNativeMutations.mock.calls[0];
+        if (!nativeCall) {
+            throw new Error('Expected a native mutation call');
+        }
         const mutations = nativeCall[0];
         expectedMutationKeys.forEach(key => expect(mutations).toHaveProperty(key));
         expect(deps.saveDocument).not.toHaveBeenCalled();
@@ -297,16 +300,16 @@ describe('workspaceSaveService native persistence', () => {
         {
             name: 'missing native capability',
             nativeMode: 'missing',
-            configure: () => cast<TSaveFixtureOverrides>({annotationDirty: ref(true)}),
+            configure: () => ({annotationDirty: ref(true)} satisfies TSaveFixtureOverrides),
             expectedNativeCalls: 0,
         },
         {
             name: 'unknown PDF.js mutation classifier rejection',
             nativeMode: 'success',
-            configure: () => cast<TSaveFixtureOverrides>({
+            configure: () => ({
                 annotationDirty: ref(true),
                 hasLivePdfJsAnnotationChanges: vi.fn(() => true),
-                pdfDocument: shallowRef(cast<PDFDocumentProxy>({annotationStorage: {
+                pdfDocument: shallowRef(createPdfDocumentProxy({annotationStorage: {
                     serializable: {
                         map: new Map([[
                             'unknown-editor',
@@ -317,13 +320,13 @@ describe('workspaceSaveService native persistence', () => {
                     modifiedIds: {ids: new Set()},
                     resetModified: vi.fn(),
                 }})),
-            }),
+            } satisfies TSaveFixtureOverrides),
             expectedNativeCalls: 0,
         },
         {
             name: 'native decline',
             nativeMode: 'null',
-            configure: () => cast<TSaveFixtureOverrides>({
+            configure: () => ({
                 totalPages: ref(1),
                 pageLabelsDirty: ref(true),
                 pageLabelRanges: ref([{
@@ -332,13 +335,13 @@ describe('workspaceSaveService native persistence', () => {
                     prefix: '',
                     startNumber: 1,
                 }]),
-            }),
+            } satisfies TSaveFixtureOverrides),
             expectedNativeCalls: 1,
         },
         {
             name: 'native error',
             nativeMode: 'error',
-            configure: () => cast<TSaveFixtureOverrides>({
+            configure: () => ({
                 totalPages: ref(1),
                 pageLabelsDirty: ref(true),
                 pageLabelRanges: ref([{
@@ -347,7 +350,7 @@ describe('workspaceSaveService native persistence', () => {
                     prefix: '',
                     startNumber: 1,
                 }]),
-            }),
+            } satisfies TSaveFixtureOverrides),
             expectedNativeCalls: 1,
         },
     ];
@@ -760,7 +763,7 @@ describe('workspaceSaveService native persistence', () => {
     });
 
     it('uses PDF.js saveDocument when annotation storage has serializable entries without modified ids', async () => {
-        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+        const livePdfDocument = shallowRef(createPdfDocumentProxy({ annotationStorage: {
             resetModified: vi.fn(),
             modifiedIds: { ids: new Set() },
             serializable: {
@@ -1158,7 +1161,7 @@ describe('workspaceSaveService native persistence', () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         vi.useFakeTimers();
         const stalledSave = new Promise<Uint8Array | null>(() => undefined);
-        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+        const livePdfDocument = shallowRef(createPdfDocumentProxy({ annotationStorage: {
             resetModified: vi.fn(),
             modifiedIds: { ids: new Set(['3856R']) },
         } }));
@@ -1251,8 +1254,8 @@ describe('workspaceSaveService native persistence', () => {
         await Promise.resolve();
         expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
 
-        deps.originalPath.value = cast('/tmp/replacement.pdf');
-        deps.workingCopyPath.value = cast('/tmp/replacement-working.pdf');
+        deps.originalPath.value = requireDocumentRef('/tmp/replacement.pdf');
+        deps.workingCopyPath.value = requireDocumentRef('/tmp/replacement-working.pdf');
         deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-2');
         deferredNotes.resolve(true);
 
@@ -1264,7 +1267,7 @@ describe('workspaceSaveService native persistence', () => {
 
     it('surfaces a toast when PDF.js saveDocument returns no data repeatedly', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const livePdfDocument = shallowRef<PDFDocumentProxy | null>(cast({ annotationStorage: {
+        const livePdfDocument = shallowRef(createPdfDocumentProxy({ annotationStorage: {
             resetModified: vi.fn(),
             modifiedIds: { ids: new Set(['3856R']) },
         } }));
