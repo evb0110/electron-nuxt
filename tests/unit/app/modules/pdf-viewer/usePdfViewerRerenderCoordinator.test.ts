@@ -435,7 +435,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
             await Promise.resolve();
 
             expect(submitZoomViewportStateIntent).not.toHaveBeenCalled();
-            expect(buildResizeAnchorContext).not.toHaveBeenCalled();
+            expect(buildResizeAnchorContext).toHaveBeenCalledOnce();
             expect(cancelInFlightPageRenders).not.toHaveBeenCalled();
             expect(enqueueZoomSync).not.toHaveBeenCalled();
 
@@ -446,13 +446,13 @@ describe('usePdfViewerRerenderCoordinator', () => {
             expect(buildResizeAnchorContext).toHaveBeenCalledOnce();
             expect(cancelInFlightPageRenders).toHaveBeenCalledOnce();
             expect(enqueueZoomSync).toHaveBeenCalledOnce();
+            expect(buildResizeAnchorContext.mock.invocationCallOrder[0]!).toBeLessThan(
+                submitZoomViewportStateIntent.mock.invocationCallOrder[0]!,
+            );
             expect(submitZoomViewportStateIntent.mock.invocationCallOrder[0]!).toBeLessThan(
                 cancelInFlightPageRenders.mock.invocationCallOrder[0]!,
             );
             expect(cancelInFlightPageRenders.mock.invocationCallOrder[0]!).toBeLessThan(
-                buildResizeAnchorContext.mock.invocationCallOrder[0]!,
-            );
-            expect(buildResizeAnchorContext.mock.invocationCallOrder[0]!).toBeLessThan(
                 enqueueZoomSync.mock.invocationCallOrder[0]!,
             );
             expect(enqueueZoomSync).toHaveBeenCalledWith(expect.objectContaining({
