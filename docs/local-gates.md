@@ -29,6 +29,7 @@ so `build.strict` has the highest priority after preparation.
 | stage | script | weight | cacheable |
 | --- | --- | ---: | --- |
 | build.prepare | generate:build-artifacts | 1 | no |
+| scan-cleanup.line-budget | `node scripts/validation-gates.mjs scan-cleanup-lines` | 1 | yes |
 | build.strict | build:strict | 2 | no (records a build marker) |
 | native.test | test:rust | 4 | no |
 | test.coverage | test:coverage | 5 | no |
@@ -95,6 +96,37 @@ the stage locally before it fails on `main`.
 `check:static:assets` measures the tracked deploy source. The deploy script
 requires a clean snapshot; the local gate passes `--allow-dirty` because an
 uncommitted worktree measures the same tracked files.
+
+### Scan-cleanup line budget
+
+`node scripts/validation-gates.mjs scan-cleanup-lines` reports code lines for
+the six scan-cleanup production homes and reports matching scan-cleanup tests
+separately. It counts `.ts`, `.tsx`, `.vue`, and `.rs` files. Blank lines and
+comments do not count, including files that carry a local ESLint max-lines
+suppression. The committed
+[scan-cleanup-line-budget-baseline.json](../scan-cleanup-line-budget-baseline.json)
+stores one baseline per production home and the production total.
+
+The normal command fails when a home or the production total grows past its
+baseline. Test lines are informational and do not fail this gate. A normal
+commit may lower the baseline with:
+
+```text
+node scripts/validation-gates.mjs scan-cleanup-lines --update-baseline
+```
+
+Raising it requires the explicit consolidation-only override, which is printed
+in the job log and must name the consolidation reason:
+
+```text
+node scripts/validation-gates.mjs scan-cleanup-lines --update-baseline --allow-baseline-increase=consolidation:move-code-between-homes
+```
+
+Use the override only when a consolidation commit moves code between named
+homes. It is not a way to accept ordinary feature growth. The gate runs as
+`scan-cleanup.line-budget` in the same validation-gates acceptance and nightly
+job family as the coverage ratchet, and is designed to finish well under the
+30-second ticket limit.
 
 ### Stage cache
 

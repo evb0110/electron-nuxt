@@ -96,6 +96,7 @@ const validationStageInputPaths = {
         'pnpm-workspace.yaml',
         'scripts',
         'tsconfig*.json',
+        'scan-cleanup-line-budget-baseline.json',
     ],
     fallow: [
         '.fallow-dupes-baseline.json',
@@ -578,6 +579,12 @@ function affectedPlan(tier, files, classification) {
     const stages = [];
     const typecheck = selectedTypecheckProjects(files, classification);
     const selectedUnits = selectedUnitProjects(files, classification);
+    if (tier !== 'iteration') {
+        stages.push(nodeStage('scan-cleanup.line-budget', 'scripts/validation-gates.mjs', ['scan-cleanup-lines'], {
+            cacheable: true,
+            inputScope: 'build',
+        }));
+    }
     stages.push(nodeStage('lint.affected', 'scripts/validation-gates.mjs', [
         'lint',
         '--changed',
@@ -744,6 +751,10 @@ export function getValidationPlan({
     }
 
     const fullStages = [
+        nodeStage('scan-cleanup.line-budget', 'scripts/validation-gates.mjs', ['scan-cleanup-lines'], {
+            cacheable: true,
+            inputScope: 'build',
+        }),
         pnpmRunStage('lint.full', cold || tier !== 'acceptance' ? 'lint:clean' : 'lint', {
             cacheable: true,
             heavyWeight: 2,
@@ -2580,12 +2591,17 @@ async function main() {
         await runHeavyCommand(argv);
         return;
     }
+    if (command === 'scan-cleanup-lines') {
+        const {runScanCleanupLineBudget} = await import('./scan-cleanup-line-budget.mjs');
+        runScanCleanupLineBudget({argv});
+        return;
+    }
     if (isValidationTier(command)) {
         await runTier(command, argv);
         return;
     }
     throw new Error(
-        'Usage: validation-gates.mjs <iteration|acceptance|integration|nightly|lint|heavy> [options]',
+        'Usage: validation-gates.mjs <iteration|acceptance|integration|nightly|lint|heavy|scan-cleanup-lines> [options]',
     );
 }
 

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "productionTotal": 95498,
+  "homes": {
+    "app": {
+      "lines": 16825,
+      "path": "app/modules/scan-cleanup"
+    },
+    "electron": {
+      "lines": 6159,
+      "path": "electron/features/scan-cleanup"
+    },
+    "contracts": {
+      "lines": 5653,
+      "path": "packages/contracts/scan-cleanup"
+    },
+    "core": {
+      "lines": 14250,
+      "path": "scan-cleanup-core"
+    },
+    "adapters": {
+      "lines": 1045,
+      "path": "scan-cleanup-adapters"
+    },
+    "native": {
+      "lines": 51566,
+      "path": "native/scan-cleanup"
+    }
+  }
+}
