@@ -51,6 +51,18 @@ export function createAllGatesValidationStages({
 } = {}) {
     return [
         pnpmStage('build.prepare', 'generate:build-artifacts', {priority: 100}),
+        {
+            args: [
+                'scripts/validation-gates.mjs',
+                'scan-cleanup-lines',
+            ],
+            cacheable: true,
+            command: 'node',
+            dependsOn: ['build.prepare'],
+            inputScope: 'build',
+            priority: 85,
+            id: 'scan-cleanup.line-budget',
+        },
         pnpmStage('lint.full', cold ? 'lint:clean' : 'lint', {
             cacheable: true,
             dependsOn: ['build.prepare'],
