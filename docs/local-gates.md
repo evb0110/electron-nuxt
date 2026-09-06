@@ -128,6 +128,19 @@ homes. It is not a way to accept ordinary feature growth. The gate runs as
 job family as the coverage ratchet, and is designed to finish well under the
 30-second ticket limit.
 
+Push and pull-request CI runs this command in the `Quality Gates` job before
+coverage. It passes the event's base SHA through `EVB_SCAN_CLEANUP_BASE_REF`.
+The gate compares every current home baseline with the baseline file at that
+commit using `git show`. A missing baseline at a valid base commit is allowed
+only for the first landing commit. An invalid or unavailable base fails closed.
+Use `--base-ref=<commit>` locally to reproduce the CI comparison.
+
+Rust files are split at balanced `#[cfg(test)]` items. Their test code is
+reported separately even when it is inline in a production source file. The
+parser handles nested blocks, attributes, comments, strings, raw strings, and
+character literals. Files named as tests, including `*_tests.rs`, also go into
+the separate test report.
+
 ### Stage cache
 
 A cacheable stage is skipped when its input fingerprint equals the fingerprint

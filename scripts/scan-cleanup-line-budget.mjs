@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {execFileSync} from 'node:child_process';
 import {
     readFileSync,
     readdirSync,
@@ -47,6 +48,134 @@ export const SCAN_CLEANUP_HOMES = Object.freeze([
 ]);
 
 export const SCAN_CLEANUP_LINE_BUDGET_BASELINE = 'scan-cleanup-line-budget-baseline.json';
+
+/** @param {string} value @returns {string} */
+function preserveNewlines(value) {
+    return value.replace(/[^\n]/gu, ' ');
+}
+
+/** @param {string} source @returns {string} */
+function maskRustNonCode(source) {
+    let output = '';
+    let state = 'code';
+    let quote = '';
+    let rawTerminator = '';
+    let blockDepth = 0;
+    for (let index = 0; index < source.length; index += 1) {
+        const character = source[index];
+        const next = source[index + 1];
+        if (state === 'line-comment') {
+            output += character === '\n' ? '\n' : ' ';
+            if (character === '\n') state = 'code';
+            continue;
+        }
+        if (state === 'block-comment') {
+            if (character === '/' && next === '*') {
+                blockDepth += 1;
+                output += '  ';
+                index += 1;
+            } else if (character === '*' && next === '/') {
+                blockDepth -= 1;
+                output += '  ';
+                index += 1;
+                if (blockDepth === 0) state = 'code';
+            } else {
+                output += character === '\n' ? '\n' : ' ';
+            }
+            continue;
+        }
+        if (state === 'raw-string') {
+            if (source.slice(index, index + rawTerminator.length) === rawTerminator) {
+                output += preserveNewlines(rawTerminator);
+                index += rawTerminator.length - 1;
+                state = 'code';
+            } else {
+                output += character === '\n' ? '\n' : ' ';
+            }
+            continue;
+        }
+        if (state === 'string' || state === 'char') {
+            output += character === '\n' ? '\n' : ' ';
+            if (character === '\\') {
+                if (next !== undefined) {
+                    output += next === '\n' ? '\n' : ' ';
+                    index += 1;
+                }
+            } else if (character === quote) {
+                state = 'code';
+            }
+            continue;
+        }
+        const rawStart = source.slice(index).match(/^(?:br|r)(#*)"/u);
+        if (rawStart) {
+            const hashes = rawStart[1]?.length ?? 0;
+            const prefixLength = (rawStart[0]?.length ?? 0);
+            rawTerminator = `"${'#'.repeat(hashes)}`;
+            output += preserveNewlines(source.slice(index, index + prefixLength));
+            index += prefixLength - 1;
+            state = 'raw-string';
+        } else if (character === '/' && next === '/') {
+            output += '  ';
+            index += 1;
+            state = 'line-comment';
+        } else if (character === '/' && next === '*') {
+            output += '  ';
+            index += 1;
+            blockDepth = 1;
+            state = 'block-comment';
+        } else if (character === '"' || character === '\'') {
+            output += ' ';
+            quote = character;
+            state = character === '"' ? 'string' : 'char';
+        } else {
+            output += character;
+        }
+    }
+    return output;
+}
+
+/** @param {string} source @returns {{productionLines: number[], testCodeLines: number[]}} */
+export function splitRustTestCodeLines(source) {
+    const masked = maskRustNonCode(source);
+    /** @type {Set<number>} */
+    const testLines = new Set();
+    for (const match of masked.matchAll(/#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]/gu)) {
+        const openingBrace = masked.indexOf('{', (match.index ?? 0) + match[0].length);
+        if (openingBrace < 0) continue;
+        let depth = 0;
+        let closingBrace = -1;
+        for (let index = openingBrace; index < masked.length; index += 1) {
+            if (masked[index] === '{') depth += 1;
+            else if (masked[index] === '}') {
+                depth -= 1;
+                if (depth === 0) {
+                    closingBrace = index;
+                    break;
+                }
+            }
+        }
+        if (closingBrace < 0) continue;
+        const startLine = source.slice(0, match.index ?? 0).split('\n').length - 1;
+        const endLine = source.slice(0, closingBrace + 1).split('\n').length - 1;
+        for (let line = startLine; line <= endLine; line += 1) testLines.add(line);
+    }
+    /** @type {number[]} */
+    const productionLines = [];
+    /** @type {number[]} */
+    const testCodeLines = [];
+    const codeLines = source.split(/\r?\n/u).map(/** @param {string} line */ line => line.trim().length > 0);
+    for (const [
+        line,
+        hasCode,
+    ] of codeLines.entries()) {
+        if (!hasCode) continue;
+        (testLines.has(line) ? testCodeLines : productionLines).push(line);
+    }
+    return {
+        productionLines,
+        testCodeLines,
+    };
+}
 
 /** @param {string} root @param {string} relativeDirectory @returns {string[]} */
 function sourceFiles(root, relativeDirectory) {
@@ -149,10 +278,14 @@ export function countCodeLines(source) {
 }
 
 /** @param {string} root @param {string[]} files @returns {{byFile: Record<string, number>, total: number}} */
-function countFiles(root, files) {
+function countFiles(root, files, {allAsTests = false} = {}) {
     const byFile = /** @type {Record<string, number>} */ (Object.fromEntries(files.map(filePath => [
         path.relative(root, filePath).split(path.sep).join('/'),
-        countCodeLines(readFileSync(filePath, 'utf8')),
+        allAsTests
+            ? countCodeLines(readFileSync(filePath, 'utf8'))
+            : path.extname(filePath) === '.rs'
+                ? splitRustTestCodeLines(readFileSync(filePath, 'utf8')).productionLines.length
+                : countCodeLines(readFileSync(filePath, 'utf8')),
     ])));
     return {
         byFile,
@@ -171,9 +304,10 @@ export function collectScanCleanupLineCounts(root) {
     ] of SCAN_CLEANUP_HOMES) {
         const files = sourceFiles(root, relativeDirectory);
         const productionFiles = files.filter(filePath => !isTestFile(root, filePath));
+        const homeCounts = countFiles(root, productionFiles);
         homes[name] = {
             path: relativeDirectory,
-            ...countFiles(root, productionFiles),
+            ...homeCounts,
         };
         tests.push(...files.filter(filePath => isTestFile(root, filePath)));
     }
@@ -183,7 +317,16 @@ export function collectScanCleanupLineCounts(root) {
     for (const filePath of testFiles) {
         if (!tests.includes(filePath)) tests.push(filePath);
     }
-    const testCounts = countFiles(root, tests.sort());
+    const testCounts = countFiles(root, tests.sort(), {allAsTests: true});
+    for (const filePath of SCAN_CLEANUP_HOMES.flatMap(([
+        , directory,
+    ]) => sourceFiles(root, directory))) {
+        if (isTestFile(root, filePath) || path.extname(filePath) !== '.rs') continue;
+        const relativePath = path.relative(root, filePath).split(path.sep).join('/');
+        const inlineTests = splitRustTestCodeLines(readFileSync(filePath, 'utf8')).testCodeLines.length;
+        if (inlineTests > 0) testCounts.byFile[relativePath] = (testCounts.byFile[relativePath] ?? 0) + inlineTests;
+    }
+    testCounts.total = Object.values(testCounts.byFile).reduce((total, lines) => total + lines, 0);
     return {
         homes,
         productionTotal: Object.values(homes).reduce((total, home) => total + home.total, 0),
@@ -219,6 +362,35 @@ export function evaluateScanCleanupLineBudget(counts, baseline, {allowBaselineIn
     };
 }
 
+/** @param {{homes: Record<string, {lines: number}>, productionTotal: number}} current @param {{homes: Record<string, {lines: number}>, productionTotal: number} | null} previous @param {{allowHomeIncrease?: boolean}} [options] */
+export function compareScanCleanupBaselines(current, previous, {allowHomeIncrease = false} = {}) {
+    if (previous === null) {
+        return {
+            bootstrap: true,
+            failures: [],
+        };
+    }
+    const failures = [];
+    for (const [
+        name,
+        home,
+    ] of Object.entries(current.homes)) {
+        const previousLines = previous.homes?.[name]?.lines;
+        if (typeof previousLines !== 'number') {
+            failures.push(`${name} has no baseline at the supplied base ref`);
+        } else if (home.lines > previousLines && !allowHomeIncrease) {
+            failures.push(`${name} baseline increased by ${home.lines - previousLines} code lines`);
+        }
+    }
+    if (current.productionTotal > previous.productionTotal) {
+        failures.push(`production total baseline increased by ${current.productionTotal - previous.productionTotal} code lines`);
+    }
+    return {
+        bootstrap: false,
+        failures,
+    };
+}
+
 /** @param {ILineCounts} counts @returns {ILineBudgetBaseline} */
 function baselineFromCounts(counts) {
     return {
@@ -242,6 +414,57 @@ function readBaseline(root) {
     return JSON.parse(readFileSync(path.join(root, SCAN_CLEANUP_LINE_BUDGET_BASELINE), 'utf8'));
 }
 
+/** @param {string[]} argv @returns {string} */
+function resolveBaseRef(argv) {
+    const explicit = readOption(argv, 'base-ref') ?? process.env.EVB_SCAN_CLEANUP_BASE_REF;
+    if (explicit) {
+        return explicit;
+    }
+    try {
+        return execFileSync('git', [
+            'merge-base',
+            'HEAD',
+            'origin/main',
+        ], {encoding: 'utf8'}).trim();
+    } catch {
+        throw new Error('Cannot determine a scan-cleanup baseline base ref. Pass --base-ref=<commit> or EVB_SCAN_CLEANUP_BASE_REF.');
+    }
+}
+
+/** @param {string} root @param {string} baseRef @returns {ILineBudgetBaseline | null} */
+function readBaselineAtRef(root, baseRef) {
+    try {
+        execFileSync('git', [
+            'rev-parse',
+            '--verify',
+            `${baseRef}^{commit}`,
+        ], {
+            cwd: root,
+            stdio: 'ignore',
+        });
+    } catch {
+        throw new Error(`Cannot verify scan-cleanup baseline base ref "${baseRef}".`);
+    }
+    let baselineText;
+    try {
+        baselineText = execFileSync('git', [
+            'show',
+            `${baseRef}:${SCAN_CLEANUP_LINE_BUDGET_BASELINE}`,
+        ], {
+            cwd: root,
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+    } catch {
+        return null;
+    }
+    return JSON.parse(baselineText);
+}
+
 /** @param {string} root @param {ILineCounts} counts */
 function writeBaseline(root, counts) {
     writeFileSync(
@@ -263,9 +486,12 @@ export function runScanCleanupLineBudget({
 } = {}) {
     const counts = collectScanCleanupLineCounts(root);
     const baseline = readBaseline(root);
+    const baseRef = resolveBaseRef(argv);
+    const previousBaseline = readBaselineAtRef(root, baseRef);
     const overrideReason = readOption(argv, 'allow-baseline-increase') ?? readOption(argv, 'override');
     const updateBaseline = argv.includes('--update-baseline');
     const allowBaselineIncrease = overrideReason !== undefined;
+    const baselineComparison = compareScanCleanupBaselines(baseline, previousBaseline, {allowHomeIncrease: allowBaselineIncrease});
     const evaluation = evaluateScanCleanupLineBudget(counts, baseline, {allowBaselineIncrease});
     process.stdout.write('Scan-cleanup code-line budget\n');
     for (const [
@@ -277,6 +503,11 @@ export function runScanCleanupLineBudget({
     }
     process.stdout.write(`  production total: ${counts.productionTotal} (baseline ${evaluation.baselineTotal}, delta ${counts.productionTotal - evaluation.baselineTotal})\n`);
     process.stdout.write(`  tests: ${counts.tests.total} code lines across ${Object.keys(counts.tests.byFile).length} files (reported separately)\n`);
+    process.stdout.write(`  baseline base ref: ${baseRef}${baselineComparison.bootstrap ? ' (bootstrap, no baseline at ref)' : ''}\n`);
+
+    if (baselineComparison.failures.length > 0) {
+        throw new Error(`Scan-cleanup baseline policy failed: ${baselineComparison.failures.join('; ')}`);
+    }
 
     if (updateBaseline) {
         const hasHomeIncrease = Object.entries(counts.homes).some(([

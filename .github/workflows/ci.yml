@@ -126,6 +126,12 @@ jobs:
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run typecheck
 
+      - name: Scan-cleanup line budget
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        env:
+          EVB_SCAN_CLEANUP_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/validation-gates.mjs scan-cleanup-lines --base-ref="$EVB_SCAN_CLEANUP_BASE_REF"
+
       - name: Unit tests (coverage)
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         env:

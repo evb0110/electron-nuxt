@@ -25,6 +25,20 @@ interface ILineBudgetModule {
         };
     };
     countCodeLines: (source: string) => number;
+    splitRustTestCodeLines: (source: string) => {
+        productionLines: number[];
+        testCodeLines: number[]
+    };
+    compareScanCleanupBaselines: (current: {
+        homes: Record<string, {lines: number}>;
+        productionTotal: number;
+    }, previous: {
+        homes: Record<string, {lines: number}>;
+        productionTotal: number;
+    } | null, options?: {allowHomeIncrease?: boolean}) => {
+        bootstrap: boolean;
+        failures: string[]
+    };
     evaluateScanCleanupLineBudget: (counts: {
         homes: Record<string, {total: number}>;
         productionTotal: number;
@@ -72,6 +86,7 @@ describe('scan-cleanup line budget', () => {
             writeFile(join(root, 'scan-cleanup-core/core.ts'), 'const core = 1;\n'),
             writeFile(join(root, 'scan-cleanup-adapters/adapter.ts'), 'const adapter = 1;\n'),
             writeFile(join(root, 'native/scan-cleanup/src/lib.rs'), 'fn main() {}\n'),
+            writeFile(join(root, 'native/scan-cleanup/src/example_tests.rs'), '#[test]\nfn separate() {}\n'),
             writeFile(join(root, 'native/scan-cleanup/tests/lib.rs'), 'fn test() {}\n'),
             writeFile(join(root, 'tests/unit/scan-cleanup/example.test.ts'), 'it("works", () => {});\n'),
             writeFile(join(root, 'scan-cleanup-core/ignored.js'), 'const ignored = 1;\n'),
@@ -86,8 +101,80 @@ describe('scan-cleanup line budget', () => {
             'native',
         ]);
         expect(counts.productionTotal).toBe(5);
-        expect(counts.tests.total).toBe(2);
-        expect(Object.keys(counts.tests.byFile)).toHaveLength(2);
+        expect(counts.tests.total).toBe(4);
+        expect(Object.keys(counts.tests.byFile)).toHaveLength(3);
+    });
+
+    it('splits an inline Rust cfg test item with nested syntax from production', () => {
+        const source = [
+            'fn production() { let brace = "}"; }',
+            '#[derive(Debug)]',
+            '#[cfg(test)]',
+            'mod tests {',
+            '    /* outer /* nested */ comment */',
+            '    fn nested() {',
+            '        let raw = r#"{ // braces are data }"#;',
+            '        let rawWithoutHashes = r"}";',
+            '        let character = \'}\';',
+            '    }',
+            '}',
+            'fn after() {}',
+        ].join('\n');
+        const split = module.splitRustTestCodeLines(source);
+        expect(split.productionLines).toEqual([
+            0,
+            1,
+            11,
+        ]);
+        expect(split.testCodeLines).toEqual([
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+        ]);
+    });
+
+    it('rejects raised home and total baselines, allows only an offsetting consolidation, and bootstraps', () => {
+        const previous = {
+            homes: {
+                app: {lines: 10},
+                native: {lines: 10},
+            },
+            productionTotal: 20,
+        };
+        expect(module.compareScanCleanupBaselines({
+            homes: {
+                app: {lines: 11},
+                native: {lines: 9},
+            },
+            productionTotal: 20,
+        }, previous).failures.join(' ')).toContain('app baseline increased by 1');
+        expect(module.compareScanCleanupBaselines({
+            homes: {
+                app: {lines: 11},
+                native: {lines: 9},
+            },
+            productionTotal: 20,
+        }, previous, {allowHomeIncrease: true}).failures).toEqual([]);
+        expect(module.compareScanCleanupBaselines({
+            homes: {
+                app: {lines: 11},
+                native: {lines: 10},
+            },
+            productionTotal: 21,
+        }, previous, {allowHomeIncrease: true}).failures.join(' ')).toContain('production total baseline increased');
+        expect(module.compareScanCleanupBaselines({
+            homes: {app: {lines: 10}},
+            productionTotal: 10,
+        }, null)).toEqual({
+            bootstrap: true,
+            failures: [],
+        });
     });
 
     it('reports the growing home and rejects production growth without an override', () => {
@@ -154,5 +241,22 @@ describe('scan-cleanup line budget', () => {
         ], {encoding: 'utf8'});
         expect(result.status).toBe(1);
         expect(`${result.stdout}${result.stderr}`).toContain('only valid with --update-baseline');
+    });
+
+    it('fails closed for an unavailable explicit base ref and accepts the bootstrap base', () => {
+        const invalid = spawnSync(process.execPath, [
+            'scripts/validation-gates.mjs',
+            'scan-cleanup-lines',
+            '--base-ref=not-a-real-commit',
+        ], {encoding: 'utf8'});
+        expect(invalid.status).toBe(1);
+        expect(`${invalid.stdout}${invalid.stderr}`).toContain('Cannot verify scan-cleanup baseline base ref');
+        const bootstrap = spawnSync(process.execPath, [
+            'scripts/validation-gates.mjs',
+            'scan-cleanup-lines',
+            '--base-ref=35b9779d0ef97cff342b0d8c414d771c8561a9e0',
+        ], {encoding: 'utf8'});
+        expect(bootstrap.status).toBe(0);
+        expect(bootstrap.stdout).toContain('bootstrap, no baseline at ref');
     });
 });
