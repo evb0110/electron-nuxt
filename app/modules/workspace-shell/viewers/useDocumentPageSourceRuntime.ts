@@ -709,7 +709,7 @@ export const useDocumentPageSourceRuntime = (options: {
     });
     const renderPage = presentation.renderPage;
     async function renderMountedPages() {
-        if (props.value.isResizing) {
+        if (props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
             return;
         }
         await nextTick();
@@ -770,7 +770,7 @@ export const useDocumentPageSourceRuntime = (options: {
         onResizeSettled: () => scheduleRender.schedule(),
     });
     function handleScroll(event?: Event) {
-        if (!viewerContainer.value || props.value.isResizing) {
+        if (!viewerContainer.value || props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
             return;
         }
         const nextScrollTop = viewerContainer.value.scrollTop;
