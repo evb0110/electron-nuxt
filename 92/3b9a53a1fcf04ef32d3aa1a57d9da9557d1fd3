@@ -1,0 +1,24 @@
+electron/features/agent/assistantRuntimeLifecycle.ts
+  s_4bc3578643284e::t_f6a5afeb241579 106-114,415
+  s_4bc3578643284e::t_6ebe7aed5c49b1 278
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_4bc3578643284e::t_6ebe7aed5c49b1 571
+electron/features/agent/codexCli.ts
+  s_4bc3578643284e::t_f6a5afeb241579 287-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "923b9a53a1fcf04ef32d3aa1a57d9da9557d1fd3",
+  "prompts": {},
+  "sessions": {
+    "s_4bc3578643284e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077e6-eb15-77a0-a18d-00dc2fd0c65a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
