@@ -19,7 +19,6 @@ import type { Ref } from 'vue';
 import type { IAgentAssistantImageAttachment } from '@contracts/agent';
 import type { TTranslateFn } from '@i18n-app';
 import { useAssistantImageComposer } from '@app/modules/agent-panel/composables/useAssistantImageComposer';
-import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({buildComposerImageAttachments: vi.fn()}));
 
@@ -45,11 +44,17 @@ function createImage(id: string): IAgentAssistantImageAttachment {
 }
 
 function createFile(name: string) {
-    return {
-        name,
-        size: 100,
-        type: 'image/png',
-    } as File;
+    return new File([new Uint8Array(100)], name, {type: 'image/png'});
+}
+
+function createPasteEvent(files: readonly File[], preventDefault = vi.fn()): ClipboardEvent {
+    const dataTransfer = new DataTransfer();
+    for (const file of files) {
+        dataTransfer.items.add(file);
+    }
+    const event = new ClipboardEvent('paste', {clipboardData: dataTransfer});
+    vi.spyOn(event, 'preventDefault').mockImplementation(preventDefault);
+    return event;
 }
 
 function createDeferred<T>() {
@@ -131,14 +136,8 @@ describe('assistant image composer', () => {
             });
 
         const preventDefault = vi.fn();
-        harness.composer().handleComposerPaste(cast<ClipboardEvent>({
-            clipboardData: {files: [createFile('first.png')]},
-            preventDefault,
-        }));
-        harness.composer().handleComposerPaste(cast<ClipboardEvent>({
-            clipboardData: {files: [createFile('second.png')]},
-            preventDefault,
-        }));
+        harness.composer().handleComposerPaste(createPasteEvent([createFile('first.png')], preventDefault));
+        harness.composer().handleComposerPaste(createPasteEvent([createFile('second.png')], preventDefault));
         await nextTick();
 
         expect(preventDefault).toHaveBeenCalledTimes(2);
@@ -168,10 +167,7 @@ describe('assistant image composer', () => {
             };
         }>();
         mocks.buildComposerImageAttachments.mockReturnValueOnce(pending.promise);
-        harness.composer().handleComposerPaste(cast<ClipboardEvent>({
-            clipboardData: {files: [createFile('stale.png')]},
-            preventDefault: vi.fn(),
-        }));
+        harness.composer().handleComposerPaste(createPasteEvent([createFile('stale.png')]));
         await nextTick();
 
         harness.composer().clearComposerImages();
@@ -202,10 +198,7 @@ describe('assistant image composer', () => {
         harness.composerImages().value = [existingImage];
         mocks.buildComposerImageAttachments.mockReturnValueOnce(pending.promise);
 
-        harness.composer().handleComposerPaste(cast<ClipboardEvent>({
-            clipboardData: {files: [createFile('pasted.png')]},
-            preventDefault: vi.fn(),
-        }));
+        harness.composer().handleComposerPaste(createPasteEvent([createFile('pasted.png')]));
         await vi.waitFor(() => {
             expect(mocks.buildComposerImageAttachments).toHaveBeenCalledOnce();
         });
