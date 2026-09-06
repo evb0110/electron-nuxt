@@ -7,12 +7,14 @@ import {
 } from 'vitest';
 import {
     ClaudeAgentAssistantSession,
+    normalizeClaudeSdkModelList,
+} from '@electron/features/agent/claudeAgentSdkAssistant';
+import {
     getClaudeAgentSdkInfo,
     getClaudeAssistantModelLabel,
     normalizeClaudeAssistantModel,
-    normalizeClaudeSdkModelList,
     shouldUseClaudeAssistantFastMode,
-} from '@electron/features/agent/claudeAgentSdkAssistant';
+} from '@electron/features/agent/claudeProviderMetadata';
 
 const sdkMocks = vi.hoisted(() => ({query: vi.fn()}));
 
@@ -200,6 +202,23 @@ describe('claudeAgentSdkAssistant', () => {
             version: null,
             executablePath: null,
             error: 'Claude Code executable was not found. Install Claude Code or set CLAUDE_CODE_PATH to a local claude executable.',
+        });
+    });
+
+    it('reports the bundled Claude executable and SDK version through the shared metadata helper', async () => {
+        const result = await getClaudeAgentSdkInfo({
+            env: {},
+            resolveSdkPackageDir: () => '/sdk',
+            readSdkVersion: vi.fn(async () => '1.2.3'),
+            findClaudeOnPath: vi.fn(async () => null),
+            findBundledClaudeExecutable: vi.fn(async () => '/sdk-native/claude'),
+            pathIsExecutable: vi.fn(async path => path === '/sdk-native/claude'),
+        });
+
+        expect(result).toEqual({
+            installed: true,
+            version: '1.2.3',
+            executablePath: '/sdk-native/claude',
         });
     });
 
