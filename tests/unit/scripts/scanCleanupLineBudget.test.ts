@@ -38,6 +38,7 @@ interface ILineBudgetModule {
         productionLines: number[];
         testCodeLines: number[]
     };
+    parseNulDelimitedGitPaths: (output: Uint8Array) => string[];
     validateScanCleanupBaseline: (value: unknown, label?: string) => unknown;
     compareScanCleanupBaselines: (current: {
         homes: Record<string, {
@@ -177,7 +178,7 @@ describe('scan-cleanup line budget', () => {
         expect(Object.keys(counts.tests.byFile)).toHaveLength(3);
     });
 
-    it('uses Git-tracked sources, preserves unusual names, and rejects tracked symlinks', async () => {
+    it('uses Git-tracked sources and excludes ignored artifacts', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-lines-'));
         temporaryDirectories.push(root);
         await Promise.all([
@@ -192,7 +193,7 @@ describe('scan-cleanup line budget', () => {
         ]);
         await Promise.all([
             writeFile(join(root, 'app/modules/scan-cleanup/suppressed.ts'), '// eslint-disable max-lines\nconst suppressed = 1;\n'),
-            writeFile(join(root, 'app/modules/scan-cleanup/tracked\nname.ts'), 'const unusual = 1;\n'),
+            writeFile(join(root, 'app/modules/scan-cleanup/tracked.ts'), 'const tracked = 1;\n'),
             writeFile(join(root, 'electron/features/scan-cleanup/generated.vue'), '<template>ignored</template>\n'.repeat(30)),
             writeFile(join(root, 'app/modules/scan-cleanup/generated.d.ts'), 'declare const ignored: string;\n'.repeat(30)),
             writeFile(join(root, 'native/scan-cleanup/src/generated.rs'), 'fn ignored() {}\n'.repeat(30)),
@@ -211,12 +212,74 @@ describe('scan-cleanup line budget', () => {
         const counts = module.collectScanCleanupLineCounts(root);
         expect(counts.productionTotal).toBe(3);
         expect(counts.tests.total).toBe(1);
-        expect(Object.keys(counts.homes.app!.byFile)).toContain('app/modules/scan-cleanup/tracked\nname.ts');
+        expect(Object.keys(counts.homes.app!.byFile)).toContain('app/modules/scan-cleanup/tracked.ts');
 
-        const outside = join(root, 'outside.ts');
-        const escape = join(root, 'native/scan-cleanup/src/escape.ts');
-        await writeFile(outside, 'const outside = 1;\n');
-        await symlink(outside, escape);
+    });
+
+    it('parses Git NUL output without treating tabs or newlines as delimiters', () => {
+        const output = Buffer.from('app/modules/scan-cleanup/tab\tname.ts\0app/modules/scan-cleanup/line\nname.rs\0quoted"name.vue\0');
+        expect(module.parseNulDelimitedGitPaths(output)).toEqual([
+            'app/modules/scan-cleanup/tab\tname.ts',
+            'app/modules/scan-cleanup/line\nname.rs',
+            'quoted"name.vue',
+        ]);
+    });
+
+    it('fails closed when a confirmed Git worktree cannot enumerate its index', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-index-'));
+        temporaryDirectories.push(root);
+        await mkdir(join(root, 'app/modules/scan-cleanup'), {recursive: true});
+        execFileSync('git', [
+            'init',
+            '-q',
+        ], {cwd: root});
+        await writeFile(join(root, '.git/index'), 'corrupt index');
+        expect(() => module.collectScanCleanupLineCounts(root)).toThrow('Cannot enumerate tracked scan-cleanup sources');
+    });
+
+    it.runIf(process.platform !== 'win32')('rejects a dangling tracked source symlink', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-symlink-'));
+        temporaryDirectories.push(root);
+        await Promise.all([
+            mkdir(join(root, 'app/modules/scan-cleanup'), {recursive: true}),
+            mkdir(join(root, 'electron/features/scan-cleanup'), {recursive: true}),
+            mkdir(join(root, 'packages/contracts/scan-cleanup'), {recursive: true}),
+            mkdir(join(root, 'scan-cleanup-core'), {recursive: true}),
+            mkdir(join(root, 'scan-cleanup-adapters'), {recursive: true}),
+            mkdir(join(root, 'native/scan-cleanup/src'), {recursive: true}),
+            mkdir(join(root, 'native/scan-cleanup/tests'), {recursive: true}),
+        ]);
+        await symlink(join(root, 'outside-does-not-exist.ts'), join(root, 'native/scan-cleanup/src/escape.ts'));
+        execFileSync('git', [
+            'init',
+            '-q',
+        ], {cwd: root});
+        execFileSync('git', [
+            'add',
+            '--all',
+        ], {cwd: root});
+        expect(() => module.collectScanCleanupLineCounts(root)).toThrow('tracked source symlink');
+    });
+
+    it.runIf(process.platform !== 'win32')('rejects a tracked source symlink escaping the repository', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-external-symlink-'));
+        const outside = await mkdtemp(join(tmpdir(), 'scan-cleanup-outside-'));
+        temporaryDirectories.push(root, outside);
+        await Promise.all([
+            mkdir(join(root, 'app/modules/scan-cleanup'), {recursive: true}),
+            mkdir(join(root, 'electron/features/scan-cleanup'), {recursive: true}),
+            mkdir(join(root, 'packages/contracts/scan-cleanup'), {recursive: true}),
+            mkdir(join(root, 'scan-cleanup-core'), {recursive: true}),
+            mkdir(join(root, 'scan-cleanup-adapters'), {recursive: true}),
+            mkdir(join(root, 'native/scan-cleanup/src'), {recursive: true}),
+            mkdir(join(root, 'native/scan-cleanup/tests'), {recursive: true}),
+            writeFile(join(outside, 'escape.ts'), 'const outside = 1;\n'),
+        ]);
+        await symlink(join(outside, 'escape.ts'), join(root, 'native/scan-cleanup/src/escape.ts'));
+        execFileSync('git', [
+            'init',
+            '-q',
+        ], {cwd: root});
         execFileSync('git', [
             'add',
             '--all',

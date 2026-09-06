@@ -2,7 +2,6 @@
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
-    existsSync,
     lstatSync,
     readFileSync,
     readdirSync,
@@ -309,20 +308,47 @@ function isGeneratedFallbackArtifact(relativePath) {
 }
 
 /** @param {string} root @param {string} relativeDirectory @returns {string[] | null} */
+/** @param {Uint8Array} output @returns {string[]} */
+export function parseNulDelimitedGitPaths(output) {
+    const relativePaths = [];
+    let start = 0;
+    for (let end = 0; end < output.length; end += 1) {
+        if (output[end] !== 0) continue;
+        const relativePath = Buffer.from(output.subarray(start, end)).toString('utf8');
+        if (relativePath.length > 0) relativePaths.push(relativePath);
+        start = end + 1;
+    }
+    return relativePaths;
+}
+
+/** @param {string} root @param {string} relativeDirectory @returns {string[] | null} */
 function trackedSourceFiles(root, relativeDirectory) {
-    let output;
+    let worktreeStatus;
     try {
-        execFileSync('git', [
+        worktreeStatus = execFileSync('git', [
             'rev-parse',
             '--is-inside-work-tree',
         ], {
             cwd: root,
+            encoding: 'utf8',
             stdio: [
                 'ignore',
                 'pipe',
                 'ignore',
             ],
         });
+    } catch {
+        return null;
+    }
+    const worktreeStatusText = worktreeStatus.trim();
+    if (worktreeStatusText === 'false') {
+        return null;
+    }
+    if (worktreeStatusText !== 'true') {
+        throw new Error(`Cannot determine whether scan-cleanup root is a Git worktree: ${root}`);
+    }
+    let output;
+    try {
         output = execFileSync('git', [
             'ls-files',
             '--cached',
@@ -337,24 +363,22 @@ function trackedSourceFiles(root, relativeDirectory) {
                 'ignore',
             ],
         });
-    } catch {
-        return null;
+    } catch (error) {
+        throw new Error(`Cannot enumerate tracked scan-cleanup sources in Git worktree: ${root}`, {cause: error});
     }
-    const relativePaths = [];
-    let start = 0;
-    for (let end = 0; end < output.length; end += 1) {
-        if (output[end] !== 0) continue;
-        const relativePath = output.subarray(start, end).toString('utf8');
-        if (SOURCE_EXTENSIONS.has(path.extname(relativePath))) relativePaths.push(relativePath);
-        start = end + 1;
-    }
-    return relativePaths
+    return parseNulDelimitedGitPaths(output)
+        .filter(relativePath => SOURCE_EXTENSIONS.has(path.extname(relativePath)))
         .map(relativePath => path.join(root, relativePath))
         .map(filePath => {
-            if (!existsSync(filePath)) {
-                return null;
+            let stat;
+            try {
+                stat = lstatSync(filePath);
+            } catch (error) {
+                if ((/** @type {{code?: string}} */ (error)).code === 'ENOENT') {
+                    return null;
+                }
+                throw error;
             }
-            const stat = lstatSync(filePath);
             if (stat.isSymbolicLink()) {
                 throw new Error(`Refusing to count tracked source symlink outside the repository: ${path.relative(root, filePath)}`);
             }
