@@ -313,6 +313,7 @@ describe('scan-cleanup line budget', () => {
             native: 9,
         });
         const approved = approvedBaseline(current, previous);
+        expect(module.compareScanCleanupBaselines(approved, approved, {baseCommit: 'fedcba98765432100123456789abcdef01234567'}).failures).toEqual([]);
         expect(module.compareScanCleanupBaselines(approved, previous, {baseCommit: approved.consolidationApproval.baseCommit}).failures).toEqual([]);
         expect(module.compareScanCleanupBaselines({
             ...approved,

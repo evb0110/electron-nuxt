@@ -491,14 +491,6 @@ export function compareScanCleanupBaselines(current, previous, {
     validateScanCleanupBaseline(previous, 'base baseline');
     const failures = [];
     const approval = current.consolidationApproval;
-    if (approval !== undefined) {
-        if (previous === null) {
-            failures.push('consolidation approval requires a baseline at the supplied base ref');
-        } else {
-            const approvalFailures = validateConsolidationApproval(current, previous, approval, baseCommit);
-            failures.push(...approvalFailures);
-        }
-    }
     let homeIncreased = false;
     for (const [
         name,
@@ -509,10 +501,11 @@ export function compareScanCleanupBaselines(current, previous, {
             failures.push(`${name} has no baseline at the supplied base ref`);
         } else if (home.lines > previousLines) {
             homeIncreased = true;
-            if (!allowHomeIncrease && approval === undefined) {
-                failures.push(`${name} baseline increased by ${home.lines - previousLines} code lines`);
-            }
+            if (!allowHomeIncrease && approval === undefined) failures.push(`${name} baseline increased by ${home.lines - previousLines} code lines`);
         }
+    }
+    if (homeIncreased && !allowHomeIncrease && approval !== undefined) {
+        failures.push(...validateConsolidationApproval(current, previous, approval, baseCommit));
     }
     if (current.productionTotal > previous.productionTotal) {
         failures.push(`production total baseline increased by ${current.productionTotal - previous.productionTotal} code lines`);
