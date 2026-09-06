@@ -16,7 +16,12 @@ pub(crate) struct Input<'a> {
     pub dpi: f64,
 }
 
-pub(crate) fn run(input: Input<'_>) -> (BinaryImage, BinaryImage) {
+pub(crate) struct Output {
+    pub kept: BinaryImage,
+    pub removed: BinaryImage,
+}
+
+pub(crate) fn run(input: Input<'_>) -> Output {
     let Input {
         binary,
         picture_mask,
@@ -35,10 +40,10 @@ pub(crate) fn run(input: Input<'_>) -> (BinaryImage, BinaryImage) {
         || binary.width() == 0
         || binary.height() == 0
     {
-        return (
-            binary.clone(),
-            BinaryImage::new(binary.width(), binary.height()),
-        );
+        return Output {
+            kept: binary.clone(),
+            removed: BinaryImage::new(binary.width(), binary.height()),
+        };
     }
     debug_assert!(picture_mask
         .is_none_or(|mask| (mask.width(), mask.height()) == (binary.width(), binary.height())));
@@ -51,10 +56,10 @@ pub(crate) fn run(input: Input<'_>) -> (BinaryImage, BinaryImage) {
         PageHalf::Left => region.right(),
         PageHalf::Right => region.x,
         PageHalf::Full => {
-            return (
-                binary.clone(),
-                BinaryImage::new(binary.width(), binary.height()),
-            )
+            return Output {
+                kept: binary.clone(),
+                removed: BinaryImage::new(binary.width(), binary.height()),
+            }
         }
     };
     let mut fold_samples = (0..=8)
@@ -69,10 +74,10 @@ pub(crate) fn run(input: Input<'_>) -> (BinaryImage, BinaryImage) {
         })
         .collect::<Vec<_>>();
     if fold_samples.is_empty() {
-        return (
-            binary.clone(),
-            BinaryImage::new(binary.width(), binary.height()),
-        );
+        return Output {
+            kept: binary.clone(),
+            removed: BinaryImage::new(binary.width(), binary.height()),
+        };
     }
     fold_samples.sort_unstable_by(|left, right| left.0.total_cmp(&right.0));
     let fold_edge_x_at = |output_y: f64| {
@@ -458,7 +463,7 @@ pub(crate) fn run(input: Input<'_>) -> (BinaryImage, BinaryImage) {
         true
     });
     let removed = binary.subtract(&kept);
-    (kept, removed)
+    Output { kept, removed }
 }
 
 #[cfg(test)]

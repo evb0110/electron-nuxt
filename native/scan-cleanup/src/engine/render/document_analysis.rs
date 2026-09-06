@@ -1,6 +1,8 @@
 //! Typed handoff for document analysis and priors.
 
 use super::*;
+use crate::background::IlluminationPreparation;
+use crate::protocol::manifest_v3::ContentBlockEvidence;
 
 pub(crate) struct Input<'a> {
     pub source: &'a GrayImage,
@@ -229,17 +231,29 @@ struct ArtifactInput<'a> {
     timings: &'a mut PageStageTimings,
 }
 
-fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
-    let ArtifactInput {
-        analysis_key,
+struct AnalysisPlaneInput<'a> {
+    source: &'a GrayImage,
+    color_source: Option<&'a RgbImage>,
+    options: &'a CleanupOptions,
+    timings: &'a mut PageStageTimings,
+}
+
+struct AnalysisPlaneOutput {
+    effective_dpi: f64,
+    rotated: GrayImage,
+    analysis_rgb: Option<RgbImage>,
+    full_width: usize,
+    full_height: usize,
+    scale_x: f64,
+    scale_y: f64,
+    blank_scan_candidate: bool,
+}
+
+fn prepare_analysis_plane(input: AnalysisPlaneInput<'_>) -> AnalysisPlaneOutput {
+    let AnalysisPlaneInput {
         source,
         color_source,
         options,
-        prepare_quality_raster,
-        render_policy,
-        calibration_config,
-        cache,
-        trusted_mrc_background,
         timings,
     } = input;
     let analysis_started = Instant::now();
@@ -279,23 +293,70 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         && options.manual_zones.picture.is_empty()
         && options.manual_zones.fill.is_empty()
         && is_blank_scan_candidate(&rotated, analysis_rgb.as_ref());
-    // scale_x and scale_y come from independently rounded analysis
-    // dimensions; on tiny rasters (1x2, 3x7) they legitimately differ
-    // from each other and from min(source scales), so no cross-axis
-    // equality holds.
     timings.analysis_level_ms += analysis_started.elapsed().as_secs_f64() * 1_000.0;
+    AnalysisPlaneOutput {
+        effective_dpi,
+        rotated,
+        analysis_rgb,
+        full_width,
+        full_height,
+        scale_x,
+        scale_y,
+        blank_scan_candidate,
+    }
+}
 
-    let normalization_started = Instant::now();
+struct LayoutPictureEvidenceInput<'a> {
+    rotated: &'a GrayImage,
+    effective_dpi: f64,
+    full_width: usize,
+    full_height: usize,
+    blank_scan_candidate: bool,
+    render_policy: PageRenderPolicy,
+    calibration_config: CalibrationConfig,
+    options: &'a CleanupOptions,
+    trusted_mrc_background: Option<&'a GrayImage>,
+    timings: &'a mut PageStageTimings,
+}
+
+struct LayoutPictureEvidenceOutput {
+    illumination_preparation: Option<IlluminationPreparation>,
+    layout_normalized: GrayImage,
+    calibration: PageCalibration,
+    continuous_tone_mask: Option<Arc<BinaryImage>>,
+    detected_picture_mask: Option<Arc<BinaryImage>>,
+    automatic_picture_mask: Option<Arc<BinaryImage>>,
+    picture_mask: Option<Arc<BinaryImage>>,
+    trusted_mrc_tone_mask: Option<Arc<BinaryImage>>,
+    content_evidence_complete: bool,
+    content_picture_mask: Option<Arc<BinaryImage>>,
+}
+
+fn prepare_layout_picture_evidence(
+    input: LayoutPictureEvidenceInput<'_>,
+) -> LayoutPictureEvidenceOutput {
+    let LayoutPictureEvidenceInput {
+        rotated,
+        effective_dpi,
+        full_width,
+        full_height,
+        blank_scan_candidate,
+        render_policy,
+        calibration_config,
+        options,
+        trusted_mrc_background,
+        timings,
+    } = input;
     let illumination_preparation_started = Instant::now();
     let illumination_preparation = options.normalize_illumination.then(|| {
-        let preparation = prepare_illumination(&rotated);
+        let preparation = prepare_illumination(rotated);
         timings.illumination_preparation_ms +=
             illumination_preparation_started.elapsed().as_secs_f64() * 1_000.0;
         preparation
     });
     let layout_normalization_started = Instant::now();
     let layout_normalized = if let Some(preparation) = illumination_preparation.as_ref() {
-        normalize_illumination_for_layout_prepared(&rotated, preparation)
+        normalize_illumination_for_layout_prepared(rotated, preparation)
     } else {
         rotated.clone()
     };
@@ -310,7 +371,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         Arc::new(if blank_scan_candidate {
             BinaryImage::new(rotated.width(), rotated.height())
         } else {
-            derive_halftone_zones(&rotated, effective_dpi)
+            derive_halftone_zones(rotated, effective_dpi)
         })
     });
     let detected_picture_mask = render_policy.analyze_layout.then(|| {
@@ -318,7 +379,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
             BinaryImage::new(rotated.width(), rotated.height())
         } else {
             detect_picture_mask_with_continuous_tone(
-                &rotated,
+                rotated,
                 effective_dpi,
                 calibration,
                 continuous_tone_mask
@@ -329,10 +390,10 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         // Tone evidence corroborates a candidate; it is not itself a
         // semantic owner. Apply artifact/size vetoes once here so every
         // downstream consumer sees exactly the same vetted owner.
-        Arc::new(qualify_picture_owner(&rotated, &candidate))
+        Arc::new(qualify_picture_owner(rotated, &candidate))
     });
     let automatic_picture_mask = detected_picture_mask.clone();
-    let mut picture_mask = automatic_picture_mask.as_deref().map(|automatic| {
+    let picture_mask = automatic_picture_mask.as_deref().map(|automatic| {
         let mut mask = automatic.clone();
         apply_manual_zones(&mut mask, options);
         Arc::new(mask)
@@ -395,30 +456,93 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
                 })
         }
     };
-    let mut content_picture_mask = if options.crop_content && !content_evidence_complete {
+    let content_picture_mask = if options.crop_content && !content_evidence_complete {
         picture_mask
             .as_deref()
-            .map(|mask| Arc::new(extend_picture_mask_for_content(&rotated, mask, calibration)))
+            .map(|mask| Arc::new(extend_picture_mask_for_content(rotated, mask, calibration)))
     } else {
         None
     };
     timings.picture_mask_ms += picture_mask_started.elapsed().as_secs_f64() * 1_000.0;
+
+    LayoutPictureEvidenceOutput {
+        illumination_preparation,
+        layout_normalized,
+        calibration,
+        continuous_tone_mask,
+        detected_picture_mask,
+        automatic_picture_mask,
+        picture_mask,
+        trusted_mrc_tone_mask,
+        content_evidence_complete,
+        content_picture_mask,
+    }
+}
+
+struct TextEvidenceInput<'a> {
+    layout_normalized: &'a GrayImage,
+    render_policy: PageRenderPolicy,
+    timings: &'a mut PageStageTimings,
+}
+
+struct TextEvidenceOutput {
+    analysis_threshold: Option<u8>,
+    text_axis: Option<TextAxisHint>,
+}
+
+fn prepare_text_evidence(input: TextEvidenceInput<'_>) -> TextEvidenceOutput {
+    let TextEvidenceInput {
+        layout_normalized,
+        render_policy,
+        timings,
+    } = input;
     let text_axis_started = Instant::now();
     let analysis_threshold = render_policy
         .analyze_layout
-        .then(|| otsu_threshold(&layout_normalized));
+        .then(|| otsu_threshold(layout_normalized));
     let text_axis =
-        analysis_threshold.and_then(|threshold| detect_text_axis(&layout_normalized, threshold));
+        analysis_threshold.and_then(|threshold| detect_text_axis(layout_normalized, threshold));
     timings.text_axis_ms += text_axis_started.elapsed().as_secs_f64() * 1_000.0;
-    let mode_recommendation_started = Instant::now();
-    // Automatic mode reuses the normal line detector. A normalized crop
-    // needs the same text-vicinity evidence even after Auto has resolved
-    // to an explicit mode: quality normalization otherwise erases faint
-    // running furniture before the crop detector sees it. Destructive
-    // blank-page cleanup itself depends only on raw luminance, chroma and
-    // coherent edge structure: normalized texture is exactly the unstable
-    // evidence that caused preview/final disagreements here.
-    let content_evidence = picture_mask.as_deref().and_then(|picture_mask| {
+
+    TextEvidenceOutput {
+        analysis_threshold,
+        text_axis,
+    }
+}
+
+struct ContentTextEvidenceInput<'a> {
+    rotated: &'a GrayImage,
+    layout_normalized: &'a GrayImage,
+    picture_mask: Option<&'a BinaryImage>,
+    trusted_mrc_tone_mask: Option<&'a BinaryImage>,
+    render_policy: PageRenderPolicy,
+    prepare_quality_raster: bool,
+    options: &'a CleanupOptions,
+    effective_dpi: f64,
+    calibration: PageCalibration,
+}
+
+struct ContentTextEvidenceOutput {
+    text_line_count: usize,
+    protected_text_blocks: Vec<ContentBlockEvidence>,
+    text_mask: Option<Arc<BinaryImage>>,
+    text_vicinity_mask: Option<Arc<BinaryImage>>,
+    trusted_mrc_owned_tone_mask: Option<Arc<BinaryImage>>,
+}
+
+fn prepare_content_text_evidence(input: ContentTextEvidenceInput<'_>) -> ContentTextEvidenceOutput {
+    let ContentTextEvidenceInput {
+        rotated,
+        layout_normalized,
+        picture_mask,
+        trusted_mrc_tone_mask,
+        render_policy,
+        prepare_quality_raster,
+        options,
+        effective_dpi,
+        calibration,
+    } = input;
+    let content_evidence = picture_mask.and_then(|picture_mask| {
         if render_policy.recommend_output_mode
             || (prepare_quality_raster && options.crop_content && options.normalize_illumination)
             || matches!(
@@ -427,7 +551,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
             )
         {
             Some(analyze_content_evidence_calibrated(
-                &layout_normalized,
+                layout_normalized,
                 Some(picture_mask),
                 calibration,
             ))
@@ -448,9 +572,9 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         )
     });
     let mut trusted_mrc_owned_tone_mask = None;
-    if let Some(trusted_tone) = trusted_mrc_tone_mask.as_deref() {
+    if let Some(trusted_tone) = trusted_mrc_tone_mask {
         let carved = carve_trusted_mrc_tone_owner(
-            &rotated,
+            rotated,
             trusted_tone.clone(),
             text_vicinity_mask.as_deref(),
             effective_dpi,
@@ -460,6 +584,51 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
             trusted_mrc_owned_tone_mask = Some(Arc::new(carved));
         }
     }
+
+    ContentTextEvidenceOutput {
+        text_line_count,
+        protected_text_blocks,
+        text_mask,
+        text_vicinity_mask,
+        trusted_mrc_owned_tone_mask,
+    }
+}
+
+struct FinalPictureOwnershipInput<'a> {
+    rotated: &'a GrayImage,
+    automatic_picture_mask: Option<&'a BinaryImage>,
+    trusted_mrc_owned_tone_mask: Option<&'a BinaryImage>,
+    text_mask: Option<&'a BinaryImage>,
+    text_vicinity_mask: Option<&'a BinaryImage>,
+    picture_mask: Option<Arc<BinaryImage>>,
+    content_picture_mask: Option<Arc<BinaryImage>>,
+    options: &'a CleanupOptions,
+    effective_dpi: f64,
+    calibration: PageCalibration,
+    content_evidence_complete: bool,
+}
+
+struct FinalPictureOwnershipOutput {
+    picture_mask: Option<Arc<BinaryImage>>,
+    content_picture_mask: Option<Arc<BinaryImage>>,
+}
+
+fn finalize_picture_ownership(
+    input: FinalPictureOwnershipInput<'_>,
+) -> FinalPictureOwnershipOutput {
+    let FinalPictureOwnershipInput {
+        rotated,
+        automatic_picture_mask,
+        trusted_mrc_owned_tone_mask,
+        text_mask,
+        text_vicinity_mask,
+        mut picture_mask,
+        mut content_picture_mask,
+        options,
+        effective_dpi,
+        calibration,
+        content_evidence_complete,
+    } = input;
     // Rectangular photo ownership is inferred only from automatic,
     // corroborated evidence. Explicit painter/eraser zones stay outside
     // the inference and are applied once, last, so an operator override
@@ -473,12 +642,12 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         // composition. Crop geometry remains independent below.
         let qualified_flattened = automatic_picture_mask
             .as_ref()
-            .map(|candidate| qualify_picture_owner(&rotated, candidate));
+            .map(|candidate| qualify_picture_owner(rotated, candidate));
         let mut owner = qualified_flattened.as_ref().map_or_else(
             || BinaryImage::new(rotated.width(), rotated.height()),
             Clone::clone,
         );
-        if let Some(trusted) = trusted_mrc_owned_tone_mask.as_deref() {
+        if let Some(trusted) = trusted_mrc_owned_tone_mask {
             owner = owner.or(trusted);
         }
         (owner.count_black() > 0).then(|| Arc::new(owner))
@@ -486,10 +655,10 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
     if let Some(automatic) = automatic_picture_owner.as_deref() {
         let empty_text = BinaryImage::new(rotated.width(), rotated.height());
         let rectangular = rectangularize_corroborated_photos(
-            &rotated,
+            rotated,
             automatic,
-            text_mask.as_deref().unwrap_or(&empty_text),
-            text_vicinity_mask.as_deref().unwrap_or(&empty_text),
+            text_mask.unwrap_or(&empty_text),
+            text_vicinity_mask.unwrap_or(&empty_text),
             effective_dpi,
         );
         let mut final_owner = rectangular;
@@ -503,11 +672,71 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
     if options.crop_content && !content_evidence_complete {
         content_picture_mask = picture_mask
             .as_deref()
-            .map(|mask| Arc::new(extend_picture_mask_for_content(&rotated, mask, calibration)));
+            .map(|mask| Arc::new(extend_picture_mask_for_content(rotated, mask, calibration)));
     }
+
+    FinalPictureOwnershipOutput {
+        picture_mask,
+        content_picture_mask,
+    }
+}
+
+struct TonalEvidenceInput<'a> {
+    rotated: &'a GrayImage,
+    layout_normalized: &'a GrayImage,
+    text_vicinity_mask: Option<&'a BinaryImage>,
+    picture_mask: Option<Arc<BinaryImage>>,
+    automatic_picture_mask: Option<&'a BinaryImage>,
+    trusted_mrc_owned_tone_mask: Option<Arc<BinaryImage>>,
+    continuous_tone_mask: Option<Arc<BinaryImage>>,
+    options: &'a CleanupOptions,
+    effective_dpi: f64,
+    calibration: PageCalibration,
+    text_line_count: usize,
+    blank_scan_candidate: bool,
+    content_evidence_complete: bool,
+    content_picture_mask: Option<Arc<BinaryImage>>,
+}
+
+struct TonalEvidenceOutput {
+    outside_tone: OutsideTonalEvidence,
+    tonal_seed_mask: BinaryImage,
+    continuous_tone_mask: Option<Arc<BinaryImage>>,
+    destructive_tone_mask: Option<Arc<BinaryImage>>,
+    structural_tone_mask: Option<Arc<BinaryImage>>,
+    spatial_tone_mask: Option<Arc<BinaryImage>>,
+    picture_tone_evidence: bool,
+    independent_picture_evidence: bool,
+    ordinary_tonal_protection_mask: Option<Arc<BinaryImage>>,
+    trusted_tonal_protection_mask: Option<Arc<BinaryImage>>,
+    tonal_protection_mask: Option<Arc<BinaryImage>>,
+    tone_semantic_preservation_alpha: Option<Arc<GrayImage>>,
+    semantic_preservation_alpha: Option<Arc<GrayImage>>,
+    source_effectively_blank: bool,
+    text_soft_edge_ratio: Option<f64>,
+    picture_mask: Option<Arc<BinaryImage>>,
+    content_picture_mask: Option<Arc<BinaryImage>>,
+}
+
+fn prepare_tonal_evidence(input: TonalEvidenceInput<'_>) -> TonalEvidenceOutput {
+    let TonalEvidenceInput {
+        rotated,
+        layout_normalized,
+        text_vicinity_mask,
+        picture_mask,
+        automatic_picture_mask,
+        trusted_mrc_owned_tone_mask,
+        continuous_tone_mask,
+        options,
+        effective_dpi,
+        calibration,
+        text_line_count,
+        blank_scan_candidate,
+        content_evidence_complete,
+        mut content_picture_mask,
+    } = input;
     let (outside_tone, tonal_seed_mask) = text_vicinity_mask
-        .as_deref()
-        .map(|mask| outside_tonal_evidence_with_mask(&layout_normalized, mask))
+        .map(|mask| outside_tonal_evidence_with_mask(layout_normalized, mask))
         .unwrap_or_else(|| {
             (
                 OutsideTonalEvidence::default(),
@@ -519,7 +748,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
     // Keep this narrow graphic geometry as a representation channel; it
     // is not the broad tonal-protection field used by normalization.
     let flat_graphic_preservation_alpha =
-        flat_graphic_tone_preservation_alpha(&layout_normalized).map(Arc::new);
+        flat_graphic_tone_preservation_alpha(layout_normalized).map(Arc::new);
     let flat_graphic_picture_mask = flat_graphic_preservation_alpha
         .as_deref()
         .and_then(|alpha| {
@@ -535,7 +764,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
     // or shaded region that caused the veto.
     let destructive_tone_mask = outside_tone.vetoes_destructive_mode().then(|| {
         Arc::new(extend_tone_mask_for_content(
-            &layout_normalized,
+            layout_normalized,
             &tonal_seed_mask,
             calibration,
         ))
@@ -550,7 +779,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
     // promoted here: without vetted geometry it must not become a Mixed
     // stencil owner or a second source of the UI's picture label.
     let spatial_tone_mask = flat_graphic_picture_mask.as_deref().and_then(|candidate| {
-        let qualified = qualify_picture_owner(&rotated, candidate);
+        let qualified = qualify_picture_owner(rotated, candidate);
         (qualified.count_black() > 0).then(|| Arc::new(qualified))
     });
     if options.crop_content && !content_evidence_complete {
@@ -567,7 +796,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         // other automatic owner crosses. A flat-shaded plate is a dense,
         // page-interior component and clears it unchanged.
         let qualified_tone_mask = structural_tone_mask.as_deref().and_then(|tone| {
-            let qualified = qualify_picture_owner(&rotated, tone);
+            let qualified = qualify_picture_owner(rotated, tone);
             (qualified.count_black() > 0).then(|| Arc::new(qualified))
         });
         content_picture_mask =
@@ -575,9 +804,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
     }
     let continuous_tone_mask =
         continuous_tone_mask.and_then(|mask| (mask.count_black() > 0).then_some(mask));
-    let picture_tone_evidence = automatic_picture_mask
-        .as_deref()
-        .is_some_and(|mask| mask.count_black() > 0)
+    let picture_tone_evidence = automatic_picture_mask.is_some_and(|mask| mask.count_black() > 0)
         || trusted_mrc_owned_tone_mask
             .as_deref()
             .is_some_and(|mask| mask.count_black() > 0)
@@ -630,7 +857,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
             .as_deref()
             .and_then(semantic_tone_preservation_alpha)
     } else {
-        refine_tone_preservation_alpha(&rotated, &rotated, None, tonal_protection_mask.as_deref())
+        refine_tone_preservation_alpha(rotated, rotated, None, tonal_protection_mask.as_deref())
     }
     .map(Arc::new);
     // Text remains on the monotonic paper-normalization path and is
@@ -645,18 +872,175 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         flat_graphic_preservation_alpha.as_ref(),
     );
     let source_effectively_blank = blank_scan_candidate;
-    let text_soft_edge_ratio = text_vicinity_mask.as_deref().and_then(|mask| {
+    let text_soft_edge_ratio = text_vicinity_mask.and_then(|mask| {
         // Permissive tonal evidence serves strictly as an EXCLUSION for
         // glyph-topology measurement: a spread gutter shadow rightly
         // earns no output zone from the halftone classifier, yet its
         // soft tone must not read as antialiased glyph edges and veto
         // a crisp bilevel page.
-        let permissive_tone = detect_continuous_tone_mask(&rotated, effective_dpi);
+        let permissive_tone = detect_continuous_tone_mask(rotated, effective_dpi);
         let exclusion = match picture_mask.as_deref() {
             Some(zones) => zones.or(&permissive_tone),
             None => permissive_tone,
         };
-        text_soft_edge_to_ink_ratio(&rotated, mask, Some(&exclusion))
+        text_soft_edge_to_ink_ratio(rotated, mask, Some(&exclusion))
+    });
+
+    TonalEvidenceOutput {
+        outside_tone,
+        tonal_seed_mask,
+        continuous_tone_mask,
+        destructive_tone_mask,
+        structural_tone_mask,
+        spatial_tone_mask,
+        picture_tone_evidence,
+        independent_picture_evidence,
+        ordinary_tonal_protection_mask,
+        trusted_tonal_protection_mask,
+        tonal_protection_mask,
+        tone_semantic_preservation_alpha,
+        semantic_preservation_alpha,
+        source_effectively_blank,
+        text_soft_edge_ratio,
+        picture_mask,
+        content_picture_mask,
+    }
+}
+
+fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
+    let ArtifactInput {
+        analysis_key,
+        source,
+        color_source,
+        options,
+        prepare_quality_raster,
+        render_policy,
+        calibration_config,
+        cache,
+        trusted_mrc_background,
+        timings,
+    } = input;
+    let AnalysisPlaneOutput {
+        effective_dpi,
+        rotated,
+        analysis_rgb,
+        full_width,
+        full_height,
+        scale_x,
+        scale_y,
+        blank_scan_candidate,
+    } = prepare_analysis_plane(AnalysisPlaneInput {
+        source,
+        color_source,
+        options,
+        timings,
+    });
+    let normalization_started = Instant::now();
+    let LayoutPictureEvidenceOutput {
+        illumination_preparation,
+        layout_normalized,
+        calibration,
+        continuous_tone_mask,
+        detected_picture_mask: _detected_picture_mask,
+        automatic_picture_mask,
+        picture_mask,
+        trusted_mrc_tone_mask,
+        content_evidence_complete,
+        content_picture_mask,
+    } = prepare_layout_picture_evidence(LayoutPictureEvidenceInput {
+        rotated: &rotated,
+        effective_dpi,
+        full_width,
+        full_height,
+        blank_scan_candidate,
+        render_policy,
+        calibration_config,
+        options,
+        trusted_mrc_background,
+        timings,
+    });
+    let TextEvidenceOutput {
+        analysis_threshold,
+        text_axis,
+    } = prepare_text_evidence(TextEvidenceInput {
+        layout_normalized: &layout_normalized,
+        render_policy,
+        timings,
+    });
+    let mode_recommendation_started = Instant::now();
+    // Automatic mode reuses the normal line detector. A normalized crop
+    // needs the same text-vicinity evidence even after Auto has resolved
+    // to an explicit mode: quality normalization otherwise erases faint
+    // running furniture before the crop detector sees it. Destructive
+    // blank-page cleanup itself depends only on raw luminance, chroma and
+    // coherent edge structure: normalized texture is exactly the unstable
+    // evidence that caused preview/final disagreements here.
+    let ContentTextEvidenceOutput {
+        text_line_count,
+        protected_text_blocks,
+        text_mask,
+        text_vicinity_mask,
+        trusted_mrc_owned_tone_mask,
+    } = prepare_content_text_evidence(ContentTextEvidenceInput {
+        rotated: &rotated,
+        layout_normalized: &layout_normalized,
+        picture_mask: picture_mask.as_deref(),
+        trusted_mrc_tone_mask: trusted_mrc_tone_mask.as_deref(),
+        render_policy,
+        prepare_quality_raster,
+        options,
+        effective_dpi,
+        calibration,
+    });
+    let FinalPictureOwnershipOutput {
+        picture_mask,
+        content_picture_mask,
+    } = finalize_picture_ownership(FinalPictureOwnershipInput {
+        rotated: &rotated,
+        automatic_picture_mask: automatic_picture_mask.as_deref(),
+        trusted_mrc_owned_tone_mask: trusted_mrc_owned_tone_mask.as_deref(),
+        text_mask: text_mask.as_deref(),
+        text_vicinity_mask: text_vicinity_mask.as_deref(),
+        picture_mask,
+        content_picture_mask,
+        options,
+        effective_dpi,
+        calibration,
+        content_evidence_complete,
+    });
+    let TonalEvidenceOutput {
+        outside_tone,
+        tonal_seed_mask: _tonal_seed_mask,
+        continuous_tone_mask,
+        destructive_tone_mask: _destructive_tone_mask,
+        structural_tone_mask: _structural_tone_mask,
+        spatial_tone_mask,
+        picture_tone_evidence,
+        independent_picture_evidence,
+        ordinary_tonal_protection_mask: _ordinary_tonal_protection_mask,
+        trusted_tonal_protection_mask: _trusted_tonal_protection_mask,
+        tonal_protection_mask,
+        tone_semantic_preservation_alpha,
+        semantic_preservation_alpha,
+        source_effectively_blank,
+        text_soft_edge_ratio,
+        picture_mask,
+        content_picture_mask,
+    } = prepare_tonal_evidence(TonalEvidenceInput {
+        rotated: &rotated,
+        layout_normalized: &layout_normalized,
+        text_vicinity_mask: text_vicinity_mask.as_deref(),
+        picture_mask,
+        automatic_picture_mask: automatic_picture_mask.as_deref(),
+        trusted_mrc_owned_tone_mask,
+        continuous_tone_mask,
+        options,
+        effective_dpi,
+        calibration,
+        text_line_count,
+        blank_scan_candidate,
+        content_evidence_complete,
+        content_picture_mask,
     });
     let mut output_mode_recommendation = picture_mask
         .as_deref()
