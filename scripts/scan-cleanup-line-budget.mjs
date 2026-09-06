@@ -325,6 +325,26 @@ export function parseNulDelimitedGitPaths(output) {
 }
 
 /** @param {string} root @returns {boolean} */
+function hasGitAdministrativeMarker(root) {
+    let current = path.resolve(root);
+    while (true) {
+        try {
+            lstatSync(path.join(current, '.git'));
+            return true;
+        } catch (error) {
+            if ((/** @type {{code?: string}} */ (error)).code !== 'ENOENT') {
+                throw new Error(`Cannot inspect Git metadata marker for scan-cleanup root: ${current}`, {cause: error});
+            }
+        }
+        const parent = path.dirname(current);
+        if (parent === current) {
+            return false;
+        }
+        current = parent;
+    }
+}
+
+/** @param {string} root @returns {boolean} */
 function isGitWorktree(root) {
     const result = spawnSync('git', [
         'rev-parse',
@@ -353,6 +373,9 @@ function isGitWorktree(root) {
         return false;
     }
     if (result.status !== 0 && /not a git repository/iu.test(stderr)) {
+        if (hasGitAdministrativeMarker(root)) {
+            throw new Error(`Git metadata marker exists but cannot be validated for scan-cleanup root: ${root}`);
+        }
         return false;
     }
     throw new Error(`Cannot determine whether scan-cleanup root is a Git worktree: ${root} (status ${result.status}, stderr ${stderr || '<empty>'})`);

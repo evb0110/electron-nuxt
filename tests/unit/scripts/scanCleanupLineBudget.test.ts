@@ -258,6 +258,34 @@ describe('scan-cleanup line budget', () => {
         expect(() => module.collectScanCleanupLineCounts(root)).toThrow('Cannot enumerate tracked scan-cleanup sources');
     });
 
+    it('fails closed when Git metadata markers are broken instead of falling back', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-head-'));
+        temporaryDirectories.push(root);
+        await Promise.all([
+            mkdir(join(root, 'app/modules/scan-cleanup'), {recursive: true}),
+            mkdir(join(root, 'native/scan-cleanup'), {recursive: true}),
+        ]);
+        await writeFile(join(root, 'native/scan-cleanup/ignored.rs'), 'fn ignored() {}\n');
+        execFileSync('git', [
+            'init',
+            '-q',
+        ], {cwd: root});
+        await rm(join(root, '.git/HEAD'));
+        expect(() => module.collectScanCleanupLineCounts(root)).toThrow('Git metadata marker exists');
+
+        const malformedFileRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-file-'));
+        temporaryDirectories.push(malformedFileRoot);
+        await mkdir(join(malformedFileRoot, 'app/modules/scan-cleanup'), {recursive: true});
+        await writeFile(join(malformedFileRoot, '.git'), 'not a gitdir marker\n');
+        expect(() => module.collectScanCleanupLineCounts(malformedFileRoot)).toThrow('Cannot determine whether scan-cleanup root is a Git worktree');
+
+        const linkedWorktreeRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-linked-file-'));
+        temporaryDirectories.push(linkedWorktreeRoot);
+        await mkdir(join(linkedWorktreeRoot, 'app/modules/scan-cleanup'), {recursive: true});
+        await writeFile(join(linkedWorktreeRoot, '.git'), 'gitdir: /missing/worktree/metadata\n');
+        expect(() => module.collectScanCleanupLineCounts(linkedWorktreeRoot)).toThrow('Git metadata marker exists');
+    });
+
     it('fails closed when a tracked source disappears after Git enumeration', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-git-missing-'));
         temporaryDirectories.push(root);
