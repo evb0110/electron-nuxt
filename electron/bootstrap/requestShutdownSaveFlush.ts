@@ -91,7 +91,7 @@ export async function requestShutdownSaveFlush(options: {
                 timedOutWindowIds,
             });
         }, options.timeoutMs);
-        timeout.unref?.();
+        timeout.unref();
 
         const cleanup = () => {
             clearTimeout(timeout);
@@ -178,7 +178,7 @@ export async function requestShutdownSaveFlush(options: {
                 failedWindowIds.add(windowId);
                 options.logger.error(payload.callbackCount === 0
                     ? 'Renderer shutdown save flush had no registered handlers'
-                    : `Renderer shutdown save flush failed: ${payload.error}`, {
+                    : `Renderer shutdown save flush failed: ${payload.error ?? 'unknown error'}`, {
                     code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
                     context: {},
                 });

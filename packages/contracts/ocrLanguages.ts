@@ -1,15 +1,22 @@
-import type { IOcrLanguage } from '@contracts/shared';
 import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+
+type TOcrLanguageScript = 'latin' | 'cyrillic' | 'greek' | 'rtl';
+
+export interface IOcrLanguage {
+    code: TOcrLanguageCode;
+    script: TOcrLanguageScript;
+    modelState?: 'installed' | 'downloading' | 'missing';
+}
 
 const OCR_LANGUAGE_SCRIPTS = [
     'latin',
     'cyrillic',
     'greek',
     'rtl',
-] as const satisfies ReadonlyArray<IOcrLanguage['script']>;
+] as const satisfies readonly TOcrLanguageScript[];
 const OCR_LANGUAGE_MAX_COUNT = 128;
 const OCR_LANGUAGE_CODE_MAX_LENGTH = 32;
 const OCR_LANGUAGE_MODEL_STATES = [
@@ -30,6 +37,7 @@ export function decodeOcrLanguages(value: unknown): IOcrLanguage[] | null {
             || typeof candidate.code !== 'string'
             || candidate.code.length > OCR_LANGUAGE_CODE_MAX_LENGTH
             || !/^[a-z][a-z0-9_]*$/u.test(candidate.code)
+            || !isAvailableOcrLanguageCode(candidate.code)
             || typeof candidate.script !== 'string'
             || !isOneOf(OCR_LANGUAGE_SCRIPTS, candidate.script)
             || (candidate.modelState !== undefined && !isOneOf(OCR_LANGUAGE_MODEL_STATES, candidate.modelState))
@@ -168,13 +176,22 @@ export const AVAILABLE_OCR_LANGUAGES = [
         code: 'syr',
         script: 'rtl',
     },
-] as const satisfies readonly IOcrLanguage[];
+] as const satisfies ReadonlyArray<{
+    code: string;
+    script: TOcrLanguageScript;
+}>;
 
 export type TOcrLanguageCode = (typeof AVAILABLE_OCR_LANGUAGES)[number]['code'];
 
-export const AVAILABLE_OCR_LANGUAGE_CODES = new Set<string>(
+// isAvailableOcrLanguageCode narrows to TOcrLanguageCode, so a caller able to
+// add to this set could mint that type for any string.
+export const AVAILABLE_OCR_LANGUAGE_CODES: ReadonlySet<string> = new Set<string>(
     AVAILABLE_OCR_LANGUAGES.map(language => language.code),
 );
+
+export function isAvailableOcrLanguageCode(value: unknown): value is TOcrLanguageCode {
+    return typeof value === 'string' && AVAILABLE_OCR_LANGUAGE_CODES.has(value);
+}
 
 /** SHA-256 digests for the exact tessdata_best commit used by runtime downloads. */
 export const OCR_LANGUAGE_MODEL_SHA256 = {

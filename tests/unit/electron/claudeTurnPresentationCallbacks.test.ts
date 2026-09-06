@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import { createAssistantChatSessionStore } from '@electron/features/agent/assistantChatSessionStore';
 import { createClaudeTurnPresentationCallbacks } from '@electron/features/agent/createClaudeTurnPresentationCallbacks';
+import { requireTabId } from '@contracts/windowTabs';
 
 describe('Claude turn presentation callbacks', () => {
     it('projects tool activity and usage through the shared assistant turn model', () => {
@@ -14,7 +15,7 @@ describe('Claude turn presentation callbacks', () => {
             kind: 'document',
             key: 'document-a',
             title: 'Document A',
-            tabId: 'tab-a',
+            tabId: requireTabId('tab-a'),
         }, {
             provider: 'claude',
             model: 'claude-sonnet-4-6',

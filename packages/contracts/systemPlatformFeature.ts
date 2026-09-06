@@ -3,6 +3,7 @@ import {
     runtimeSchema as s,
     type TFeatureCapability,
 } from '@contracts/platformFeature';
+import type {TRequestId} from '@contracts/shared';
 
 export interface ISystemMemoryInfo {
     availableBytes: number;
@@ -41,13 +42,13 @@ export type TWindowCloseUnavailableReason =
     | 'handler-error'
     | 'invalid-decision';
 
-export interface IWindowCloseRequest {requestId: string;}
+export interface IWindowCloseRequest {requestId: TRequestId;}
 
 export type IWindowCloseResponse = {
     decision: TWindowCloseDecision;
-    requestId: string;
+    requestId: TRequestId;
 } | {
-    requestId: string;
+    requestId: TRequestId;
     status: 'unavailable';
     reason: TWindowCloseUnavailableReason;
 };

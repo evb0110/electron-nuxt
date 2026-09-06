@@ -11,7 +11,13 @@ import {
     watch,
 } from 'vue';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type { IEditorPaneState } from '@contracts/editorPanes';
+import {
+    requirePaneId,
+    type IEditorPaneState,
+} from '@contracts/editorPanes';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requireTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
 import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
@@ -22,11 +28,10 @@ import {
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
-    type IWorkspaceExpose,
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import {requireDocumentRevisionToken} from '@contracts';
@@ -46,10 +51,34 @@ function createDocumentRevision(
     return {
         version: 1,
         token: requireDocumentRevisionToken(token),
-        documentRef,
+        documentRef: requireDocumentRef(documentRef),
         authority: 'browser-document-store',
         contentRevision: mintedAt,
-        mintedAt,
+        mintedAt: requireEpochMs(mintedAt),
+    };
+}
+
+function createPane(id: string, activeTabId: string | null, tabIds: string[]): IEditorPaneState {
+    return {
+        paneId: requirePaneId(id),
+        activeTabId: activeTabId === null ? null : requireTabId(activeTabId),
+        tabIds: tabIds.map(tabId => requireTabId(tabId)),
+    };
+}
+
+function createTab(
+    id: string,
+    fileName: string | null,
+    originalPath: string | null,
+    isDirty = false,
+    isDjvu = false,
+): ITab {
+    return {
+        id,
+        fileName,
+        originalPath: originalPath === null ? null : requireDocumentRef(originalPath),
+        isDirty,
+        isDjvu,
     };
 }
 
@@ -69,7 +98,7 @@ function createReadyRecord(
     return createWorkspaceDocumentRecord({
         tab: {
             fileName,
-            originalPath,
+            originalPath: requireDocumentRef(originalPath),
             isDirty: options.canSave ?? true,
             isDjvu: false,
         },
@@ -97,32 +126,12 @@ describe('useAppShellTabLifecycle', () => {
     it('keeps split close and retained-pane handoff inside the tab transition', async () => {
         asyncHelpersMock.waitForVisualFrames.mockClear();
         const panes = ref<IEditorPaneState[]>([
-            {
-                paneId: 'pane-left',
-                activeTabId: 'tab-document',
-                tabIds: ['tab-document'],
-            },
-            {
-                paneId: 'pane-right',
-                activeTabId: 'tab-empty',
-                tabIds: ['tab-empty'],
-            },
+            createPane('pane-left', 'tab-document', ['tab-document']),
+            createPane('pane-right', 'tab-empty', ['tab-empty']),
         ]);
         const tabs = ref<ITab[]>([
-            {
-                id: 'tab-document',
-                fileName: 'retained.pdf',
-                originalPath: '/docs/retained.pdf',
-                isDirty: false,
-                isDjvu: false,
-            },
-            {
-                id: 'tab-empty',
-                fileName: null,
-                originalPath: null,
-                isDirty: false,
-                isDjvu: false,
-            },
+            createTab('tab-document', 'retained.pdf', '/docs/retained.pdf'),
+            createTab('tab-empty', null, null),
         ]);
         const activePaneId = ref('pane-right');
         const activeTabId = ref<string | null>('tab-empty');
@@ -138,7 +147,9 @@ describe('useAppShellTabLifecycle', () => {
             tabs.value.find(tab => tab.id === tabId) ?? null
         );
         const getPaneByTabId = (tabId: string | null | undefined) => (
-            panes.value.find(pane => tabId ? pane.tabIds.includes(tabId) : false) ?? null
+            panes.value.find(pane => (
+                tabId ? pane.tabIds.some(candidate => candidate === tabId) : false
+            )) ?? null
         );
         const lifecycle = useAppShellTabLifecycle({
             panes,
@@ -211,18 +222,8 @@ describe('useAppShellTabLifecycle', () => {
 
     it('delegates workspace close commands to the document controller transaction', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const pane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        };
-        const tab = {
-            id: 'tab-1',
-            fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
-            isDirty: false,
-            isDjvu: false,
-        };
+        const pane = createPane('pane-1', 'tab-1', ['tab-1']);
+        const tab = createTab('tab-1', 'sample.pdf', '/tmp/sample.pdf');
         const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
             sessionId: 'session-1',
@@ -234,9 +235,15 @@ describe('useAppShellTabLifecycle', () => {
             }}),
             createTransactionId: () => 'close-transaction-1',
         });
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: true,
-            getToolbarSnapshot: vi.fn(() => ({viewerCapabilities: {closeableDocument: true}})),
+            getToolbarSnapshot: vi.fn(() => ({
+                ...createDefaultWorkspaceToolbarSnapshot(),
+                viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
+                    closeableDocument: true,
+                },
+            })),
             handleCloseFileFromUi: vi.fn(async () => {
                 expect(session.snapshot.value.phase).toBe('closing');
                 expect(session.snapshot.value.activeTransaction).toMatchObject({
@@ -294,21 +301,11 @@ describe('useAppShellTabLifecycle', () => {
     });
 
     it('returns the retained singleton tab to the empty-tab shape after close', async () => {
-        const pane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        };
-        const tabs = ref<ITab[]>([{
-            id: 'tab-1',
-            fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
-            isDirty: false,
-            isDjvu: false,
-        }]);
+        const pane = createPane('pane-1', 'tab-1', ['tab-1']);
+        const tabs = ref<ITab[]>([createTab('tab-1', 'sample.pdf', '/tmp/sample.pdf')]);
         const workspaceHasPdf = ref(true);
         let toolbarSnapshot = createReadyRecord('sample.pdf', '/tmp/sample.pdf', {canSave: false}).toolbarSnapshot;
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: workspaceHasPdf,
             getToolbarSnapshot: vi.fn(() => toolbarSnapshot),
             handleCloseFileFromUi: vi.fn(async () => {
@@ -372,18 +369,8 @@ describe('useAppShellTabLifecycle', () => {
     });
 
     it('keeps document, tab, and save projections empty after close despite stale publishes', async () => {
-        const panes = ref<IEditorPaneState[]>([{
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        }]);
-        const tabs = ref<ITab[]>([{
-            id: 'tab-1',
-            fileName: 'First.pdf',
-            originalPath: '/docs/first.pdf',
-            isDirty: false,
-            isDjvu: false,
-        }]);
+        const panes = ref<IEditorPaneState[]>([createPane('pane-1', 'tab-1', ['tab-1'])]);
+        const tabs = ref<ITab[]>([createTab('tab-1', 'First.pdf', '/docs/first.pdf')]);
         const activePaneId = ref('pane-1');
         const activeTabId = ref<string | null>('tab-1');
         const sessions = useWorkspaceDocumentSessions({
@@ -393,7 +380,7 @@ describe('useAppShellTabLifecycle', () => {
         const emptyToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
         let workspaceToolbarSnapshot = emptyToolbarSnapshot;
         const workspaceHasPdf = ref(false);
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: workspaceHasPdf,
             getToolbarSnapshot: vi.fn(() => workspaceToolbarSnapshot),
             handleCloseFileFromUi: vi.fn(async () => false),
@@ -410,7 +397,9 @@ describe('useAppShellTabLifecycle', () => {
 
         function getPaneByTabId(tabId: string | null | undefined) {
             return tabId
-                ? panes.value.find(candidate => candidate.tabIds.includes(tabId)) ?? null
+                ? panes.value.find(candidate => (
+                    candidate.tabIds.some(candidateTabId => candidateTabId === tabId)
+                )) ?? null
                 : null;
         }
 
@@ -462,8 +451,8 @@ describe('useAppShellTabLifecycle', () => {
             }),
             activateTab: vi.fn((paneId: string, tabId: string) => {
                 const pane = getPaneById(paneId);
-                if (pane?.tabIds.includes(tabId)) {
-                    pane.activeTabId = tabId;
+                if (pane?.tabIds.some(candidate => candidate === tabId)) {
+                    pane.activeTabId = requireTabId(tabId);
                     activePaneId.value = paneId;
                     activeTabId.value = tabId;
                 }
@@ -542,7 +531,7 @@ describe('useAppShellTabLifecycle', () => {
         });
         const reopen = session!.beginTransaction({
             kind: 'open',
-            documentRef: secondRecord.documentIdentity?.documentRef ?? '/tmp/second-working.pdf',
+            documentRef: secondRecord.documentIdentity?.documentRef ?? requireDocumentRef('/tmp/second-working.pdf'),
         });
         workspaceHasPdf.value = true;
         workspaceToolbarSnapshot = secondRecord.toolbarSnapshot;
@@ -557,15 +546,11 @@ describe('useAppShellTabLifecycle', () => {
     });
 
     it('closes an opening-only singleton through the controller and clears its busy state', async () => {
-        const pane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        };
+        const pane = createPane('pane-1', 'tab-1', ['tab-1']);
         const tabs = ref<ITab[]>([{
             id: 'tab-1',
             fileName: 'dictionary.pdf',
-            originalPath: '/docs/dictionary.pdf',
+            originalPath: requireDocumentRef('/docs/dictionary.pdf'),
             isDirty: false,
             isDjvu: false,
         }]);
@@ -575,7 +560,7 @@ describe('useAppShellTabLifecycle', () => {
             action: 'openRecentFromPlaceholder',
             target: {
                 fileName: 'dictionary.pdf',
-                originalPath: '/docs/dictionary.pdf',
+                originalPath: requireDocumentRef('/docs/dictionary.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },

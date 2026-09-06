@@ -510,7 +510,7 @@ const isOpen = computed({
     get: () => open,
     set: (value: boolean) => emit('update:open', value),
 });
-const isExporting = computed(() => isExportingDocx ?? false);
+const isExporting = computed(() => isExportingDocx);
 const {
     settings,
     progress,

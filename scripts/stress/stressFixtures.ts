@@ -20,6 +20,7 @@ import {
     StandardFonts,
 } from 'pdf-lib';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import {
     createLargeScannedFixturePdf,
@@ -382,7 +383,7 @@ function buildOutlineEntries(pageCount: number, topLevel: number, perLevel: numb
     let counter = 0;
     const nextPage = () => {
         counter += 1;
-        return counter % pageCount;
+        return requirePageIndex(counter % pageCount);
     };
     for (let top = 0; top < topLevel; top += 1) {
         const children: IPdfBookmarkEntry[] = [];

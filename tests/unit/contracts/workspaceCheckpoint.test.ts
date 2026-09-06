@@ -146,6 +146,42 @@ describe('decodeWorkspaceCheckpoint', () => {
                 viewRotation: 45,
             }],
         },
+        {
+            ...createCheckpoint(),
+            activePaneId: 42,
+        },
+        {
+            ...createCheckpoint(),
+            activeTabId: '',
+        },
+        {
+            ...createCheckpoint(),
+            tabs: [{
+                ...createCheckpoint().tabs[0],
+                paneId: 42,
+            }],
+        },
+        {
+            ...createCheckpoint(),
+            tabs: [{
+                ...createCheckpoint().tabs[0],
+                sourceRef: 'not-an-absolute-path',
+            }],
+        },
+        {
+            ...createCheckpoint(),
+            tabs: [{
+                ...createCheckpoint().tabs[0],
+                workingCopyRef: 42,
+            }],
+        },
+        {
+            ...createCheckpoint(),
+            panes: [{
+                ...createCheckpoint().panes[0],
+                activeTabId: 42,
+            }],
+        },
     ])('rejects malformed or unsupported checkpoints', (candidate) => {
         expect(decodeWorkspaceCheckpoint(candidate)).toBeNull();
     });

@@ -29,9 +29,6 @@ export function preventBrowserUnloadWhenDirty(
     }
 
     event.preventDefault();
-    // Retain the legacy assignment alongside preventDefault() for browsers
-    // that still require it to display their built-in confirmation dialog.
-    event.returnValue = true;
     return true;
 }
 

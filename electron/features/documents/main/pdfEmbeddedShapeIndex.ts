@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {
     lstat,
     mkdtemp,
@@ -19,6 +18,12 @@ import type {
     IPdfEmbeddedShapeIndexPoint,
     IPdfEmbeddedShapeIndexSession,
 } from '@contracts/electronApiDocuments';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {createSessionId} from '@contracts/shared';
+import {parseEpochMs} from '@contracts/timestamps';
 import {
     PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
     PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
@@ -158,7 +163,19 @@ function decodeOptionalTimestamp(value: unknown, fieldName: string) {
     if (value === undefined || value === null) {
         return null;
     }
-    return decodeSafeInteger(value, fieldName, Number.MIN_SAFE_INTEGER);
+    const timestamp = parseEpochMs(value);
+    if (timestamp === null) {
+        throw new Error(`${fieldName} must be an epoch millisecond timestamp`);
+    }
+    return timestamp;
+}
+
+function requireDocumentRef(value: unknown): TDocumentRef {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
 }
 
 function decodeOptionalEnum<T extends string>(
@@ -374,14 +391,14 @@ export async function beginPdfEmbeddedShapeIndex(
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
-            documentRef: resolvedPath,
+            documentRef: requireDocumentRef(resolvedPath),
             expectedRevision: expectedRevisionToken,
             actualRevision: revision.token,
         });
     }
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
-    const sessionId = randomUUID();
+    const sessionId = createSessionId('pdf-embedded-shape-index');
     const sidecarDirectory = await mkdtemp(join(getAppTempDir(), SHAPE_INDEX_DIRECTORY_PREFIX));
     const sidecarPath = join(sidecarDirectory, SHAPE_INDEX_FILE_NAME);
     const abortController = new AbortController();
@@ -482,7 +499,7 @@ export async function beginPdfEmbeddedShapeIndex(
     }
     return {
         sessionId,
-        documentRef: filePath,
+        documentRef: requireDocumentRef(filePath),
         documentRevisionToken: expectedRevisionToken,
         pageCount: session.index.pageCount,
         entryCount: session.index.entryCount,

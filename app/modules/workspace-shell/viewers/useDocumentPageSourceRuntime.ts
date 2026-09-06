@@ -160,7 +160,7 @@ export function resolveDocumentPageDisplayLayoutsBounded(
         cacheValues: false,
         chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
         getValue: index => resolveDocumentPageDisplayLayout(
-            metrics.get(index) ?? metrics[0]!,
+            metrics.get(index) ?? metrics.fallbackMetric,
             availableHeight,
             availableWidth,
             manualZoom,
@@ -200,7 +200,7 @@ export function resolveDocumentPageDisplayLayoutsBounded(
             }
             const exactLayout = resolveDocumentPageDisplayLayout(metric, availableHeight, availableWidth, manualZoom, zoomMode);
             correctionIndices.push(index);
-            correctionPrefixes.push(correctionPrefixes.at(-1)! + exactLayout.height - fallbackLayout.height);
+            correctionPrefixes.push((correctionPrefixes.at(-1) ?? 0) + exactLayout.height - fallbackLayout.height);
         }
         correctionRevision = sparseMetrics.exactRevision;
     };
@@ -209,7 +209,8 @@ export function resolveDocumentPageDisplayLayoutsBounded(
         let high = correctionIndices.length;
         while (low < high) {
             const middle = Math.floor((low + high) / 2);
-            if (correctionIndices[middle]! < end) {
+            const correctionIndex = correctionIndices[middle];
+            if (correctionIndex !== undefined && correctionIndex < end) {
                 low = middle + 1;
             } else {
                 high = middle;
@@ -240,6 +241,7 @@ function mapDocumentPageSourceCollectionBounded<T, U>(
 ): TDocumentPageSourceCollection<U> {
     if (isLazyIndexedCollection(collection)) {
         const metadata = readDocumentPageSourceCollectionMetadata(collection);
+        const estimateValue = metadata.estimateValue;
         const mapped = createLazyIndexedCollection({
             cacheValues: true,
             chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
@@ -248,8 +250,8 @@ function mapDocumentPageSourceCollectionBounded<T, U>(
             maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
         });
         return attachDocumentPageSourceCollectionMetadata(mapped, {
-            ...(metadata.estimateValue
-                ? {estimateValue: index => mapValue(metadata.estimateValue!(index) as T, index)}
+            ...(estimateValue
+                ? {estimateValue: index => mapValue(estimateValue(index) as T, index)}
                 : {}),
             ...(metadata.getKnownIndices ? {getKnownIndices: metadata.getKnownIndices} : {}),
         });
@@ -294,8 +296,9 @@ export function resolveDocumentPageTopsBounded(
         });
     }
     const metadata = readDocumentPageSourceCollectionMetadata(heights);
-    if (metadata.estimateValue) {
-        const estimatedHeight = Math.max(0, metadata.estimateValue(0) ?? 0);
+    const estimateValue = metadata.estimateValue;
+    if (estimateValue) {
+        const estimatedHeight = Math.max(0, estimateValue(0) ?? 0);
         let knownIndices: number[] = [];
         let knownIndexCount = -1;
         const resolveKnownIndices = () => {
@@ -315,7 +318,7 @@ export function resolveDocumentPageTopsBounded(
                     break;
                 }
                 const exactHeight = Math.max(0, heights[knownIndex] ?? estimatedHeight);
-                const knownEstimatedHeight = Math.max(0, metadata.estimateValue!(knownIndex) ?? estimatedHeight);
+                const knownEstimatedHeight = Math.max(0, estimateValue(knownIndex) ?? estimatedHeight);
                 top += exactHeight - knownEstimatedHeight;
             }
             return top;
@@ -580,13 +583,19 @@ export const useDocumentPageSourceRuntime = (options: {
         };
     }
     function getChassisOpeningShellTarget(pageNumber: number) {
-        const snapshot = chassisAuthority?.openSurface.snapshot.value;
+        const authority = chassisAuthority;
+        if (!authority) {
+            return null;
+        }
+        const snapshot = authority.openSurface.snapshot.value;
         const frame = snapshot?.openingPageFrame;
-        const target = chassisAuthority?.openingPageElement.value;
-        return frame
-            && frame.generation === snapshot?.generation
+        if (!frame) {
+            return null;
+        }
+        const target = authority.openingPageElement.value;
+        return frame.generation === snapshot.generation
             && frame.pageNumber === pageNumber
-            && frame.pageNumber === chassisAuthority?.currentPage.value
+            && frame.pageNumber === authority.currentPage.value
             && target?.isConnected
             && target.dataset.pageNumber === String(pageNumber)
             && target.dataset.openSurfaceGeneration === String(snapshot.generation)

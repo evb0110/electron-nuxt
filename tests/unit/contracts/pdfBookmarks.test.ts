@@ -8,12 +8,19 @@ import {
     PDFName,
 } from 'pdf-lib';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import {
+    requirePageIndex,
+    type TPageIndex,
+} from '@contracts/pageNumbers';
 import { writePdfBookmarkOutlines } from '@pdf-core';
 
 function createBookmark(title: string, pageIndex: number): IPdfBookmarkEntry {
     return {
         title,
-        pageIndex,
+        pageIndex: pageIndex < 0
+            // This test deliberately supplies a brand-invalid negative index.
+            ? pageIndex as TPageIndex
+            : requirePageIndex(pageIndex),
         namedDest: null,
         bold: false,
         italic: false,

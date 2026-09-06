@@ -8,7 +8,7 @@ import { resolve } from 'path';
 import {
     allowDjvuWritePath,
     consumeAllowedDjvuWritePath,
-} from '@electron/djvu/exportPaths';
+} from '@electron/features/djvu/main/exportPaths';
 
 describe('djvu/exportPaths', () => {
     it('allows consuming a sender-owned PDF path', () => {

@@ -1,3 +1,9 @@
+import {
+    clampPageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     ComputedRef,
     Ref,
@@ -74,7 +80,7 @@ interface IUsePdfViewerVirtualizationOptions {
     }>;
     navigationAnchorPage: Ref<number | null>;
     navigationVisualHandoffTargetPage?: Readonly<Ref<number | null>> | undefined;
-    getCommittedPageScale?: ((pageNumber: number) => number | null) | undefined;
+    getCommittedPageScale?: ((pageNumber: TPageNumber) => number | null) | undefined;
     resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
 }
@@ -94,8 +100,14 @@ function mergePdfRowWindows(
     windows: readonly IPageWindow[],
 ) {
     const rowWindows = windows.map((window) => ({
-        start: getPageRowBounds(layout, window.start)?.start ?? window.start,
-        end: getPageRowBounds(layout, window.end)?.end ?? window.end,
+        start: getPageRowBounds(
+            layout,
+            requirePageNumber(window.start, layout.base.totalPages),
+        )?.start ?? window.start,
+        end: getPageRowBounds(
+            layout,
+            requirePageNumber(window.end, layout.base.totalPages),
+        )?.end ?? window.end,
     })).sort((left, right) => left.start - right.start);
     const mergedWindows: IPageWindow[] = [];
     for (const window of rowWindows) {
@@ -185,15 +197,15 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!layout) {
             return null;
         }
-        const anchorPage = Math.min(
+        const anchorPage = requirePageNumber(Math.min(
             numPages.value,
             Math.max(1, navigationAnchorPage.value ?? currentPage.value),
-        );
+        ), numPages.value);
         const anchorTop = getPageTop(layout, anchorPage) ?? 0;
         return getLayoutPhysicalScrollSegment(layout, anchorTop);
     });
 
-    function shouldPreserveCommittedPageGeometry(pageNumber: number) {
+    function shouldPreserveCommittedPageGeometry(pageNumber: TPageNumber) {
         if (numPages.value <= 0) {
             return false;
         }
@@ -217,14 +229,14 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         }
 
         const targetRow = getPageRowBoundsForViewMode({
-            pageNumber: targetPage,
+            pageNumber: clampPageNumber(targetPage, numPages.value),
             viewMode: viewMode.value,
             totalPages: numPages.value,
         });
         return pageNumber < targetRow.start || pageNumber > targetRow.end;
     }
 
-    function getCommittedLayoutScale(pageNumber: number) {
+    function getCommittedLayoutScale(pageNumber: TPageNumber) {
         const committedScale = getCommittedPageScale?.(pageNumber);
         return committedScale !== null && committedScale !== undefined
             && Number.isFinite(committedScale) && committedScale > 0
@@ -232,7 +244,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             : null;
     }
 
-    function getPageLayoutScale(pageNumber: number) {
+    function getPageLayoutScale(pageNumber: TPageNumber) {
         if (shouldPreserveCommittedPageGeometry(pageNumber)) {
             const committedScale = getCommittedLayoutScale(pageNumber);
             if (committedScale !== null) {
@@ -243,7 +255,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         return effectiveScale.value;
     }
 
-    function getPageScale(pageNumber: number) {
+    function getPageScale(pageNumber: TPageNumber) {
         const metric = getIndexedValue(normalizedPageMetrics.value, pageNumber - 1);
         if (!metric) {
             return null;
@@ -252,7 +264,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         return createPdfPageScale(getPageLayoutScale(pageNumber), metric.userUnit);
     }
 
-    function getPagePlaceholderStyle(pageNumber: number): Record<string, string> | null {
+    function getPagePlaceholderStyle(pageNumber: TPageNumber): Record<string, string> | null {
         const metric = getIndexedValue(normalizedPageMetrics.value, pageNumber - 1);
         if (!metric) {
             return null;
@@ -297,7 +309,10 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             };
         }
 
-        const anchorPage = navigationAnchorPage.value ?? currentPage.value;
+        const anchorPage = clampPageNumber(
+            navigationAnchorPage.value ?? currentPage.value,
+            numPages.value,
+        );
         return getPageRowBoundsForViewMode({
             pageNumber: anchorPage,
             viewMode: viewMode.value,
@@ -306,12 +321,15 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
     });
 
     const pagedPresentationWindowBounds = computed(() => {
+        if (numPages.value <= 0) {
+            return pagedWindowBounds.value;
+        }
         if (navigationVisualHandoffTargetPage?.value === null
             || navigationVisualHandoffTargetPage?.value === undefined) {
             return pagedWindowBounds.value;
         }
         return getPageRowBoundsForViewMode({
-            pageNumber: currentPage.value,
+            pageNumber: clampPageNumber(currentPage.value, numPages.value),
             viewMode: viewMode.value,
             totalPages: numPages.value,
         });
@@ -337,7 +355,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
                 break;
             }
             startBounds = getPageRowBoundsForViewMode({
-                pageNumber: startBounds.start - 1,
+                pageNumber: requirePageNumber(startBounds.start - 1, numPages.value),
                 viewMode: viewMode.value,
                 totalPages: numPages.value,
             });
@@ -349,7 +367,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
                 break;
             }
             endBounds = getPageRowBoundsForViewMode({
-                pageNumber: endBounds.end + 1,
+                pageNumber: requirePageNumber(endBounds.end + 1, numPages.value),
                 viewMode: viewMode.value,
                 totalPages: numPages.value,
             });
@@ -377,7 +395,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         ])).sort((left, right) => left - right);
     }
 
-    function isPageBuffered(pageNumber: number) {
+    function isPageBuffered(pageNumber: TPageNumber) {
         if (continuousScroll.value) {
             return false;
         }
@@ -523,11 +541,15 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!layout) {
             return null;
         }
-        let spacerHeight = getTrailingSpacerHeightForPage(layout, virtualWindowEndPage.value);
+        const virtualWindowEndPageNumber = requirePageNumber(
+            virtualWindowEndPage.value,
+            numPages.value,
+        );
+        let spacerHeight = getTrailingSpacerHeightForPage(layout, virtualWindowEndPageNumber);
         const segment = physicalScrollSegment.value;
         if (segment) {
-            const pageTop = getPageTop(layout, virtualWindowEndPage.value) ?? segment.origin;
-            const pageHeight = getPageHeight(layout, virtualWindowEndPage.value) ?? 0;
+            const pageTop = getPageTop(layout, virtualWindowEndPageNumber) ?? segment.origin;
+            const pageHeight = getPageHeight(layout, virtualWindowEndPageNumber) ?? 0;
             spacerHeight = Math.min(
                 spacerHeight,
                 Math.max(0, segment.height - (pageTop - segment.origin + pageHeight)),
@@ -550,9 +572,9 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             if (!continuousScroll.value) {
                 return getPagedPagesToRender();
             }
-            const anchorPage = navigationAnchorPage.value
+            const anchorPage = clampPageNumber(navigationAnchorPage.value
                 ?? resizeTransitionAnchorPage.value
-                ?? currentPage.value;
+                ?? currentPage.value, numPages.value);
             const window = createAnchorPageWindow({
                 anchorPage,
                 totalPages: numPages.value,
@@ -562,12 +584,12 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
                 return [];
             }
             const startBounds = getPageRowBoundsForViewMode({
-                pageNumber: window.start,
+                pageNumber: requirePageNumber(window.start, numPages.value),
                 viewMode: viewMode.value,
                 totalPages: numPages.value,
             });
             const endBounds = getPageRowBoundsForViewMode({
-                pageNumber: window.end,
+                pageNumber: requirePageNumber(window.end, numPages.value),
                 viewMode: viewMode.value,
                 totalPages: numPages.value,
             });
@@ -591,8 +613,14 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             ]).flatMap(window => range(window.start, window.end + 1));
         }
 
-        const startBounds = getPageRowBounds(layout, virtualWindowStart.value);
-        const endBounds = getPageRowBounds(layout, virtualWindowEnd.value);
+        const startBounds = getPageRowBounds(
+            layout,
+            requirePageNumber(virtualWindowStart.value, numPages.value),
+        );
+        const endBounds = getPageRowBounds(
+            layout,
+            requirePageNumber(virtualWindowEnd.value, numPages.value),
+        );
         const renderStartPage = startBounds?.start ?? virtualWindowStart.value;
         const renderEndPage = endBounds?.end ?? virtualWindowEnd.value;
 
@@ -676,8 +704,8 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             if (previous) {
                 spacerHeight = getInterSegmentSpacerHeight(
                     layout,
-                    previous.end,
-                    window.start,
+                    requirePageNumber(previous.end, numPages.value),
+                    requirePageNumber(window.start, numPages.value),
                 );
             }
             return {
@@ -704,7 +732,10 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!layout) {
             return virtualWindowStart.value;
         }
-        return getPageRowBounds(layout, virtualWindowStart.value)?.start ?? virtualWindowStart.value;
+        return getPageRowBounds(
+            layout,
+            requirePageNumber(virtualWindowStart.value, numPages.value),
+        )?.start ?? virtualWindowStart.value;
     });
 
     const virtualWindowEndPage = computed(() => {
@@ -716,7 +747,10 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         if (!layout) {
             return virtualWindowEnd.value;
         }
-        return getPageRowBounds(layout, virtualWindowEnd.value)?.end ?? virtualWindowEnd.value;
+        return getPageRowBounds(
+            layout,
+            requirePageNumber(virtualWindowEnd.value, numPages.value),
+        )?.end ?? virtualWindowEnd.value;
     });
 
     const virtualScrollHeight = computed(() => {

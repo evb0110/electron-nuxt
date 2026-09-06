@@ -4,6 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
 import { createDefaultPlatformApiFixtureMethod } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -41,7 +42,7 @@ describe('createElectronPlatformApiFixture', () => {
     });
 
     it('deep-merges split capability overrides', () => {
-        const registerFilesForOpen = vi.fn(async () => ['/tmp/split.pdf']);
+        const registerFilesForOpen = vi.fn(async () => [requireDocumentRef('/tmp/split.pdf')]);
         const openDocumentDialog = vi.fn(async () => null);
         const api = createElectronPlatformApiFixture({documentPicker: {
             registerFilesForOpen,

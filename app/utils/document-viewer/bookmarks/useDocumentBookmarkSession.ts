@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { Ref } from 'vue';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import {
@@ -63,7 +64,7 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
             }
         } catch (reason) {
             if (!runController.signal.aborted) {
-                error.value = reason instanceof Error ? reason.message : String(reason);
+                error.value = getErrorMessage(reason);
             }
         } finally {
             if (controller === runController) {

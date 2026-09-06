@@ -342,7 +342,10 @@ function samePolygon(
     return left.rotationDegrees === right.rotationDegrees
         && left.points.length === right.points.length
         && left.points.every((point, index) => {
-            const other = right.points[index]!;
+            const other = right.points[index];
+            if (!other) {
+                return false;
+            }
             return point.xNormalized === other.xNormalized
                 && point.yNormalized === other.yNormalized;
         });

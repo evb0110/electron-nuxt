@@ -290,6 +290,11 @@ export interface IWorkspaceAutomationStateSnapshot {
         pageLabelsDirty: boolean;
         pendingEmbeddedAnnotationDeleteCount: number;
     };
+    /**
+     * Source path for the document currently represented by the workspace.
+     * DjVu workspaces publish their native source here so automation can
+     * identify the rendered file without requiring a PDF projection.
+     */
     originalPath: TDocumentRef | null;
     pdfSourceState?: {
         hasInMemoryData: boolean;

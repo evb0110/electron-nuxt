@@ -7,6 +7,10 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
+import {
+    pageIndexToPageNumber,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
 
 type TParsedHighlight = Extract<IPdfAnnotationParseResult['entities'][number], {kind: 'highlight'}>;
 type TParsedHighlightPage = [number, TParsedHighlight[]];
@@ -48,7 +52,7 @@ export async function deriveSelectedTextForParsedHighlights({
         }
         let lease: Awaited<ReturnType<TPdfDocumentSession['leasePage']>> | null = null;
         try {
-            lease = await documentSession.leasePage(pageIndex + 1, 'transient-background');
+            lease = await documentSession.leasePage(pageIndexToPageNumber(requirePageIndex(pageIndex)), 'transient-background');
             if (signal?.aborted || !transition.isCurrent()) {
                 stale = true;
                 return false;

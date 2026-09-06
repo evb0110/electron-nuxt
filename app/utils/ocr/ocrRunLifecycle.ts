@@ -1,3 +1,5 @@
+import type { TRequestId } from '@contracts/shared';
+
 export class OcrRunCanceledError extends Error {
     constructor() {
         super('OCR canceled');
@@ -17,22 +19,22 @@ export interface IOcrRunLifecycle {
     beginRun: () => IOcrRunContext;
     isRunTokenActive: (runToken: symbol) => boolean;
     isRunActive: (runToken: symbol, runGeneration: number) => boolean;
-    markRequestActive: (requestId: string) => void;
+    markRequestActive: (requestId: TRequestId) => void;
     clearActiveRequest: () => void;
-    getActiveRequestId: () => string | null;
-    cancelActiveRun: () => string | null;
+    getActiveRequestId: () => TRequestId | null;
+    cancelActiveRun: () => TRequestId | null;
     clearRunIfActive: (runToken: symbol) => boolean;
-    beginCancelingRequest: (requestId: string) => void;
-    finishCancelingRequest: (requestId: string) => boolean;
-    getCancelingRequestId: () => string | null;
-    shouldHandleLateCanceledResult: (requestId: string) => boolean;
+    beginCancelingRequest: (requestId: TRequestId) => void;
+    finishCancelingRequest: (requestId: TRequestId) => boolean;
+    getCancelingRequestId: () => TRequestId | null;
+    shouldHandleLateCanceledResult: (requestId: TRequestId) => boolean;
 }
 
 export function createOcrRunLifecycle(): IOcrRunLifecycle {
     let cancelGeneration = 0;
     let activeRunToken: symbol | null = null;
-    let activeRequestId: string | null = null;
-    let cancelingRequestId: string | null = null;
+    let activeRequestId: TRequestId | null = null;
+    let cancelingRequestId: TRequestId | null = null;
 
     const isRunActive = (runToken: symbol, runGeneration: number) =>
         activeRunToken === runToken && runGeneration === cancelGeneration;

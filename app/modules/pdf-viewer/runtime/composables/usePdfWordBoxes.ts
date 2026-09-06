@@ -1,4 +1,5 @@
 import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IOcrWord } from '@contracts/shared';
@@ -19,7 +20,7 @@ export const usePdfWordBoxes = () => {
 
     function renderPageWordBoxes(
         pageContainer: HTMLElement,
-        words: IOcrWord[],
+        words: readonly IOcrWord[],
         pdfPageWidth: number | undefined,
         pdfPageHeight: number | undefined,
         currentMatchWords?: Set<string>,
@@ -64,7 +65,7 @@ export const usePdfWordBoxes = () => {
         clearWordBoxes(pageContainer);
 
         const boxes = createWordBoxOverlays(
-            words,
+            [...words],
             pdfPageWidth,
             pdfPageHeight,
             renderedPageWidth,
@@ -96,14 +97,14 @@ export const usePdfWordBoxes = () => {
     async function loadOcrPageData(
         workingCopyPath: TDocumentRef,
         documentRevisionToken: TDocumentRevisionToken,
-        pageNumber: number,
+        pageNumber: TPageNumber,
     ): Promise<IDocumentTextCatalogPage | null> {
         return loadSharedDocumentOcrPage(workingCopyPath, documentRevisionToken, pageNumber);
     }
 
     async function renderOcrDebugBoxes(
         pageContainer: HTMLElement,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         workingCopyPath: TDocumentRef | null,
         documentRevisionToken: TDocumentRevisionToken | null,
         viewport: IPdfViewport,

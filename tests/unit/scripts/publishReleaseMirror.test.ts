@@ -15,6 +15,7 @@ import {
     HeadObjectCommand,
     ListObjectsV2Command,
     PutObjectCommand,
+    S3Client,
     UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import {
@@ -31,10 +32,15 @@ import {
     hashFile,
     MIRROR_TRANSFER_TIMEOUTS,
     publishReleaseMirror,
+    publishSupplementalMirrorAssets,
     requireEnvironment,
     resolveMirrorPaths,
     versionParts,
 } from '@scripts/release/publish-release-mirror.mjs';
+
+function hasConfigProvider(value: unknown): value is {configProvider: Promise<Record<string, unknown>>} {
+    return typeof value === 'object' && value !== null && 'configProvider' in value;
+}
 
 const environment = {
     MIRROR_S3_ENDPOINT: 'https://mirror.example.test',
@@ -150,7 +156,13 @@ describe('release mirror publisher', () => {
 
     it('bounds every mirror transfer instead of waiting on a stalled socket', async () => {
         const {client} = createMirrorClient(environment);
-        const handler = client.config.requestHandler as {configProvider: Promise<Record<string, unknown>>};
+        if (!(client instanceof S3Client)) {
+            throw new Error('createMirrorClient must build a real S3 client when none is injected');
+        }
+        const handler: unknown = client.config.requestHandler;
+        if (!hasConfigProvider(handler)) {
+            throw new Error('request handler must expose its resolved config');
+        }
 
         await expect(handler.configProvider).resolves.toMatchObject({
             ...MIRROR_TRANSFER_TIMEOUTS,
@@ -719,6 +731,184 @@ describe('release mirror publisher', () => {
             'evb-viewer/releases/v2.1.0/core.zip',
             'evb-viewer/releases/v2.1.0/manifest.json',
         ]);
+    });
+
+    function createSupplementalFixture() {
+        const stored = new Map<string, {
+            bytes: Buffer;
+            sha256: string
+        }>();
+        const puts: PutObjectCommand[] = [];
+        const client = {send: vi.fn(async (command: unknown) => {
+            if (command instanceof PutObjectCommand) {
+                puts.push(command);
+                stored.set(command.input.Key!, {
+                    bytes: await commandBodyBytes(command.input.Body),
+                    sha256: command.input.Metadata!.sha256!,
+                });
+                return {};
+            }
+            if (command instanceof HeadObjectCommand) {
+                const object = stored.get(command.input.Key!);
+                return object
+                    ? {
+                        ContentLength: object.bytes.byteLength,
+                        Metadata: {sha256: object.sha256},
+                    }
+                    : {$metadata: {httpStatusCode: 404}};
+            }
+            if (command instanceof GetObjectCommand) {
+                const object = stored.get(command.input.Key!);
+                if (!object) {
+                    throw new Error('Unexpected missing supplemental object');
+                }
+                return {Body: objectBody(object.bytes)};
+            }
+            throw new Error(`Unexpected supplemental command: ${String(command)}`);
+        })};
+
+        return {
+            client,
+            puts,
+            async writeSupplementalAssets() {
+                const directory = await mkdtemp(join(tmpdir(), 'evb-mirror-supplemental-'));
+                const intelZip = join(directory, 'EVB-Viewer-2.1.0-x64.zip');
+                const windowsInstaller = join(directory, 'EVB-Viewer-2.1.0-arm64-setup.exe');
+                const windowsProvenance = join(directory, 'EVB-Viewer-2.1.0-win-arm64-provenance.json');
+                await writeFile(intelZip, 'intel');
+                await writeFile(windowsInstaller, 'arm installer');
+                await writeFile(windowsProvenance, '{}');
+                return {
+                    files: [
+                        intelZip,
+                        windowsInstaller,
+                        windowsProvenance,
+                    ],
+                    intelZip,
+                };
+            },
+        };
+    }
+
+    it('mirrors supplemental assets beside the core objects and repeats without rewriting them', async () => {
+        const {
+            client,
+            puts,
+            writeSupplementalAssets,
+        } = createSupplementalFixture();
+        const coreDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-core-'));
+        await writeFile(join(coreDirectory, 'core.zip'), 'core');
+        await publishReleaseMirror({
+            artifactDirectory: coreDirectory,
+            releaseTag: 'v2.1.0',
+            publishChannel: false,
+            environment,
+            client,
+        });
+        const {files} = await writeSupplementalAssets();
+        puts.length = 0;
+
+        const published = await publishSupplementalMirrorAssets({
+            files,
+            releaseTag: 'v2.1.0',
+            environment,
+            client,
+        });
+        const repeated = await publishSupplementalMirrorAssets({
+            files,
+            releaseTag: 'v2.1.0',
+            environment,
+            client,
+        });
+
+        expect(published).toMatchObject({
+            assets: [
+                {name: 'EVB-Viewer-2.1.0-x64.zip'},
+                {name: 'EVB-Viewer-2.1.0-arm64-setup.exe'},
+                {name: 'EVB-Viewer-2.1.0-win-arm64-provenance.json'},
+            ],
+            skipped: false,
+        });
+        expect(repeated.assets).toEqual(published.assets);
+        // The manifest and the stable channel stay exactly as the promoted
+        // release left them; only the new objects are written, once.
+        expect(puts.map(command => command.input.Key)).toEqual([
+            'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-x64.zip',
+            'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-arm64-setup.exe',
+            'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-win-arm64-provenance.json',
+        ]);
+        expect(puts.every(command => command.input.CacheControl === 'public, max-age=31536000, immutable')).toBe(true);
+    });
+
+    it('leaves supplemental assets unmirrored when the tag has no core manifest', async () => {
+        const {
+            client,
+            puts,
+            writeSupplementalAssets,
+        } = createSupplementalFixture();
+
+        const {files} = await writeSupplementalAssets();
+
+        await expect(publishSupplementalMirrorAssets({
+            files,
+            releaseTag: 'v2.1.0',
+            environment,
+            client,
+        })).resolves.toEqual({
+            assets: [],
+            skipped: true,
+        });
+
+        expect(puts).toEqual([]);
+    });
+
+    it('refuses supplemental publication of core assets, foreign tags, and empty input', async () => {
+        const {
+            client,
+            writeSupplementalAssets,
+        } = createSupplementalFixture();
+        const {intelZip} = await writeSupplementalAssets();
+
+        await expect(publishSupplementalMirrorAssets({
+            files: [intelZip.replace('EVB-Viewer-2.1.0-x64.zip', 'EVB-Viewer-2.1.0-x64-setup.exe')],
+            releaseTag: 'v2.1.0',
+            environment,
+            client,
+        })).rejects.toThrow('Refusing to mirror EVB-Viewer-2.1.0-x64-setup.exe');
+        // A supplemental name from another version is a caller mistake, not a
+        // second mirror layout.
+        await expect(publishSupplementalMirrorAssets({
+            files: [intelZip],
+            releaseTag: 'v2.2.0',
+            environment,
+            client,
+        })).rejects.toThrow('Refusing to mirror EVB-Viewer-2.1.0-x64.zip');
+        await expect(publishSupplementalMirrorAssets({
+            files: [],
+            releaseTag: 'v2.1.0',
+            environment,
+            client,
+        })).rejects.toThrow('Usage: publish-release-mirror.mjs supplemental');
+        // A drill tag never reaches the production prefix, and a public tag
+        // never reaches a drill prefix.
+        await expect(publishSupplementalMirrorAssets({
+            files: [intelZip],
+            releaseTag: 'v0.0.0-drill.123',
+            environment,
+            client,
+        })).rejects.toThrow('Invalid release tag: v0.0.0-drill.123');
+        await expect(publishSupplementalMirrorAssets({
+            drill: true,
+            files: [intelZip],
+            releaseTag: 'v2.1.0',
+            environment: {
+                ...environment,
+                MIRROR_CHANNEL_KEY: 'evb-viewer/drill/123/channels/stable.json',
+                MIRROR_RELEASE_PREFIX: 'evb-viewer/drill/123/releases/',
+            },
+            client,
+        })).rejects.toThrow('Invalid release tag: v2.1.0');
+        expect(client.send).not.toHaveBeenCalled();
     });
 
     it('rejects invalid input, missing credentials, empty folders, and verification mismatches', async () => {

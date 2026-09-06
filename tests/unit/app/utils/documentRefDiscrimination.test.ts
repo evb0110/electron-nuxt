@@ -9,25 +9,37 @@ import {
     inferDocumentRefBackend,
     isBrowserStructuredDocumentRef,
     isNativeStructuredDocumentRef,
+    requireDocumentRef,
 } from '@contracts/documentRef';
 import {
     isBrowserDocumentRef,
     isNativeDocumentRef,
     resolveDocumentRefBackend,
 } from '@app/utils/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
+
+function isDocumentRefFixture(value: unknown): value is TDocumentRef {
+    // Legacy document refs are branded strings, so the brand has no runtime
+    // marker. Keep the malformed relative value at the boundary intentionally.
+    return typeof value === 'string';
+}
 
 describe('documentRef discrimination', () => {
     it('distinguishes browser refs from native absolute paths', () => {
-        expect(isBrowserDocumentRef('browser://documents/source-1')).toBe(true);
-        expect(isNativeDocumentRef('browser://documents/source-1')).toBe(false);
-        expect(resolveDocumentRefBackend('browser://documents/source-1')).toBe('browser');
+        expect(isBrowserDocumentRef(requireDocumentRef('browser://documents/source-1'))).toBe(true);
+        expect(isNativeDocumentRef(requireDocumentRef('browser://documents/source-1'))).toBe(false);
+        expect(resolveDocumentRefBackend(requireDocumentRef('browser://documents/source-1'))).toBe('browser');
 
-        expect(isNativeDocumentRef('/Users/example/document.pdf')).toBe(true);
-        expect(isBrowserDocumentRef('/Users/example/document.pdf')).toBe(false);
-        expect(resolveDocumentRefBackend('/Users/example/document.pdf')).toBe('electron');
+        expect(isNativeDocumentRef(requireDocumentRef('/Users/example/document.pdf'))).toBe(true);
+        expect(isBrowserDocumentRef(requireDocumentRef('/Users/example/document.pdf'))).toBe(false);
+        expect(resolveDocumentRefBackend(requireDocumentRef('/Users/example/document.pdf'))).toBe('electron');
 
-        expect(inferDocumentRefBackend('relative/document.pdf')).toBe('unknown');
-        expect(resolveDocumentRefBackend('relative/document.pdf')).toBeUndefined();
+        const relativeRef: unknown = 'relative/document.pdf';
+        if (!isDocumentRefFixture(relativeRef)) {
+            throw new TypeError('Invalid document reference fixture');
+        }
+        expect(inferDocumentRefBackend(relativeRef)).toBe('unknown');
+        expect(resolveDocumentRefBackend(relativeRef)).toBeUndefined();
     });
 
     it('brands structured browser and native refs with backend identity', () => {

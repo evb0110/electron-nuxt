@@ -1,5 +1,9 @@
 import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import { isBrowserDocumentRef } from '@app/platform/browserDocumentStore';
 import { getValidatedElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
@@ -41,30 +45,34 @@ export function createNativeDjvuTextSearchBridge(documentRef: TDocumentRef) {
         return null;
     }
     const searchCapability: TNativeDjvuSearchCapability = nativeDjvu;
-    const activeRequestIds = new Set<string>();
+    const activeRequestIds = new Set<TRequestId>();
 
     async function searchText(request: TDocumentSearchRequest) {
         request.signal.throwIfAborted();
-        activeRequestIds.add(request.requestId);
+        const requestId = parseRequestId(request.requestId);
+        if (requestId === null) {
+            throw new TypeError('DjVu search request ID is invalid');
+        }
+        activeRequestIds.add(requestId);
         const unsubscribe = searchCapability.onTextSearchProgress((progress) => {
-            if (progress.requestId === request.requestId) {
+            if (progress.requestId === requestId) {
                 request.onProgress?.(progress);
             }
         });
         const cancel = () => {
-            void searchCapability.cancelTextSearch(request.requestId).catch(() => undefined);
+            void searchCapability.cancelTextSearch(requestId).catch(() => undefined);
         };
         request.signal.addEventListener('abort', cancel, {once: true});
         try {
             const response = await searchCapability.searchText(documentRef, request.query, {
-                requestId: request.requestId,
+                requestId,
                 pageCount: request.pageCount,
                 ...request.matchOptions,
             });
             request.signal.throwIfAborted();
             return response;
         } finally {
-            activeRequestIds.delete(request.requestId);
+            activeRequestIds.delete(requestId);
             request.signal.removeEventListener('abort', cancel);
             unsubscribe();
         }

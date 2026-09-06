@@ -11,6 +11,7 @@ import type {
 import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TRequestId } from '@contracts/shared';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import {
     usePdfPlacedImagePersistence,
@@ -290,7 +291,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         return handleOptimizePdfForInteractionWithReload();
     }
 
-    async function handleOptimizePdfAsCopy(options: IPdfOptimizeOptions, requestId?: string) {
+    async function handleOptimizePdfAsCopy(options: IPdfOptimizeOptions, requestId?: TRequestId) {
         if (canSave.value) {
             const saved = await handleSaveWithReload();
             if (!saved) {

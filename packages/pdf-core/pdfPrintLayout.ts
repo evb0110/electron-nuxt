@@ -14,6 +14,10 @@ import type {
     TPdfViewMode,
     TPrintOrientation,
 } from '@contracts/shared';
+import {
+    parsePageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type { IPdfPageBox } from '@pdf-core/pdfPageBoxes';
 import {
     resolvePdfLibCropBox,
@@ -79,7 +83,7 @@ function normalizeTotalPages(value: number) {
 }
 
 function buildAllPageNumbers(totalPages: number) {
-    return range(1, totalPages + 1);
+    return range(1, totalPages + 1).map(pageNumber => requirePageNumber(pageNumber, totalPages));
 }
 
 export function normalizePrintPageNumbers(
@@ -96,7 +100,10 @@ export function normalizePrintPageNumbers(
     }
 
     return uniq(pageNumbers)
-        .filter(page => Number.isInteger(page) && page >= 1 && page <= normalizedTotalPages)
+        .flatMap((page) => {
+            const pageNumber = parsePageNumber(page, normalizedTotalPages);
+            return pageNumber === null ? [] : [pageNumber];
+        })
         .sort((left, right) => left - right);
 }
 
@@ -377,6 +384,8 @@ function drawEmbeddedPrintablePage(
 
     // PDF /Rotate is clockwise, while drawPage rotates counterclockwise.
     switch (page.rotation) {
+        case 0:
+            break;
         case 90:
             drawY += width;
             drawRotation = -90;

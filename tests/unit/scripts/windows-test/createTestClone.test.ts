@@ -203,3 +203,68 @@ it('counts a preserved unregistered clone against the retention limit', async ()
     await expect(createTestClone(harness.options)).rejects.toThrow('Retained test clones');
     expect(harness.commands).toEqual([]);
 });
+
+it('copies input media into the clone and inserts only a read-only USB CD drive in the clone config', async () => {
+    const harness = await fixture();
+    const inputMediaPath = path.join(harness.root, 'input-media.iso');
+    await writeFile(inputMediaPath, 'input media bytes', 'utf8');
+    await createTestClone({
+        ...harness.options,
+        inputMediaPath,
+    });
+
+    const destination = path.join(harness.root, `${cloneName}.utm`);
+    expect(await readFile(path.join(destination, 'Data', 'evb-test-inputs.iso'), 'utf8')).toBe('input media bytes');
+    expect(await readFile(inputMediaPath, 'utf8')).toBe('input media bytes');
+    const driveInsert = harness.commands.find(entry => entry.args[0] === '-insert' && entry.args[1] === 'Drive.1');
+    expect(harness.commands.filter(entry => entry.args[0] === '-insert' && entry.args[1] === 'Drive.1')).toHaveLength(1);
+    expect(driveInsert?.args.slice(0, 4)).toEqual([
+        '-insert',
+        'Drive.1',
+        '-json',
+        expect.any(String),
+    ]);
+    expect(JSON.parse(driveInsert?.args[3] ?? '{}')).toMatchObject({
+        ImageName: 'evb-test-inputs.iso',
+        ImageType: 'CD',
+        Interface: 'USB',
+        InterfaceVersion: 1,
+        ReadOnly: true,
+    });
+    expect(harness.commands.some(entry => entry.command.endsWith('osascript'))).toBe(true);
+});
+
+it('rejects symbolic-link and non-regular input media before touching UTM', async () => {
+    const linked = await fixture();
+    const linkedTarget = path.join(linked.root, 'media-source.iso');
+    await writeFile(linkedTarget, 'media', 'utf8');
+    const linkedPath = path.join(linked.root, 'linked-input.iso');
+    await symlink(linkedTarget, linkedPath);
+    await expect(createTestClone({
+        ...linked.options,
+        inputMediaPath: linkedPath,
+    })).rejects.toThrow('symbolic link');
+    expect(linked.commands).toEqual([]);
+
+    const directory = await fixture();
+    const directoryPath = path.join(directory.root, 'input-directory');
+    await mkdir(directoryPath);
+    await expect(createTestClone({
+        ...directory.options,
+        inputMediaPath: directoryPath,
+    })).rejects.toThrow('not a regular file');
+    expect(directory.commands).toEqual([]);
+});
+
+it('refuses an input-media destination already present in the golden bundle', async () => {
+    const harness = await fixture();
+    await writeFile(path.join(harness.source, 'Data', 'evb-test-inputs.iso'), 'existing media', 'utf8');
+    const inputMediaPath = path.join(harness.root, 'input-media.iso');
+    await writeFile(inputMediaPath, 'new media', 'utf8');
+
+    await expect(createTestClone({
+        ...harness.options,
+        inputMediaPath,
+    })).rejects.toThrow('input media destination already exists');
+    expect(harness.commands.some(entry => entry.command.endsWith('osascript'))).toBe(false);
+});

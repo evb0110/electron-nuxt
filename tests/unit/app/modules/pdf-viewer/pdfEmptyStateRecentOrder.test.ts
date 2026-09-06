@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
 import {
     afterEach,
     describe,
@@ -27,10 +29,10 @@ afterEach(() => {
 
 function createRecentFile(originalPath: string, timestamp: number): IRecentFile {
     return {
-        originalPath,
+        originalPath: requireDocumentRef(originalPath),
         backend: 'browser',
         fileName: originalPath.split('/').at(-1) ?? originalPath,
-        timestamp,
+        timestamp: requireEpochMs(timestamp),
     };
 }
 
@@ -41,8 +43,8 @@ function getRecentOrder(host: HTMLElement) {
 
 describe('PdfEmptyState recent-file order', () => {
     it('keeps the visible order stable while the selected document is opening', async () => {
-        const first = createRecentFile('browser-document:first.pdf', 2);
-        const second = createRecentFile('browser-document:second.djvu', 1);
+        const first = createRecentFile('browser://documents/first.pdf', 2);
+        const second = createRecentFile('browser://documents/second.djvu', 1);
         const recentFiles = ref([
             first,
             second,
@@ -59,7 +61,7 @@ describe('PdfEmptyState recent-file order', () => {
                 recentFiles.value = [
                     {
                         ...file,
-                        timestamp: 3,
+                        timestamp: requireEpochMs(3),
                     },
                     first,
                 ];

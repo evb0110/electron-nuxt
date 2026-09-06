@@ -5,10 +5,6 @@ import {
     vi,
 } from 'vitest';
 import {
-    createCanvas,
-    loadImage,
-} from '@napi-rs/canvas';
-import {
     createSearchMatchScrollFixturePdf,
     SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT,
     SEARCH_MATCH_SCROLL_FIXTURE_QUERY,
@@ -28,6 +24,12 @@ import {
     callWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    countWarmHighlightPixels,
+    countOrangeHighlightPixelsInFrame,
+    startSearchHighlightPaintCapture,
+    writeSearchHighlightPaintEvidence,
+} from '@tests/e2e/electron/helpers/searchHighlightPaint';
 
 const SEARCH_MATCH_SCROLL_TIMEOUT_MS = 240_000;
 const SEARCH_MATCH_PAINT_TIMEOUT_MS = 5_000;
@@ -45,58 +47,6 @@ function readPositiveIntegerEnv(name: string, fallback: number) {
         throw new Error(`${name} must be a positive integer`);
     }
     return value;
-}
-
-interface IViewportRect {
-    bottom: number;
-    left: number;
-    right: number;
-    top: number;
-}
-
-interface IViewportSize {
-    height: number;
-    width: number;
-}
-
-async function countWarmHighlightPixels(
-    screenshot: Uint8Array,
-    viewportRect: IViewportRect,
-    viewportSize: IViewportSize,
-) {
-    const image = await loadImage(Buffer.from(screenshot));
-    const canvas = createCanvas(image.width, image.height);
-    const context = canvas.getContext('2d');
-    context.drawImage(image, 0, 0);
-
-    const scaleX = image.width / viewportSize.width;
-    const scaleY = image.height / viewportSize.height;
-    const startX = Math.max(0, Math.floor(viewportRect.left * scaleX));
-    const endX = Math.min(image.width, Math.ceil(viewportRect.right * scaleX));
-    const startY = Math.max(0, Math.floor(viewportRect.top * scaleY));
-    const endY = Math.min(image.height, Math.ceil(viewportRect.bottom * scaleY));
-    if (endX <= startX || endY <= startY) {
-        return 0;
-    }
-
-    const pixels = context.getImageData(startX, startY, endX - startX, endY - startY).data;
-    let count = 0;
-    for (let index = 0; index < pixels.length; index += 4) {
-        const red = pixels[index] ?? 0;
-        const green = pixels[index + 1] ?? 0;
-        const blue = pixels[index + 2] ?? 0;
-        const alpha = pixels[index + 3] ?? 0;
-        if (
-            alpha > 0
-            && red > 175
-            && green > 95
-            && red - blue > 45
-            && green - blue > 20
-        ) {
-            count += 1;
-        }
-    }
-    return count;
 }
 
 function readPositiveNumberEnv(name: string, fallback: number) {
@@ -698,9 +648,9 @@ describe('Electron E2E - PDF search match scrolling', () => {
         const fixturePath = searchMatchScrollConfig.fixturePath
             ?? await createSearchMatchScrollFixturePdf(`search-repeat-${Date.now()}.pdf`);
         await session.page.setViewport({
-            deviceScaleFactor: 1,
-            height: 1080,
-            width: 1884,
+            deviceScaleFactor: 2,
+            height: 1018,
+            width: 1869,
         });
         await openPdfInApp(session.page, fixturePath, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
@@ -725,6 +675,22 @@ describe('Electron E2E - PDF search match scrolling', () => {
         });
         const targets = suppliedSearchMatchScrollPdf
             ? [
+                {
+                    page: 22,
+                    match: 1,
+                },
+                {
+                    page: 81,
+                    match: 1,
+                },
+                {
+                    page: 22,
+                    match: 1,
+                },
+                {
+                    page: 81,
+                    match: 1,
+                },
                 {
                     page: 23,
                     match: 1,
@@ -755,6 +721,22 @@ describe('Electron E2E - PDF search match scrolling', () => {
                 },
             ]
             : [
+                {
+                    page: 22,
+                    match: 1,
+                },
+                {
+                    page: 81,
+                    match: 1,
+                },
+                {
+                    page: 22,
+                    match: 1,
+                },
+                {
+                    page: 81,
+                    match: 1,
+                },
                 {
                     page: SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
                     match: 1,
@@ -804,99 +786,237 @@ describe('Electron E2E - PDF search match scrolling', () => {
                 const y = box.top + box.height / 2;
                 const diagnosticWindow = window as Window & {__clearPdfRenderTrace?: () => void};
                 diagnosticWindow.__clearPdfRenderTrace?.();
+                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+                const oldHighlight = viewer.querySelector<HTMLElement>(
+                    '.pdf-search-highlight--current, .pdf-word-box--current',
+                );
+                const oldPage = oldHighlight?.closest<HTMLElement>('.page_container')?.dataset.page;
+                const readHighlightPaint = (element: HTMLElement | null) => {
+                    if (!element) {
+                        return {
+                            opacity: null,
+                            visible: false,
+                        };
+                    }
+                    let opacity = 1;
+                    let visible = true;
+                    for (let current: HTMLElement | null = element; current && current !== viewer; current = current.parentElement) {
+                        const style = getComputedStyle(current);
+                        const currentOpacity = Number.parseFloat(style.opacity);
+                        if (Number.isFinite(currentOpacity)) {
+                            opacity *= currentOpacity;
+                        }
+                        visible = visible
+                            && style.visibility !== 'hidden'
+                            && style.display !== 'none';
+                    }
+                    return {
+                        opacity,
+                        visible: visible && opacity > 0,
+                    };
+                };
+                const outgoingPaint = readHighlightPaint(oldHighlight);
+                const viewerBounds = viewer.getBoundingClientRect();
+                const outgoingBounds = oldHighlight?.getBoundingClientRect();
+                const outgoingInViewport = !!outgoingBounds
+                    && outgoingBounds.bottom > viewerBounds.top
+                    && outgoingBounds.top < viewerBounds.bottom
+                    && outgoingBounds.right > viewerBounds.left
+                    && outgoingBounds.left < viewerBounds.right;
+                const targetPage = row.dataset.pageNumber;
+                const frames: Array<{
+                    committed: boolean;
+                    outgoingOrange: boolean;
+                    outgoingOpacity: number | null;
+                    outgoingVisible: boolean;
+                    targetOrange: boolean
+                    targetOpacity: number | null;
+                    targetVisible: boolean;
+                }> = [];
+                const monitor = window as Window & {
+                    __matchHandoffFrames?: typeof frames;
+                    __stopMatchHandoff?: boolean
+                };
+                monitor.__matchHandoffFrames = frames;
+                monitor.__stopMatchHandoff = false;
+                const sample = () => {
+                    if (monitor.__stopMatchHandoff || monitor.__matchHandoffFrames !== frames) {
+                        return;
+                    }
+                    const trace = (window as Window & {__getPdfRenderTrace?: () => Array<{event: string}>})
+                        .__getPdfRenderTrace?.() ?? [];
+                    if (oldPage && oldPage !== targetPage) {
+                        const outgoing = readHighlightPaint(viewer.querySelector<HTMLElement>(
+                            `.page_container[data-page="${oldPage}"] .pdf-search-highlight--current, .page_container[data-page="${oldPage}"] .pdf-word-box--current`,
+                        ));
+                        const destination = readHighlightPaint(viewer.querySelector<HTMLElement>(
+                            `.page_container[data-page="${targetPage}"] .pdf-search-highlight--current, .page_container[data-page="${targetPage}"] .pdf-word-box--current`,
+                        ));
+                        frames.push({
+                            committed: trace.some(entry => entry.event === 'navigation-viewport-authority-applied'),
+                            outgoingOrange: outgoing.opacity !== null,
+                            outgoingOpacity: outgoing.opacity,
+                            outgoingVisible: outgoing.visible,
+                            targetOrange: destination.opacity !== null,
+                            targetOpacity: destination.opacity,
+                            targetVisible: destination.visible,
+                        });
+                    }
+                    requestAnimationFrame(sample);
+                };
+                requestAnimationFrame(sample);
                 return {
                     x,
                     y,
+                    monitored: !!oldPage && oldPage !== targetPage,
+                    outgoingOpacity: outgoingPaint.opacity,
+                    outgoingVisible: outgoingPaint.visible,
+                    outgoingInViewport,
                     hit: row.contains(document.elementFromPoint(x, y)),
                     text: row.querySelector('.document-search-result-highlight')?.textContent ?? '',
+                    viewerRect: {
+                        bottom: viewerBounds.bottom,
+                        left: viewerBounds.left,
+                        right: viewerBounds.right,
+                        top: viewerBounds.top,
+                    },
+                    viewportSize: {
+                        height: window.innerHeight,
+                        width: window.innerWidth,
+                    },
                 };
             }, selector);
             expect(clicked.hit).toBe(true);
-            await session.page.mouse.click(clicked.x, clicked.y);
-            await waitForFunctionInPage(session.page, (target: string) =>
-                document.querySelector(target)?.getAttribute('aria-current') === 'true',
-            {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS}, selector);
-            const readState = () => session.page.evaluate((pageNumber: number) => {
-                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
-                const bounds = viewer.getBoundingClientRect();
-                const page = viewer.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
-                const highlights = Array.from(page?.querySelectorAll<HTMLElement>(
-                    '.pdf-search-highlight--current, .pdf-word-box--current',
-                ) ?? []);
-                const rects = highlights.map(element => element.getBoundingClientRect())
-                    .filter(rect => rect.width > 0 && rect.height > 0);
-                const rect = rects.length ? {
-                    left: Math.min(...rects.map(value => value.left)),
-                    right: Math.max(...rects.map(value => value.right)),
-                    top: Math.min(...rects.map(value => value.top)),
-                    bottom: Math.max(...rects.map(value => value.bottom)),
-                } : null;
-                const trace = (window as Window & {__getPdfRenderTrace?: () => Array<{
-                    event: string;
-                    payload?: Record<string, unknown>;
-                }>}).__getPdfRenderTrace?.() ?? [];
-                const applied = trace.filter(entry => entry.event === 'navigation-viewport-authority-applied');
-                const navigationApplies = applied.filter(entry => entry.payload?.kind === 'search'
+            const paintCapture = clicked.monitored && clicked.outgoingVisible && clicked.outgoingInViewport
+                ? await startSearchHighlightPaintCapture(session.page)
+                : null;
+            try {
+                await session.page.mouse.click(clicked.x, clicked.y);
+                await waitForFunctionInPage(session.page, (target: string) =>
+                    document.querySelector(target)?.getAttribute('aria-current') === 'true',
+                {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS}, selector);
+                const readState = () => session.page.evaluate((pageNumber: number) => {
+                    const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+                    const bounds = viewer.getBoundingClientRect();
+                    const page = viewer.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
+                    const highlights = Array.from(page?.querySelectorAll<HTMLElement>(
+                        '.pdf-search-highlight--current, .pdf-word-box--current',
+                    ) ?? []);
+                    const rects = highlights.map(element => element.getBoundingClientRect())
+                        .filter(rect => rect.width > 0 && rect.height > 0);
+                    const rect = rects.length ? {
+                        left: Math.min(...rects.map(value => value.left)),
+                        right: Math.max(...rects.map(value => value.right)),
+                        top: Math.min(...rects.map(value => value.top)),
+                        bottom: Math.max(...rects.map(value => value.bottom)),
+                    } : null;
+                    const trace = (window as Window & {__getPdfRenderTrace?: () => Array<{
+                        event: string;
+                        payload?: Record<string, unknown>;
+                    }>}).__getPdfRenderTrace?.() ?? [];
+                    const applied = trace.filter(entry => entry.event === 'navigation-viewport-authority-applied');
+                    const navigationApplies = applied.filter(entry => entry.payload?.kind === 'search'
                     || trace.some(refinement => refinement.event === 'navigation-text-anchor-refined'
                         && refinement.payload?.intentId === entry.payload?.intentId
                         && refinement.payload?.searchRange));
-                return {
-                    visible: !!rect && rect.top >= bounds.top - 2
+                    return {
+                        visible: !!rect && rect.top >= bounds.top - 2
                         && rect.bottom <= bounds.bottom + 2 && rect.left >= bounds.left - 2 && rect.right <= bounds.right + 2,
-                    centerDelta: rect ? (rect.top + rect.bottom - bounds.top - bounds.bottom) / 2 : null,
-                    scrollTop: viewer.scrollTop,
-                    scrollLeft: viewer.scrollLeft,
-                    scrollHeight: viewer.scrollHeight,
-                    clientHeight: viewer.clientHeight,
-                    appliedLeft: Number(applied.at(-1)?.payload?.actualLeft),
-                    appliedPositions: applied.map(entry => ({
-                        left: Number(entry.payload?.actualLeft),
-                        top: Number(entry.payload?.actualTop),
-                    })),
-                    appliedTop: Number(applied.at(-1)?.payload?.actualTop),
-                    appliedCount: navigationApplies.length,
-                    navigationTrace: trace.filter(entry => entry.event.startsWith('navigation-')),
-                    text: highlights.map(element => element.textContent || element.dataset.word || '').join(''),
-                    rect,
-                    viewportSize: {
-                        width: window.innerWidth,
-                        height: window.innerHeight,
-                    },
-                };
-            }, targetPage);
-            await vi.waitFor(async () => {
-                const state = await readState();
-                expect(state.visible, `page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
-                expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
-            }, {
-                timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS,
-                interval: 50,
-            });
-            // Catch a delayed resize or outgoing-anchor replay after the match
-            // first appears, rather than accepting a transient correct frame.
-            await new Promise(resolve => setTimeout(resolve, 500));
-            const state = await readState();
-            expect(state.visible, `settled page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
-            expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
-            expect(normalizeMatchText(state.text)).toBe(normalizeMatchText(clicked.text));
-            expect(state.appliedCount, JSON.stringify({
-                targetPage,
-                targetMatch,
-                ...state,
-            })).toBe(1);
-            expect(state.scrollTop).toBeCloseTo(state.appliedTop, 0);
-            expect(state.scrollLeft).toBeCloseTo(state.appliedLeft, 0);
-            // A scrollbar resize may reassert the settled position. It must
-            // never introduce another destination or sideways correction.
-            for (const position of state.appliedPositions) {
-                expect(position).toEqual({
-                    left: state.appliedLeft,
-                    top: state.appliedTop,
+                        centerDelta: rect ? (rect.top + rect.bottom - bounds.top - bounds.bottom) / 2 : null,
+                        scrollTop: viewer.scrollTop,
+                        scrollLeft: viewer.scrollLeft,
+                        scrollHeight: viewer.scrollHeight,
+                        clientHeight: viewer.clientHeight,
+                        appliedLeft: Number(applied.at(-1)?.payload?.actualLeft),
+                        appliedPositions: applied.map(entry => ({
+                            left: Number(entry.payload?.actualLeft),
+                            top: Number(entry.payload?.actualTop),
+                        })),
+                        appliedTop: Number(applied.at(-1)?.payload?.actualTop),
+                        appliedCount: navigationApplies.length,
+                        navigationTrace: trace.filter(entry => entry.event.startsWith('navigation-')),
+                        text: highlights.map(element => element.textContent || element.dataset.word || '').join(''),
+                        rect,
+                        viewportSize: {
+                            width: window.innerWidth,
+                            height: window.innerHeight,
+                        },
+                    };
+                }, targetPage);
+                await vi.waitFor(async () => {
+                    const state = await readState();
+                    expect(state.visible, `page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
+                    expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
+                }, {
+                    timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS,
+                    interval: 50,
                 });
+                // Catch a delayed resize or outgoing-anchor replay after the match
+                // first appears, rather than accepting a transient correct frame.
+                await new Promise(resolve => setTimeout(resolve, 500));
+                const state = await readState();
+                expect(state.visible, `settled page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
+                const paintedFrames = await paintCapture?.stop() ?? [];
+                const orangePixelCounts = await Promise.all(paintedFrames.map(frame => countOrangeHighlightPixelsInFrame(
+                    frame, clicked.viewerRect, clicked.viewportSize,
+                )));
+                if (paintCapture) {
+                    if (orangePixelCounts.some(count => count <= 4) || process.env.EVB_SEARCH_SCROLL_PAINT_EVIDENCE === '1') {
+                        writeSearchHighlightPaintEvidence({
+                            label: `page-${targetPage}-match-${targetMatch}`,
+                            frames: paintedFrames,
+                            orangePixelCounts,
+                            diagnostic: await session.page.evaluate(() => ({
+                                renderTrace: (window as Window & {__getPdfRenderTrace?: () => unknown}).__getPdfRenderTrace?.(),
+                                frames: (window as Window & {__matchHandoffFrames?: unknown}).__matchHandoffFrames,
+                            })),
+                        });
+                    }
+                    expect(paintedFrames.length, 'No compositor frames captured').toBeGreaterThan(0);
+                    expect(orangePixelCounts.filter(count => count <= 4), 'Painted frames lost the orange match').toEqual([]);
+                }
+                const handoffFrames = await session.page.evaluate(() => {
+                    const monitor = window as Window & {
+                        __matchHandoffFrames?: Array<{
+                            committed: boolean;
+                            outgoingOrange: boolean;
+                            targetOrange: boolean;
+                            outgoingVisible: boolean;
+                            targetVisible: boolean;
+                        }>;
+                        __stopMatchHandoff?: boolean;
+                    };
+                    monitor.__stopMatchHandoff = true;
+                    return monitor.__matchHandoffFrames ?? [];
+                });
+                if (clicked.monitored) {
+                    expect(handoffFrames.some(frame => frame.committed)).toBe(true);
+                }
+                expect(handoffFrames.filter(frame => !frame.committed && (!frame.outgoingOrange || !frame.outgoingVisible)), 'Outgoing orange disappears before viewport commit').toEqual([]);
+                expect(handoffFrames.filter(frame => frame.committed && (!frame.targetOrange || !frame.targetVisible)), 'Destination arrives before orange highlight').toEqual([]);
+                expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
+                expect(normalizeMatchText(state.text)).toBe(normalizeMatchText(clicked.text));
+                expect(state.appliedCount, JSON.stringify({
+                    targetPage,
+                    targetMatch,
+                    ...state,
+                })).toBe(1);
+                expect(state.scrollTop).toBeCloseTo(state.appliedTop, 0);
+                expect(state.scrollLeft).toBeCloseTo(state.appliedLeft, 0);
+                // A scrollbar resize may reassert the settled position. It must
+                // never introduce another destination or sideways correction.
+                for (const position of state.appliedPositions) {
+                    expect(position).toEqual({
+                        left: state.appliedLeft,
+                        top: state.appliedTop,
+                    });
+                }
+                expect(await countWarmHighlightPixels(
+                    await session.page.screenshot({type: 'png'}), state.rect!, state.viewportSize,
+                )).toBeGreaterThan(4);
+            } finally {
+                await paintCapture?.stop();
             }
-            expect(await countWarmHighlightPixels(
-                await session.page.screenshot({type: 'png'}), state.rect!, state.viewportSize,
-            )).toBeGreaterThan(4);
         }
     }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
 });

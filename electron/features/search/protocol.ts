@@ -4,6 +4,7 @@ import type {
     IPdfSearchResult,
 } from '@contracts/search';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TRequestId } from '@contracts/shared';
 
 export type ISearchMatch = IPdfSearchResult;
 export type ISearchResponse = IPdfSearchResponse;
@@ -14,7 +15,7 @@ export interface ISearchWorkerShutdownResult {
 }
 
 export interface ISearchWorkerRequest {
-    requestId: string;
+    requestId: TRequestId;
     pdfPath: string;
     documentRevision: TDocumentRevisionToken;
     query: string;
@@ -27,7 +28,7 @@ export interface ISearchWorkerRequest {
 
 interface ISearchWorkerInboundByType {
     search: {payload: ISearchWorkerRequest;};
-    cancel: {requestId: string;};
+    cancel: {requestId: TRequestId;};
     'reset-cache': Record<never, never>;
     'reset-state': Record<never, never>;
     shutdown: {reason: string;};
@@ -35,21 +36,21 @@ interface ISearchWorkerInboundByType {
 
 interface ISearchWorkerOutboundByType {
     progress: {
-        requestId: string;
+        requestId: TRequestId;
         processed: number;
         total: number;
-        results?: ISearchMatch[];
+        results?: readonly ISearchMatch[];
         resultsStartIndex?: number;
         truncated?: boolean;
         canceled?: boolean;
     };
     complete: {
-        requestId: string;
+        requestId: TRequestId;
         response: ISearchResponse;
     };
-    cancelled: {requestId: string;};
+    cancelled: {requestId: TRequestId;};
     error: {
-        requestId: string;
+        requestId: TRequestId;
         error: string;
     };
 }

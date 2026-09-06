@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import { isRecord } from '@contracts/runtimeGuards';
 
 interface IReloadEvent {
@@ -269,11 +270,11 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
             timestamp: Date.now(),
             reason,
             reloadId,
-            href: window.location?.href ?? '',
+            href: window.location.href,
             timeSincePageLoadMs: Date.now() - pageLoadTime,
         } satisfies Omit<IReloadEvent, 'blocked'>;
 
-        if (!window.location?.href?.includes('localhost:')) {
+        if (!window.location.href.includes('localhost:')) {
             appendReloadHistory({
                 ...baseEvent,
                 blocked: true,
@@ -281,7 +282,7 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
             });
             log('debug', '[Dev] Reload blocked: not running on localhost', {
                 reloadId,
-                href: window.location?.href ?? '',
+                href: window.location.href,
             });
             return;
         }
@@ -344,12 +345,12 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
     }
 
     window.addEventListener('unhandledrejection', (event) => {
-        const message = event?.reason instanceof Error ? event.reason.message : String(event?.reason ?? '');
+        const message = getErrorMessage(event.reason ?? '');
         if (isViteOptimizeDepError(message)) {
             log('warn', '[Dev] Matched optimize-deps unhandled rejection', {
                 message,
-                stack: event?.reason instanceof Error ? event.reason.stack : undefined,
-                href: window.location?.href,
+                stack: event.reason instanceof Error ? event.reason.stack : undefined,
+                href: window.location.href,
             });
             scheduleReload(message);
         }

@@ -1,4 +1,6 @@
 import type { MaybeRefOrGetter } from 'vue';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type {
     TFitMode,
     TZoomMode,
@@ -97,16 +99,16 @@ export const usePdfScale = (
     function resolveFitScalePage(options?: IFitScalePageOptions) {
         const page = options?.page ?? toValue(currentPage);
         if (!Number.isFinite(page)) {
-            return toValue(currentPage);
+            return requirePageNumber(Math.max(1, toValue(currentPage)));
         }
 
-        return Math.trunc(page);
+        return requirePageNumber(Math.max(1, Math.trunc(page)));
     }
 
     function resolveFitHeightBaseDimension(
         normalizedPageMetrics: IPdfPageMetric[],
         documentBaseHeight: number,
-        page: number,
+        page: TPageNumber,
     ) {
         // Fit-height is anchored to the visible page row. In facing modes the
         // row is the unit the user is paging through, so the taller page in
@@ -119,7 +121,7 @@ export const usePdfScale = (
         });
         let rowHeight = 0;
 
-        for (let rowPage = rowBounds.start; rowPage <= rowBounds.end; rowPage += 1) {
+        for (let rowPage = Number(rowBounds.start); rowPage <= rowBounds.end; rowPage += 1) {
             rowHeight = Math.max(rowHeight, normalizedPageMetrics[rowPage - 1]?.height ?? 0);
         }
 

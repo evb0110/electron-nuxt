@@ -14,6 +14,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 type TRequiredExtraResourceType = 'directory' | 'file';
 
@@ -104,7 +105,7 @@ function captureErrorMessage(action: () => void) {
     try {
         action();
     } catch (error: unknown) {
-        return error instanceof Error ? error.message : String(error);
+        return getErrorMessage(error);
     }
 
     throw new Error('Expected action to throw');

@@ -1,4 +1,5 @@
 import {
+    parseDocumentRef,
     isBrowserLegacyDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
@@ -9,6 +10,10 @@ import {
 import { isPdfValidationResult } from '@contracts/pdfConformance';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    parseLeaseId,
+    type TLeaseId,
+} from '@contracts/shared';
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const DECIMAL_BIGINT_PATTERN = /^(?:0|[1-9]\d*)$/u;
@@ -59,7 +64,7 @@ interface ITypedStagedArtifactBase {
     size: number;
     fileIdentity: TArtifactFileIdentity;
     validations: IStagedArtifactValidations;
-    leaseId: string;
+    leaseId: TLeaseId;
     revision: TDocumentRevisionToken | null;
 }
 
@@ -168,6 +173,12 @@ function decodeFileIdentity(value: unknown): TArtifactFileIdentity | null {
     return decodeBrowserStoreFileIdentity(value);
 }
 
+function isPosixFileIdentity(
+    value: TArtifactFileIdentity,
+): value is Extract<TArtifactFileIdentity, {platform: 'posix'}> {
+    return value.platform === 'posix';
+}
+
 function decodeValidations(value: unknown): IStagedArtifactValidations | null {
     if (
         !isRecord(value)
@@ -212,12 +223,15 @@ function decodeValidations(value: unknown): IStagedArtifactValidations | null {
 }
 
 export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const path = parseDocumentRef(value.path);
+    const leaseId = parseLeaseId(value.leaseId);
     if (
-        !isRecord(value)
-        || (value.receiptVersion !== 1 && value.receiptVersion !== 2)
+        (value.receiptVersion !== 1 && value.receiptVersion !== 2)
         || value.artifactKind !== 'pdf'
-        || typeof value.path !== 'string'
-        || value.path.length === 0
+        || path === null
         || typeof value.size !== 'number'
         || !Number.isSafeInteger(value.size)
         || value.size < 0
@@ -226,8 +240,7 @@ export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact 
             || !SHA256_PATTERN.test(value.sha256)
         ))
         || (value.receiptVersion === 2 && value.sha256 !== undefined)
-        || typeof value.leaseId !== 'string'
-        || value.leaseId.length === 0
+        || leaseId === null
         || (value.revision !== null && typeof value.revision !== 'string')
     ) {
         return null;
@@ -252,27 +265,32 @@ export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact 
         return null;
     }
     if (value.receiptVersion === 2) {
-        const posixIdentity = fileIdentity as Extract<TArtifactFileIdentity, {platform: 'posix'}>;
+        if (!isPosixFileIdentity(fileIdentity)) {
+            return null;
+        }
         return {
             receiptVersion: 2,
             artifactKind: 'pdf',
-            path: value.path,
+            path,
             size: value.size,
-            fileIdentity: posixIdentity,
+            fileIdentity,
             validations,
-            leaseId: value.leaseId,
+            leaseId,
             revision,
         };
+    }
+    if (typeof value.sha256 !== 'string') {
+        return null;
     }
     return {
         receiptVersion: 1,
         artifactKind: 'pdf',
-        path: value.path,
+        path,
         size: value.size,
-        sha256: value.sha256 as string,
+        sha256: value.sha256,
         fileIdentity,
         validations,
-        leaseId: value.leaseId,
+        leaseId,
         revision,
     };
 }

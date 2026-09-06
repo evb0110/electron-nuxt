@@ -1,7 +1,11 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { useTimeoutFn } from '@vueuse/core';
 import { uniq } from 'es-toolkit/array';
-import type { IOcrLanguage } from '@contracts/shared';
+import { createRequestId } from '@contracts/shared';
+import type {
+    IOcrLanguage,
+    TRequestId,
+} from '@contracts/shared';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IOcrCancelResult,
@@ -10,6 +14,7 @@ import type {
     IOcrDiagnostic,
     TOcrSearchablePdfPages,
 } from '@contracts/electronApiOcr';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
 import { createDocxFromTextAsync } from '@app/utils/docx';
 import { createDocxFromTextChunks } from '@app/utils/docxStreaming';
@@ -110,7 +115,7 @@ export const useOcr = () => {
         }
     }
 
-    function finishCancelCompletionWatch(requestId: string) {
+    function finishCancelCompletionWatch(requestId: TRequestId) {
         if (!ocrRunLifecycle.finishCancelingRequest(requestId)) {
             return;
         }
@@ -147,7 +152,7 @@ export const useOcr = () => {
     }
 
     async function cancelBackendRequest(
-        requestIdToCancel: string,
+        requestIdToCancel: TRequestId,
         reason: 'manual' | 'timeout',
     ): Promise<IOcrCancelResult> {
         if (!requestIdToCancel) {
@@ -174,7 +179,7 @@ export const useOcr = () => {
         }
     }
 
-    function scheduleCancelCompletionWatch(requestId: string) {
+    function scheduleCancelCompletionWatch(requestId: TRequestId) {
         clearCancelCleanupTimer();
         cancelCleanupTimer = setTimeout(() => {
             BrowserLogger.debug('ocr', 'OCR cancel completion watch timed out', { requestId });
@@ -204,7 +209,7 @@ export const useOcr = () => {
         finishCancelCompletionWatch(result.requestId);
     }
 
-    function beginCancelingRequest(requestId: string) {
+    function beginCancelingRequest(requestId: TRequestId) {
         ocrRunLifecycle.beginCancelingRequest(requestId);
         scheduleCancelCompletionWatch(requestId);
         cleanupRunState({
@@ -309,7 +314,7 @@ export const useOcr = () => {
         const languages = [...runSettings.selectedLanguages];
         if (Array.isArray(selection)) {
             return selection.map(pageNumber => ({
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
                 languages,
             }));
         }
@@ -391,7 +396,7 @@ export const useOcr = () => {
 
     function registerProgressListener(
         ocr: IOcrCapability,
-        requestId: string,
+        requestId: TRequestId,
         runToken: symbol,
     ) {
         progressCleanup = ocr.onProgress((p) => {
@@ -416,7 +421,7 @@ export const useOcr = () => {
 
     function waitForOcrCompletion(
         ocr: IOcrCapability,
-        requestId: string,
+        requestId: TRequestId,
         runToken: symbol,
     ) {
         return new Promise<TOcrCompleteResult>((resolve, reject) => {
@@ -466,7 +471,7 @@ export const useOcr = () => {
         return options;
     }
 
-    function applyOcrResponseErrors(response: TOcrCompleteResult, requestId: string) {
+    function applyOcrResponseErrors(response: TOcrCompleteResult, requestId: TRequestId) {
         const diagnosticWarnings = response.diagnostics?.filter(diagnostic => diagnostic.severity === 'warning') ?? [];
         if (response.errors.length === 0 && response.errorEnvelope === undefined && diagnosticWarnings.length === 0) {
             return;
@@ -527,7 +532,7 @@ export const useOcr = () => {
     }
 
     function storeOcrPdfResult(
-        requestId: string,
+        requestId: TRequestId,
         response: TOcrCompleteResult,
         runSettings: IOcrSettings,
     ) {
@@ -559,7 +564,7 @@ export const useOcr = () => {
         };
     }
 
-    function logOcrRunFailure(requestId: string, caughtError: unknown) {
+    function logOcrRunFailure(requestId: TRequestId, caughtError: unknown) {
         const details = {
             requestId,
             error: getErrorMessage(caughtError),
@@ -619,7 +624,7 @@ export const useOcr = () => {
     }
 
     function createOcrRequestId(selection: TOcrPageSelectionScope) {
-        const requestId = `ocr-${crypto.randomUUID()}`;
+        const requestId = createRequestId('ocr');
         BrowserLogger.info('ocr', 'Request created', {
             requestId,
             pages: getPageSelectionCount(selection),
@@ -629,7 +634,7 @@ export const useOcr = () => {
     }
 
     function handleOcrResponse(
-        requestId: string,
+        requestId: TRequestId,
         response: TOcrCompleteResult,
         ensureRunActive: TOcrRunGuard,
         runSettings: IOcrSettings,
@@ -641,7 +646,7 @@ export const useOcr = () => {
             storeOcrPdfResult(requestId, response, runSettings);
         } else if (response.success) {
             throw new Error(t('errors.ocr.noPdfData'));
-        } else if (!response.success) {
+        } else {
             if (error.value === null || error.value.length === 0) {
                 error.value = t('errors.ocr.createSearchablePdf');
             }
@@ -649,7 +654,7 @@ export const useOcr = () => {
     }
 
     async function executeOcrRun(
-        requestId: string,
+        requestId: TRequestId,
         selection: TOcrPageSelectionScope,
         workingCopyPath: TDocumentRef,
         runSettings: IOcrSettings,
@@ -835,9 +840,6 @@ export const useOcr = () => {
         );
     });
 
-    /**
-     * @deprecated OCR popup exports are routed through the workspace-level DOCX export path.
-     */
     async function exportDocx(
         workingCopyPath: TDocumentRef | null,
         pdfDocument: IPdfDocument | null = null,

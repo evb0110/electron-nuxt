@@ -48,43 +48,77 @@ function segmentsIntersect(
         || Math.abs(cdB) <= COORDINATE_EPSILON && onSegment(c, d, b);
 }
 
+interface IScanCleanupPolygonEdge {
+    start: IScanCleanupNormalizedZonePoint;
+    end: IScanCleanupNormalizedZonePoint;
+}
+
+function polygonEdges(points: readonly IScanCleanupNormalizedZonePoint[]) {
+    const [
+        first,
+        ...rest
+    ] = points;
+    if (first === undefined) {
+        return [];
+    }
+    const edges: IScanCleanupPolygonEdge[] = [];
+    let start = first;
+    for (const end of rest) {
+        edges.push({
+            start,
+            end,
+        });
+        start = end;
+    }
+    edges.push({
+        start,
+        end: first,
+    });
+    return edges;
+}
+
 function findScanCleanupSimplePolygonError(
     points: readonly IScanCleanupNormalizedZonePoint[],
 ) {
-    for (let left = 0; left < points.length; left += 1) {
-        for (let right = left + 1; right < points.length; right += 1) {
-            const dx = points[left]!.xNormalized - points[right]!.xNormalized;
-            const dy = points[left]!.yNormalized - points[right]!.yNormalized;
+    for (const [
+        left,
+        leftPoint,
+    ] of points.entries()) {
+        for (const rightPoint of points.slice(left + 1)) {
+            const dx = leftPoint.xNormalized - rightPoint.xNormalized;
+            const dy = leftPoint.yNormalized - rightPoint.yNormalized;
             if (dx * dx + dy * dy <= COORDINATE_EPSILON * COORDINATE_EPSILON) {
                 return 'contains duplicate vertices';
             }
         }
     }
 
+    const edges = polygonEdges(points);
     let twiceArea = 0;
-    for (let index = 0; index < points.length; index += 1) {
-        const current = points[index]!;
-        const next = points[(index + 1) % points.length]!;
-        twiceArea += current.xNormalized * next.yNormalized
-            - next.xNormalized * current.yNormalized;
+    for (const {
+        start,
+        end,
+    } of edges) {
+        twiceArea += start.xNormalized * end.yNormalized
+            - end.xNormalized * start.yNormalized;
     }
     if (Math.abs(twiceArea) <= AREA_TWICE_EPSILON) {
         return 'has near-zero area';
     }
 
-    for (let left = 0; left < points.length; left += 1) {
-        const leftNext = (left + 1) % points.length;
-        for (let right = left + 1; right < points.length; right += 1) {
-            const rightNext = (right + 1) % points.length;
-            if (left === right || leftNext === right || rightNext === left) {
+    for (const [
+        left,
+        leftEdge,
+    ] of edges.entries()) {
+        for (const [
+            offset,
+            rightEdge,
+        ] of edges.slice(left + 2).entries()) {
+            const right = left + 2 + offset;
+            if (left === 0 && right === edges.length - 1) {
                 continue;
             }
-            if (segmentsIntersect(
-                points[left]!,
-                points[leftNext]!,
-                points[right]!,
-                points[rightNext]!,
-            )) {
+            if (segmentsIntersect(leftEdge.start, leftEdge.end, rightEdge.start, rightEdge.end)) {
                 return 'has intersecting or overlapping edges';
             }
         }

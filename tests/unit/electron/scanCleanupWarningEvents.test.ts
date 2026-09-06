@@ -1,5 +1,6 @@
 import {SCAN_CLEANUP_WARNING_EVENT_CODES} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TScanCleanupWarningEvent} from '@contracts/scan-cleanup/nativeProtocolV3';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     describeScanCleanupNativeWarnings,
     formatScanCleanupWarningEvent,
@@ -59,9 +60,9 @@ const PINNED: Array<[TScanCleanupWarningEvent, string]> = [
         {
             code: 'matched-canvas-content-fitted-pages',
             pages: [
-                1,
-                2,
-                5,
+                requirePageNumber(1),
+                requirePageNumber(2),
+                requirePageNumber(5),
             ],
         },
         'Matched page size fitted 3 page(s) inside their requested margin boxes, '
@@ -145,14 +146,14 @@ const PINNED: Array<[TScanCleanupWarningEvent, string]> = [
     [
         {
             code: 'matched-canvas-pages-resampled',
-            pages: [2],
+            pages: [requirePageNumber(2)],
         },
         'Matched page size re-rendered 1 page(s) that do not share the document\'s pixel grid: 2',
     ],
     [
         {
             code: 'matched-canvas-pages-scaled-in-place',
-            pages: [1],
+            pages: [requirePageNumber(1)],
         },
         'Matched page size scaled 1 page(s) that carry their own raster without re-rendering them: 1',
     ],
@@ -168,7 +169,7 @@ const PINNED: Array<[TScanCleanupWarningEvent, string]> = [
     [
         {
             code: 'matched-canvas-page-dpi-capped',
-            pageNumber: 3,
+            pageNumber: requirePageNumber(3),
             appliedDpiThousandths: 200_000,
             requestedDpiThousandths: 300_000,
         },
@@ -218,7 +219,7 @@ describe('scan cleanup warning events', () => {
     it('names a document\'s pages up to the reported limit and counts the rest', () => {
         expect(formatScanCleanupWarningEvent({
             code: 'matched-canvas-content-fitted-pages',
-            pages: Array.from({length: 22}, (_, index) => index + 1),
+            pages: Array.from({length: 22}, (_, index) => requirePageNumber(index + 1)),
         })).toBe('Matched page size fitted 22 page(s) inside their requested margin boxes, '
             + 'below the document\'s scale: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, '
             + '19, 20 and 2 more');
@@ -267,7 +268,7 @@ describe('scan cleanup warning events', () => {
         expect(toScanCleanupDpiThousandths(296.999_999_999_999_94)).toBe(297_000);
         expect(formatScanCleanupWarningEvent({
             code: 'matched-canvas-page-dpi-capped',
-            pageNumber: 4,
+            pageNumber: requirePageNumber(4),
             appliedDpiThousandths: toScanCleanupDpiThousandths(200),
             requestedDpiThousandths: toScanCleanupDpiThousandths(296.999_999_999_999_94),
         })).toBe('Matched page size capped page 4 at 200.000 DPI from 297.000 DPI to keep its '
@@ -277,7 +278,7 @@ describe('scan cleanup warning events', () => {
         expect(toScanCleanupDpiThousandths(216.875)).toBe(216_875);
         expect(formatScanCleanupWarningEvent({
             code: 'matched-canvas-page-dpi-capped',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             appliedDpiThousandths: 1,
             requestedDpiThousandths: 216_875,
         })).toBe('Matched page size capped page 1 at 0.001 DPI from 216.875 DPI to keep its '
@@ -288,7 +289,7 @@ describe('scan cleanup warning events', () => {
         expect((875.062_5).toFixed(3)).toBe('875.063');
         expect(formatScanCleanupWarningEvent({
             code: 'matched-canvas-page-dpi-capped',
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             appliedDpiThousandths: 875_062,
             requestedDpiThousandths: 1_200_000,
         })).toBe('Matched page size capped page 2 at 875.062 DPI from 1200.000 DPI to keep its '

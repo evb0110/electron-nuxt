@@ -9,6 +9,7 @@ import {
 import type { ref } from 'vue';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import { parseDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
+import {requireIsoTimestamp} from '@contracts/timestamps';
 import {
     createDebugLogRuntimeErrorPresentation,
     isUiReportableDebugLog,
@@ -48,7 +49,7 @@ function logEntry(
     const base = {
         source,
         message: `[${level}] ${message}`,
-        timestamp: '2026-08-23T08:57:36.046Z',
+        timestamp: requireIsoTimestamp('2026-08-23T08:57:36.046Z'),
     };
     if (level === 'ERROR') {
         return {

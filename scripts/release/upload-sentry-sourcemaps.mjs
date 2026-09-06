@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {execFile} from 'node:child_process';
 import {
     createHash,
@@ -41,10 +42,19 @@ const UPLOAD_EXTENSIONS = [
     'json',
 ];
 
+/** @typedef {import('../../packages/contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity} TSentryBuildIdentity */
+/** @typedef {{bundle: string, map: string, role: string, sources: string[], sourceFiles: IPrivateSource[], stagedMapPath: string}} IPrivateBundle */
+/** @typedef {{path: string, stagedPath: string}} IPrivateSource */
+/** @typedef {{bundles: IPrivateBundle[], identity: TSentryBuildIdentity, sources: IPrivateSource[]}} IPrivateManifest */
+/** @typedef {{bundleCount: number, destinationFingerprint: string, identity: TSentryBuildIdentity, manifestSha256: string, schemaVersion: number}} IUploadReceipt */
+/** @typedef {{identity?: TSentryBuildIdentity | undefined, projectRoot?: string, environment?: NodeJS.ProcessEnv, runCli?: (args: string[], options: {token: string}) => Promise<void>}} IUploadSourcemapsOptions */
+
+/** @param {Uint8Array} bytes @returns {string} */
 function sha256(bytes) {
     return createHash('sha256').update(bytes).digest('hex');
 }
 
+/** @param {{organization: string, project: string, token: string}} options @returns {string} */
 function destinationFingerprint({
     organization,
     project,
@@ -57,6 +67,7 @@ function destinationFingerprint({
         .digest('hex');
 }
 
+/** @param {IUploadReceipt} receipt @param {TSentryBuildIdentity} identity @returns {IUploadReceipt} */
 export function assertSentryUploadReceipt(receipt, identity) {
     const expectedIdentity = assertSentryBuildIdentity(identity);
     if (
@@ -76,6 +87,7 @@ export function assertSentryUploadReceipt(receipt, identity) {
     return receipt;
 }
 
+/** @param {NodeJS.ProcessEnv} environment @param {string} key @param {string} label @returns {string} */
 function requiredPrivateConfiguration(environment, key, label) {
     const value = environment[key];
     if (typeof value !== 'string' || !SAFE_CONFIGURATION_VALUE.test(value)) {
@@ -84,6 +96,7 @@ function requiredPrivateConfiguration(environment, key, label) {
     return value;
 }
 
+/** @param {NodeJS.ProcessEnv} environment @returns {string} */
 function requiredUploadToken(environment) {
     const value = environment.SENTRY_AUTH_TOKEN;
     if (typeof value !== 'string' || value.trim().length === 0 || /[\r\n]/u.test(value)) {
@@ -92,6 +105,7 @@ function requiredUploadToken(environment) {
     return value;
 }
 
+/** @param {string} root @param {string} relativePath @param {string} label @returns {string} */
 function resolveInside(root, relativePath, label) {
     if (typeof relativePath !== 'string' || relativePath.length === 0) {
         throw new Error(`Invalid ${label} path in private source-map manifest`);
@@ -108,12 +122,14 @@ function resolveInside(root, relativePath, label) {
     return resolved;
 }
 
+/** @param {string} sourcePath @param {string} uploadRoot @param {string} relativePath @param {string} label @returns {Promise<void>} */
 async function copyIntoUploadRoot(sourcePath, uploadRoot, relativePath, label) {
     const destination = resolveInside(uploadRoot, relativePath, label);
     await mkdir(path.dirname(destination), {recursive: true});
     await copyFile(sourcePath, destination);
 }
 
+/** @param {'desktop' | 'web'} target @param {string} relativePath @returns {string} */
 function uploadRelativePath(target, relativePath) {
     if (target === 'web' && relativePath.startsWith('.vercel/')) {
         return `vercel/${relativePath.slice('.vercel/'.length)}`;
@@ -121,6 +137,7 @@ function uploadRelativePath(target, relativePath) {
     return relativePath;
 }
 
+/** @param {TSentryBuildIdentity} identity @param {string} uploadRoot @param {IPrivateManifest} manifest @returns {string[]} */
 function cliUploadRoots(identity, uploadRoot, manifest) {
     if (identity.target !== 'web') {
         return [uploadRoot];
@@ -138,6 +155,193 @@ function cliUploadRoots(identity, uploadRoot, manifest) {
     return [...roots].sort((left, right) => left.localeCompare(right, 'en'));
 }
 
+/** @param {string} uploadRoot @param {IPrivateManifest} manifest @returns {Array<{path: string, urlPrefix: string}>} */
+function sourceUploadEntries(uploadRoot, manifest) {
+    const entries = new Map();
+    for (const source of manifest.sources) {
+        const [topLevel] = source.path.split('/');
+        if (topLevel) {
+            const sourceRoot = path.join(uploadRoot, topLevel);
+            entries.set(sourceRoot, {
+                path: sourceRoot,
+                urlPrefix: source.path === topLevel ? '~/' : `~/${topLevel}/`,
+            });
+        }
+    }
+    return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path, 'en'));
+}
+
+/** @param {string} value @returns {string} */
+function normalizeSourcePath(value) {
+    let normalized = value.replaceAll('\\', '/');
+    try {
+        normalized = decodeURIComponent(normalized);
+    } catch {
+        return '';
+    }
+    return normalized
+        .replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u, '')
+        .replace(/^\/+/, '')
+        .replace(/^(?:\.\.\/)+/u, '')
+        .replace(/^\.\//u, '');
+}
+
+/** @param {string} value @returns {boolean} */
+function isRelativeSourceReference(value) {
+    return value.length > 0
+        && !value.startsWith('/')
+        && !/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(value);
+}
+
+/** @param {string} bundlePath @param {string | undefined} sourceRoot @param {string} source @returns {string | null} */
+function sourceUploadAliasPath(bundlePath, sourceRoot, source) {
+    if (typeof source !== 'string' || !isRelativeSourceReference(source)) {
+        return null;
+    }
+    const reference = typeof sourceRoot === 'string' && sourceRoot.length > 0
+        ? path.posix.join(sourceRoot, source)
+        : source;
+    if (!isRelativeSourceReference(reference)) {
+        return null;
+    }
+    const alias = path.posix.normalize(path.posix.join(
+        path.posix.dirname(bundlePath),
+        reference,
+    ));
+    if (
+        alias === '.'
+        || alias === '..'
+        || alias.startsWith('../')
+        || path.posix.isAbsolute(alias)
+    ) {
+        return null;
+    }
+    return alias;
+}
+
+/** @param {string} bundlePath @param {string | undefined} sourceRoot @param {string} sourcePath @returns {string | null} */
+function canonicalSourceMapReference(bundlePath, sourceRoot, sourcePath) {
+    const basePath = typeof sourceRoot === 'string' && sourceRoot.length > 0
+        ? path.posix.normalize(path.posix.join(path.posix.dirname(bundlePath), sourceRoot))
+        : path.posix.dirname(bundlePath);
+    if (!isRelativeSourceReference(basePath) || !isRelativeSourceReference(sourcePath)) {
+        return null;
+    }
+    const reference = path.posix.relative(basePath, sourcePath);
+    return isRelativeSourceReference(reference) ? reference : null;
+}
+
+/** @param {TSentryBuildIdentity} identity @param {string} bundlePath @returns {string} */
+function sentryBundlePath(identity, bundlePath) {
+    if (identity.target === 'web') {
+        const staticPrefix = '.vercel/output/static/';
+        if (bundlePath.startsWith(staticPrefix)) {
+            return bundlePath.slice(staticPrefix.length);
+        }
+        const functionsPrefix = '.vercel/output/functions/';
+        if (bundlePath.startsWith(functionsPrefix)) {
+            return bundlePath.slice(functionsPrefix.length);
+        }
+    }
+    return uploadRelativePath(identity.target, bundlePath);
+}
+
+/** @param {string} mapSource @param {IPrivateSource[]} sources @returns {IPrivateSource | null} */
+function findPrivateSource(mapSource, sources) {
+    const normalizedMapSource = normalizeSourcePath(mapSource);
+    if (!normalizedMapSource) {
+        return null;
+    }
+    const matches = sources.filter(source => {
+        const normalizedSource = normalizeSourcePath(source.path);
+        return normalizedMapSource === normalizedSource
+            || normalizedMapSource.endsWith(`/${normalizedSource}`);
+    });
+    return matches.length === 1 && matches[0] !== undefined ? matches[0] : null;
+}
+
+/**
+ * Source maps emitted for browser workers are relative to the public `/_nuxt`
+ * URL. Desktop canaries use the checked-in build output path instead, so a
+ * source such as `../../packages/contracts/runtimeGuards.ts` resolves under
+ * `nuxt-output/packages` in Sentry. Keep the original project-root source and
+ * add the path that Sentry resolves from the uploaded bundle.
+ *
+ * @param {string} uploadRoot
+ * @param {TSentryBuildIdentity} identity
+ * @param {IPrivateManifest} manifest
+ * @param {string} stageRoot
+ * @param {IPrivateBundle} bundle
+ * @returns {Promise<void>}
+ */
+async function prepareSourceUploadAliases(
+    uploadRoot,
+    identity,
+    manifest,
+    stageRoot,
+    bundle,
+) {
+    const mapPath = resolveInside(stageRoot, bundle.stagedMapPath, 'staged map');
+    /** @type {{sourceRoot?: unknown, sources?: unknown}} */
+    const map = JSON.parse(await readFile(mapPath, 'utf8'));
+    if (!Array.isArray(map.sources)) {
+        return;
+    }
+    const uploadBundlePath = sentryBundlePath(identity, bundle.bundle);
+    const sourceRoot = typeof map.sourceRoot === 'string' ? map.sourceRoot : undefined;
+    let mapChanged = false;
+    for (let index = 0; index < map.sources.length; index += 1) {
+        const mapSource = map.sources[index];
+        if (typeof mapSource !== 'string') {
+            continue;
+        }
+        const source = findPrivateSource(mapSource, manifest.sources);
+        if (source) {
+            const canonicalReference = canonicalSourceMapReference(
+                uploadBundlePath,
+                sourceRoot,
+                source.path,
+            );
+            if (canonicalReference !== null && canonicalReference !== mapSource) {
+                map.sources[index] = canonicalReference;
+                mapChanged = true;
+            }
+        }
+        const alias = sourceUploadAliasPath(uploadBundlePath, sourceRoot, mapSource);
+        if (!source || !alias || alias === source.path) {
+            continue;
+        }
+        await copyIntoUploadRoot(
+            resolveInside(stageRoot, source.stagedPath, 'staged source alias'),
+            uploadRoot,
+            alias,
+            'upload source alias',
+        );
+    }
+    if (mapChanged) {
+        await writeFile(
+            resolveInside(
+                uploadRoot,
+                uploadRelativePath(identity.target, bundle.map),
+                'uploaded map',
+            ),
+            `${JSON.stringify(map)}\n`,
+        );
+    }
+}
+
+/** @param {TSentryBuildIdentity} identity @param {string} uploadRoot @param {string} cliRoot @returns {string | null} */
+function cliUploadUrlPrefix(identity, uploadRoot, cliRoot) {
+    if (
+        identity.target === 'web'
+        && cliRoot === path.join(uploadRoot, 'vercel/output/static')
+    ) {
+        return '~/';
+    }
+    return null;
+}
+
+/** @param {{identity: TSentryBuildIdentity, projectRoot: string, stageRoot: string, uploadRoot: string, manifest: IPrivateManifest}} options @returns {Promise<void>} */
 async function prepareUploadTree({
     identity,
     projectRoot,
@@ -167,23 +371,34 @@ async function prepareUploadTree({
             'upload source',
         );
     }
+    for (const bundle of manifest.bundles) {
+        await prepareSourceUploadAliases(
+            uploadRoot,
+            identity,
+            manifest,
+            stageRoot,
+            bundle,
+        );
+    }
 }
 
+/** @param {string} token @returns {NodeJS.ProcessEnv} */
 function privateCliEnvironment(token) {
-    const environment = {
+    const environment = /** @type {NodeJS.ProcessEnv} */ ({
         CI: '1',
         NO_COLOR: '1',
         SENTRY_AUTH_TOKEN: token,
         SENTRY_DISABLE_UPDATE_CHECK: '1',
         SENTRY_LOG_LEVEL: 'error',
         SENTRY_URL: SENTRY_EU_API_ORIGIN,
-    };
+    });
     if (process.platform === 'win32' && process.env.SystemRoot) {
         environment.SystemRoot = process.env.SystemRoot;
     }
     return environment;
 }
 
+/** @param {string[]} args @param {{token: string}} options @returns {Promise<void>} */
 async function defaultRunCli(args, {token}) {
     await execFileAsync(SentryCli.getPath(), args, {
         env: privateCliEnvironment(token),
@@ -192,12 +407,14 @@ async function defaultRunCli(args, {token}) {
     });
 }
 
+/** @param {'desktop' | 'web'} target @returns {string} */
 function projectEnvironmentKey(target) {
     return target === 'desktop'
         ? 'SENTRY_DESKTOP_PROJECT'
         : 'SENTRY_WEB_PROJECT';
 }
 
+/** @param {NodeJS.ProcessEnv} environment @returns {TSentryBuildIdentity} */
 function readBuildIdentity(environment) {
     return assertSentryBuildIdentity({
         target: environment.EVB_SENTRY_TARGET,
@@ -207,12 +424,14 @@ function readBuildIdentity(environment) {
     });
 }
 
+/** @param {string} receiptPath @param {IUploadReceipt} expected @returns {Promise<IUploadReceipt | null>} */
 async function readExistingUploadReceipt(receiptPath, expected) {
     let receipt;
     try {
+        /** @type {IUploadReceipt} */
         receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
     } catch (error) {
-        if (error?.code === 'ENOENT') {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
             return null;
         }
         throw new Error('Invalid private Sentry upload receipt');
@@ -238,12 +457,7 @@ async function readExistingUploadReceipt(receiptPath, expected) {
  * manifest. The temporary upload tree is removed on both success and failure.
  * No credential or private account identifier is written to disk or returned.
  *
- * @param {{
- *   identity: import('@contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity,
- *   projectRoot?: string,
- *   environment?: NodeJS.ProcessEnv,
- *   runCli?: (args: string[], options: {token: string}) => Promise<void>,
- * }} options
+ * @param {IUploadSourcemapsOptions} options
  */
 export async function uploadSentrySourcemaps({
     identity,
@@ -307,7 +521,13 @@ export async function uploadSentrySourcemaps({
             manifest,
         });
         try {
-            for (const cliRoot of cliUploadRoots(normalizedIdentity, uploadRoot, manifest)) {
+            const cliRoots = cliUploadRoots(normalizedIdentity, uploadRoot, manifest);
+            for (const cliRoot of cliRoots) {
+                const urlPrefix = cliUploadUrlPrefix(
+                    normalizedIdentity,
+                    uploadRoot,
+                    cliRoot,
+                );
                 await runCli([
                     'sourcemaps',
                     'upload',
@@ -327,8 +547,39 @@ export async function uploadSentrySourcemaps({
                         '--ext',
                         extension,
                     ]),
+                    ...(urlPrefix === null ? [] : [
+                        '--url-prefix',
+                        urlPrefix,
+                    ]),
                     cliRoot,
                 ], {token});
+            }
+            if (normalizedIdentity.target === 'web') {
+                for (const sourceEntry of sourceUploadEntries(uploadRoot, manifest)) {
+                    await runCli([
+                        'sourcemaps',
+                        'upload',
+                        '--org',
+                        organization,
+                        '--project',
+                        project,
+                        '--release',
+                        normalizedIdentity.release,
+                        '--dist',
+                        normalizedIdentity.dist,
+                        '--validate',
+                        '--strict',
+                        '--wait',
+                        '--quiet',
+                        ...UPLOAD_EXTENSIONS.flatMap(extension => [
+                            '--ext',
+                            extension,
+                        ]),
+                        '--url-prefix',
+                        sourceEntry.urlPrefix,
+                        sourceEntry.path,
+                    ], {token});
+                }
             }
         } catch {
             throw new Error('Private Sentry source-map upload failed');
@@ -363,7 +614,7 @@ async function main() {
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
     main().catch(error => {
-        process.stderr.write(`${error instanceof Error ? error.message : 'Source-map upload failed'}\n`);
+        process.stderr.write(`${error instanceof Error ? getCliErrorMessage(error) : 'Source-map upload failed'}\n`);
         process.exitCode = 1;
     });
 }

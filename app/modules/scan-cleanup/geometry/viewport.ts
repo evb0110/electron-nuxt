@@ -86,7 +86,10 @@ export function resolvePreviewOutputFitRects(
     canvases: IScanCleanupPreviewSize[],
 ) {
     return resolvePreviewOutputFitSizes(availableAreas, canvases).map((size, index) => {
-        const available = availableAreas[index]!;
+        const available = availableAreas[index];
+        if (!available) {
+            return size;
+        }
         return {
             ...size,
             left: available.left + Math.max(0, available.width - size.width) / 2,

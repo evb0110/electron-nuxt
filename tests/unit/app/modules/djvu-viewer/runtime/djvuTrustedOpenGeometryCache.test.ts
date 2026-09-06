@@ -4,7 +4,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { IDjvuPageSourceInfo } from '@contracts/electronApiDjvu';
+import type {IDjvuPageSourceInfo} from '@contracts/electronApiDjvu';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {IRecentFile} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
 import {
     prewarmRecentDjvuOpeningGeometry,
     readPrevalidatedTrustedDjvuOpenGeometry,
@@ -15,20 +19,20 @@ describe('DjVu trusted opening geometry cache', () => {
         const readStat = vi.fn().mockRejectedValue(new Error('generic file stat is not authorized yet'));
         const readSourceInfo = vi.fn().mockResolvedValue({
             pageCount: 431,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageSize: {
                 width: 600,
                 height: 800,
                 dpi: 300,
             },
             sourceSize: 28_000_000,
-            sourceModifiedAt: 42,
+            sourceModifiedAt: requireEpochMs(42),
         });
 
         await prewarmRecentDjvuOpeningGeometry([{
             fileName: 'scan.djvu',
-            originalPath: '/docs/scan.djvu',
-            timestamp: Date.now(),
+            originalPath: requireDocumentRef('/docs/scan.djvu'),
+            timestamp: requireEpochMs(Date.now()),
         }], {
             readStat,
             readSourceInfo,
@@ -49,30 +53,30 @@ describe('DjVu trusted opening geometry cache', () => {
     });
 
     it('fails a stalled Recent probe open without blocking a ready sibling', async () => {
-        const stalledPath = '/docs/stalled.djvu';
-        const readyPath = '/docs/ready.djvu';
+        const stalledPath = requireDocumentRef('/docs/stalled.djvu');
+        const readyPath = requireDocumentRef('/docs/ready.djvu');
         const settled = new Map<string, boolean>();
         const results = await prewarmRecentDjvuOpeningGeometry([
             {
                 fileName: 'stalled.djvu',
                 originalPath: stalledPath,
-                timestamp: 2,
+                timestamp: requireEpochMs(2),
             },
             {
                 fileName: 'ready.djvu',
                 originalPath: readyPath,
-                timestamp: 1,
+                timestamp: requireEpochMs(1),
             },
         ], {
             readStat: vi.fn().mockResolvedValue({
                 size: 1_000,
-                modifiedAt: 2_000,
+                modifiedAt: requireEpochMs(2_000),
             }),
             readSourceInfo: vi.fn((path: string): Promise<IDjvuPageSourceInfo> => path === stalledPath
                 ? new Promise<IDjvuPageSourceInfo>(() => undefined)
                 : Promise.resolve({
                     pageCount: 2,
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     pageSize: {
                         width: 600,
                         height: 800,
@@ -100,10 +104,10 @@ describe('DjVu trusted opening geometry cache', () => {
     });
 
     it('does not stack more native probes behind timed-out worker slots', async () => {
-        const files = Array.from({length: 4}, (_, index) => ({
-            originalPath: `/docs/permanently-stalled-${String(index + 1)}.djvu`,
+        const files: IRecentFile[] = Array.from({length: 4}, (_, index) => ({
+            originalPath: requireDocumentRef(`/docs/permanently-stalled-${String(index + 1)}.djvu`),
             fileName: `permanently-stalled-${String(index + 1)}.djvu`,
-            timestamp: 4 - index,
+            timestamp: requireEpochMs(4 - index),
         }));
         const readSourceInfo = vi.fn(() => new Promise<IDjvuPageSourceInfo>(() => undefined));
 

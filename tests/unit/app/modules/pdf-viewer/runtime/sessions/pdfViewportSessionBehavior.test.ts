@@ -1,6 +1,7 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     computed,
     createApp,
@@ -22,13 +23,16 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
-import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import {
+    createDocumentOpenSurfaceSession,
+    type IDocumentOpenSurfaceSession,
+} from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+import { createDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
-import { cast } from '@tests/helpers/cast';
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     diagnostic: vi.fn(),
@@ -116,7 +120,13 @@ function createDocumentFixture(pageCount = 100) {
             }
         },
     };
+    // The fixture supplies the document-session methods used by the viewport
+    // session while keeping the page-source work out of these behavior tests.
     return fixture as typeof fixture & TPdfDocumentSession;
+}
+
+function createChassisAuthority(surface: IDocumentOpenSurfaceSession) {
+    return createDocumentViewerChassisAuthority(ref('pdf'), 1, surface);
 }
 
 function createViewportFixture(input: {
@@ -339,7 +349,7 @@ describe('PdfViewportSession behavior', () => {
                 height: 900,
                 top: 0,
             });
-            fixture.viewport.markPageMounted(1);
+            fixture.viewport.markPageMounted(requirePageNumber(1));
             const initialRevision = fixture.viewport.demand.value.revision;
 
             fixture.zoom.value = 3.02;
@@ -408,7 +418,7 @@ describe('PdfViewportSession behavior', () => {
                 if (page >= 13) {
                     settlingRow.push(element);
                 }
-                fixture.viewport.markPageMounted(page);
+                fixture.viewport.markPageMounted(requirePageNumber(page));
             }
             expect(fixture.viewport.visibleRange.value).toEqual({
                 start: 9,
@@ -458,7 +468,7 @@ describe('PdfViewportSession behavior', () => {
                 end: 43,
             };
             for (let page = 39; page <= 47; page += 1) {
-                fixture.viewport.markPageMounted(page);
+                fixture.viewport.markPageMounted(requirePageNumber(page));
             }
             await nextTick();
 
@@ -473,7 +483,7 @@ describe('PdfViewportSession behavior', () => {
                 42,
             ]);
 
-            fixture.viewport.markPageUnmounted(44);
+            fixture.viewport.markPageUnmounted(requirePageNumber(44));
             expect(fixture.viewport.demand.value.residentPages).toEqual([
                 43,
                 42,
@@ -502,10 +512,10 @@ describe('PdfViewportSession behavior', () => {
                 start: 1,
                 end: 1,
             };
-            fixture.viewport.markPageMounted(1);
-            fixture.viewport.markPageMounted(64);
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            fixture.viewport.markPageMounted(requirePageNumber(64));
 
-            expect(fixture.viewport.singlePageScroll.scrollToPage(64)).toBe(true);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(64))).toBe(true);
             await vi.waitFor(() => {
                 expect(fixture.viewport.demand.value.requiredPages).toContain(64);
             });
@@ -644,7 +654,7 @@ describe('PdfViewportSession behavior', () => {
             fixture.documentSession.pageMetricsVersion.value += 1;
             await nextTick();
 
-            fixture.viewport.singlePageScroll.scrollToPage(1);
+            fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(1));
             await vi.waitFor(() => {
                 expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBe(1);
             });
@@ -727,7 +737,7 @@ describe('PdfViewportSession behavior', () => {
             fixture.documentSession.ensurePageMetricsInRange
                 .mockResolvedValueOnce(true)
                 .mockReturnValueOnce(metrics.promise);
-            expect(fixture.viewport.singlePageScroll.scrollToPage(4)).toBe(true);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(4))).toBe(true);
 
             expect(fixture.viewport.getProtectedVisibleRange()).toEqual({
                 start: 3,
@@ -747,6 +757,28 @@ describe('PdfViewportSession behavior', () => {
 
             expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBeNull();
             expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
+    it('places the opening page before the document reports its length', async () => {
+        const fixture = createViewportFixture({pageCount: 0});
+        try {
+            await fixture.documentSession.emit(transition('loading', {
+                isReload: false,
+                isSelectiveReload: false,
+                pagesToInvalidate: null,
+                preserveVisibleContent: false,
+                preservePageStructure: false,
+            }));
+
+            expect(fixture.emittedPages).toEqual([1]);
+
+            fixture.documentSession.numPages.value = 12;
+            await nextTick();
+
+            expect(fixture.emittedPages).toEqual([1]);
         } finally {
             fixture.app.unmount();
         }
@@ -859,7 +891,7 @@ describe('PdfViewportSession behavior', () => {
             margin: 20,
         })).toBe(true);
         const fixture = createViewportFixture({
-            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            chassisAuthority: createChassisAuthority(surface),
             pageCount: 0,
         });
         try {
@@ -915,7 +947,7 @@ describe('PdfViewportSession behavior', () => {
         navigationFence.begin(6);
         const outcomes: boolean[] = [];
         const fixture = createViewportFixture({
-            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            chassisAuthority: createChassisAuthority(surface),
             onEmitCurrentPage: page => {
                 outcomes.push(navigationFence.consumePageUpdate(page).accepted);
             },
@@ -981,7 +1013,7 @@ describe('PdfViewportSession behavior', () => {
             margin: 20,
         })).toBe(true);
         const fixture = createViewportFixture({
-            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            chassisAuthority: createChassisAuthority(surface),
             pageCount: 0,
         });
         try {
@@ -1029,12 +1061,12 @@ describe('PdfViewportSession behavior', () => {
             margin: 20,
         })).toBe(true);
         const fixture = createViewportFixture({
-            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            chassisAuthority: createChassisAuthority(surface),
             pageCount: 10,
         });
         const metrics = Promise.withResolvers<boolean>();
         try {
-            fixture.viewport.markPageMounted(1);
+            fixture.viewport.markPageMounted(requirePageNumber(1));
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             const intent = fixture.viewport.singlePageScroll.submitViewportStateIntent('fit');
             await vi.waitFor(() => expect(
@@ -1075,12 +1107,12 @@ describe('PdfViewportSession behavior', () => {
             margin: 20,
         })).toBe(true);
         const fixture = createViewportFixture({
-            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            chassisAuthority: createChassisAuthority(surface),
             pageCount: 10,
         });
         const metrics = Promise.withResolvers<boolean>();
         try {
-            fixture.viewport.markPageMounted(1);
+            fixture.viewport.markPageMounted(requirePageNumber(1));
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             const intent = fixture.viewport.singlePageScroll.submitViewportStateIntent('fit');
             await vi.waitFor(() => expect(
@@ -1120,17 +1152,14 @@ describe('PdfViewportSession behavior', () => {
             margin: 20,
         })).toBe(true);
         const fixture = createViewportFixture({
-            chassisAuthority: cast<IDocumentViewerChassisAuthority>({
-                navigate: (page: number) => surface.requestNavigation(page),
-                openSurface: surface,
-            }),
+            chassisAuthority: createChassisAuthority(surface),
             pageCount: 10,
         });
         const metrics = Promise.withResolvers<boolean>();
         try {
-            fixture.viewport.markPageMounted(2);
+            fixture.viewport.markPageMounted(requirePageNumber(2));
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
-            expect(fixture.viewport.singlePageScroll.scrollToPage(2)).toBe(true);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => expect(
                 fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.navigation,
             ).toBeDefined());
@@ -1163,17 +1192,14 @@ describe('PdfViewportSession behavior', () => {
             documentRevision: 'revision-1',
         });
         const fixture = createViewportFixture({
-            chassisAuthority: cast<IDocumentViewerChassisAuthority>({
-                navigate: (page: number) => surface.requestNavigation(page),
-                openSurface: surface,
-            }),
+            chassisAuthority: createChassisAuthority(surface),
             pageCount: 10,
         });
         const metrics = Promise.withResolvers<boolean>();
         try {
-            fixture.viewport.markPageMounted(2);
+            fixture.viewport.markPageMounted(requirePageNumber(2));
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
-            expect(fixture.viewport.singlePageScroll.scrollToPage(2)).toBe(true);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => expect(
                 fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.navigation,
             ).toBeDefined());
@@ -1205,7 +1231,7 @@ describe('PdfViewportSession behavior', () => {
         const fixture = createViewportFixture({pageCount: 10});
         const metrics = Promise.withResolvers<boolean>();
         try {
-            fixture.viewport.markPageMounted(1);
+            fixture.viewport.markPageMounted(requirePageNumber(1));
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             const intent = fixture.viewport.singlePageScroll.submitViewportStateIntent('fit');
             await vi.waitFor(() => expect(
@@ -1235,7 +1261,7 @@ describe('PdfViewportSession behavior', () => {
             documentRevision: 'revision-1',
         });
         const fixture = createViewportFixture({
-            chassisAuthority: cast<IDocumentViewerChassisAuthority>({openSurface: surface}),
+            chassisAuthority: createChassisAuthority(surface),
             pageCount: 10,
         });
         try {

@@ -1,3 +1,6 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+import type { TEpochMs } from '@contracts/timestamps';
+
 import type {
     IAnnotationMarkerRect,
     IShapeAnnotation,
@@ -34,12 +37,12 @@ export type IAnnotationImageReference = IPdfAnnotationStampImageReference;
 
 interface IAnnotationEntityBase {
     readonly identity: IAnnotationIdentity;
-    readonly pageIndex: number;
+    readonly pageIndex: TPageIndex;
     readonly revision: number;
     readonly persistedRevision: number;
     readonly deleted: boolean;
-    readonly createdAt: number | null;
-    readonly modifiedAt: number | null;
+    readonly createdAt: TEpochMs | null;
+    readonly modifiedAt: TEpochMs | null;
     readonly author: string | null;
 }
 
@@ -216,7 +219,6 @@ export function deriveAnnotationId(documentKey: string, persistentIdentity: stri
 }
 
 export function mintAnnotationId(randomUuid = globalThis.crypto?.randomUUID?.bind(globalThis.crypto)): AnnotationId {
-    if (!randomUuid) throw new Error('A cryptographically strong AnnotationId generator is required');
     return asAnnotationId(`anno_${randomUuid()}`);
 }
 
@@ -328,9 +330,9 @@ function normalizeColor(color: string | null | undefined) {
         const digits = hex[1]!;
         if (digits.length === 3 || digits.length === 4) {
             return byteColor(
-                Number.parseInt(`${digits[0]}${digits[0]}`, 16),
-                Number.parseInt(`${digits[1]}${digits[1]}`, 16),
-                Number.parseInt(`${digits[2]}${digits[2]}`, 16),
+                Number.parseInt(`${digits.charAt(0)}${digits.charAt(0)}`, 16),
+                Number.parseInt(`${digits.charAt(1)}${digits.charAt(1)}`, 16),
+                Number.parseInt(`${digits.charAt(2)}${digits.charAt(2)}`, 16),
             );
         }
         return byteColor(
@@ -516,10 +518,14 @@ function subtractRect(
             return;
         }
         for (let index = intervals.length - 1; index >= 0; index -= 1) {
+            const interval = intervals[index];
+            if (!interval) {
+                continue;
+            }
             const [
                 left,
                 right,
-            ] = intervals[index]!;
+            ] = interval;
             if (overlapRight <= left || overlapLeft >= right) {
                 continue;
             }

@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     describe,
     expect,
@@ -5,27 +7,17 @@ import {
 } from 'vitest';
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
 import { setupPagePlaceholderSizes } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
-import { cast } from '@tests/helpers/cast';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 function createPageContainerRoot(pageNumbers: number[]) {
-    const mountedPages = pageNumbers.map((pageNumber) => cast<HTMLElement>({dataset: {page: String(pageNumber)}}));
-
-    return cast<HTMLElement>({
-        querySelector: (selector: string) => {
-            const match = selector.match(/\.page_container\[data-page="(\d+)"\]/);
-            if (!match?.[1]) {
-                return null;
-            }
-            const targetPage = Number.parseInt(match[1], 10);
-            return mountedPages.find((pageContainer) => {
-                const pageNumber = Number.parseInt(pageContainer.dataset.page ?? '', 10);
-                return pageNumber === targetPage;
-            }) ?? null;
-        },
-        querySelectorAll: (selector: string) => (
-            selector === '.page_container' ? mountedPages : []
-        ),
-    });
+    const root = document.createElement('div');
+    for (const pageNumber of pageNumbers) {
+        const container = document.createElement('div');
+        container.classList.add('page_container');
+        container.dataset.page = String(pageNumber);
+        root.append(container);
+    }
+    return root;
 }
 
 function createStyledPageContainerRoot(pageNumbers: number[]) {
@@ -36,13 +28,18 @@ function createStyledPageContainerRoot(pageNumbers: number[]) {
             getPropertyValue: (name: string) => customProperties.get(name) ?? '',
         };
     }
-    const containers = pageNumbers.map(pageNumber => cast<HTMLElement>({
-        dataset: {page: String(pageNumber)},
-        style: createStyle(),
-    }));
-    const root = cast<HTMLElement>({querySelectorAll: (selector: string) => (
-        selector === '.page_container' ? containers : []
-    )});
+    const root = document.createElement('div');
+    const containers = pageNumbers.map(pageNumber => {
+        const container = document.createElement('div');
+        container.classList.add('page_container');
+        container.dataset.page = String(pageNumber);
+        Object.defineProperty(container, 'style', {
+            configurable: true,
+            value: createStyle(),
+        });
+        root.append(container);
+        return container;
+    });
     return {
         containers,
         root,
@@ -56,8 +53,8 @@ describe('pdfPageBufferManager.getPageContainer', () => {
             44,
         ]);
 
-        const page41 = getPageContainer(root, 40);
-        const page44 = getPageContainer(root, 43);
+        const page41 = getPageContainer(root, requirePageIndex(40));
+        const page44 = getPageContainer(root, requirePageIndex(43));
 
         expect(page41?.dataset.page).toBe('41');
         expect(page44?.dataset.page).toBe('44');
@@ -69,7 +66,7 @@ describe('pdfPageBufferManager.getPageContainer', () => {
             44,
         ]);
 
-        expect(getPageContainer(root, 0)).toBeNull();
+        expect(getPageContainer(root, requirePageIndex(0))).toBeNull();
     });
 
     it('sizes mounted placeholders from each page metric instead of one shared size', () => {

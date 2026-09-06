@@ -24,9 +24,10 @@ const mocks = vi.hoisted(() => ({
     promoteStagedFiles: vi.fn(),
 }));
 
-vi.mock('@electron/djvu/metadata', () => ({getDjvuPageCount: mocks.getPageCount}));
+vi.mock('@electron/features/djvu/main/metadata', () => ({getDjvuPageCount: mocks.getPageCount}));
 vi.mock('@electron/features/djvu/public', () => ({
     convertDjvuPageToImage: mocks.convertPage,
+    getDjvuPageCount: mocks.getPageCount,
     getDjvuPageSizeWindowsForViewing: mocks.getPageSizeWindows,
 }));
 vi.mock('@electron/features/image-export/main/export', () => ({

@@ -252,7 +252,7 @@ export const useToolbarOverflow = () => {
         }
 
         void runDetached(async () => {
-            await document.fonts?.ready;
+            await document.fonts.ready;
             // Font swaps resize text without mutating the DOM, so force a full pass.
             hasPendingLayoutMutation = true;
             scheduleRecalculation();

@@ -16,6 +16,7 @@ import {
     isTrustedIpcInvokeSender,
     isTrustedWebContentsSender,
 } from '@electron/platform-ipc/trustedIpcSender';
+import { getErrorMessage } from '@electron/utils/error';
 
 const registeredInvokeChannels = new Set<string>();
 const registeredEventChannels = new Set<string>();
@@ -97,10 +98,6 @@ function assertKnownChannelRegistration(
     assertUniqueChannelRegistration(kind, registeredChannels, channel);
 }
 
-function getDecodeErrorMessage(error: unknown) {
-    return error instanceof Error ? error.message : String(error);
-}
-
 function getPolicyChannels(policy: IIpcInvokeArgumentValidationPolicy | undefined) {
     return [...(policy?.noArgumentChannels ?? [])];
 }
@@ -174,7 +171,7 @@ export function createValidatedIpcMainRegistrar(
                     throw new Error('argument decoder is unavailable');
                 }
             } catch (error) {
-                throw new IpcArgumentValidationError(channel, getDecodeErrorMessage(error), error);
+                throw new IpcArgumentValidationError(channel, getErrorMessage(error), error);
             }
             return handler(event, ...decodedArgs);
         });

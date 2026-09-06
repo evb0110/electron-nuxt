@@ -237,8 +237,9 @@ vi.mock('@electron/features/djvu/main/pagePreview', () => ({getDjvuPageSizesForV
 vi.mock('@electron/features/djvu/public', async (importOriginal) => ({
     ...await importOriginal<typeof DjvuPublicModule>(),
     buildCompactDjvuAwarePdfFromDjvu: mocks.buildCompactDjvuAwarePdfFromDjvu,
+    parseDjvuOutline: vi.fn(() => []),
 }));
-vi.mock('@electron/djvu/metadata', () => ({
+vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuPageCount: mocks.getDjvuPageCount,
     getDjvuOutline: vi.fn(async () => ''),
     getDjvuResolution: vi.fn(async () => 300),

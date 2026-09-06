@@ -1,7 +1,5 @@
-export function getAsyncChunkLoadErrorMessage(error: unknown) {
-    if (error instanceof Error) {
-        return error.message;
-    }
+import { getErrorMessage } from '@app/utils/error';
 
-    return String(error ?? '');
+export function getAsyncChunkLoadErrorMessage(error: unknown) {
+    return getErrorMessage(error ?? '');
 }

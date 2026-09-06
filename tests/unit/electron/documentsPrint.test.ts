@@ -19,7 +19,11 @@ import { pathToFileURL } from 'url';
 import type * as NodeCrypto from 'crypto';
 import type * as FsPromises from 'fs/promises';
 import {cancelMainOperationsForOwner} from '@electron/operation-lifecycle/mainOperationLifecycle';
-import {PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES} from '@contracts/shared';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    requireRequestId,
+    PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES,
+} from '@contracts/shared';
 
 const mocks = vi.hoisted(() => {
     const browserWindowInstances: MockBrowserWindow[] = [];
@@ -657,7 +661,7 @@ describe('documents print', () => {
             sourcePdfPath,
             'source.pdf',
             {
-                requestId: 'mac-print-request',
+                requestId: requireRequestId('mac-print-request'),
                 viewMode: 'single',
                 orientation: 'auto',
             },
@@ -780,7 +784,7 @@ describe('documents print', () => {
             {
                 viewMode: 'facing',
                 orientation: 'landscape',
-                requestId: 'facing-print-request',
+                requestId: requireRequestId('facing-print-request'),
             },
         );
         const result = await settleNativePrint(resultPromise);
@@ -794,7 +798,7 @@ describe('documents print', () => {
             printOptions: {
                 viewMode: 'facing',
                 orientation: 'landscape',
-                requestId: 'facing-print-request',
+                requestId: requireRequestId('facing-print-request'),
             },
             signal: expect.any(AbortSignal),
         });
@@ -1094,7 +1098,7 @@ describe('documents print', () => {
             },
             validPdfBytes,
             'document.pdf',
-            {requestId: 'print-data-request'},
+            {requestId: requireRequestId('print-data-request')},
         );
         const result = await settleNativePrint(resultPromise);
 
@@ -1134,7 +1138,7 @@ describe('documents print', () => {
             windowContext,
             validPdfBytes,
             'document.pdf',
-            {requestId: 'cancel-data-print'},
+            {requestId: requireRequestId('cancel-data-print')},
         );
         await vi.waitFor(() => expect(mocks.writeFile).toHaveBeenCalledOnce());
 
@@ -1160,7 +1164,7 @@ describe('documents print', () => {
             sourcePdfPath,
             'source.pdf',
             {
-                pageNumbers: [4],
+                pageNumbers: [requirePageNumber(4)],
                 viewMode: 'single',
                 orientation: 'auto',
             },
@@ -1225,7 +1229,7 @@ describe('documents print', () => {
             sourcePdfPath,
             'source.pdf',
             {
-                pageNumbers: [4],
+                pageNumbers: [requirePageNumber(4)],
                 viewMode: 'single',
                 orientation: 'auto',
             },
@@ -1258,7 +1262,7 @@ describe('documents print', () => {
             {
                 viewMode: 'single',
                 orientation: 'auto',
-                requestId: 'cancel-path-print',
+                requestId: requireRequestId('cancel-path-print'),
             },
         );
         await vi.waitFor(() => expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledOnce());
@@ -1292,7 +1296,7 @@ describe('documents print', () => {
             sourcePdfPath,
             'source.pdf',
             {
-                pageNumbers: [4],
+                pageNumbers: [requirePageNumber(4)],
                 viewMode: 'single',
                 orientation: 'auto',
             },
@@ -1317,7 +1321,7 @@ describe('documents print', () => {
             sourcePdfPath,
             'source.pdf',
             {
-                pageNumbers: [4],
+                pageNumbers: [requirePageNumber(4)],
                 viewMode: 'single',
                 orientation: 'auto',
             },

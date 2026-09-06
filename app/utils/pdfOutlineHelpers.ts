@@ -3,6 +3,7 @@ import type {
     IPdfPage,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { clamp } from 'es-toolkit/math';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import type {
     IBookmarkItem,
     IBookmarkLocation,
@@ -265,6 +266,7 @@ function getDestinationTopValue(destinationArray: unknown[], destinationKind: st
             return getFiniteDestinationNumber(destinationArray[2]);
         case 'FitR':
             return getFiniteDestinationNumber(destinationArray[5]);
+        case null:
         default:
             return null;
     }
@@ -485,17 +487,21 @@ export async function buildResolvedOutline(
             refIndexCache,
         );
         const children: IBookmarkItem[] = [];
+        const resolvedPageIndex = destinationTarget?.pageIndex ?? null;
+        const pageIndex = resolvedPageIndex === null
+            ? null
+            : requirePageIndex(resolvedPageIndex);
         const id = createId({
             parentId: frame.parentId,
             title: frame.item.title,
-            pageIndex: destinationTarget?.pageIndex ?? null,
+            pageIndex,
             dest: frame.item.dest,
         });
         frame.target.push({
             title: frame.item.title,
             dest: frame.item.dest,
             id,
-            pageIndex: destinationTarget?.pageIndex ?? null,
+            pageIndex,
             ...(destinationTarget?.pageYRatio === null || destinationTarget?.pageYRatio === undefined
                 ? {}
                 : {pageYRatio: destinationTarget.pageYRatio}),
@@ -564,9 +570,7 @@ export function buildOutlineFromBookmarkEntries(
             break;
         }
         const children: IBookmarkItem[] = [];
-        const pageIndex = typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
-            ? Math.max(0, Math.trunc(frame.entry.pageIndex))
-            : null;
+        const pageIndex = frame.entry.pageIndex;
         const id = createId({
             parentId: frame.parentId,
             title: frame.entry.title,
@@ -828,11 +832,9 @@ function normalizeExplicitBookmarkColor(color: string | null | undefined) {
         if (!triple) {
             return null;
         }
-        const [
-            r,
-            g,
-            b,
-        ] = triple.split('');
+        const r = triple.charAt(0);
+        const g = triple.charAt(1);
+        const b = triple.charAt(2);
         return `#${r}${r}${g}${g}${b}${b}`;
     }
 

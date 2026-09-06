@@ -15,7 +15,7 @@ import {
     type App,
 } from 'vue';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { cast } from '@tests/helpers/cast';
+import DeferredDocumentWorkspaceHost from '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue';
 
 vi.mock('@app/modules/workspace-shell/composables/useWorkspaceSplitCache', () => ({useWorkspaceSplitCache: () => ({has: () => false})}));
 vi.mock('@app/composables/useRecentFiles', async () => {
@@ -55,12 +55,9 @@ afterEach(() => {
 describe('DeferredDocumentWorkspaceHost module', () => {
     it('executes the compiled host setup in the unit-app runtime', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        const { default: DeferredDocumentWorkspaceHost } = await import(
-            '@app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue'
-        );
         const documentSession = createWorkspaceDocumentController({tabId: 'tab-1'});
         const app = createApp(defineComponent({setup() {
-            return () => h(cast<never>(DeferredDocumentWorkspaceHost), {
+            return () => h(DeferredDocumentWorkspaceHost, {
                 documentSession,
                 fullscreenSupported: false,
                 isActive: false,

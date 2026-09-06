@@ -21,7 +21,7 @@ export function formatBytes(bytes: number) {
     } while (value >= 1024 && unitIndex < units.length - 1);
 
     const digits = value >= 10 ? 1 : 2;
-    return `${value.toFixed(digits)} ${units[unitIndex]}`;
+    return `${value.toFixed(digits)} ${units[unitIndex] ?? 'TB'}`;
 }
 
 interface IRelativeTimeLabels {

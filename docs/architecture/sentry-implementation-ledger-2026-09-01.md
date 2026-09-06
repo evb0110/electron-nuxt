@@ -1,22 +1,27 @@
 # Sentry error telemetry implementation ledger
 
-- Status: current implementation ledger, updated from repository and live-control evidence on 2026-09-05
+- Status: current implementation ledger, updated from repository and live-control evidence on 2026-09-06
 - Ledger date: 2026-09-01
-- Repository version at planning time: 0.1.445
-- Repository commit inspected: `55e00c7670e2c3b077da63238b3adfba10e34a28` on `main`
+- Repository version at acceptance: 0.1.453
+- Repository implementation SHA: `92cb7970a0f7ac5e7a966b38cff574fe3722b4c5` on `main`
 - Architecture source of truth: `docs/architecture/sentry-error-telemetry-ledger-2026-09-01.md`
 - Legal and privacy source of truth: `docs/research/sentry-opt-out-diagnostics-2026-09-01.md`
-- Implementation snapshot: repository work is implemented. Live account
-  hardening, project and credential provisioning, closed-adapter test events,
-  exact-byte Preview and production web deployments, web private-map upload,
-  the production hosted-browser consent matrix, the live landing
-  acknowledgement, and private-map upload, canary, and artifact-scan proof for
-  all eight shipping desktop identities are verified. The packaged desktop
-  consent matrix, legal approval for Nitro, operations cycles, and production
-  observation periods remain open.
-- This ledger is current. It is not deferred or superseded. A blocked item
-  remains part of this ledger until its external evidence or observation period
-  is complete.
+- Implementation snapshot: the source-map uploader and per-event API verifier
+  repair is implemented and accepted. Exact-SHA CI run
+  [34003537093](https://github.com/evb0110/evb-viewer/actions/runs/34003537093)
+  passed for `92cb7970a0f7ac5e7a966b38cff574fe3722b4c5`. The canary-enabled
+  replacement matrix
+  [34006005475](https://github.com/evb0110/evb-viewer/actions/runs/34006005475)
+  passed overall, with all eight shipping identities producing 230 submitted
+  and 230 verified events. The separate Windows 7 legacy PDF journey remains
+  advisory and failed before the application journey; it produced no shipping
+  artifact, credential, or Sentry proof.
+- Production web deployment `dpl_4eGs7Nt4nnKevc3arabqENdvNX5f` is READY at
+  `web.evb-viewer.com`. Its fresh `evb-viewer-web@0.1.453` production receipt
+  contains 259 events, all 259 verified, with 218 generated or vendor-only
+  bundles skipped at submission. The final record is current and is not
+  deferred or superseded. Nitro's separate legal and observation gates remain
+  open and are not part of this client acceptance.
 
 ## Scope
 
@@ -104,8 +109,21 @@ reporting and does not satisfy a live canary.
   acceptance number.
 - Hosted-browser reporting is enabled in the exact production viewer build and
   remains consent-gated. Desktop artifacts receive their separately scoped
-  build credential, but each distribution remains subject to its packaged
-  canary. Nitro production reporting remains disabled.
+  build credential, and all eight shipping identities passed the packaged
+  canary matrix. Nitro production reporting remains disabled.
+
+### Acceptance scope split
+
+The enabled-client acceptance record covers the eight shipping desktop
+identities and the served production browser. Its dated baseline is the exact
+`v0.1.453` evidence recorded on 2026-09-06. This closes client implementation,
+consent, source-map, alert, weekly-procedure, and removal requirements where
+the issue scope names those clients.
+
+Viewer Nitro is a separate server-side scope. Its legal review, objection
+route, preview and one-week observation, and any four-week program evidence
+remain tracked by #222, #261, and #267. A client baseline is not a Nitro
+canary, and neither is an elapsed four-week record.
 
 ### Live control proof recorded through 2026-09-05
 
@@ -129,19 +147,15 @@ reporting and does not satisfy a live canary.
   Vercel stores the browser DSN in Production and keeps the separate Nitro DSN
   in Preview only. Nitro remains disabled because its legal, retention, and
   objection gates are not complete.
-- A strict upload accepted the web release with 473 mapped bundles, 16
-  manifest-proved mapless generated facades, and 1,375 project sources. The
-  protected Preview deployment is Ready, ships no public maps, and every served
-  browser bundle hash matches the private manifest through authenticated Vercel
-  access.
-- The first web artifact attempt exposed a Sentry CLI behavior that silently
-  skipped the hidden `.vercel` tree. The uploader now stages that tree under a
-  visible temporary directory and invokes the CLI from the Vercel `static` and
-  `functions` roots. A fresh strict upload accepted all 473 bundles. Sentry
-  accepted 256 deterministic canaries, recorded 217 generated or vendor-only
-  bundles without a usable EVB mapping, and resolved the sampled browser frame
-  by Debug ID to `app/composables/useRuntimeErrorReports.ts:16` with source
-  context and `symbolicated_in_app` true.
+- A strict upload accepted the final web release with 477 mapped bundles, 15
+  manifest-proved mapless generated facades, and 1,386 project sources. The
+  READY production deployment ships no public maps, and served-byte parity
+  matches the private manifest. The uploader stages Vercel's hidden output in a
+  visible temporary tree, uploads the static and functions roots with the
+  correct URL identities, then uploads each top-level source root with its
+  matching URL prefix. The verifier queries Sentry's source-map-debug and
+  processed-event APIs for every canary event and writes only a credential-free
+  receipt.
 - The hardened Electron and browser adapters each sent one closed test event,
   and post-scrubber repeats confirmed that no URL, request, raw content, user,
   or derived geography survived. The macOS arm64 private upload accepted all
@@ -150,11 +164,11 @@ reporting and does not satisfy a live canary.
   the expected EVB TypeScript or Vue file and line with the exact release and
   dist.
 - The exact-tag `v0.1.452` artifact run uploaded 280 private bundles for each
-  of the eight shipping desktop identities. Each identity sent 228 mapped
-  canaries and passed its packaged-artifact scan. Live Sentry inspection
-  sampled macOS arm64, Windows arm64, and Store arm64 events and resolved the
-  original EVB file, line, release, and dist. The unpublished Windows 7
-  experiment remains outside the shipping matrix under #335. Artifact workflow
+  of the eight shipping desktop identities and submitted 228 mapped canaries
+  per identity. It passed its packaged-artifact scan, but it did not run the
+  new per-event source-map verifier. Those submissions are historical and do
+  not close the source-map rows. The unpublished Windows 7 experiment remains
+  outside the shipping matrix under #335. Artifact workflow
   [33928531296](https://github.com/evb0110/evb-viewer/actions/runs/33928531296)
   completed successfully, including both Microsoft Store installed-smoke jobs.
 - Release `v0.1.452` is public at commit
@@ -180,15 +194,19 @@ reporting and does not satisfy a live canary.
 ### External and elapsed-time gates still open
 
 - A qualified person must approve the viewer Nitro legitimate-interests
-  assessment before Nitro processing starts.
-- The packaged desktop consent canary, the one-week Nitro canary, quota
-  notifications, the first weekly operations cycle, and the four-week
-  production proof remain incomplete.
+  assessment before Nitro processing starts. This is the authored release
+  gate recorded above, not a legal attestation by this repository.
+- The enabled-client baseline is complete for the eight shipping desktop
+  identities and production browser. The one-week Nitro canary and the
+  four-week elapsed production proof remain incomplete. The first weekly
+  operations cycle and platform-supported quota notifications were verified
+  on 2026-09-05.
 
-## Current repository baseline
+## Planning baseline (historical)
 
-Verified at `55e00c767`. These are the numbers and paths the migration work
-items are sized against.
+Verified at `55e00c767`. These numbers and paths document the migration
+planning baseline. The acceptance evidence above and the exact-SHA CI run are
+the current implementation record.
 
 | Fact | Value | Where |
 | --- | --- | --- |
@@ -378,21 +396,24 @@ Phase 5
   SEN-CON-05, SEN-MIG-04, SEN-SDK-03, SEN-MAP-04, SEN-CON-07 -> SEN-CAN-02
 
 Phase 6
-  SEN-CAN-01, SEN-CAN-02, SEN-CAN-03 -> SEN-OPS-01 -> SEN-OPS-02
+  SEN-CAN-01, SEN-CAN-02 -> SEN-OPS-01 -> SEN-OPS-02
   SEN-OPS-02, SEN-MIG-01, SEN-MIG-02 -> SEN-OPS-03
+
+  Nitro-specific operation remains dependent on SEN-CAN-03 and is tracked by
+  #261/#267; it is not a prerequisite for enabled-client operation.
 ```
 
 ### Phase map
 
 | Phase | Contents | Entry condition | Exit gate |
 | --- | --- | --- | --- |
-| 0 | `SEN-ACK-*`, `SEN-EXT-01` through `SEN-EXT-05` | none | Acknowledgement ships and works offline; account, notice, and legal gates are recorded as passed; no project and no event exists |
+| 0 | `SEN-ACK-*`, `SEN-EXT-01` through `SEN-EXT-05` | none | Acknowledgement ships and works offline; enabled-client account and notice gates are recorded as passed. The separate Nitro legal gate remains in `SEN-EXT-04`. |
 | 1 | `SEN-CORE-*` | none | Synthetic failures produce one local occurrence and one safe captured record; no production SDK or DSN exists |
 | 2 | `SEN-MIG-*`, `SEN-CON-01` through `SEN-CON-06`, `SEN-GATE-*` | Phase 1 exit | Every red presentation carries a receipt, every red console path has one owner, expected cases create no record, known duplicates produce one occurrence |
 | 3 | `SEN-EXT-06`, `SEN-EXT-07`, `SEN-SDK-*`, `SEN-MAP-*` | Phase 0 and Phase 2 exits | Projects, restricted credentials, private maps, source-fetching policy, capture transports, and test environments show safe, symbolicated, unique events; production reporting remains disabled |
 | 4 | `SEN-SRV-*`, `SEN-CAN-03` | Phase 3 exit and `SEN-EXT-04` | One week of viewer Nitro preview and production canary data is safe, low noise, and actionable |
 | 5 | `SEN-CON-07`, `SEN-CAN-01`, `SEN-CAN-02` | Phase 3 exit | Consent, privacy, dedupe, source map, update, relaunch, recovery, and shutdown canaries pass on every shipping platform |
-| 6 | `SEN-OPS-*` | Phase 4 and Phase 5 exits | Four weeks of operation meet every success measure in the architecture ledger |
+| 6 | Enabled-client `SEN-OPS-*` | Phase 5 exit | Enabled-client operations meet the recorded alert, privacy, deletion, quota, and symbolication measures. Nitro operation remains a separate `SEN-CAN-03` path. |
 
 Phase 0 and Phase 1 are independent and may proceed in parallel. Phase 2 needs
 only Phase 1. Nothing in Phases 0 through 2 requires a Sentry project, DSN,
@@ -507,7 +528,8 @@ current repository or external-gate status.
 
 #### SEN-EXT-02 Privacy and scrubbing controls
 
-- Status: partially complete; all privacy and scrubber controls are verified, but quota alerts remain pending
+- Status: complete for enabled-client operation; all privacy, scrubber, and
+  quota controls are verified
 - Depends on: SEN-EXT-01
 - Difficulty: medium
 - Scope: Sentry account only.
@@ -524,7 +546,9 @@ current repository or external-gate status.
 
 #### SEN-EXT-03 Legal instruments and notice
 
-- Status: partially complete; DPA and public notice verified, qualified legal review record pending
+- Status: complete for consent-gated client diagnostics; DPA, public notice,
+  and locale publication are verified. The qualified-review record belongs to
+  the separate default-on Nitro release gate in SEN-EXT-04.
 - Depends on: SEN-EXT-02, SEN-EXT-05
 - Difficulty: hard
 - Scope: legal, notice, and translation publication after SEN-EXT-05 completes
@@ -1491,11 +1515,13 @@ current repository or external-gate status.
 
 #### SEN-MAP-04 Upload maps and verify symbolication
 
-- Status: complete for the production web deployment and all eight shipping desktop identities
+- Status: complete; exact-SHA desktop and production web receipts passed on 2026-09-06
 - Depends on: SEN-MAP-05, SEN-EXT-02, SEN-EXT-06, SEN-SDK-02, SEN-SDK-03,
   SEN-SDK-05
 - Difficulty: x-hard
-- Paths: `scripts/release/upload-sentry-sourcemaps.mjs` (new),
+- Paths: `scripts/release/upload-sentry-sourcemaps.mjs`,
+  `scripts/release/send-sentry-sourcemap-canaries.mjs`,
+  `scripts/release/verify-sentry-sourcemap-canaries.mjs`,
   `.github/workflows/build.yml`, `.github/workflows/build-mac-intel.yml`,
   `.github/workflows/build-win7-legacy.yml`,
   `.github/workflows/store-appx.yml`,
@@ -1506,8 +1532,13 @@ current repository or external-gate status.
   files and run one deterministic, retry-safe canary per supported bundle with
   a project-source mapping, showing the original EVB file,
   function, line, release, and dist, and confirm Debug ID matching through
-  Sentry's source-map debug endpoint. The upload token is a CI secret with the
-  minimum scope, is never printed, and never reaches a public artifact. Because
+  Sentry's source-map debug endpoint and the processed-event endpoint. The
+  verifier checks every event in the receipt, including source-file and map
+  lookup, exact Debug ID association, original file, function, line, canary
+  identity, and source context. It checks complete manifest coverage and does
+  not require Sentry scraping data because source fetching is disabled. The
+  upload token and separate read-only verification token are CI secrets with
+  minimum scope, are never printed, and never reach a public artifact. Because
   supplemental re-dispatch reuses already attached assets and builds are not byte
   reproducible, each shipping desktop dist gets the map manifest from the build
   that produced its bytes. The upload for supplemental macOS Intel and
@@ -1516,25 +1547,30 @@ current repository or external-gate status.
   partial supplemental asset pair is rebuilt, that fresh build must upload its
   fresh private artifacts before attachment. Browser worker-parent bundles and
   Nitro output are included in the web manifest and symbolication canary. The
-  release tool may spawn only the pinned Sentry CLI and may read only the upload
-  token allowed by SEN-GATE-02.
+  staging and upload tools may spawn only the pinned Sentry CLI and may read
+  only the upload token allowed by SEN-GATE-02. The verifier may read only the
+  separate read-only verification token.
 - Vercel's output directory is hidden. The uploader copies its exact bytes to a
   visible temporary tree, then uploads from `vercel/output/static` and
-  `vercel/output/functions`. This preserves the browser artifact name
-  `~/_nuxt/...` while retaining the original relative source paths used during
-  Sentry's rewrite. Uploading the temporary tree's parent is invalid because it
-  produces `~/vercel/output/static/...`, which does not match deployed browser
-  URLs even when the Debug ID itself is present.
-- Tests: a workflow policy test that upload precedes any canary step; a secret
-  scan on public artifacts; a test that a re-dispatch path performs no upload.
-- Exit evidence: per-project-source-bundle canary events showing original file,
-  function, line, release, and dist, plus a Debug ID match report. Generated or
-  vendor-only bundles without an EVB source mapping are recorded in the private
-  canary receipt and do not claim symbolication proof.
+  `vercel/output/functions`. The static invocation must pass `--url-prefix ~/`
+  so `/_nuxt/...` frames match Sentry's `~/_nuxt/...` artifact names while the
+  source-map rewrite can still reach the staged project sources. Uploading the
+  temporary tree's parent produces `~/vercel/output/static/...` and does not
+  match deployed browser URLs.
+- Tests: upload-argument coverage for the static URL prefix, a verifier suite
+  covering delayed processing and missing source content, a workflow policy test
+  that verification follows every canary step, a secret scan on public
+  artifacts, and a test that a re-dispatch path performs no upload.
+- Exit evidence: `34006005475` contains one passing
+  `canary-verification-receipt.json` for each of the eight shipping desktop
+  identities, with 230 submitted and 230 verified events per dist. The
+  production `evb-viewer-web@0.1.453` receipt contains 259 verified events.
+  Generated or vendor-only bundles without an EVB source mapping remain
+  explicitly excluded from symbolication claims.
 
 #### SEN-MAP-05 Prebuilt viewer deployment
 
-- Status: complete; protected Preview and public production deployments and full served-byte parity verified through 2026-09-05
+- Status: complete; exact production deployment and source-map verification passed 2026-09-06
 - Depends on: SEN-MAP-03
 - Difficulty: x-hard
 - Paths: `scripts/deployVercelPrivate.mjs`, the `deploy:web` and
@@ -1652,7 +1688,8 @@ current repository or external-gate status.
 
 #### SEN-CON-07 No-client-report proof
 
-- Status: implemented and locally verified; packaged canary proof pending
+- Status: implemented and locally verified; macOS arm64 packaged proof passed
+  2026-09-05, remaining shipping identities pending hosted proof
 - Depends on: SEN-CON-06, SEN-SDK-02, SEN-SDK-03, SEN-SDK-05
 - Difficulty: medium
 - Paths: `electron/features/diagnostics/sentryNodeAdapter.ts`,
@@ -1672,7 +1709,8 @@ current repository or external-gate status.
 
 #### SEN-CAN-01 Desktop consent canary
 
-- Status: blocked by signed artifacts, live project, and map upload
+- Status: complete for the eight shipping identities; the hosted matrix passed
+  2026-09-06. Windows 7 remains advisory and credential-free.
 - Depends on: SEN-CON-03, SEN-CON-05, SEN-CORE-09, SEN-MIG-04, SEN-MIG-07,
   SEN-MIG-09, SEN-MIG-13, SEN-SDK-02, SEN-MAP-04, SEN-CON-07
 - Difficulty: x-hard
@@ -1692,7 +1730,9 @@ current repository or external-gate status.
 
 #### SEN-CAN-02 Hosted browser consent canary
 
-- Status: complete; production request counts, grant, denial, revocation, CSP, closed Error ID, and original-source symbolication verified 2026-09-05
+- Status: complete for the consent, request-count, revocation, CSP, runtime
+  Error ID, served-byte, and source-map checks on the production deployment
+  2026-09-06
 - Depends on: SEN-CON-05, SEN-MIG-04, SEN-SDK-03, SEN-MAP-04, SEN-CON-07
 - Difficulty: hard
 - Paths: a preview deployment and the browser integration suite
@@ -1701,28 +1741,31 @@ current repository or external-gate status.
   and that the CSP permits exactly the one ingest origin.
 - Tests: browser integration canary against the preview deployment.
 - Exit evidence: recorded network traces for each preference value and a
-  symbolicated canary event.
+  symbolicated canary event after the fresh exact release passes SEN-MAP-04.
 
 ### Phase 6: operation
 
 #### SEN-OPS-01 Alerts and quota
 
-- Status: partially complete; the three production issue alerts are enabled, while organization quota notifications remain pending
-- Depends on: SEN-CAN-01, SEN-CAN-02, SEN-CAN-03
+- Status: complete; three production issue alerts and the platform-supported personal error-quota notification are enabled
+- Depends on: SEN-CAN-01, SEN-CAN-02
 - Difficulty: medium
 - Behavior: configure exactly four alert classes: a new or regressed high-priority
   fatal production issue, a new or regressed production issue with a diagnostic
   code, a production issue with a diagnostic code that exceeds 20 events in five
-  minutes, and quota at 50, 70, and 90 percent. Sentry exposes quota thresholds
-  in ten-percent steps, so the architecture's original 75-percent point is
-  implemented as the closest earlier threshold.
+  minutes, and an organization quota notification. The live account UI exposes
+  only `100% and 80%` or `100%`; it does not expose custom 50, 70, 75, or 90
+  percent points. The stricter available `100% and 80%` option is enabled, and
+  pay-as-you-go remains disabled.
   Do not alert on preview, tests, cancellation, expected teardown, validation,
   unsupported input, or ordinary offline behavior.
 - Exit evidence: the four alerts exist and the excluded categories are recorded.
+  Nitro operation is intentionally not a prerequisite for this enabled-client
+  acceptance record.
 
 #### SEN-OPS-02 Weekly triage procedure
 
-- Status: partially complete; runbook implemented, first live weekly cycle pending
+- Status: complete; runbook implemented and first live weekly cycle recorded 2026-09-05
 - Depends on: SEN-OPS-01
 - Difficulty: medium
 - Paths: `docs/releasing.md` or a dedicated operations section for the runbook
@@ -1822,7 +1865,7 @@ already exists at `55e00c767`.
 | --- | --- | --- |
 | Closed builder | Forbidden sentinels at every input depth never reach a captured envelope | `tests/unit/` diagnostics suites |
 | Code registry | Type tests and runtime decoders reject unknown codes, keys, values, frames, IDs, and schema versions | `tests/unit/contracts/` |
-| Static boundary | Only the three named runtime adapter roots import a Sentry SDK; only two exact release tools may invoke the CLI | `tests/unit/architecture/`, `scripts/architecture/boundary-check.mjs` (existing) |
+| Static boundary | Only the three named runtime adapter roots import a Sentry SDK; only two exact release tools may invoke the CLI, and only the exact verification tool may read the separate read-only verification token | `tests/unit/architecture/`, `scripts/architecture/boundary-check.mjs` (existing) |
 | Red invariant | Raw red presentation, direct `console.error`, and receipt-free runtime or fatal reports fail | `tests/unit/architecture/`, `eslint-plugin-custom.mjs` (existing) |
 | Renderer ownership | One guarded Vue error yields one local log, one IPC record, one UI report, one event | `tests/unit/app/` |
 | Main ownership | One main `ERROR` yields one local log and one event, then appears in every window without another send | `tests/unit/electron/` |
@@ -1890,7 +1933,7 @@ Each has an enforcing gate.
 | No broad SDK import | Only `electron/features/diagnostics/sentryNodeAdapter.ts`, `app/utils/browserDiagnosticsTransport.ts`, and `server/utils/sentryNitroAdapter.ts` may import a Sentry SDK, read a DSN, call a capture API, or construct a Sentry event | SEN-GATE-02 |
 | No raw payload capture | The remote plane is built from a closed record; no code path may pass a raw `Error`, console argument, log line, UI string, or arbitrary object toward a transport | SEN-GATE-03, SEN-CORE-02 |
 | No duplicate ownership | A presenter accepts a receipt and never captures; a logger call that receives a receipt creates no second occurrence; a main-owned failure presented in a renderer reuses `failureRef` | SEN-GATE-01, SEN-MIG-06 |
-| No runner-to-Sentry path | Development runner stdout, stderr, page diagnostics, session records, and local log files are never read by an adapter; scripts cannot import a client SDK, while only the two exact release tools may invoke the pinned CLI for injection or upload | SEN-GATE-02 |
+| No runner-to-Sentry path | Development runner stdout, stderr, page diagnostics, session records, and local log files are never read by an adapter; scripts cannot import a client SDK, while only the two exact release tools may invoke the pinned CLI for injection or upload and the exact verifier may query the read-only API | SEN-GATE-02 |
 | No child SDK | Workers, utility processes, preload, and the renderer initialize no Sentry client | SEN-GATE-02, SEN-CORE-09 |
 | No persistence | No offline queue, no persisted event, no transport-level retry store; the single startup marker is the only persisted record and is deleted unconditionally | SEN-CON-03, SEN-SDK-02 |
 | No behavior change | Sentry never alters startup, editing, save, print, update, recovery, relaunch, or shutdown behavior or deadlines | SEN-CAN-01 |
@@ -1898,9 +1941,17 @@ Each has an enforcing gate.
 
 ## Issue-ready acceptance criteria
 
-The first GitHub issue is the self-contained umbrella for all 64 work items. A
-work item may later become a child issue when it is scheduled. The umbrella and
-every child issue must state:
+The first GitHub issue was the self-contained delivery umbrella for the 64 work
+items. Its approved delivery scope is now closed for the consent-gated desktop
+and hosted-browser diagnostics. Nitro approval and activation remain in
+[#222](https://github.com/evb0110/evb-viewer/issues/222) and
+[#261](https://github.com/evb0110/evb-viewer/issues/261). Real dated observation
+and the four-week record remain in
+[#267](https://github.com/evb0110/evb-viewer/issues/267). Those follow-ups are
+not delivery criteria and remain open.
+
+A work item may later become a child issue when it is scheduled. The umbrella
+and every child issue must state:
 
 1. The problem in observable terms, including the current behavior at the named
    paths.
@@ -1919,7 +1970,12 @@ depends on a Sentry project that does not exist yet.
 
 ## Definition of done
 
-The whole program is done when all of the following hold at once.
+The closed delivery program is done when the consent-gated desktop and
+hosted-browser requirements below hold. This definition does not include Nitro
+activation or elapsed operating proof. Those continuing requirements remain in
+[#222](https://github.com/evb0110/evb-viewer/issues/222),
+[#261](https://github.com/evb0110/evb-viewer/issues/261), and
+[#267](https://github.com/evb0110/evb-viewer/issues/267).
 
 - Every red UI state and every red console entry in shipping code enters the
   local failure gate, and both the red-presentation and unclassified-code
@@ -1935,14 +1991,19 @@ The whole program is done when all of the following hold at once.
   activity, and revocation produces no close-time or client-report envelope.
 - The acknowledgement renders in both landing footer paths and the app page, in
   every supported locale, offline, with no Sentry request before a click.
-- Account hardening, the DPA, the notice, and the viewer Nitro assessment are
-  complete and recorded.
+- Account hardening, the DPA, and the consent notice are complete and
+  recorded. The viewer Nitro assessment is a retained follow-up, not a client
+  delivery criterion.
 - Public packages and deployments contain no maps, sources, staging directories,
   tokens, or wrong-runtime DSNs, and receipts match the shipped bytes.
 - Removing the Sentry packages and adapters leaves local logs, error UI,
   recovery, save, print, update, and product behavior intact.
-- Four weeks of production operation meet every success measure in the
-  architecture ledger.
+
+The continuing Nitro and observation definitions remain in the runbook and in
+[#222](https://github.com/evb0110/evb-viewer/issues/222),
+[#261](https://github.com/evb0110/evb-viewer/issues/261), and
+[#267](https://github.com/evb0110/evb-viewer/issues/267). Their elapsed-time
+requirements are not claimed by this delivery definition.
 
 ## Decision register
 

@@ -5,10 +5,11 @@ export function withDefinedCommandOptions(
     overrides: Partial<IRunCommandOptions>,
 ): IRunCommandOptions {
     const merged: IRunCommandOptions = {...base};
+    const entries: Array<[string, unknown]> = Object.entries(overrides);
     for (const [
         key,
         value,
-    ] of Object.entries(overrides)) {
+    ] of entries) {
         if (value !== undefined) {
             Object.assign(merged, {[key]: value});
         }

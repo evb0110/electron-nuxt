@@ -5,11 +5,16 @@ import {
     it,
     vi,
 } from 'vitest';
+import type {TJobId} from '@contracts/shared';
+import {requireJobId} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
 import type {
     IScanCleanupCapability,
+    IScanCleanupOptions,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {TTranslateFn} from '@i18n-app';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 const diagnosticMocks = vi.hoisted(() => ({
@@ -41,9 +46,33 @@ const ownerContext = {
     documentRevision: 'scan-cleanup-test-revision',
 };
 
+const translate: TTranslateFn = (key, ...args) => (args.length === 0 ? key : `${key}:${JSON.stringify(args[0])}`);
+
+function createScanCleanupOptions(): IScanCleanupOptions {
+    return {
+        preserveOriginalQuality: false,
+        layoutMode: 'auto',
+        outputMode: 'bw',
+        readingOrder: 'ltr',
+        thickness: 0,
+        crop: true,
+        matchPageSize: true,
+        pageAlignment: 'top-center',
+        marginsMm: {
+            leftMm: 5,
+            topMm: 5,
+            rightMm: 5,
+            bottomMm: 5,
+        },
+        despeckle: true,
+        skipBlankPages: false,
+        pageOverrides: {},
+    };
+}
+
 function completedState(jobId: string, outputPdfPath = `/managed/${jobId}.pdf`): TScanCleanupJobState {
     return {
-        jobId,
+        jobId: requireJobId(jobId),
         status: 'completed',
         outputPdfPath,
         summary: {
@@ -59,14 +88,31 @@ function completedState(jobId: string, outputPdfPath = `/managed/${jobId}.pdf`):
         },
         partial: false,
         progress: progress(1, 1),
-        updatedAtMs: Date.now(),
+        updatedAtMs: requireEpochMs(Date.now()),
+    };
+}
+
+function startResult(jobId: string, outputPdfPath = `/managed/${jobId}.pdf`) {
+    return {
+        started: true as const,
+        jobId: requireJobId(jobId),
+        outputPdfPath,
+    };
+}
+
+function runningJobState(jobId: TJobId): TScanCleanupJobState {
+    return {
+        jobId,
+        status: 'running',
+        progress: progress(),
+        updatedAtMs: requireEpochMs(Date.now()),
     };
 }
 
 function stubCapability(
     onListener: (listener: (state: TScanCleanupJobState) => void) => void,
     nextJobId: () => string,
-) {
+): IScanCleanupCapability {
     return {
         preview: vi.fn(),
         cancelPreview: vi.fn(),
@@ -78,11 +124,7 @@ function stubCapability(
         // the state the bridge reports and the file it names drift apart.
         start: vi.fn(async () => {
             const jobId = nextJobId();
-            return {
-                started: true as const,
-                jobId,
-                outputPdfPath: `/managed/${jobId}.pdf`,
-            };
+            return startResult(jobId);
         }),
         cancel: vi.fn(async () => true),
         getJobState: vi.fn(async () => null),
@@ -95,7 +137,7 @@ function stubCapability(
             return () => undefined;
         }),
         onDetectionJobState: vi.fn(() => () => undefined),
-    } satisfies Partial<IScanCleanupCapability> as IScanCleanupCapability;
+    };
 }
 
 describe('scan cleanup run coordinator', () => {
@@ -108,7 +150,7 @@ describe('scan cleanup run coordinator', () => {
     it('keeps a pending start single-flight across rapid callers', async () => {
         const pendingStart = Promise.withResolvers<{
             started: true;
-            jobId: string;
+            jobId: TJobId;
             outputPdfPath: string;
         }>();
         capability.value = {
@@ -121,12 +163,7 @@ describe('scan cleanup run coordinator', () => {
             start: vi.fn(() => pendingStart.promise),
             cancel: vi.fn(),
             getJobState: vi.fn(),
-            subscribeJob: vi.fn(async jobId => ({
-                jobId,
-                status: 'running' as const,
-                progress: progress(),
-                updatedAtMs: Date.now(),
-            })),
+            subscribeJob: vi.fn(async (jobId: TJobId) => runningJobState(jobId)),
             reconnectJob: vi.fn(),
             pruneGeneratedOutputs: vi.fn(),
             onPreviewRaw: vi.fn(() => () => undefined),
@@ -137,21 +174,17 @@ describe('scan cleanup run coordinator', () => {
         const request = {
             ...ownerContext,
             sourcePdfPath: '/source/book.pdf',
-            options: expect.anything() as never,
+            options: createScanCleanupOptions(),
         };
 
         const first = coordinator.startScanCleanup(request);
         const second = coordinator.startScanCleanup(request);
-        expect(capability.value.start).toHaveBeenCalledOnce();
+        expect(capability.value!.start).toHaveBeenCalledOnce();
         expect(coordinator.isScanCleanupRunning.value).toBe(true);
 
-        pendingStart.resolve({
-            started: true,
-            jobId: 'single-flight-job',
-            outputPdfPath: '/managed/single-flight.pdf',
-        });
+        pendingStart.resolve({...startResult('single-flight-job', '/managed/single-flight.pdf')});
         await expect(first).resolves.toEqual(await second);
-        expect(capability.value.start).toHaveBeenCalledOnce();
+        expect(capability.value!.start).toHaveBeenCalledOnce();
     }, 30_000);
 
     it('returns renderer fallback metadata instead of user-facing bridge text', async () => {
@@ -160,7 +193,7 @@ describe('scan cleanup run coordinator', () => {
         const request = {
             ...ownerContext,
             sourcePdfPath: '/source/book.pdf',
-            options: expect.anything() as never,
+            options: createScanCleanupOptions(),
         };
 
         await expect(coordinator.startScanCleanup(request)).resolves.toMatchObject({
@@ -185,10 +218,10 @@ describe('scan cleanup run coordinator', () => {
 
     it('reconciles a rejected subscription from the authoritative job state', async () => {
         const reconciledState: TScanCleanupJobState = {
-            jobId: 'reconciled-job',
+            jobId: requireJobId('reconciled-job'),
             status: 'running',
             progress: progress(),
-            updatedAtMs: Date.now(),
+            updatedAtMs: requireEpochMs(Date.now()),
         };
         capability.value = {
             preview: vi.fn(),
@@ -197,11 +230,7 @@ describe('scan cleanup run coordinator', () => {
             cancelDetection: vi.fn(),
             getDetectionJobState: vi.fn(),
             subscribeDetectionJob: vi.fn(),
-            start: vi.fn(async () => ({
-                started: true as const,
-                jobId: 'reconciled-job',
-                outputPdfPath: '/managed/reconciled.pdf',
-            })),
+            start: vi.fn(async () => startResult('reconciled-job', '/managed/reconciled.pdf')),
             cancel: vi.fn(),
             getJobState: vi.fn(async () => reconciledState),
             subscribeJob: vi.fn(async () => {
@@ -218,14 +247,14 @@ describe('scan cleanup run coordinator', () => {
         await expect(coordinator.startScanCleanup({
             ...ownerContext,
             sourcePdfPath: '/source/book.pdf',
-            options: expect.anything() as never,
+            options: createScanCleanupOptions(),
         })).resolves.toMatchObject({
             started: true,
             jobId: 'reconciled-job',
         });
 
-        expect(capability.value.getJobState).toHaveBeenCalledWith('reconciled-job', ownerContext);
-        expect(capability.value.reconnectJob).toHaveBeenCalledWith('reconciled-job', ownerContext);
+        expect(capability.value!.getJobState).toHaveBeenCalledWith('reconciled-job', ownerContext);
+        expect(capability.value!.reconnectJob).toHaveBeenCalledWith('reconciled-job', ownerContext);
         expect(coordinator.scanCleanupRun.jobState).toEqual(reconciledState);
         expect(coordinator.isScanCleanupRunning.value).toBe(true);
     });
@@ -239,11 +268,7 @@ describe('scan cleanup run coordinator', () => {
             cancelDetection: vi.fn(),
             getDetectionJobState: vi.fn(async () => null),
             subscribeDetectionJob: vi.fn(),
-            start: vi.fn(async () => ({
-                started: true as const,
-                jobId: 'unobserved-job',
-                outputPdfPath: '/managed/unobserved.pdf',
-            })),
+            start: vi.fn(async () => startResult('unobserved-job', '/managed/unobserved.pdf')),
             cancel,
             getJobState: vi.fn(async () => null),
             subscribeJob: vi.fn(async () => {
@@ -260,7 +285,7 @@ describe('scan cleanup run coordinator', () => {
         await expect(coordinator.startScanCleanup({
             ...ownerContext,
             sourcePdfPath: '/source/book.pdf',
-            options: expect.anything() as never,
+            options: createScanCleanupOptions(),
         })).rejects.toMatchObject({
             name: 'ScanCleanupRunReconciliationError',
             errorCode: 'internal',
@@ -301,7 +326,7 @@ describe('scan cleanup run coordinator', () => {
         const dependencies = {
             openGeneratedPdf: vi.fn(async () => true),
             saveActiveDocumentAs: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: toastAdd},
         };
         const cleanup = coordinator.installScanCleanupRunCoordinator(dependencies);
@@ -309,7 +334,7 @@ describe('scan cleanup run coordinator', () => {
             await expect(coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/rejected.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             })).rejects.toThrow('scan cleanup bridge failed');
 
             // A start that throws owns nothing: no job to talk about, no guard
@@ -337,10 +362,10 @@ describe('scan cleanup run coordinator', () => {
     it('retires the previous job state when a new attempt begins', async () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const canceled: TScanCleanupJobState = {
-            jobId: 'canceled-job',
+            jobId: requireJobId('canceled-job'),
             status: 'canceled',
             progress: progress(3),
-            updatedAtMs: Date.now(),
+            updatedAtMs: requireEpochMs(Date.now()),
         };
         coordinator.scanCleanupRun.jobState = canceled;
 
@@ -353,10 +378,10 @@ describe('scan cleanup run coordinator', () => {
 
         // A job that is still live owns the state: an attempt cannot begin over
         // one that is running, so its progress is never discarded.
-        coordinator.scanCleanupRun.activeJobId = 'live-job';
+        coordinator.scanCleanupRun.activeJobId = requireJobId('live-job');
         coordinator.scanCleanupRun.jobState = {
             ...canceled,
-            jobId: 'live-job',
+            jobId: requireJobId('live-job'),
             status: 'running',
         };
         coordinator.beginScanCleanupAttempt();
@@ -399,7 +424,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(),
             saveActiveDocumentAs: vi.fn(),
             openScanCleanupForDocument: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: toastAdd},
         });
         try {
@@ -445,7 +470,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf: vi.fn(),
             saveActiveDocumentAs: vi.fn(),
             openScanCleanupForDocument: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: toastAdd},
         });
         try {
@@ -477,19 +502,10 @@ describe('scan cleanup run coordinator', () => {
             cancelDetection: vi.fn(),
             getDetectionJobState: vi.fn(),
             subscribeDetectionJob: vi.fn(),
-            start: vi.fn(async () => ({
-                started: true as const,
-                jobId: `job-${++nextJob}`,
-                outputPdfPath: '/managed/book — cleaned.pdf',
-            })),
+            start: vi.fn(async () => startResult(`job-${++nextJob}`, '/managed/book — cleaned.pdf')),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
-            subscribeJob: vi.fn(async jobId => ({
-                jobId,
-                status: 'running' as const,
-                progress: progress(),
-                updatedAtMs: Date.now(),
-            })),
+            subscribeJob: vi.fn(async (jobId: TJobId) => runningJobState(jobId)),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
             onPreviewRaw: vi.fn(() => () => undefined),
@@ -508,7 +524,7 @@ describe('scan cleanup run coordinator', () => {
             openGeneratedPdf,
             saveActiveDocumentAs,
             openScanCleanupForDocument,
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: toastAdd},
         });
         try {
@@ -537,7 +553,7 @@ describe('scan cleanup run coordinator', () => {
             });
             expect(capability.value!.start).toHaveBeenCalledWith(expect.not.objectContaining({outputPdfPath: expect.anything()}));
             listener({
-                jobId: 'job-1',
+                jobId: requireJobId('job-1'),
                 status: 'completed',
                 outputPdfPath: '/managed/book — cleaned.pdf',
                 summary: {
@@ -553,7 +569,7 @@ describe('scan cleanup run coordinator', () => {
                 },
                 partial: false,
                 progress: progress(4),
-                updatedAtMs: Date.now(),
+                updatedAtMs: requireEpochMs(Date.now()),
             });
             await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'success'})));
             expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/book — cleaned.pdf', expect.any(AbortSignal));
@@ -565,17 +581,17 @@ describe('scan cleanup run coordinator', () => {
             await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/book.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             });
             coordinator.scanCleanupRun.workspaceOwnerIds.clear();
             listener({
-                jobId: 'job-2',
+                jobId: requireJobId('job-2'),
                 status: 'failed',
                 error: 'sidecar failed',
                 errorCode: 'native-failure',
                 failure: diagnosticMocks.failure,
                 progress: progress(1),
-                updatedAtMs: Date.now(),
+                updatedAtMs: requireEpochMs(Date.now()),
             });
             expect(coordinator.getScanCleanupRunError(ownerContext.ownerId))
                 .toBe('scanCleanup.failed (sidecar failed)');
@@ -593,13 +609,13 @@ describe('scan cleanup run coordinator', () => {
             await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/book.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             });
             listener({
-                jobId: 'job-3',
+                jobId: requireJobId('job-3'),
                 status: 'canceled',
                 progress: progress(1),
-                updatedAtMs: Date.now(),
+                updatedAtMs: requireEpochMs(Date.now()),
             });
             await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'info'})));
             expect(openGeneratedPdf).toHaveBeenCalledOnce();
@@ -624,14 +640,14 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
             saveActiveDocumentAs: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: toastAdd},
         });
         try {
             const started = await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/deadline.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             });
 
             // One id was minted, and the run and the output it hands over are
@@ -685,7 +701,7 @@ describe('scan cleanup run coordinator', () => {
             await expect(coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/next.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             })).resolves.toMatchObject({started: true});
             expect(nextJobId).toHaveBeenCalledTimes(2);
             expect(coordinator.scanCleanupRun.activeJobId).toBe('job-after-deadline');
@@ -706,7 +722,7 @@ describe('scan cleanup run coordinator', () => {
         const dispose = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: firstOpen,
             saveActiveDocumentAs: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: firstToast},
         });
         let reinstall: (() => void) | null = null;
@@ -714,7 +730,7 @@ describe('scan cleanup run coordinator', () => {
             const started = await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/disposed.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             });
 
             expect(nextJobId).toHaveBeenCalledOnce();
@@ -743,7 +759,7 @@ describe('scan cleanup run coordinator', () => {
             reinstall = coordinator.installScanCleanupRunCoordinator({
                 openGeneratedPdf: secondOpen,
                 saveActiveDocumentAs: vi.fn(),
-                t: ((key: string) => key) as never,
+                t: translate,
                 toast: {add: secondToast},
             });
             listener(completedState('job-disposed'));
@@ -759,7 +775,7 @@ describe('scan cleanup run coordinator', () => {
             await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/after-replay.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             });
             abandonedOpen.resolve(true);
             await Promise.resolve();
@@ -778,7 +794,7 @@ describe('scan cleanup run coordinator', () => {
     it('maps out-of-order completion to exact source-page ticks only for that workspace', async () => {
         const {resolveScanCleanupProcessedPages} = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const runningState: TScanCleanupJobState = {
-            jobId: 'job-progress',
+            jobId: requireJobId('job-progress'),
             status: 'running',
             progress: {
                 ...progress(3, 6),
@@ -788,7 +804,7 @@ describe('scan cleanup run coordinator', () => {
                     4,
                 ],
             },
-            updatedAtMs: Date.now(),
+            updatedAtMs: requireEpochMs(Date.now()),
         };
 
         expect([...resolveScanCleanupProcessedPages(
@@ -822,19 +838,10 @@ describe('scan cleanup run coordinator', () => {
             cancelDetection: vi.fn(),
             getDetectionJobState: vi.fn(),
             subscribeDetectionJob: vi.fn(),
-            start: vi.fn(async () => ({
-                started: true as const,
-                jobId: 'job-partial',
-                outputPdfPath: '/managed/job-partial.pdf',
-            })),
+            start: vi.fn(async () => startResult('job-partial', '/managed/job-partial.pdf')),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
-            subscribeJob: vi.fn(async jobId => ({
-                jobId,
-                status: 'running' as const,
-                progress: progress(),
-                updatedAtMs: Date.now(),
-            })),
+            subscribeJob: vi.fn(async (jobId: TJobId) => runningJobState(jobId)),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
             onPreviewRaw: vi.fn(() => () => undefined),
@@ -849,18 +856,18 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(async () => true),
             saveActiveDocumentAs: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: toastAdd},
         });
         try {
             await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/book.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
                 sourcePageNumbers: [3],
             });
             listener({
-                jobId: 'job-partial',
+                jobId: requireJobId('job-partial'),
                 status: 'completed',
                 outputPdfPath: '/managed/book-cleaned.pdf',
                 summary: {
@@ -876,7 +883,7 @@ describe('scan cleanup run coordinator', () => {
                 },
                 partial: true,
                 progress: progress(1, 1),
-                updatedAtMs: Date.now(),
+                updatedAtMs: requireEpochMs(Date.now()),
             });
             await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(
                 expect.objectContaining({title: 'scanCleanup.completedPartialTitle'}),
@@ -896,19 +903,10 @@ describe('scan cleanup run coordinator', () => {
             cancelDetection: vi.fn(),
             getDetectionJobState: vi.fn(),
             subscribeDetectionJob: vi.fn(),
-            start: vi.fn(async () => ({
-                started: true as const,
-                jobId: 'job-open-gate',
-                outputPdfPath: '/managed/job-open-gate.pdf',
-            })),
+            start: vi.fn(async () => startResult('job-open-gate', '/managed/job-open-gate.pdf')),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
-            subscribeJob: vi.fn(async jobId => ({
-                jobId,
-                status: 'running' as const,
-                progress: progress(),
-                updatedAtMs: Date.now(),
-            })),
+            subscribeJob: vi.fn(async (jobId: TJobId) => runningJobState(jobId)),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
             onPreviewRaw: vi.fn(() => () => undefined),
@@ -924,17 +922,17 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
             saveActiveDocumentAs: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: toastAdd},
         });
         try {
             await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/book.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             });
             const completed: TScanCleanupJobState = {
-                jobId: 'job-open-gate',
+                jobId: requireJobId('job-open-gate'),
                 status: 'completed',
                 outputPdfPath: '/managed/job-open-gate.pdf',
                 summary: {
@@ -950,7 +948,7 @@ describe('scan cleanup run coordinator', () => {
                 },
                 partial: false,
                 progress: progress(1, 1),
-                updatedAtMs: Date.now(),
+                updatedAtMs: requireEpochMs(Date.now()),
             };
             listener(completed);
             await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledOnce());
@@ -984,19 +982,10 @@ describe('scan cleanup run coordinator', () => {
             cancelDetection: vi.fn(),
             getDetectionJobState: vi.fn(),
             subscribeDetectionJob: vi.fn(),
-            start: vi.fn(async () => ({
-                started: true as const,
-                jobId: 'job-open-failure',
-                outputPdfPath: '/managed/job-open-failure.pdf',
-            })),
+            start: vi.fn(async () => startResult('job-open-failure', '/managed/job-open-failure.pdf')),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
-            subscribeJob: vi.fn(async jobId => ({
-                jobId,
-                status: 'running' as const,
-                progress: progress(),
-                updatedAtMs: Date.now(),
-            })),
+            subscribeJob: vi.fn(async (jobId: TJobId) => runningJobState(jobId)),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
             onPreviewRaw: vi.fn(() => () => undefined),
@@ -1014,17 +1003,17 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
             saveActiveDocumentAs: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: toastAdd},
         });
         try {
             await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/book.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             });
             listener({
-                jobId: 'job-open-failure',
+                jobId: requireJobId('job-open-failure'),
                 status: 'completed',
                 outputPdfPath: '/managed/missing.pdf',
                 summary: {
@@ -1040,7 +1029,7 @@ describe('scan cleanup run coordinator', () => {
                 },
                 partial: false,
                 progress: progress(1, 1),
-                updatedAtMs: Date.now(),
+                updatedAtMs: requireEpochMs(Date.now()),
             });
 
             await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
@@ -1056,7 +1045,7 @@ describe('scan cleanup run coordinator', () => {
     it('does not restore a stale active id when a terminal event beats start resolution', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         const completed: TScanCleanupJobState = {
-            jobId: 'job-instant',
+            jobId: requireJobId('job-instant'),
             status: 'completed',
             outputPdfPath: '/managed/instant.pdf',
             summary: {
@@ -1072,7 +1061,7 @@ describe('scan cleanup run coordinator', () => {
             },
             partial: false,
             progress: progress(1, 1),
-            updatedAtMs: Date.now(),
+            updatedAtMs: requireEpochMs(Date.now()),
         };
         const subscribeJob = vi.fn(async () => completed);
         capability.value = {
@@ -1084,11 +1073,7 @@ describe('scan cleanup run coordinator', () => {
             subscribeDetectionJob: vi.fn(),
             start: vi.fn(async () => {
                 listener(completed);
-                return {
-                    started: true as const,
-                    jobId: completed.jobId,
-                    outputPdfPath: completed.outputPdfPath,
-                };
+                return startResult('job-instant', '/managed/instant.pdf');
             }),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
@@ -1107,14 +1092,14 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
             saveActiveDocumentAs: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: vi.fn()},
         });
         try {
             await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/instant.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             });
             await vi.waitFor(() => expect(openGeneratedPdf).toHaveBeenCalledWith('/managed/instant.pdf', expect.any(AbortSignal)));
             await vi.waitFor(() => expect(coordinator.scanCleanupRun.activeJobId).toBeNull());
@@ -1141,11 +1126,7 @@ describe('scan cleanup run coordinator', () => {
             cancelDetection: vi.fn(),
             getDetectionJobState: vi.fn(),
             subscribeDetectionJob: vi.fn(),
-            start: vi.fn(async () => ({
-                started: true as const,
-                jobId: nextJobId,
-                outputPdfPath: `/managed/${nextJobId}.pdf`,
-            })),
+            start: vi.fn(async () => startResult(nextJobId)),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
             subscribeJob: vi.fn(async () => null),
@@ -1162,35 +1143,17 @@ describe('scan cleanup run coordinator', () => {
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
             saveActiveDocumentAs: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: vi.fn()},
         });
         try {
-            const completed = (jobId: string): TScanCleanupJobState => ({
-                jobId,
-                status: 'completed',
-                outputPdfPath: `/managed/${jobId}.pdf`,
-                summary: {
-                    inputPages: 1,
-                    outputPages: 1,
-                    spreadsSplit: 0,
-                    offcutsDiscarded: 0,
-                    deskewSkipped: 0,
-                    cropSkipped: 0,
-                    excludedPages: 0,
-                    blankPagesSkipped: 0,
-                    warnings: [],
-                },
-                partial: false,
-                progress: progress(1, 1),
-                updatedAtMs: Date.now(),
-            });
+            const completed = (jobId: string): TScanCleanupJobState => completedState(jobId);
             const runJobToCompletion = async (jobId: string) => {
                 nextJobId = jobId;
                 await coordinator.startScanCleanup({
                     ...ownerContext,
                     sourcePdfPath: `/source/${jobId}.pdf`,
-                    options: expect.anything() as never,
+                    options: createScanCleanupOptions(),
                 });
                 // The bridge replays the state a reconnect answers, so every job's
                 // terminal state arrives more than once.
@@ -1208,7 +1171,7 @@ describe('scan cleanup run coordinator', () => {
             await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/job-0.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             });
             expect(coordinator.scanCleanupRun.activeJobId).toBeNull();
             expect(coordinator.isScanCleanupRunning.value).toBe(false);
@@ -1227,7 +1190,7 @@ describe('scan cleanup run coordinator', () => {
             await coordinator.startScanCleanup({
                 ...ownerContext,
                 sourcePdfPath: '/source/job-0.pdf',
-                options: expect.anything() as never,
+                options: createScanCleanupOptions(),
             });
             expect(coordinator.scanCleanupRun.activeJobId).toBe('job-0');
         } finally {
@@ -1241,7 +1204,7 @@ describe('scan cleanup run coordinator', () => {
         const dependencies = {
             openGeneratedPdf: vi.fn(async () => true),
             saveActiveDocumentAs: vi.fn(),
-            t: ((key: string) => key) as never,
+            t: translate,
             toast: {add: vi.fn()},
         };
         const firstCleanup = coordinator.installScanCleanupRunCoordinator(dependencies);

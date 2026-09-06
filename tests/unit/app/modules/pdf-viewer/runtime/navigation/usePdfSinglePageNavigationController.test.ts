@@ -20,9 +20,13 @@ import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-p
 import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
+import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 
 function requireLayoutPageTop(layout: IPdfPageLayoutMetrics, pageIndex: number) {
-    const top = getLayoutPageTop(layout, pageIndex);
+    const top = getLayoutPageTop(layout, requirePageIndex(pageIndex));
     if (top === null) {
         throw new Error(`Expected a layout top for page index ${String(pageIndex)}`);
     }
@@ -487,7 +491,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            expect(controller.scrollToPage(2)).toBe(true);
+            expect(controller.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(2);
             });
@@ -704,11 +708,11 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            expect(controller.scrollToPage(3)).toBe(true);
+            expect(controller.scrollToPage(requirePageNumber(3))).toBe(true);
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(3);
             });
-            expect(getLayoutPageTop(layout, 2)).toBeGreaterThan(viewer.scrollHeight);
+            expect(getLayoutPageTop(layout, requirePageIndex(2))).toBeGreaterThan(viewer.scrollHeight);
             expect(viewportWrites.writes.at(-1)?.top).toBe(0);
             expect(viewer.scrollTop).toBe(0);
         } finally {
@@ -1307,7 +1311,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            expect(controller.scrollToPage(2)).toBe(true);
+            expect(controller.scrollToPage(requirePageNumber(2))).toBe(true);
             await vi.waitFor(() => {
                 expect(prepareNavigationVisual).toHaveBeenCalledWith(
                     {
@@ -1332,7 +1336,7 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(viewer.querySelector('[data-page="1"] canvas')).not.toBeNull();
             expect(viewer.querySelector('[data-page="2"] .document-page-skeleton')).not.toBeNull();
 
-            expect(controller.scrollToPage(3)).toBe(true);
+            expect(controller.scrollToPage(requirePageNumber(3))).toBe(true);
             await vi.waitFor(() => {
                 expect(viewportWrites.writes).toHaveLength(1);
             });
@@ -1428,7 +1432,7 @@ describe('usePdfSinglePageNavigationController', () => {
             // requestedCurrentPage prop is a projection of the open surface
             // and must never be treated as the command channel.
             for (let requestedPage = 2; requestedPage <= 6; requestedPage += 1) {
-                controller.scrollToPage(requestedPage);
+                controller.scrollToPage(requirePageNumber(requestedPage));
                 await nextTick();
             }
             expect(controller.navigationAnchorPage.value).toBe(6);
@@ -1562,7 +1566,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            expect(controller.scrollToPage(5)).toBe(true);
+            expect(controller.scrollToPage(requirePageNumber(5))).toBe(true);
             expect(controller.navigationAnchorPage.value).toBe(5);
             isLoading.value = false;
             await nextTick();

@@ -1,4 +1,5 @@
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TDocumentRef } from '@contracts/documentRef';
 
 export type TBrowserDocumentStorageMode =
     | 'inline'
@@ -35,6 +36,7 @@ export interface IBrowserPersistedDocumentRecord {
 }
 
 export interface IBrowserDocumentEntry extends IBrowserPersistedDocumentRecord {
+    ref: TDocumentRef;
     /** Volatile runtime state: persistence failed, so unloading would lose the document. */
     memoryOnly?: boolean;
     /** Volatile immutable File snapshot used for consistent browser range reads. */
@@ -98,7 +100,7 @@ export interface IChunkKeyRecord {
 }
 
 export interface IBrowserDocumentEntryInput {
-    ref: string;
+    ref: TDocumentRef;
     fileName: string;
     mimeType: string;
     kind: IBrowserDocumentEntry['kind'];

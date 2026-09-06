@@ -10,7 +10,6 @@ import {
     ref,
 } from 'vue';
 import { SIDEBAR } from '@app/constants/pdfLayout';
-import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({useEventListener: vi.fn()}));
 
@@ -20,6 +19,28 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     diagnosticThrottled: vi.fn(),
     warn: vi.fn(),
 }}));
+
+interface IPointerEventFixtureOptions {
+    clientX?: number;
+    preventDefault?: () => void;
+}
+
+function createPointerEventFixture(options: IPointerEventFixtureOptions = {}): PointerEvent {
+    const event = new Event('pointermove', {cancelable: true});
+    Object.defineProperty(event, 'clientX', {
+        configurable: true,
+        value: options.clientX ?? 0,
+    });
+    if (options.preventDefault) {
+        Object.defineProperty(event, 'preventDefault', {
+            configurable: true,
+            value: options.preventDefault,
+        });
+    }
+
+    // happy-dom does not provide the PointerEvent shape used by the resize composable.
+    return event as PointerEvent;
+}
 
 describe('useSidebarResize', () => {
     beforeEach(() => {
@@ -45,18 +66,18 @@ describe('useSidebarResize', () => {
         const { useSidebarResize } = await import('@app/modules/workspace-shell/composables/useSidebarResize');
         const resize = useSidebarResize({ showSidebar });
 
-        resize.startSidebarResize(cast<PointerEvent>({
+        resize.startSidebarResize(createPointerEventFixture({
             clientX: 400,
             preventDefault: vi.fn(),
         }));
 
-        handlers.get('pointermove')?.(cast<PointerEvent>({clientX: 0}));
+        handlers.get('pointermove')?.(createPointerEventFixture({clientX: 0}));
 
         expect(resize.sidebarWidth.value).toBe(SIDEBAR.MIN_WIDTH);
         expect(showSidebar.value).toBe(true);
         expect(resize.isResizingSidebar.value).toBe(true);
 
-        handlers.get('pointerup')?.(cast<PointerEvent>({}));
+        handlers.get('pointerup')?.(createPointerEventFixture());
 
         expect(resize.isResizingSidebar.value).toBe(false);
     });
@@ -72,12 +93,12 @@ describe('useSidebarResize', () => {
         const { useSidebarResize } = await import('@app/modules/workspace-shell/composables/useSidebarResize');
         const resize = useSidebarResize({ showSidebar });
 
-        resize.startSidebarResize(cast<PointerEvent>({
+        resize.startSidebarResize(createPointerEventFixture({
             clientX: 400,
             preventDefault: vi.fn(),
         }));
 
-        handlers.get('pointermove')?.(cast<PointerEvent>({clientX: 10_000}));
+        handlers.get('pointermove')?.(createPointerEventFixture({clientX: 10_000}));
 
         expect(resize.sidebarWidth.value).toBe(SIDEBAR.MAX_WIDTH);
         expect(resize.sidebarWrapperStyle.value.width).toBe(`${SIDEBAR.MAX_WIDTH + SIDEBAR.RESIZER_WIDTH}px`);
@@ -119,7 +140,7 @@ describe('useSidebarResize', () => {
         const resize = useSidebarResize({ showSidebar });
         const preventDefault = vi.fn();
 
-        resize.startSidebarResize(cast<PointerEvent>({
+        resize.startSidebarResize(createPointerEventFixture({
             clientX: 400,
             preventDefault,
         }));

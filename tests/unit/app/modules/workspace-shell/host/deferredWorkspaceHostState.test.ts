@@ -7,7 +7,6 @@ import {
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
-    type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
@@ -18,7 +17,8 @@ import {
     workspaceHasDocumentOrOpenError,
     workspaceHasOpenedDocument,
 } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
-import { cast } from '@tests/helpers/cast';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 function createColdDocumentSession(tabId: string, path: string) {
     return createWorkspaceDocumentController({
@@ -27,7 +27,7 @@ function createColdDocumentSession(tabId: string, path: string) {
         initialRecord: createWorkspaceDocumentRecord({
             tab: {
                 fileName: path.split('/').at(-1) ?? path,
-                originalPath: path,
+                originalPath: requireDocumentRef(path),
                 isDirty: false,
                 isDjvu: false,
             },
@@ -41,13 +41,13 @@ function createColdDocumentSession(tabId: string, path: string) {
 }
 
 function createEmptyMountedWorkspace() {
-    return cast<IWorkspaceExpose>({getToolbarSnapshot: vi.fn(() => createDefaultWorkspaceToolbarSnapshot())});
+    return createWorkspaceExposeFixture({getToolbarSnapshot: vi.fn(() => createDefaultWorkspaceToolbarSnapshot())});
 }
 
 function createMountedWorkspace(
     toolbarSnapshot: ReturnType<typeof createDefaultWorkspaceToolbarSnapshot>,
 ) {
-    return cast<IWorkspaceExpose>({getToolbarSnapshot: vi.fn(() => toolbarSnapshot)});
+    return createWorkspaceExposeFixture({getToolbarSnapshot: vi.fn(() => toolbarSnapshot)});
 }
 
 describe('deferredWorkspaceHostState', () => {
@@ -67,7 +67,7 @@ describe('deferredWorkspaceHostState', () => {
                 && tryClaimWorkspaceRestoreAttempt(
                     restoreAttempts,
                     firstSession.snapshot.value,
-                    '/tmp/first.pdf',
+                    requireDocumentRef('/tmp/first.pdf'),
                 )
             ) {
                 restoredPaths.push('/tmp/first.pdf');
@@ -100,7 +100,7 @@ describe('deferredWorkspaceHostState', () => {
                 && tryClaimWorkspaceRestoreAttempt(
                     restoreAttempts,
                     session.snapshot.value,
-                    '/tmp/pending.pdf',
+                    requireDocumentRef('/tmp/pending.pdf'),
                 )
             ) {
                 restoredPaths.push('/tmp/pending.pdf');
@@ -146,36 +146,36 @@ describe('deferredWorkspaceHostState', () => {
         expect(tryClaimWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
         )).toBe(true);
         expect(tryClaimWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
         )).toBe(false);
 
         finishWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
             false,
         );
         expect(tryClaimWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
         )).toBe(true);
 
         finishWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
             true,
         );
         expect(tryClaimWorkspaceRestoreAttempt(
             restoreAttempts,
             session.snapshot.value,
-            '/tmp/first.pdf',
+            requireDocumentRef('/tmp/first.pdf'),
         )).toBe(false);
     });
 
@@ -184,7 +184,7 @@ describe('deferredWorkspaceHostState', () => {
         session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'failed.pdf',
-                originalPath: '/tmp/failed.pdf',
+                originalPath: requireDocumentRef('/tmp/failed.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },

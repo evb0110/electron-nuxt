@@ -1,4 +1,6 @@
 import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     beforeEach,
     describe,
@@ -272,11 +274,11 @@ describe('DocumentTextCatalog reader agreement', () => {
         state.artifacts = new Map(fixture.artifacts);
 
         const viewer = useOcrTextContent();
-        await expect(viewer.hasPageOcrData(fixture.path, fixture.revision, 406)).resolves.toBe(true);
+        await expect(viewer.hasPageOcrData(requireDocumentRef(fixture.path), fixture.revision, requirePageNumber(406))).resolves.toBe(true);
         await expect(viewer.getOcrTextContent(
-            fixture.path,
+            requireDocumentRef(fixture.path),
             fixture.revision,
-            406,
+            requirePageNumber(406),
             createViewport(),
         )).resolves.not.toBeNull();
 
@@ -440,7 +442,7 @@ describe('DocumentTextCatalog reader agreement', () => {
         ]);
         state.artifacts = new Map(fixture.artifacts);
 
-        const exportPages = await loadDocumentTextCatalogPages(fixture.path, fixture.revision);
+        const exportPages = await loadDocumentTextCatalogPages(requireDocumentRef(fixture.path), fixture.revision);
         const viewer = useOcrTextContent();
         const viewerPages = await Promise.all([
             1,
@@ -448,9 +450,9 @@ describe('DocumentTextCatalog reader agreement', () => {
             3,
         ].map(async pageNumber => {
             const content = await viewer.getOcrTextContent(
-                fixture.path,
+                requireDocumentRef(fixture.path),
                 fixture.revision,
-                pageNumber,
+                requirePageNumber(pageNumber),
                 createViewport(),
             );
             return {
@@ -501,11 +503,11 @@ describe('DocumentTextCatalog reader agreement', () => {
         mutate(fixture.artifacts);
         state.artifacts = new Map(fixture.artifacts);
 
-        const exportPages = await loadDocumentTextCatalogPages(OCR_CATALOG_FIXTURE_PATH, OCR_CATALOG_FIXTURE_REVISION);
+        const exportPages = await loadDocumentTextCatalogPages(requireDocumentRef(OCR_CATALOG_FIXTURE_PATH), OCR_CATALOG_FIXTURE_REVISION);
         const viewerContent = await useOcrTextContent().getOcrTextContent(
-            OCR_CATALOG_FIXTURE_PATH,
+            requireDocumentRef(OCR_CATALOG_FIXTURE_PATH),
             OCR_CATALOG_FIXTURE_REVISION,
-            1,
+            requirePageNumber(1),
             createViewport(),
         );
         const search = await buildSearchIndex(OCR_CATALOG_FIXTURE_PATH, [], {

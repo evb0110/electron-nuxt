@@ -1,17 +1,20 @@
+import type {TBrand} from '@contracts/brand';
+
 export type TDocumentBackend = 'electron' | 'browser';
 
-export type TLegacyDocumentRef = string;
+// Remove when every IPC surface in electronApiDocuments.ts accepts only TStructuredDocumentRef and the recent-files store is migrated.
+export type TLegacyDocumentRef = TBrand<string, 'DocumentRef'>;
 
 export interface IBrowserDocumentRef {
     kind: 'browser-document-ref';
     backend: 'browser';
-    ref: string;
+    ref: TDocumentRef;
 }
 
 export interface INativeDocumentRef {
     kind: 'native-document-ref';
     backend: 'electron';
-    path: string;
+    path: TDocumentRef;
 }
 
 export type TStructuredDocumentRef = IBrowserDocumentRef | INativeDocumentRef;
@@ -40,6 +43,20 @@ export function isNativeLegacyDocumentRef(value: unknown): value is TDocumentRef
             || WINDOWS_ABSOLUTE_PATH_PATTERN.test(value)
             || WINDOWS_UNC_PATH_PATTERN.test(value)
         );
+}
+
+export function parseDocumentRef(value: unknown): TDocumentRef | null {
+    return isBrowserLegacyDocumentRef(value) || isNativeLegacyDocumentRef(value)
+        ? value
+        : null;
+}
+
+export function requireDocumentRef(value: unknown): TDocumentRef {
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        throw new TypeError('Document reference must be a browser reference or absolute path');
+    }
+    return parsed;
 }
 
 export function isBrowserStructuredDocumentRef(value: unknown): value is IBrowserDocumentRef {

@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import { normalizePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { resolveCurrentSpreadBaseWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveCurrentSpreadBaseWidth';
@@ -18,7 +21,7 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
     viewMode: TPdfViewMode;
     viewRotation: TPdfViewRotation;
     effectiveScale: number;
-    getScaleForPage?: ((pageNumber: number) => number) | undefined;
+    getScaleForPage?: ((pageNumber: TPageNumber) => number) | undefined;
     scaledMargin: number;
 }): IRenderedSpreadHorizontalBounds | null {
     if (!options.basePageWidth || !options.basePageHeight || options.numPages <= 0) {
@@ -32,8 +35,9 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
         fallbackHeight: options.basePageHeight,
         viewRotation: options.viewRotation,
     });
+    const currentPage = requirePageNumber(options.currentPage, options.numPages);
     const rowBounds = getPageRowBoundsForViewMode({
-        pageNumber: options.currentPage,
+        pageNumber: currentPage,
         viewMode: options.viewMode,
         totalPages: options.numPages,
     });
@@ -42,16 +46,21 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
         normalizedMetrics,
         options.viewMode,
         options.numPages,
-        options.currentPage,
+        currentPage,
     );
     if (!baseSpreadWidth) {
         return null;
     }
 
     let renderedSpreadWidth = 0;
-    for (let pageNumber = rowBounds.start; pageNumber <= rowBounds.end; pageNumber += 1) {
+    for (
+        let pageNumber = Number(rowBounds.start);
+        pageNumber <= rowBounds.end;
+        pageNumber += 1
+    ) {
+        const normalizedPageNumber = requirePageNumber(pageNumber, options.numPages);
         const pageMetric = normalizedMetrics[pageNumber - 1];
-        const pageScale = options.getScaleForPage?.(pageNumber) ?? options.effectiveScale;
+        const pageScale = options.getScaleForPage?.(normalizedPageNumber) ?? options.effectiveScale;
         if (pageMetric && Number.isFinite(pageScale) && pageScale > 0) {
             renderedSpreadWidth += pageMetric.width * pageScale;
         }

@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type { ComputedRef } from 'vue';
 import type {
     IAnnotationSettings,
@@ -164,7 +166,7 @@ export const usePdfShapeContext = (deps: IUsePdfShapeContextDeps) => {
         activeShapeTool,
         settings: computed(() => annotationSettings.value ?? DEFAULT_ANNOTATION_SETTINGS),
         getShapesForPage: shapeComposable.getShapesForPage,
-        handleStartDrawing(pageIndex: number, coords: {
+        handleStartDrawing(pageIndex: TPageIndex, coords: {
             x: number;
             y: number
         }) {

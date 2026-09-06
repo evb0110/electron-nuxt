@@ -6,9 +6,11 @@ import {
 } from 'vitest';
 import type { IAgentAssistantState } from '@contracts/agent';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
+import { requireIsoTimestamp } from '@contracts/timestamps';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type { IpcRenderer } from 'electron';
-import { cast } from '@tests/helpers/cast';
+
+type TIpcRendererFixture = Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
 
 function createAssistantState(): IAgentAssistantState {
     const provider = {
@@ -99,13 +101,13 @@ function createAssistantState(): IAgentAssistantState {
                 lastEventAtMs: null,
                 usage: null,
             },
-            lastCheckedAt: '2026-07-10T00:00:00.000Z',
+            lastCheckedAt: requireIsoTimestamp('2026-07-10T00:00:00.000Z'),
         },
         messages: [{
             id: 'message-1',
             role: 'assistant',
             text: 'Ready',
-            createdAt: '2026-07-10T00:00:00.000Z',
+            createdAt: requireIsoTimestamp('2026-07-10T00:00:00.000Z'),
         }],
     };
 }
@@ -203,9 +205,10 @@ describe('Agent platform feature', () => {
             }),
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             AGENT_PLATFORM_FEATURE,
         );
 

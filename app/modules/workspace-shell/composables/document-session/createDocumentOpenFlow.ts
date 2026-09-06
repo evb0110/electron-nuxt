@@ -5,7 +5,10 @@ import type {
     useAnalytics,
 } from '@app/composables/useAnalytics';
 import type { TTranslateFn } from '@i18n-app';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     getFailureReceipt,
     type ExpectedOutcome,
@@ -22,6 +25,7 @@ import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
 import type { TPdfSource } from '@app/types/pdfUi';
+import { createRequestId } from '@contracts/shared';
 import type {
     createEpochGuard,
     IDocumentSessionState,
@@ -597,7 +601,9 @@ export function createDocumentOpenFlow(
             const documentOpen = getDocumentOpenCapability();
             const normalizedPaths = paths
                 .map((path) => path.trim())
-                .filter((path) => path.length > 0);
+                .filter((path) => path.length > 0)
+                .map(path => parseDocumentRef(path))
+                .filter((path): path is TDocumentRef => path !== null);
 
             if (normalizedPaths.length === 0) {
                 const message = deps.t('errors.file.invalid');
@@ -610,7 +616,7 @@ export function createDocumentOpenFlow(
                 } satisfies TDocumentOpenOutcome;
             }
 
-            const requestId = crypto.randomUUID();
+            const requestId = createRequestId('document-open');
             state.openBatchProgress.value = {
                 processed: 0,
                 total: normalizedPaths.length,

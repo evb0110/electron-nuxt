@@ -51,11 +51,11 @@ interface IBuildComposerImageAttachmentsOptions {
 }
 
 function createAssistantImageAttachmentId() {
-    return globalThis.crypto?.randomUUID?.() ?? `image-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return globalThis.crypto.randomUUID();
 }
 
 function isAssistantImageFile(file: File | null): file is File {
-    return Boolean(file?.type?.toLowerCase().startsWith('image/'));
+    return Boolean(file?.type.toLowerCase().startsWith('image/'));
 }
 
 export function getClipboardImageFiles(dataTransfer: DataTransfer | null) {

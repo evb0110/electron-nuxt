@@ -19,6 +19,12 @@ import {
     sendSentrySourcemapCanaries,
 } from '@scripts/release/send-sentry-sourcemap-canaries.mjs';
 import {getPrivateSourcemapManifestPath} from '@scripts/release/stage-private-sourcemaps.mjs';
+import { makeDsn } from '@sentry/core';
+
+const canaryDsn = makeDsn('https://public@o123.ingest.de.sentry.io/42');
+if (canaryDsn === undefined) {
+    throw new Error('Canary DSN fixture failed to parse');
+}
 
 const roots: string[] = [];
 const identity = {
@@ -46,7 +52,7 @@ async function setup() {
         debug_id: '12345678-1234-5678-9abc-123456789abc',
     }));
     await writeFile(manifestPath, JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         identity,
         bundles: [{
             bundle: 'dist-electron/main.js',
@@ -89,7 +95,7 @@ describe('Sentry source-map canaries', () => {
         const fetchImpl = vi.fn(async () => responses.shift() ?? new Response(null, {status: 500}));
         const sleep = vi.fn(async () => undefined);
 
-        await sendEnvelope({event_id: 'a'.repeat(32)}, 'https://public@o123.ingest.de.sentry.io/42', {
+        await sendEnvelope({event_id: 'a'.repeat(32)}, canaryDsn, {
             fetchImpl,
             sleep,
         });
@@ -105,7 +111,7 @@ describe('Sentry source-map canaries', () => {
 
         await expect(sendEnvelope(
             {event_id: 'a'.repeat(32)},
-            'https://public@o123.ingest.de.sentry.io/42',
+            canaryDsn,
             {
                 fetchImpl,
                 sleep,
@@ -123,7 +129,7 @@ describe('Sentry source-map canaries', () => {
 
         await expect(sendEnvelope(
             {event_id: 'a'.repeat(32)},
-            'https://public@o123.ingest.de.sentry.io/42',
+            canaryDsn,
             {
                 fetchImpl,
                 sleep,
@@ -152,7 +158,7 @@ describe('Sentry source-map canaries', () => {
             environment: 'test',
             tags: {
                 evb_schema: 'evb-diagnostic-v1',
-                evb_canary: 'sourcemap-v6',
+                evb_canary: 'sourcemap-v7',
             },
             exception: {values: [{stacktrace: {frames: [{
                 abs_path: 'dist-electron/main.js',
@@ -166,7 +172,9 @@ describe('Sentry source-map canaries', () => {
         });
         expect(receipt.events).toEqual([expect.objectContaining({
             bundle: 'dist-electron/main.js',
-            eventId: 'c5172bffbb9b5d21a3f35cb54c0f4b5b',
+            codeFile: 'dist-electron/main.js',
+            debugId: '12345678-1234-5678-9abc-123456789abc',
+            eventId: '3d5cd2dab9a963574eb65ac0881ff5bc',
             expectedFunction: 'start',
             expectedLine: 1,
             expectedSource: 'electron/main.ts',
@@ -237,7 +245,7 @@ describe('Sentry source-map canaries', () => {
             debug_id: '12345678-1234-5678-9abc-123456789abc',
         }));
         await writeFile(manifestPath, JSON.stringify({
-            schemaVersion: 1,
+            schemaVersion: 2,
             identity: webIdentity,
             bundles: [{
                 bundle: '.vercel/output/static/_nuxt/app.js',
@@ -269,6 +277,66 @@ describe('Sentry source-map canaries', () => {
                 filename: 'https://evb-viewer.invalid/_nuxt/app.js',
             }]}}]},
             debug_meta: {images: [{code_file: 'https://evb-viewer.invalid/_nuxt/app.js'}]},
+        });
+    });
+
+    it('uses the deployed browser URL shape for Vercel function bundles', async () => {
+        const webIdentity = {
+            target: 'web',
+            release: 'evb-viewer-web@1.2.3',
+            dist: 'preview-function-fixture',
+            environment: 'preview',
+        } as const;
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-sentry-function-canary-'));
+        roots.push(root);
+        const manifestPath = getPrivateSourcemapManifestPath({
+            projectRoot: root,
+            identity: webIdentity,
+        });
+        const stageRoot = path.dirname(manifestPath);
+        const mapPath = 'maps/.vercel/output/functions/__fallback.func/chunks/_/index.mjs.map';
+        await mkdir(path.join(stageRoot, path.dirname(mapPath)), {recursive: true});
+        await writeFile(path.join(stageRoot, mapPath), JSON.stringify({
+            version: 3,
+            file: 'index.mjs',
+            sources: ['../../../../../../server/index.ts'],
+            names: ['start'],
+            mappings: 'AAAAA',
+            debug_id: '12345678-1234-5678-9abc-123456789abc',
+        }));
+        await writeFile(manifestPath, JSON.stringify({
+            schemaVersion: 2,
+            identity: webIdentity,
+            bundles: [{
+                bundle: '.vercel/output/functions/__fallback.func/chunks/_/index.mjs',
+                role: 'nitro-server',
+                sources: ['server/index.ts'],
+                stagedMapPath: mapPath,
+            }],
+        }));
+        const sentEvents: unknown[] = [];
+        const sendEvent = vi.fn(async (event: unknown) => {
+            sentEvents.push(event);
+        });
+
+        await sendSentrySourcemapCanaries({
+            environment: {
+                EVB_SENTRY_TARGET: 'web',
+                EVB_SENTRY_RELEASE: webIdentity.release,
+                EVB_SENTRY_DIST: webIdentity.dist,
+                EVB_SENTRY_ENVIRONMENT: webIdentity.environment,
+                SENTRY_BROWSER_DSN: 'https://public@o123.ingest.de.sentry.io/42',
+            },
+            projectRoot: root,
+            sendEvent,
+        });
+
+        expect(sentEvents[0]).toMatchObject({
+            exception: {values: [{stacktrace: {frames: [{
+                abs_path: 'https://evb-viewer.invalid/__fallback.func/chunks/_/index.mjs',
+                filename: 'https://evb-viewer.invalid/__fallback.func/chunks/_/index.mjs',
+            }]}}]},
+            debug_meta: {images: [{code_file: 'https://evb-viewer.invalid/__fallback.func/chunks/_/index.mjs'}]},
         });
     });
 

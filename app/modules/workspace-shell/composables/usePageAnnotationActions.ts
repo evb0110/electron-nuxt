@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TDocumentRef } from '@contracts/documentRef';
 import * as VueUse from '@vueuse/core';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
@@ -815,7 +816,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 return;
             }
             await viewer.startImagePlacement(file, {
-                ...(pageNumber !== undefined ? { pageNumber } : {}),
+                ...(pageNumber === undefined || pageNumber === null
+                    ? {}
+                    : {pageNumber: requirePageNumber(pageNumber)}),
                 ...(pageX !== undefined ? { pageX } : {}),
                 ...(pageY !== undefined ? { pageY } : {}),
                 ...(existingImage ?? {}),
@@ -846,7 +849,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             if (!file) {
                 return false;
             }
-            const targetPage = pageNumber ?? viewer.getCurrentPage?.() ?? deps.currentPage.value;
+            const targetPage = requirePageNumber(
+                pageNumber ?? viewer.getCurrentPage?.() ?? deps.currentPage.value,
+            );
             return await viewer.startImagePlacement(file, {
                 pageNumber: targetPage,
                 ...(pageX !== undefined ? { pageX } : {}),
@@ -1009,7 +1014,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
         try {
             await pdfViewerRef.value.commentAtPoint(
-                pageNumber,
+                requirePageNumber(pageNumber),
                 pageX,
                 pageY,
                 { preferTextAnchor: false },

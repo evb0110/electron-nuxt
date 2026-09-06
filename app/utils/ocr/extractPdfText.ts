@@ -15,7 +15,7 @@ interface IPdfTextDocumentLike {
 
 export async function extractPdfText(pdfDocument: IPdfTextDocumentLike) {
     try {
-        const pageCount = pdfDocument.numPages ?? 0;
+        const pageCount = pdfDocument.numPages;
         if (pageCount === 0) {
             return null;
         }

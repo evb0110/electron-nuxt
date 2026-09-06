@@ -1,3 +1,4 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
 import {
@@ -35,7 +36,7 @@ const bookmark: IBookmarkItem = {
     id: 'first',
     title: 'First',
     dest: null,
-    pageIndex: 0,
+    pageIndex: requirePageIndex(0),
     bold: false,
     italic: false,
     color: null,

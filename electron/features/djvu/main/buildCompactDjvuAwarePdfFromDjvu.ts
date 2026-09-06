@@ -20,14 +20,14 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { createInterface } from 'node:readline';
-import { limitAsync } from 'es-toolkit/array';
+import { limitAsync } from 'es-toolkit/promise';
 import type {
     IDjvuConversionPageMetrics,
     TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
 import { isRecord } from '@contracts/runtimeGuards';
-import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
-import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
+import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
+import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
 import {
     renderDjvuPageToImage,
     runRegisteredDjvuProcess,

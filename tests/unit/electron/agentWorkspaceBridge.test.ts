@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import type {
     BrowserWindow,
     IpcMainInvokeEvent,
+    WebContents,
 } from 'electron';
 import {
     beforeEach,
@@ -15,7 +16,8 @@ import type {
     IAgentWorkspaceSnapshotRequest,
 } from '@contracts/agent';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
-import { cast } from '@tests/helpers/cast';
+import { requireIsoTimestamp } from '@contracts/timestamps';
+import { requireTabId } from '@contracts/windowTabs';
 import type * as AgentWorkspaceBridgeModule from '@electron/features/agent/workspaceBridge';
 
 const mocks = vi.hoisted(() => ({fromWebContents: vi.fn()}));
@@ -57,12 +59,36 @@ function createFakeWindow(id = 101): IFakeWindow {
     return window;
 }
 
-function toBrowserWindow(window: IFakeWindow) {
-    return cast<BrowserWindow>(window);
+function isWebContentsTestDouble(value: IFakeWebContents): value is IFakeWebContents & WebContents {
+    return typeof value.isDestroyed === 'function'
+        && typeof value.once === 'function'
+        && typeof value.on === 'function'
+        && typeof value.removeListener === 'function'
+        && typeof value.send === 'function';
 }
 
-function createResponseEvent(window: IFakeWindow) {
-    return cast<IpcMainInvokeEvent>({sender: window.webContents});
+function isBrowserWindowTestDouble(value: IFakeWindow): value is IFakeWindow & BrowserWindow {
+    return typeof value.id === 'number'
+        && typeof value.isDestroyed === 'function'
+        && typeof value.once === 'function'
+        && typeof value.removeListener === 'function'
+        && isWebContentsTestDouble(value.webContents);
+}
+
+function toBrowserWindow(window: IFakeWindow) {
+    // The bridge only reads the members checked here from this Electron double.
+    if (!isBrowserWindowTestDouble(window)) {
+        throw new Error('Invalid BrowserWindow test double');
+    }
+    return window;
+}
+
+function createResponseEvent(window: IFakeWindow): Pick<IpcMainInvokeEvent, 'sender'> {
+    // The response bridge only reads sender from this IPC event double.
+    if (!isWebContentsTestDouble(window.webContents)) {
+        throw new Error('Invalid WebContents test double');
+    }
+    return {sender: window.webContents};
 }
 
 function isSnapshotRequest(value: unknown): value is IAgentWorkspaceSnapshotRequest & {windowId: number} {
@@ -90,7 +116,7 @@ function getSnapshotRequest(window: IFakeWindow, index = 0) {
 
 function createWorkspaceSnapshot(): IAgentWorkspaceSnapshot {
     return {
-        capturedAt: '2026-06-22T00:00:00.000Z',
+        capturedAt: requireIsoTimestamp('2026-06-22T00:00:00.000Z'),
         activePaneId: null,
         activeTabId: null,
         summary: {
@@ -148,7 +174,7 @@ describe('agent workspace bridge', () => {
 
         const pending = requestAgentCommand(toBrowserWindow(window), {
             name: 'activate_tab',
-            arguments: {tabId: 'tab-1'},
+            arguments: {tabId: requireTabId('tab-1')},
         }, 30_000);
         window.webContents.emit('render-process-gone');
 
@@ -162,7 +188,7 @@ describe('agent workspace bridge', () => {
 
             const pending = requestAgentCommand(toBrowserWindow(window), {
                 name: 'activate_tab',
-                arguments: {tabId: 'tab-1'},
+                arguments: {tabId: requireTabId('tab-1')},
             }).catch((error: unknown) => error);
 
             await vi.advanceTimersByTimeAsync(DEFAULT_AGENT_REQUEST_TIMEOUT_MS);
@@ -251,7 +277,7 @@ describe('agent workspace bridge', () => {
 
         const pending = requestAgentCommand(toBrowserWindow(window), {
             name: 'activate_tab',
-            arguments: {tabId: 'tab-1'},
+            arguments: {tabId: requireTabId('tab-1')},
         }, DEFAULT_AGENT_REQUEST_TIMEOUT_MS, undefined, abortController.signal);
         abortController.abort();
 
@@ -267,7 +293,7 @@ describe('agent workspace bridge', () => {
 
         const pending = requestAgentCommand(toBrowserWindow(window), {
             name: 'activate_tab',
-            arguments: {tabId: 'tab-1'},
+            arguments: {tabId: requireTabId('tab-1')},
         }, DEFAULT_AGENT_REQUEST_TIMEOUT_MS, undefined, abortController.signal);
 
         await expect(pending).rejects.toThrow('aborted by the caller');

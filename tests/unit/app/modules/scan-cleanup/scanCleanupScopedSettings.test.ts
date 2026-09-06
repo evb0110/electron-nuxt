@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     attachScanCleanupPageOverrideDefaults,
     createScanCleanupPageOverride,
@@ -182,26 +183,26 @@ describe('scan cleanup selection override state', () => {
             rotationDegrees: 90,
             excluded: true,
         });
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).excluded).toBe(true);
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 1_000_000).rotationDegrees).toBe(90);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)).excluded).toBe(true);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1_000_000)).rotationDegrees).toBe(90);
         const requestOptions = toPlainScanCleanupOptions(settings);
         expect(requestOptions.pageOverrideDefaults).toMatchObject({
             rotationDegrees: 90,
             excluded: true,
         });
-        expect(getScanCleanupPageOverride(requestOptions.pageOverrides, 1_000_000).excluded).toBe(true);
+        expect(getScanCleanupPageOverride(requestOptions.pageOverrides, requirePageNumber(1_000_000)).excluded).toBe(true);
 
         setScanCleanupPageOverride(
             settings.pageOverrides,
-            37,
+            requirePageNumber(37),
             createScanCleanupPageOverride({
                 rotationDegrees: 270,
                 excluded: false,
             }),
         );
         expect(Object.keys(settings.pageOverrides)).toEqual(['37']);
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 37).rotationDegrees).toBe(270);
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 1_000_000).excluded).toBe(true);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(37)).rotationDegrees).toBe(270);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1_000_000)).excluded).toBe(true);
     });
 
     it('persists manual zones on the leader page and clears rotation-bound geometry after rotation', () => {
@@ -259,11 +260,11 @@ describe('scan cleanup selection override state', () => {
         };
 
         selection.updateCurrentManualZones(manualZones);
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).manualZones).toEqual(manualZones);
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 2).manualZones).toBeUndefined();
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)).manualZones).toEqual(manualZones);
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(2)).manualZones).toBeUndefined();
 
         selection.updateRotation(90);
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 1)).toMatchObject({
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1))).toMatchObject({
             rotationDegrees: 90,
             manualZones: {
                 picture: [],
@@ -279,7 +280,7 @@ describe('scan cleanup selection override state', () => {
             })),
         });
         selection.resetControlOverride('rotation', [1]);
-        const resetOverride = getScanCleanupPageOverride(settings.pageOverrides, 1);
+        const resetOverride = getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1));
         expect(resetOverride.rotationDegrees).toBe(0);
         expect(resetOverride.manualZones ?? {
             picture: [],
@@ -319,7 +320,7 @@ describe('scan cleanup selection override state', () => {
 
         expect(selection.marginsLinked.value).toBe(true);
         selection.updateMargins('leftMm', 7);
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).marginsMm).toEqual({
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)).marginsMm).toEqual({
             leftMm: 7,
             topMm: 7,
             rightMm: 7,
@@ -328,7 +329,7 @@ describe('scan cleanup selection override state', () => {
 
         selection.setMarginsLinked(false);
         selection.updateMargins('topMm', 3);
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).marginsMm).toEqual({
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)).marginsMm).toEqual({
             leftMm: 7,
             topMm: 3,
             rightMm: 7,
@@ -336,7 +337,7 @@ describe('scan cleanup selection override state', () => {
         });
 
         selection.setMarginsLinked(true);
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).marginsMm).toEqual({
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)).marginsMm).toEqual({
             leftMm: 3,
             topMm: 3,
             rightMm: 3,
@@ -374,8 +375,8 @@ describe('scan cleanup selection override state', () => {
         selection.updateOutputModeOverride('mixed', [2]);
 
         expect(settings.outputMode).toBe('auto');
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 1).outputModeOverride).toBeUndefined();
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 2).outputModeOverride).toBe('mixed');
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)).outputModeOverride).toBeUndefined();
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(2)).outputModeOverride).toBe('mixed');
     });
 
     it('resolves per-side margin patches touching only the edited keys', () => {
@@ -451,12 +452,12 @@ describe('scan cleanup selection override state', () => {
             excluded: true,
         }));
 
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 1)).toMatchObject({
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1))).toMatchObject({
             layoutOverride: 'spread',
             excluded: true,
             rotationDegrees: 0,
         });
-        expect(getScanCleanupPageOverride(settings.pageOverrides, 2)).toMatchObject({
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(2))).toMatchObject({
             layoutOverride: 'spread',
             excluded: true,
             rotationDegrees: 90,
@@ -478,7 +479,7 @@ describe('scan cleanup selection override state', () => {
             },
             placementOverrides: {right: 'bottom-right'},
         })};
-        const leader = getScanCleanupPageOverride(overrides, 2);
+        const leader = getScanCleanupPageOverride(overrides, requirePageNumber(2));
         const targetPages = resolveScanCleanupApplyScope({
             leader: 2,
             pageCount: 5,
@@ -490,7 +491,7 @@ describe('scan cleanup selection override state', () => {
             2,
             4,
         ]);
-        expect(getScanCleanupPageOverride(overrides, 4)).toEqual(leader);
-        expect(getScanCleanupPageOverride(overrides, 1)).toEqual(createScanCleanupPageOverride());
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(4))).toEqual(leader);
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(1))).toEqual(createScanCleanupPageOverride());
     });
 });

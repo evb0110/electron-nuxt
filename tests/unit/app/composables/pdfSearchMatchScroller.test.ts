@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import { createPdfSearchMatchScroller } from '@app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 describe('createPdfSearchMatchScroller', () => {
     it('emits exactly one semantic rect request with no polling or private scroll', () => {
@@ -14,7 +15,7 @@ describe('createPdfSearchMatchScroller', () => {
         const scroller = createPdfSearchMatchScroller({
             getContainer: () => document.createElement('div'),
             getCurrentSearchMatch: () => ({
-                pageIndex: 2,
+                pageIndex: requirePageIndex(2),
                 pageWidth: 200,
                 pageHeight: 400,
                 words: [{
@@ -44,7 +45,7 @@ describe('createPdfSearchMatchScroller', () => {
         const revealSearchNavigationTarget = vi.fn();
         const scroller = createPdfSearchMatchScroller({
             getContainer: () => null,
-            getCurrentSearchMatch: () => ({pageIndex: 0}),
+            getCurrentSearchMatch: () => ({pageIndex: requirePageIndex(0)}),
             scrollToCurrentMatch: () => false,
             scheduleRenderForSinglePage: vi.fn(),
             revealSearchNavigationTarget,
@@ -58,7 +59,7 @@ describe('createPdfSearchMatchScroller', () => {
         const scroller = createPdfSearchMatchScroller({
             getContainer: () => null,
             getCurrentSearchMatch: () => ({
-                pageIndex: 4,
+                pageIndex: requirePageIndex(4),
                 startOffset: 42,
                 endOffset: 48,
                 excerpt: {
@@ -92,7 +93,7 @@ describe('createPdfSearchMatchScroller', () => {
         const scroller = createPdfSearchMatchScroller({
             getContainer: () => null,
             getCurrentSearchMatch: () => ({
-                pageIndex: 4,
+                pageIndex: requirePageIndex(4),
                 pageMatchIndex: 2,
                 matchIndex: 12,
                 startOffset: 420,
@@ -140,7 +141,7 @@ describe('createPdfSearchMatchScroller', () => {
         const scroller = createPdfSearchMatchScroller({
             getContainer: () => null,
             getCurrentSearchMatch: () => ({
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 pageMatchIndex: 0,
                 matchIndex: 12,
                 startOffset: 42,
@@ -176,7 +177,7 @@ describe('createPdfSearchMatchScroller', () => {
         const scrollToPage = vi.fn();
         const scroller = createPdfSearchMatchScroller({
             getContainer: () => null,
-            getCurrentSearchMatch: () => ({pageIndex: 1}),
+            getCurrentSearchMatch: () => ({pageIndex: requirePageIndex(1)}),
             scrollToCurrentMatch: () => false,
             scheduleRenderForSinglePage: vi.fn(),
             scrollToPage,

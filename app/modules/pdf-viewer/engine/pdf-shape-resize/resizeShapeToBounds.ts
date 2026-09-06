@@ -54,7 +54,7 @@ export function resizeShapeToBounds(
         };
     }
 
-    if (shape.type === 'polyline' || shape.type === 'polygon') {
+    {
         const strokes = shape.strokes?.map(points => points.map(point => scalePointToBounds(point, baselineBounds, nextBounds)))
             ?? null;
         const points = shape.points?.map(point => scalePointToBounds(point, baselineBounds, nextBounds))

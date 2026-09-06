@@ -1,0 +1,181 @@
+import AppKit
+import ApplicationServices
+import CoreGraphics
+import Foundation
+
+enum ProbeError: Error {
+    case invalidArguments(String)
+    case utmProcessCount(Int)
+    case targetWindowUnavailable(String)
+    case captureControlUnavailable(String)
+}
+
+struct ProbeResult: Codable {
+    let windowTitle: String
+    let before: Int
+    let after: Int
+    let frontmostPid: Int32
+    let utmPid: Int32
+    let action: String
+}
+
+func attribute(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
+    var result: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, key as CFString, &result) == .success else {
+        return nil
+    }
+    return result
+}
+
+func stringAttribute(_ element: AXUIElement, _ key: String) -> String? {
+    attribute(element, key) as? String
+}
+
+func children(_ element: AXUIElement) -> [AXUIElement] {
+    (attribute(element, kAXChildrenAttribute) as? [AXUIElement]) ?? []
+}
+
+func findCaptureControl(_ element: AXUIElement) -> AXUIElement? {
+    let role = stringAttribute(element, kAXRoleAttribute) ?? ""
+    let title = stringAttribute(element, kAXTitleAttribute) ?? ""
+    let description = stringAttribute(element, kAXDescriptionAttribute) ?? ""
+    let help = stringAttribute(element, kAXHelpAttribute) ?? ""
+    let label = "\(title) \(description) \(help)".lowercased()
+    if role == "AXCheckBox" && label.contains("capture") && label.contains("input") {
+        return element
+    }
+    for child in children(element) {
+        if let found = findCaptureControl(child) {
+            return found
+        }
+    }
+    return nil
+}
+
+func checkboxValue(_ control: AXUIElement) -> Int? {
+    guard let value = attribute(control, kAXValueAttribute) else {
+        return nil
+    }
+    if let number = value as? NSNumber {
+        return number.intValue
+    }
+    if let boolean = value as? Bool {
+        return boolean ? 1 : 0
+    }
+    return nil
+}
+
+func findWindow(_ application: AXUIElement, title: String) -> AXUIElement? {
+    guard let windows = attribute(application, kAXWindowsAttribute) as? [AXUIElement] else {
+        return nil
+    }
+    return windows.first { stringAttribute($0, kAXTitleAttribute) == title }
+}
+
+func releaseCapture(for pid: pid_t) {
+    let commandKey: CGKeyCode = 55
+    let optionKey: CGKeyCode = 58
+    let events = [
+        CGEvent(keyboardEventSource: nil, virtualKey: commandKey, keyDown: true),
+        CGEvent(keyboardEventSource: nil, virtualKey: optionKey, keyDown: true),
+        CGEvent(keyboardEventSource: nil, virtualKey: optionKey, keyDown: false),
+        CGEvent(keyboardEventSource: nil, virtualKey: commandKey, keyDown: false),
+    ]
+    for event in events {
+        event?.postToPid(pid)
+    }
+}
+
+func hideApplication(_ pid: pid_t) -> Bool {
+    let application = AXUIElementCreateApplication(pid)
+    return AXUIElementSetAttributeValue(
+        application,
+        kAXHiddenAttribute as CFString,
+        kCFBooleanTrue,
+    ) == .success
+}
+
+func parseArguments() throws -> (title: String, action: String) {
+    let arguments = CommandLine.arguments
+    var title: String?
+    var action = "status"
+    var index = 1
+    while index < arguments.count {
+        switch arguments[index] {
+        case "--window-title":
+            index += 1
+            guard index < arguments.count else {
+                throw ProbeError.invalidArguments("missing window title")
+            }
+            title = arguments[index]
+        case "--release":
+            action = "release"
+        case "--restore":
+            action = "restore"
+        case "--status":
+            action = "status"
+        default:
+            throw ProbeError.invalidArguments("unknown argument")
+        }
+        index += 1
+    }
+    guard let title, !title.isEmpty else {
+        throw ProbeError.invalidArguments("missing window title")
+    }
+    return (title, action)
+}
+
+let arguments = try parseArguments()
+let applications = NSRunningApplication.runningApplications(withBundleIdentifier: "com.utmapp.UTM")
+guard applications.count == 1, let application = applications.first else {
+    throw ProbeError.utmProcessCount(applications.count)
+}
+
+let pid = application.processIdentifier
+let axApplication = AXUIElementCreateApplication(pid)
+guard let window = findWindow(axApplication, title: arguments.title) else {
+    throw ProbeError.targetWindowUnavailable(arguments.title)
+}
+guard let control = findCaptureControl(window), let before = checkboxValue(control) else {
+    throw ProbeError.captureControlUnavailable(arguments.title)
+}
+
+if (arguments.action == "release" || arguments.action == "restore") && before != 0 {
+    releaseCapture(for: pid)
+    for _ in 0..<10 {
+        usleep(100_000)
+        if checkboxValue(control) == 0 {
+            break
+        }
+    }
+}
+
+let after = checkboxValue(control) ?? -1
+let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+if (arguments.action == "release" || arguments.action == "restore") && frontmostPid == pid {
+    _ = hideApplication(pid)
+}
+var restoredFrontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+if arguments.action == "release" || arguments.action == "restore" {
+    for _ in 0..<10 {
+        if restoredFrontmostPid != pid {
+            break
+        }
+        usleep(100_000)
+        restoredFrontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+    }
+}
+let output = ProbeResult(
+    windowTitle: arguments.title,
+    before: before,
+    after: after,
+    frontmostPid: restoredFrontmostPid,
+    utmPid: pid,
+    action: arguments.action,
+)
+let encoded = try JSONEncoder().encode(output)
+FileHandle.standardOutput.write(encoded)
+FileHandle.standardOutput.write(Data([10]))
+if arguments.action == "release" && after != 0 {
+    exit(EXIT_FAILURE)
+}

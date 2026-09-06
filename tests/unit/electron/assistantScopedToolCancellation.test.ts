@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantTurnLifecycle';
 import { abortAssistantToolRequestsForBinding } from '@electron/features/agent/mcpServer';
+import { requireTabId } from '@contracts/windowTabs';
 
 function createBinding(sessionKey: string, generation: number, windowId = 1): IAssistantSessionScopeBinding {
     return {
@@ -13,7 +14,7 @@ function createBinding(sessionKey: string, generation: number, windowId = 1): IA
         provider: 'codex',
         turnGeneration: generation,
         windowId,
-        tabId: `tab-${sessionKey}`,
+        tabId: requireTabId(`tab-${sessionKey}`),
         documentRef: null,
         documentIdentity: null,
     };

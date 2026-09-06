@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { createWriteStream } from 'node:fs';
 import type { WriteStream } from 'node:fs';
 import {
@@ -233,7 +234,7 @@ export async function runStressOperatorScenario(options: IStressOperatorDriverOp
     };
 
     const runTurns = async () => {
-        while (true) {
+        for (;;) {
             options.signal?.throwIfAborted();
             const halt = decideStressHalt({
                 turn,
@@ -268,13 +269,13 @@ export async function runStressOperatorScenario(options: IStressOperatorDriverOp
                 }, {signal: options.signal});
             } catch (error) {
                 const status = readApiErrorStatus(error);
-                stopReason = `api error${status ? ` ${status}` : ''}: ${error instanceof Error ? error.message : String(error)}`;
+                stopReason = `api error${status ? ` ${status}` : ''}: ${getErrorMessage(error)}`;
                 log(`operator ${stopReason}`);
                 return finish();
             }
             const usage = toStressUsageRecord(model, response.usage);
             ledger.add(usage);
-            log(`turn ${turn}: stop=${response.stop_reason} in=${usage.inputTokens} out=${usage.outputTokens} cost=${usage.costUsd === null ? '?' : `$${usage.costUsd.toFixed(3)}`}`);
+            log(`turn ${turn}: stop=${response.stop_reason ?? '<none>'} in=${usage.inputTokens} out=${usage.outputTokens} cost=${usage.costUsd === null ? '?' : `$${usage.costUsd.toFixed(3)}`}`);
 
             messages.push({
                 role: 'assistant',
@@ -339,7 +340,7 @@ export async function runStressOperatorScenario(options: IStressOperatorDriverOp
                     tOffsetMs: Date.now() - startedAt,
                     error: null,
                     evidence: null,
-                    ...(batchIndex === 0 && usage ? {usage} : {}),
+                    ...(batchIndex === 0 ? {usage} : {}),
                 };
                 if (!planned.execute || batchFailed) {
                     record.status = 'failed';

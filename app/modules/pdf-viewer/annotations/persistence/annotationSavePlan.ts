@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type {
     AnnotationEntity,
     AnnotationId,
@@ -35,7 +37,7 @@ const SAVE_MUTATION_ORDER: readonly TSaveMutationPhase[] = Object.freeze([
 
 export interface ISerializationPageOperation {
     readonly operation: 'rotate' | 'delete' | 'insert' | 'reorder' | 'crop' | 'remove-crop';
-    readonly pageIndexes: readonly number[];
+    readonly pageIndexes: readonly TPageIndex[];
     readonly fields: Readonly<Record<string, unknown>>;
 }
 
@@ -45,7 +47,7 @@ export interface ISerializationMetadataPlan {
 }
 
 export interface ISerializationOcrOperation {
-    readonly pageIndex: number;
+    readonly pageIndex: TPageIndex;
     readonly operation: 'replace-text-layer' | 'remove-text-layer';
     readonly payloadHash: string;
 }
@@ -371,7 +373,7 @@ interface IAnnotationVerificationDiagnostic {
     readonly kind: AnnotationEntity['kind'];
     /** What the reopened file turned out to hold, which is the other half of a kind mismatch. */
     readonly reopenedKind: AnnotationEntity['kind'];
-    readonly pageIndex: number;
+    readonly pageIndex: TPageIndex;
     readonly expectedSubtype: string | null;
     readonly reopenedSubtype: string | null;
     readonly expectedText: IAnnotationTextFingerprint;

@@ -19,6 +19,7 @@ import {
     updateDrawingShapeForPoint,
 } from '@app/modules/pdf-viewer/tools/annotationShapeDrawing';
 import {toCanonicalShapeEntity} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 interface IUseAnnotationCreationToolsOptions {surface: IAnnotationEditorSurface;}
 
@@ -66,7 +67,7 @@ export const useAnnotationCreationTools = (
     },
     beginShape(pageIndex, tool, point) {
         const settings = options.surface.settings.value ?? DEFAULT_ANNOTATION_SETTINGS;
-        return createDrawingShape(pageIndex, tool, point.x, point.y, settings);
+        return createDrawingShape(requirePageIndex(pageIndex), tool, point.x, point.y, settings);
     },
     updateShape(draft, point) {
         const rawDraft = toRaw(draft);

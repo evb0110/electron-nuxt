@@ -18,6 +18,8 @@ import type {
     IBeginSerializedPdfSaveAsResult,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { TSessionId } from '@contracts/shared';
 import {
     DOCX_EXPORT_STREAM_CHANNELS,
     type IDocxExportInvokeMap,
@@ -137,7 +139,7 @@ interface IDocumentsDirectPersistenceInvokeMap {
     };
     [DOCUMENTS_CHANNELS.savePdfDataAs]: {
         args: [
-            workingPath: string,
+            workingPath: TDocumentRef,
             data: Uint8Array,
             options?: IPdfSaveAsOptions,
             serializedSaveOptions?: IPdfSerializedSaveOptions,
@@ -146,7 +148,7 @@ interface IDocumentsDirectPersistenceInvokeMap {
     };
     [DOCUMENTS_CHANNELS.savePdfDataAsBegin]: {
         args: [
-            workingPath: string,
+            workingPath: TDocumentRef,
             totalBytes: number,
             options?: IPdfSaveAsOptions,
             serializedSaveOptions?: IPdfSerializedSaveOptions,
@@ -154,26 +156,26 @@ interface IDocumentsDirectPersistenceInvokeMap {
         result: IBeginSerializedPdfSaveAsResult;
     };
     [DOCUMENTS_CHANNELS.fileSavePdfData]: {
-        args: [path: string, data: Uint8Array, options?: IPdfSerializedSaveOptions];
+        args: [path: TDocumentRef, data: Uint8Array, options?: IPdfSerializedSaveOptions];
         result: Awaited<ReturnType<IDocumentsFileCapability['savePdfData']>>;
     };
     [DOCUMENTS_CHANNELS.fileSavePdfDataBegin]: {
-        args: [path: string, totalBytes: number, options?: IPdfSerializedSaveOptions];
+        args: [path: TDocumentRef, totalBytes: number, options?: IPdfSerializedSaveOptions];
         result: IBeginSerializedPdfPersistenceResult;
     };
     [DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: {
         args: [
-            sessionId: string,
+            sessionId: TSessionId,
             stagedOutput: ITypedStagedArtifact,
         ];
         result: {
-            path: string | null;
+            path: TDocumentRef | null;
             validation: Awaited<ReturnType<IDocumentsFileCapability['validatePdfData']>>;
         };
     };
     [DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf]: {
         args: [
-            sessionId: string,
+            sessionId: TSessionId,
             stagedOutput: ITypedStagedArtifact,
         ];
         result: boolean;

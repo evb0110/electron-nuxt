@@ -2,6 +2,7 @@ import type {
     EmitFn,
     ShallowRef,
 } from 'vue';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type { TStartSection } from '@app/types/startSection';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
@@ -12,7 +13,7 @@ export interface IDeferredWorkspaceHostEmits {
     'update-document-record': [record: IWorkspaceDocumentRecord];
     'update-session-state': [state: ITabViewSessionState];
     'update:start-section': [section: TStartSection];
-    'open-in-new-tab': [result: string | TOpenFileResult];
+    'open-in-new-tab': [result: TDocumentRef | TOpenFileResult];
     'request-close-tab': [];
     'open-settings': [];
     'open-combine': [];
@@ -30,7 +31,7 @@ export function createDeferredWorkspaceHostBindings(options: {
             options.emit('update-document-record', record);
         },
         handleStartSectionUpdate: (section: TStartSection) => options.emit('update:start-section', section),
-        handleOpenInNewTab: (result: string | TOpenFileResult) => options.emit('open-in-new-tab', result),
+        handleOpenInNewTab: (result: TDocumentRef | TOpenFileResult) => options.emit('open-in-new-tab', result),
         handleRequestCloseTab: () => options.emit('request-close-tab'),
         handleOpenSettings: () => options.emit('open-settings'),
         handleOpenCombine: () => options.emit('open-combine'),

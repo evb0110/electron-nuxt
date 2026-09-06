@@ -8,7 +8,11 @@ import {
     type IWorkspaceSaveDirtyState,
     type TWorkspaceSaveRequest,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSavePlan';
-import {requireDocumentRevisionToken} from '@contracts';
+import {
+    requireDocumentRef,
+    requireDocumentRevisionToken,
+} from '@contracts';
+import {requireRequestId} from '@contracts/shared';
 
 const CLEAN_DIRTY_STATE: IWorkspaceSaveDirtyState = {
     annotationChanges: false,
@@ -39,8 +43,8 @@ function buildPlan(options: {
         request: options.request ?? {kind: 'save'},
         target: {
             expectedDocumentSessionKey: 'document-session-1',
-            expectedOriginalPath: '/tmp/source.pdf',
-            expectedWorkingPath: '/tmp/work.pdf',
+            expectedOriginalPath: requireDocumentRef('/tmp/source.pdf'),
+            expectedWorkingPath: requireDocumentRef('/tmp/work.pdf'),
             expectedRevisionToken: requireDocumentRevisionToken('rev-1'),
         },
         baseline: {
@@ -162,7 +166,7 @@ describe('workspaceSavePlan', () => {
         expect(buildPlan({request: {
             kind: 'optimize-copy',
             options: {preset: 'lossless'},
-            requestId: 'optimize-1',
+            requestId: requireRequestId('optimize-1'),
         }})).toMatchObject({
             kind: 'optimization',
             request: {

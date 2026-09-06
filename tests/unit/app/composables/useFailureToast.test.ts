@@ -17,6 +17,7 @@ import {
     ref,
 } from 'vue';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const toastAdd = vi.fn();
 
@@ -28,7 +29,7 @@ function createFailure(): FailureReceipt {
     return {
         eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
         code: 'UNCLASSIFIED_RENDERER_ERROR',
-        occurredAt: 1767225600000,
+        occurredAt: requireEpochMs(1767225600000),
         severity: 'error',
     };
 }

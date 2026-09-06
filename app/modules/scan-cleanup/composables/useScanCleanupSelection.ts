@@ -21,6 +21,7 @@ import {
     resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
 } from '@contracts/scanCleanupPageOverrides';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     resolveScanCleanupSelection,
     type TScanCleanupOrderedPages,
@@ -75,10 +76,16 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     const highlightedScope = ref<TScanCleanupSettingsScope | null>(null);
     const marginsLinked = ref(true);
     let highlightTimer: ReturnType<typeof setTimeout> | null = null;
-    const currentPageOverride = computed(() => getScanCleanupPageOverride(options.settings.pageOverrides, leader.value));
+    const currentPageOverride = computed(() => getScanCleanupPageOverride(
+        options.settings.pageOverrides,
+        requirePageNumber(leader.value),
+    ));
     const selectedPageNumbers = computed(() => [...selectedPages.value].sort((left, right) => left - right));
     const selectedPageOverrides = computed(() => selectedPageNumbers.value
-        .map(page => getScanCleanupPageOverride(options.settings.pageOverrides, page)));
+        .map(page => getScanCleanupPageOverride(
+            options.settings.pageOverrides,
+            requirePageNumber(page),
+        )));
     const layoutOverride = computed(() => resolveScanCleanupMixedValue(
         selectedPageOverrides.value.map(override => override.layoutOverride),
     ));

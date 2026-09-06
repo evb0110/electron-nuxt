@@ -62,10 +62,10 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         }
         const suffix = `${process.pid}-${randomUUID()}`;
         const originalBackupPath = `${input.originalPath}.evb-transition-${suffix}.bak`;
-        let backupCreated = false;
-        let committed = false;
-        let shouldRestoreOriginal = false;
-        let originalRestoredByRollback = false;
+        let backupCreated = false as boolean;
+        let committed = false as boolean;
+        let shouldRestoreOriginal = false as boolean;
+        let originalRestoredByRollback = false as boolean;
         try {
             const previousRevision = await measureTransitionPhase(
                 'transition-read-revision',

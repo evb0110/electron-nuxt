@@ -20,7 +20,7 @@ import {
     type TWorkspaceExposeMethod,
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { cast } from '@tests/helpers/cast';
+import type { TPdfSource } from '@app/types/pdfUi';
 
 type TRequiredWorkspaceExposeMethod = typeof requiredWorkspaceExposeMethods[number];
 
@@ -72,7 +72,7 @@ function createWorkspaceCandidateWithout(missingMethodName: TWorkspaceExposeMeth
 }
 
 function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
-    return cast<Parameters<typeof createWorkspaceExpose>[0]>({
+    return {
         handleSave: vi.fn(async () => true),
         handleRepairSave: vi.fn(async () => true),
         handleOptimizePdfForInteraction: vi.fn(async () => true),
@@ -92,6 +92,8 @@ function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWo
         handleExportMultiPageTiff: vi.fn(async () => {}),
         hasPdf: ref(false),
         isOpeningDocument: ref(false),
+        initialVisualReady: ref(false),
+        openingPreviewReady: ref(false),
         hasOpenError: ref(false),
         isPreparingPrint: ref(false),
         isPreparingCurrentPagePrint: ref(false),
@@ -118,6 +120,7 @@ function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWo
         zoomMode: ref('custom'),
         fitMode: ref('width'),
         viewMode: ref('single'),
+        viewRotation: ref(0),
         currentPage: ref(1),
         handleFitMode: vi.fn(),
         handleGoToPage: vi.fn(),
@@ -131,20 +134,28 @@ function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWo
         handleInsertImageFromFile: vi.fn(async () => {}),
         handlePasteImageFromClipboard: vi.fn(async () => {}),
         selectedThumbnailPages: ref<number[]>([]),
-        pageOpsDelete: vi.fn(async (_pages: number[], _totalPages: number) => true),
-        pageOpsExtract: vi.fn(async (_pages: number[]) => true),
-        handlePageRotate: vi.fn(async (_pages: number[], _angle: 90 | 270) => true),
+        pageOpsDelete: vi.fn(async () => true),
+        pageOpsExtract: vi.fn(async () => true),
+        handlePageRotate: vi.fn(async () => true),
         pageOpsInsert: vi.fn(async (_totalPages: number, _afterPage: number) => true),
+        pageOpsReorder: vi.fn(async () => true),
+        pageOpsMove: vi.fn(async () => true),
+        handleCropPages: vi.fn(async () => true),
+        handlePageDelete: vi.fn(),
+        handlePageReorder: vi.fn(),
+        handlePageMove: vi.fn(),
         totalPages: ref(1),
         isDjvuMode: ref(false),
         openConvertDialog: vi.fn(),
-        captureSplitPayload: vi.fn(async () => ({kind: 'empty'})),
+        captureSplitPayload: vi.fn(async () => ({kind: 'empty' as const})),
         restoreSplitPayload: vi.fn(async () => {}),
         waitForDocumentOpenSettled: vi.fn(async () => {}),
         runAgentAction: vi.fn(async () => ({})),
         readAgentResource: vi.fn(async () => ({})),
         workingCopyPath: ref(null),
         originalPath: ref(null),
+        pdfData: ref<Uint8Array | null>(null),
+        pdfReloadSrc: ref<TPdfSource | null>(null),
         annotationComments: ref([]),
         annotationCommentsStatus: ref('ready'),
         annotationInventory: ref(null),
@@ -152,14 +163,15 @@ function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWo
         sortedAnnotationNoteWindows: ref([]),
         handleOcrComplete: vi.fn(async () => {}),
         ...overrides,
-    });
+    } satisfies Parameters<typeof createWorkspaceExpose>[0];
 }
 
-function createDeferredWorkspaceExposeDeps(workspace: IWorkspaceExpose | null) {
-    return cast<Parameters<typeof createDeferredWorkspaceExposeProxy>[0]>({
-        enqueueDocumentOpen: vi.fn(async (_intent, run: (signal: AbortSignal) => Promise<unknown>) => (
-            run(new AbortController().signal)
-        )),
+function createDeferredWorkspaceExposeDeps(workspace: IWorkspaceExpose | null): Parameters<typeof createDeferredWorkspaceExposeProxy>[0] {
+    const enqueueDocumentOpen: Parameters<typeof createDeferredWorkspaceExposeProxy>[0]['enqueueDocumentOpen'] = async (_intent, run) => (
+        run(new AbortController().signal)
+    );
+    return {
+        enqueueDocumentOpen,
         getMounted: () => workspace,
         log: vi.fn(),
         withLoadedWorkspace: vi.fn(async (_action, run) => (
@@ -175,7 +187,7 @@ function createDeferredWorkspaceExposeDeps(workspace: IWorkspaceExpose | null) {
         withWorkspace: vi.fn(async (_action, run) => (
             workspace ? await run(workspace) !== false : false
         )),
-    });
+    };
 }
 
 describe('workspace expose contract', () => {

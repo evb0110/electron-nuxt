@@ -164,6 +164,7 @@ const toolLabel = computed(() => {
         case 'draw':
             return t('annotations.draw');
         case 'text':
+        case 'note':
             return t('annotations.text');
         case 'highlight':
             return t('annotations.highlight');
@@ -183,7 +184,8 @@ const toolLabel = computed(() => {
             return t('annotations.arrow');
         case 'select':
             return t('annotations.select');
-        default:
+        case 'none':
+        case 'stamp':
             return t('annotations.annotations');
     }
 });

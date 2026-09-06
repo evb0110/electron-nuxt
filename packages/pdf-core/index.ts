@@ -95,9 +95,9 @@ export {
     SEARCH_REQUEST_ID_MAX_LENGTH,
     validateSearchQuery,
 } from '@pdf-core/pdfSearchCore';
+export {PDF_NATIVE_DATE_PATTERN} from '@contracts/pdfDateString';
 export {
     normalizePdfNativeAnnotationIdentityBindings,
-    PDF_NATIVE_DATE_PATTERN,
     PDF_NATIVE_MUTATION_ENUM_VALUES,
     PDF_NATIVE_MUTATION_LIMITS,
     normalizePdfNativeModifiedAt,

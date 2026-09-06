@@ -21,17 +21,19 @@ import {
     asAnnotationId,
     toLegacyShapeAnnotation,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 function stickyNote(id: string, _legacyEditorId: string): INoteEntity {
     return {
         kind: 'note',
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: null,
         contents: '',
         position: {
@@ -49,12 +51,12 @@ function textMarkup(id: string, _legacyEditorId: string): ITextMarkupEntity {
     return {
         kind: 'text-markup',
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: null,
         subtype: 'Highlight',
         contents: '',
@@ -76,12 +78,12 @@ function persistedShape(id: string, pdfRef: string, x: number): IShapeEntity {
             id: asAnnotationId(id),
             pdfRef,
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: 0,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: null,
         tool: 'rectangle',
         rect: {

@@ -23,6 +23,8 @@ import {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import { cast } from '@tests/helpers/cast';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 export const toastAddMock = vi.fn();
 const TEST_BROWSER_SOURCE_REF = 'browser://documents/source.pdf';
@@ -250,12 +252,16 @@ function canonicalEntityFromSummary(
     const text = pendingTexts.get(summary.stableKey) ?? summary.text;
     const common = {
         identity,
-        pageIndex: summary.pageIndex,
+        pageIndex: requirePageIndex(summary.pageIndex),
         revision: 1,
         persistedRevision: 0,
         deleted,
-        createdAt: summary.createdAt ?? null,
-        modifiedAt: summary.modifiedAt ?? null,
+        createdAt: summary.createdAt === null || summary.createdAt === undefined
+            ? null
+            : requireEpochMs(summary.createdAt),
+        modifiedAt: summary.modifiedAt === null || summary.modifiedAt === undefined
+            ? null
+            : requireEpochMs(summary.modifiedAt),
         author: summary.author ?? null,
     } as const;
     if (
@@ -450,7 +456,7 @@ export function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {})
     return {
         id: overrides.id ?? 'shape-1',
         type: overrides.type ?? 'rectangle',
-        pageIndex: overrides.pageIndex ?? 0,
+        pageIndex: overrides.pageIndex ?? requirePageIndex(0),
         x: overrides.x ?? 0.1,
         y: overrides.y ?? 0.2,
         width: overrides.width ?? 0.3,
@@ -461,8 +467,8 @@ export function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {})
         strokeWidth: overrides.strokeWidth ?? 3,
         source: overrides.source ?? 'local',
         stableKey: overrides.stableKey ?? 'evb-shape:shape-1',
-        createdAt: overrides.createdAt ?? 1781009077000,
-        modifiedAt: overrides.modifiedAt ?? 1781009087000,
+        createdAt: overrides.createdAt ?? requireEpochMs(1781009077000),
+        modifiedAt: overrides.modifiedAt ?? requireEpochMs(1781009087000),
         ...overrides,
     };
 }

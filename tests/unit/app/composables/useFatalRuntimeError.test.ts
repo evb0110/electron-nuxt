@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import {ref} from 'vue';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
 
@@ -32,7 +33,7 @@ function createFailure(): FailureReceipt {
     return {
         eventId: 'fedcba9876543210fedcba9876543210' as FailureReceipt['eventId'],
         code: 'MAIN_STARTUP_CRASH',
-        occurredAt: 1767225600000,
+        occurredAt: requireEpochMs(1767225600000),
         severity: 'fatal',
     };
 }

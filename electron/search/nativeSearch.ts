@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {
     open,
     stat,
@@ -606,7 +607,7 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
         if (strictXlarge) {
             throwXlargeNativeSearchError(
                 'native-failure',
-                `Could not inspect the xlarge search sidecar: ${error instanceof Error ? error.message : String(error)}`,
+                `Could not inspect the xlarge search sidecar: ${getErrorMessage(error)}`,
                 error,
             );
         }
@@ -651,7 +652,7 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
             timeoutMs: NATIVE_SEARCH_TIMEOUT_MS,
         });
     } catch (error) {
-        log.warn(`Persistent native search failed; using one-shot fallback: ${error instanceof Error ? error.message : String(error)}`);
+        log.warn(`Persistent native search failed; using one-shot fallback: ${getErrorMessage(error)}`);
     }
     if (parsed === null) {
         try {
@@ -660,12 +661,12 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
                 createNativeSearchArgs(freshIndex.indexPath, options),
                 commandOptions,
             );
-            parsed = JSON.parse(result.stdout ?? '');
+            parsed = JSON.parse(result.stdout);
         } catch (error) {
             if (strictXlarge) {
                 throwXlargeNativeSearchError(
                     'native-failure',
-                    `Native xlarge search failed: ${error instanceof Error ? error.message : String(error)}`,
+                    `Native xlarge search failed: ${getErrorMessage(error)}`,
                     error,
                 );
             }

@@ -44,7 +44,7 @@ interface IKnownMetricEntry {
 }
 
 function isValidPageMetric(metric: IPdfPageMetric | null | undefined): metric is IPdfPageMetric {
-    return isFinitePositive(metric?.width) && isFinitePositive(metric?.height);
+    return isFinitePositive(metric?.width) && isFinitePositive(metric.height);
 }
 
 function clonePageMetric(metric: IPdfPageMetric): IPdfPageMetric {
@@ -141,7 +141,12 @@ function resolveNearestMetricEstimate(
     let high = entries.length;
     while (low < high) {
         const middle = low + Math.floor((high - low) / 2);
-        if (entries[middle]!.index <= targetIndex) {
+        const entry = entries[middle];
+        if (!entry) {
+            high = middle;
+            continue;
+        }
+        if (entry.index <= targetIndex) {
             low = middle + 1;
         } else {
             high = middle;
@@ -178,7 +183,10 @@ function sumNearestMetricEstimateRange(options: {
     let total = 0;
     let segmentStart = 0;
     for (let entryIndex = 0; entryIndex < options.entries.length; entryIndex += 1) {
-        const entry = options.entries[entryIndex]!;
+        const entry = options.entries[entryIndex];
+        if (!entry) {
+            continue;
+        }
         const nextEntry = options.entries[entryIndex + 1];
         const segmentEnd = nextEntry
             ? Math.floor((entry.index + nextEntry.index) / 2) + 1

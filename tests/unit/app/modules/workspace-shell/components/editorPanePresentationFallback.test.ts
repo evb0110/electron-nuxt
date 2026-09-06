@@ -13,12 +13,16 @@ import {
     h,
 } from 'vue';
 import type { App } from 'vue';
-import type { IEditorPaneState } from '@contracts/editorPanes';
+import {
+    requirePaneId,
+    type IEditorPaneState,
+} from '@contracts/editorPanes';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { cast } from '@tests/helpers/cast';
 
 // What the pane owns is which tabs it presents and how it marks them. Its
 // children render an identifiable placeholder, with the sidebar element the
@@ -59,7 +63,7 @@ function createTab(tabId: string): ITab {
     return {
         id: tabId,
         fileName: `${tabId}.pdf`,
-        originalPath: `/documents/${tabId}.pdf`,
+        originalPath: requireDocumentRef(`/documents/${tabId}.pdf`),
         isDirty: false,
         isDjvu: false,
     };
@@ -94,9 +98,9 @@ async function mountEditorPane({
         '@app/modules/workspace-shell/components/EditorPaneView.vue'
     );
     const pane: IEditorPaneState = {
-        paneId: 'pane-1',
-        tabIds,
-        activeTabId,
+        paneId: requirePaneId('pane-1'),
+        tabIds: tabIds.map(tabId => requireTabId(tabId)),
+        activeTabId: activeTabId === null ? null : requireTabId(activeTabId),
     };
     const documentSessionsByTabId = Object.fromEntries(tabIds.map(tabId => [
         tabId,
@@ -106,7 +110,7 @@ async function mountEditorPane({
         }),
     ]));
     const app = createApp(defineComponent({setup() {
-        return () => h(cast<never>(EditorPaneView), {
+        return () => h(EditorPaneView, {
             pane,
             paneCount: 1,
             tabs: tabIds.map(createTab),

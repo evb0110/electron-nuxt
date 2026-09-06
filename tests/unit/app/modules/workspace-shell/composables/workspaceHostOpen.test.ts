@@ -5,20 +5,20 @@ import {
     vi,
 } from 'vitest';
 import { handleWorkspaceHostOpenFileFromUi } from '@app/modules/workspace-shell/host/handleWorkspaceHostOpenFileFromUi';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { cast } from '@tests/helpers/cast';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 function createOpenResult(): TOpenFileResult {
     return {
         kind: 'pdf',
-        originalPath: '/docs/source.pdf',
-        workingPath: '/docs/source-working.pdf',
+        originalPath: requireDocumentRef('/docs/source.pdf'),
+        workingPath: requireDocumentRef('/docs/source-working.pdf'),
     };
 }
 
 function createWorkspace() {
-    return cast<IWorkspaceExpose>({
+    return createWorkspaceExposeFixture({
         handleOpenFileFromUi: vi.fn(async () => true),
         handleOpenFileWithResult: vi.fn(async (_result: TOpenFileResult) => true),
     });

@@ -10,6 +10,10 @@ import type {
     IEditorPaneState,
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
+import { requirePaneId } from '@contracts/editorPanes';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requireTabId } from '@contracts/windowTabs';
 import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
@@ -65,11 +69,11 @@ describe('useEditorPanesManager', () => {
         expect(secondPane).not.toBeNull();
 
         if (secondPane) {
-            secondPane.tabIds.push(firstTab.id);
-            secondPane.tabIds.push('missing-tab-id');
-            secondPane.activeTabId = 'missing-tab-id';
+            secondPane.tabIds.push(requireTabId(firstTab.id));
+            secondPane.tabIds.push(requireTabId('missing-tab-id'));
+            secondPane.activeTabId = requireTabId('missing-tab-id');
         }
-        firstPane.activeTabId = 'missing-tab-id';
+        firstPane.activeTabId = requireTabId('missing-tab-id');
         manager.tabs.value.push({
             ...firstTab,
             fileName: 'duplicate-id',
@@ -109,9 +113,9 @@ describe('useEditorPanesManager', () => {
 
         manager.layout.value = {
             type: 'leaf',
-            paneId: 'missing-pane-id',
+            paneId: requirePaneId('missing-pane-id'),
         };
-        manager.activePaneId.value = 'missing-pane-id';
+        manager.activePaneId.value = requirePaneId('missing-pane-id');
 
         manager.ensureAtLeastOneTab();
 
@@ -121,7 +125,7 @@ describe('useEditorPanesManager', () => {
 
         expect(layoutPaneIds.size).toBeGreaterThan(0);
         for (const paneId of layoutPaneIds) {
-            expect(validPaneIds.has(paneId)).toBe(true);
+            expect(validPaneIds.has(requirePaneId(paneId))).toBe(true);
         }
         expect(manager.activePaneId.value).not.toBe('missing-pane-id');
         expect(manager.activePaneId.value).not.toBeNull();
@@ -180,14 +184,14 @@ describe('useEditorPanesManager', () => {
         const movedTabId = sourcePane.activeTabId!;
         Object.assign(manager.getTabById(movedTabId)!, {
             fileName: 'moved.pdf',
-            originalPath: '/tmp/moved.pdf',
+            originalPath: requireDocumentRef('/tmp/moved.pdf'),
         });
         const remainingTab = manager.createTab({
             paneId: sourcePane.paneId,
             activate: false,
             initial: {
                 fileName: 'remaining.pdf',
-                originalPath: '/tmp/remaining.pdf',
+                originalPath: requireDocumentRef('/tmp/remaining.pdf'),
             },
         });
         const targetPaneId = manager.splitPane(sourcePane.paneId, 'right');
@@ -225,7 +229,7 @@ describe('useEditorPanesManager', () => {
             activate: true,
             initial: {
                 fileName: 'target-1.pdf',
-                originalPath: '/tmp/target-1.pdf',
+                originalPath: requireDocumentRef('/tmp/target-1.pdf'),
             },
         });
         const targetSecondTab = manager.createTab({
@@ -233,7 +237,7 @@ describe('useEditorPanesManager', () => {
             activate: false,
             initial: {
                 fileName: 'target-2.pdf',
-                originalPath: '/tmp/target-2.pdf',
+                originalPath: requireDocumentRef('/tmp/target-2.pdf'),
             },
         });
         manager.activateTab(sourcePane.paneId, movedTabId);
@@ -381,9 +385,9 @@ describe('useEditorPanesManager', () => {
 
         manager.restoreWorkspaceCheckpointGraph({
             version: 1,
-            capturedAt: 123,
-            activePaneId: 'pane-b',
-            activeTabId: 'tab-b',
+            capturedAt: requireEpochMs(123),
+            activePaneId: requirePaneId('pane-b'),
+            activeTabId: requireTabId('tab-b'),
             layout: {
                 type: 'split',
                 id: 'split-a',
@@ -391,31 +395,31 @@ describe('useEditorPanesManager', () => {
                 ratio: 0.4,
                 first: {
                     type: 'leaf',
-                    paneId: 'pane-a',
+                    paneId: requirePaneId('pane-a'),
                 },
                 second: {
                     type: 'leaf',
-                    paneId: 'pane-b',
+                    paneId: requirePaneId('pane-b'),
                 },
             },
             panes: [
                 {
-                    paneId: 'pane-a',
-                    tabIds: ['tab-a'],
-                    activeTabId: 'tab-a',
+                    paneId: requirePaneId('pane-a'),
+                    tabIds: [requireTabId('tab-a')],
+                    activeTabId: requireTabId('tab-a'),
                 },
                 {
-                    paneId: 'pane-b',
-                    tabIds: ['tab-b'],
-                    activeTabId: 'tab-b',
+                    paneId: requirePaneId('pane-b'),
+                    tabIds: [requireTabId('tab-b')],
+                    activeTabId: requireTabId('tab-b'),
                 },
             ],
             tabs: [
                 {
-                    tabId: 'tab-a',
-                    paneId: 'pane-a',
+                    tabId: requireTabId('tab-a'),
+                    paneId: requirePaneId('pane-a'),
                     fileName: 'a.pdf',
-                    sourceRef: '/documents/a.pdf',
+                    sourceRef: requireDocumentRef('/documents/a.pdf'),
                     workingCopyRef: null,
                     isDirty: false,
                     isDjvu: false,
@@ -424,10 +428,10 @@ describe('useEditorPanesManager', () => {
                     zoomMode: 'fit-width',
                 },
                 {
-                    tabId: 'tab-b',
-                    paneId: 'pane-b',
+                    tabId: requireTabId('tab-b'),
+                    paneId: requirePaneId('pane-b'),
                     fileName: 'b.pdf',
-                    sourceRef: '/documents/b.pdf',
+                    sourceRef: requireDocumentRef('/documents/b.pdf'),
                     workingCopyRef: null,
                     isDirty: true,
                     isDjvu: false,

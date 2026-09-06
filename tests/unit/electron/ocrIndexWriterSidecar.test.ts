@@ -23,6 +23,9 @@ import {
 } from '@electron/search/searchIndexSidecar';
 import { OCR_TEXT_LAYER_INDEX_VERSION } from '@contracts/ocrText';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {SEARCH_JS_WHOLE_VALUE_MAX_BYTES} from '@electron/search/xlargeSearchRouting';
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
@@ -34,11 +37,11 @@ vi.mock('@electron/file-access/documentRevisionSidecar', () => ({assertWorkingCo
 function makeDocumentRevision(documentRef: string) {
     return {
         version: 1 as const,
-        documentRef,
+        documentRef: requireDocumentRef(documentRef),
         authority: 'electron-working-copy' as const,
         token: DOCUMENT_REVISION,
         contentRevision: 1,
-        mintedAt: 1,
+        mintedAt: requireEpochMs(1),
     };
 }
 
@@ -207,7 +210,7 @@ describe('writeOcrIndexV3 compact search sidecar', () => {
             documentRevision: DOCUMENT_REVISION,
             pageCount: 1,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'stale text',
             }],
         });
@@ -265,11 +268,11 @@ describe('writeOcrIndexV3 compact search sidecar', () => {
             },
             pages: [
                 {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     text: 'original one',
                 },
                 {
-                    pageNumber: 2,
+                    pageNumber: requirePageNumber(2),
                     text: 'updated two',
                 },
             ],
@@ -300,11 +303,11 @@ describe('writeOcrIndexV3 compact search sidecar', () => {
             pageCount: 2,
             pages: [
                 {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     text: 'generic sidecar one',
                 },
                 {
-                    pageNumber: 2,
+                    pageNumber: requirePageNumber(2),
                     text: 'generic sidecar two',
                 },
             ],

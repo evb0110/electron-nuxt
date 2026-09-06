@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -10,7 +11,11 @@ import {
     resolveContinuousNavigationTargetTop,
     resolveMountedPageSnapTarget,
 } from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
-import { cast } from '@tests/helpers/cast';
+
+function createElementShim(shape: Record<string, unknown>): HTMLElement {
+    // The geometry functions read only these layout properties and selectors.
+    return Object.assign(Object.create(null), shape);
+}
 
 interface ITestPageGeometry {
     offsetLeft?: number;
@@ -27,7 +32,7 @@ function createGeometryContainer(options: {
     scrollWidth?: number;
 }) {
     const clientWidth = options.clientWidth ?? 100;
-    const pageElements = options.pages.map((page, index) => cast<HTMLElement>({
+    const pageElements = options.pages.map((page, index) => createElementShim({
         clientHeight: page.offsetHeight,
         clientWidth: page.offsetWidth ?? clientWidth,
         dataset: { page: String(index + 1) },
@@ -37,7 +42,7 @@ function createGeometryContainer(options: {
         offsetWidth: page.offsetWidth ?? clientWidth,
     }));
 
-    const container = cast<HTMLElement>({
+    const container = createElementShim({
         clientHeight: options.clientHeight,
         clientWidth,
         scrollHeight: options.scrollHeight,
@@ -81,7 +86,7 @@ describe('singlePageScrollGeometry', () => {
 
         expect(getPageRowGeometry({
             container,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             totalPages: 3,
             viewMode: 'facing',
         })).toEqual({
@@ -90,7 +95,7 @@ describe('singlePageScrollGeometry', () => {
         });
         expect(getPageScrollBounds({
             container,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             scaledMargin: 20,
             totalPages: 3,
             viewMode: 'facing',

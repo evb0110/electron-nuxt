@@ -10,6 +10,7 @@ import type {TDocumentInstanceId} from '@contracts/documentInstanceId';
 import {getMainOperationErrorEnvelope} from '@contracts/mainOperationErrors';
 import {beginMainOperationShutdown, cancelAllMainOperations, drainCriticalMainOperations, resetMainOperationLifecycleForTests, snapshotMainOperations} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {createMainJobRegistry, type IMainJobActor, type IMainJobRunContext} from '@electron/operation-lifecycle/createMainJobRegistry';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 
 const mocks = vi.hoisted(() => ({appTempDir: ''}));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => mocks.appTempDir}));
@@ -25,7 +26,7 @@ const initial = (requestId: string): IProgress => ({requestId, value: 0, status:
 function registry(retention = {eventReplayTtlMs: 30_000, terminalRecordTtlMs: 60_000}, now?: () => number) {
     return createMainJobRegistry<IProgress, IResult, IError>({
         retention, progress: {channel: 'test:progress', getEventKey: progress => progress.requestId},
-        toError: (cause, kind) => Object.assign(new Error(cause instanceof Error ? cause.message : String(cause)), {code: kind}) as IError,
+        toError: (cause, kind) => Object.assign(new Error(getErrorMessage(cause)), {code: kind}) as IError,
         terminalProgress: {
             completed: latest => ({...latest, status: 'completed'}), canceled: latest => ({...latest, status: 'canceled'}),
             failed: latest => ({...latest, status: 'failed'}),

@@ -9,6 +9,8 @@ import {
     type ITextBoxEntity,
     type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const rect = {
     left: 0.1,
@@ -20,12 +22,12 @@ const rect = {
 function note(id: string, overrides: Partial<INoteEntity> = {}): INoteEntity {
     return {
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: null,
         kind: 'note',
         contents: '',
@@ -39,12 +41,12 @@ function note(id: string, overrides: Partial<INoteEntity> = {}): INoteEntity {
 function textBox(id: string): ITextBoxEntity {
     return {
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: null,
         kind: 'text-box',
         text: 'text',

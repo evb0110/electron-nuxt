@@ -105,9 +105,7 @@ export interface IScanCleanupTextLayerInstruction {
     filterToOutputPage?: boolean;
 }
 
-export interface IScanCleanupTextLayerInstructionEnvelope {
-    pages: IScanCleanupTextLayerInstruction[];
-}
+export interface IScanCleanupTextLayerInstructionEnvelope {pages: IScanCleanupTextLayerInstruction[];}
 
 export function serializeScanCleanupTextLayerInstructions(
     pages: readonly IScanCleanupTextLayerInstruction[],

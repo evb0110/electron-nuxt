@@ -11,6 +11,7 @@ import type {
     TDrawableShapeTool,
 } from '@contracts/annotations';
 import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
+import type { TEpochMs } from '@contracts/timestamps';
 import type { IPdfAnnotationNoteReply } from '@contracts/pdfAnnotationParseTypes';
 import type {
     Except,
@@ -111,8 +112,8 @@ export interface IShapeAnnotation extends Omit<IPdfNativeShapeAnnotation, TEdito
     pdfSubtype?: TEmbeddedPdfShapeSubtype | null;
     lineStartStyle?: TLineEndStyle | undefined;
     lineEndStyle?: TLineEndStyle | undefined;
-    createdAt?: number | null;
-    modifiedAt?: number | null;
+    createdAt?: TEpochMs | null;
+    modifiedAt?: TEpochMs | null;
 }
 
 export type TAnnotationStableKey =
@@ -201,8 +202,8 @@ interface IAnnotationCommentSummaryFields {
     kindLabel?: string | null;
     subtype?: string | null | undefined;
     author: string | null;
-    createdAt?: number | null;
-    modifiedAt: number | null;
+    createdAt?: TEpochMs | null;
+    modifiedAt: TEpochMs | null;
     color: string | null;
     colorEdited?: boolean | undefined;
     fillColor?: string | null;

@@ -21,6 +21,7 @@ import type {
     IAnnotationMarkerRect,
     TAnnotationTool,
 } from '@app/types/annotations';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 const rect: IAnnotationMarkerRect = {
     left: 0.1,
@@ -32,7 +33,7 @@ const rect: IAnnotationMarkerRect = {
 function baseEntity(id: string, pageIndex = 0) {
     return {
         identity: {id: asAnnotationId(id)},
-        pageIndex,
+        pageIndex: requirePageIndex(pageIndex),
         revision: 0,
         persistedRevision: -1,
         deleted: false as const,
@@ -270,7 +271,7 @@ describe('usePdfAnnotationEditorSurface', () => {
 
         expect(created).toMatchObject({
             kind: 'placed-image',
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             rect,
             rotation: 0,
             image,

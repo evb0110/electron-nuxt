@@ -868,9 +868,5 @@ export function reduceDocumentViewportSession(
                 return reject(state);
             }
             return accept(createEmptyDocumentViewportSession(state.generation));
-        default: {
-            const exhaustive: never = event;
-            return exhaustive;
-        }
     }
 }

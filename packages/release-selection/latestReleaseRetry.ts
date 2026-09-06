@@ -146,8 +146,7 @@ export async function fetchReleaseDataWithRetry<TResult>(
     const random = options.random ?? Math.random;
     const totalTimeoutMs = options.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS;
     const startedAt = Date.now();
-    let hasLatestResult = false;
-    let latestResult: TResult | undefined;
+    let latestResult: { value: TResult } | null = null;
 
     for (let attempt = 0; attempt <= retryCount; attempt += 1) {
         try {
@@ -156,15 +155,14 @@ export async function fetchReleaseDataWithRetry<TResult>(
             if (!options.shouldRetryResult?.(result) || attempt === retryCount) {
                 return result;
             }
-            latestResult = result;
-            hasLatestResult = true;
+            latestResult = { value: result };
         } catch (error) {
             if (!shouldRetryReleaseFetch(error)) {
                 throw error;
             }
             if (attempt === retryCount) {
-                if (hasLatestResult) {
-                    return latestResult as TResult;
+                if (latestResult) {
+                    return latestResult.value;
                 }
                 throw error;
             }
@@ -173,8 +171,8 @@ export async function fetchReleaseDataWithRetry<TResult>(
             const delayMs = retryAfterMs ?? jitterDelay(DEFAULT_RETRY_DELAY_MS * (attempt + 1), random);
             const remainingMs = totalTimeoutMs - (Date.now() - startedAt);
             if (delayMs >= remainingMs) {
-                if (hasLatestResult) {
-                    return latestResult as TResult;
+                if (latestResult) {
+                    return latestResult.value;
                 }
                 throw createDeadlineError();
             }
@@ -185,16 +183,13 @@ export async function fetchReleaseDataWithRetry<TResult>(
         const delayMs = jitterDelay(DEFAULT_RETRY_DELAY_MS * (attempt + 1), random);
         const remainingMs = totalTimeoutMs - (Date.now() - startedAt);
         if (delayMs >= remainingMs) {
-            if (hasLatestResult) {
-                return latestResult;
-            }
-            throw createDeadlineError();
+            return latestResult.value;
         }
         await wait(delayMs);
     }
 
-    if (hasLatestResult) {
-        return latestResult as TResult;
+    if (latestResult) {
+        return latestResult.value;
     }
 
     throw new Error('Release data fetch exhausted without a result.');
@@ -217,6 +212,10 @@ export function createReleaseCatalogLoader<TCatalog>(options: IReleaseCatalogLoa
             stale: boolean
         }>
     } | null = null;
+
+    function isCurrentInFlight(promise: Promise<unknown>) {
+        return inFlight !== null && inFlight.promise === promise;
+    }
 
     return async ({
         cacheKey,
@@ -281,7 +280,7 @@ export function createReleaseCatalogLoader<TCatalog>(options: IReleaseCatalogLoa
         try {
             return await promise;
         } finally {
-            if (inFlight?.promise === promise) {
+            if (isCurrentInFlight(promise)) {
                 inFlight = null;
             }
         }

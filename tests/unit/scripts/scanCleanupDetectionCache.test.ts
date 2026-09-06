@@ -10,6 +10,7 @@ import type {
     IScanCleanupDetectionResult,
     IScanCleanupOptions,
 } from '@contracts/electronApiScanCleanup';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {createFileBackedScanCleanupDetectionResultStore} from '@scan-cleanup-core/fileBackedResultStore';
 import {readDetectionResultsForPageNumbers} from '@scan-cleanup-core/runScanCleanupConversion';
 import {buildScanCleanupCliDetectionRequestFields} from '@scripts/scan-cleanup-convert';
@@ -63,7 +64,7 @@ const options: IScanCleanupOptions = {
 };
 
 const result: IScanCleanupDetectionResult = {
-    pageNumber: 1,
+    pageNumber: requirePageNumber(1),
     classification: 'single-uncut-page',
     confidence: 0.9,
     cutterXPx: null,
@@ -152,7 +153,7 @@ describe('scan-cleanup detection cache', () => {
         const pageCount = 1_000_000;
         const readRange = vi.fn(async (firstPageNumber: number, _lastPageNumberExclusive: number) => [{
             ...result,
-            pageNumber: firstPageNumber,
+            pageNumber: requirePageNumber(firstPageNumber),
         }]);
         const store: IScanCleanupDetectionResultStore = {
             append: vi.fn(async () => undefined),
@@ -252,7 +253,7 @@ describe('scan-cleanup detection cache', () => {
         for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
             await store.append({
                 ...result,
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
             });
         }
         await writeScanCleanupDetectionCacheStore(cachePath, key, store);
@@ -265,11 +266,11 @@ describe('scan-cleanup detection cache', () => {
         expect(await reopened?.readRange(20_000, 20_002)).toEqual([
             {
                 ...result,
-                pageNumber: 20_000,
+                pageNumber: requirePageNumber(20_000),
             },
             {
                 ...result,
-                pageNumber: 20_001,
+                pageNumber: requirePageNumber(20_001),
             },
         ]);
         await reopened?.close();

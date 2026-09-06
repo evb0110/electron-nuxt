@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatArtifactGroupList } from './artifact-groups.mjs';
@@ -19,6 +20,13 @@ import {
 const RELEASE_ARTIFACTS_WORKFLOW_FILE = 'release-artifacts.yml';
 const RELEASE_ARTIFACTS_WORKFLOW_NAME = 'Build Release Artifacts';
 
+/** @typedef {{branch: string, targetSha: string}} IWorkflowDispatch */
+/** @typedef {{branch: string, ref: string, remote: string}} IUpstream */
+/** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
+/** @typedef {{dispatchStartedAt: string, targetSha: string}} IWorkflowHandoff */
+/** @typedef {{dispatchWorkflow?: (dispatch: IWorkflowDispatch, runCommand: TCommandRunner) => void, printHandoff?: (handoff: IWorkflowHandoff) => Promise<void>, runCommand?: TCommandRunner}} IPublishReleaseArtifactsOptions */
+
+/** @param {IWorkflowDispatch} dispatch */
 export function getReleaseArtifactsWorkflowDispatchArgs({
     branch,
     targetSha,
@@ -34,6 +42,7 @@ export function getReleaseArtifactsWorkflowDispatchArgs({
     ];
 }
 
+/** @param {IWorkflowDispatch} dispatch @param {TCommandRunner} [runCommand] */
 function dispatchReleaseArtifactsWorkflow({
     branch,
     targetSha,
@@ -47,10 +56,12 @@ function dispatchReleaseArtifactsWorkflow({
     }
 }
 
+/** @param {string} targetSha */
 function getReleaseArtifactsWorkflowDisplayTitles(targetSha) {
     return [`${RELEASE_ARTIFACTS_WORKFLOW_NAME} ${targetSha}`];
 }
 
+/** @param {IWorkflowHandoff} handoff @returns {Promise<void>} */
 async function printReleaseArtifactsWorkflowHandoff({
     dispatchStartedAt,
     targetSha,
@@ -76,6 +87,7 @@ async function printReleaseArtifactsWorkflowHandoff({
  * scan as part of the same command before the push and throws on a violation,
  * leaving both the push and the dispatch undone.
  */
+/** @param {{upstream: IUpstream}} options @param {IPublishReleaseArtifactsOptions} [publishOptions] */
 export async function publishReleaseArtifactsCommit({upstream}, {
     dispatchWorkflow = dispatchReleaseArtifactsWorkflow,
     printHandoff = printReleaseArtifactsWorkflowHandoff,
@@ -96,10 +108,11 @@ export async function publishReleaseArtifactsCommit({upstream}, {
     return targetSha;
 }
 
+/** @returns {Promise<void>} */
 export async function buildReleaseArtifacts() {
     assertNodeProjectBaseline('Release artifact build');
     await assertGitHubCliReady('Release artifact build');
-    assertCleanWorktree({ ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES });
+    assertCleanWorktree({ignoredPathPrefixes: [...MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES]});
     requireNamedBranch('Release artifact build');
 
     await publishReleaseArtifactsCommit({upstream: getUpstream('Release artifact build')});
@@ -110,7 +123,7 @@ const isDirectCliRun = process.argv[1]
 
 if (isDirectCliRun) {
     buildReleaseArtifacts().catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getCliErrorMessage(error);
         process.stderr.write(`${message}\n`);
         process.exit(1);
     });

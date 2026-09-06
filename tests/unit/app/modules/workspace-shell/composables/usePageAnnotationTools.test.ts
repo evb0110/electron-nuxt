@@ -11,6 +11,7 @@ import type {
 } from '@app/types/annotations';
 import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAnnotationEditorState {
     return {
@@ -27,7 +28,7 @@ function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {}): IShap
     return {
         id: 'shape-1',
         type: 'rectangle',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         x: 0,
         y: 0,
         width: 10,
@@ -43,7 +44,7 @@ function createTextBoxEntity(): ITextBoxEntity {
     return {
         kind: 'text-box',
         identity: {id: 'text-box' as ITextBoxEntity['identity']['id']},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: 0,
         deleted: false,

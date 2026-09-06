@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     afterEach,
     describe,
@@ -13,7 +14,6 @@ import {
     armPageStageDeadline,
     withPageStageTimeout,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
-import { cast } from '@tests/helpers/cast';
 
 interface ITestPdfRenderTraceWindow {
     __pdfRenderTrace: boolean;
@@ -40,7 +40,7 @@ describe('pdf render supervisor', () => {
         const stalledPromise = withPageStageTimeout(
             new Promise<never>(() => {}),
             {
-                pageNumber: 7,
+                pageNumber: requirePageNumber(7),
                 stage: 'canvas-render',
                 timeoutMs: 25,
             },
@@ -83,7 +83,7 @@ describe('pdf render supervisor', () => {
         const stalledPromise = withPageStageTimeout(
             new Promise<never>(() => {}),
             {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 stage: 'text-layer',
                 timeoutMs: 15_000,
             },
@@ -114,7 +114,7 @@ describe('pdf render supervisor', () => {
         const stalledPromise = withPageStageTimeout(
             abortedStage,
             {
-                pageNumber: 2,
+                pageNumber: requirePageNumber(2),
                 stage: 'annotation-layer',
                 timeoutMs: 25,
             },
@@ -198,7 +198,10 @@ describe('pdf render supervisor', () => {
             onEvent: event => events.push(event),
             setTimeoutFn: nextCallback => {
                 callback = nextCallback;
-                return cast<ReturnType<typeof setTimeout>>(1);
+                // The supervisor treats this handle as opaque. A real zero
+                // delay handle keeps the timer type honest while the test
+                // manually drives the captured callback.
+                return setTimeout(() => undefined, 0);
             },
         });
         supervisor.armTimer({
@@ -242,7 +245,7 @@ describe('pdf render supervisor', () => {
                 throw new Error('timeout failed');
             },
             payload: {
-                pageNumber: 9,
+                pageNumber: requirePageNumber(9),
                 stage: 'canvas-render',
                 timeoutMs: 25,
             },

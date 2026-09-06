@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {
     parentPort,
     workerData,
@@ -113,7 +114,7 @@ try {
     } else {
         logger.error(
             `Run failed after ${elapsedMs} ms: `
-            + (error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)),
+            + (error instanceof Error ? `${getErrorMessage(error)}\n${error.stack ?? ''}` : String(error)),
             {
                 code: 'MAIN_SCAN_CLEANUP_FAILED',
                 context: {},
@@ -124,7 +125,7 @@ try {
     port.postMessage({
         type: 'result',
         ok: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
         errorFrame: createWorkerTaskErrorFrame(error, {source: 'scan-cleanup'}),
     });
 } finally {

@@ -1,4 +1,7 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { IPdfPathValidationOptions } from '@contracts/electronApiDocuments';
 import {runtimeSchema as s} from '@contracts/platformFeature';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -19,23 +22,24 @@ export const pdfValidationPathArgs = s.fromParser<TPdfValidationPathArgs>(
         }
         const args = value as unknown[];
         const path = args[0];
-        if (typeof path !== 'string') {
-            fail('path must be a string');
+        const documentRef = parseDocumentRef(path);
+        if (documentRef === null) {
+            fail('path must be an absolute document reference');
         }
         const rawOptions = args[1];
         if (rawOptions === undefined) {
-            return [path];
+            return [documentRef];
         }
         if (!isRecord(rawOptions) || rawOptions.purpose !== 'opening') {
             fail('validation options must be {purpose: \'opening\'}');
         }
         return [
-            path,
+            documentRef,
             {purpose: 'opening'},
         ];
     },
     () => [
-        '/tmp/document.pdf',
+        parseDocumentRef('/tmp/document.pdf') ?? fail('invalid fixture document reference'),
         {purpose: 'opening'},
     ],
 );

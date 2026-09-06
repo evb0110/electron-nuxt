@@ -1,3 +1,5 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     Ref,
@@ -80,7 +82,7 @@ function mapNavigationSourceToTransactionSource(
             return 'search-navigation';
         case 'wheel':
             return 'wheel-navigation';
-        default:
+        case null:
             return 'public-scroll';
     }
 }
@@ -110,14 +112,18 @@ export const usePdfViewerTransactionController = (
             return null;
         }
 
+        const navigationPage = requirePageNumber(
+            navigationState.targetPage,
+            Math.max(1, options.numPages.value),
+        );
         const range = navigationState.source === 'paged'
             ? getPdfViewerTransactionRowRange({
-                pageNumber: navigationState.targetPage,
+                pageNumber: navigationPage,
                 totalPages: options.numPages.value,
                 viewMode: options.viewMode.value,
             })
             : createPdfViewerTransactionSinglePageRange(
-                navigationState.targetPage,
+                navigationPage,
                 options.numPages.value,
             );
 
@@ -130,7 +136,7 @@ export const usePdfViewerTransactionController = (
                 : 'preparing',
             documentRef: documentRef.value,
             target: {
-                page: navigationState.targetPage,
+                page: navigationPage,
                 range,
                 anchor: navigationState.anchor,
             },
@@ -163,7 +169,7 @@ export const usePdfViewerTransactionController = (
         transactionState: transactionState.value,
     }));
 
-    function normalizePageNumber(pageNumber: number | null | undefined) {
+    function normalizePageNumber(pageNumber: TPageNumber | null | undefined) {
         const fallbackPage = Number.isFinite(options.currentPage.value)
             ? options.currentPage.value
             : 1;
@@ -171,10 +177,13 @@ export const usePdfViewerTransactionController = (
             ? pageNumber
             : fallbackPage;
         const totalPages = Math.max(1, options.numPages.value);
-        return Math.min(Math.max(1, Math.trunc(nextPage)), totalPages);
+        return requirePageNumber(
+            Math.min(Math.max(1, Math.trunc(nextPage)), totalPages),
+            totalPages,
+        );
     }
 
-    function normalizeRange(pageNumber: number, range: IPageRange | null | undefined) {
+    function normalizeRange(pageNumber: TPageNumber, range: IPageRange | null | undefined) {
         if (
             range
             && Number.isFinite(range.start)
@@ -195,7 +204,14 @@ export const usePdfViewerTransactionController = (
     function createTransactionFromOptions(
         beginOptions: IPdfViewerBeginTransactionOptions,
     ): IPdfViewerTransactionBeginEvent['transaction'] {
-        const page = normalizePageNumber(beginOptions.page);
+        const totalPages = Math.max(1, options.numPages.value);
+        const requestedPage = typeof beginOptions.page === 'number' && Number.isFinite(beginOptions.page)
+            ? requirePageNumber(
+                Math.min(Math.max(1, Math.trunc(beginOptions.page)), totalPages),
+                totalPages,
+            )
+            : null;
+        const page = normalizePageNumber(requestedPage);
         const range = normalizeRange(page, beginOptions.range);
         return {
             kind: beginOptions.kind,

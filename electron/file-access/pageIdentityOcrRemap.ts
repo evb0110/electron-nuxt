@@ -7,14 +7,20 @@ import type {
 
 export const OCR_V3_DIRECT_REMAP_PAGE_LIMIT = 1_024;
 
+type TMutablePageIdentityRangeOperation = TPageIdentityRangeOperation extends infer TOperation
+    ? TOperation extends object
+        ? {-readonly [TKey in keyof TOperation]: TOperation[TKey]}
+        : never
+    : never;
+
 export interface IOcrRangeIdentityDelta {
-    previousPageCount: number;
-    nextPageCount: number;
-    ranges: TPageIdentityRangeOperation[];
+    readonly previousPageCount: number;
+    readonly nextPageCount: number;
+    readonly ranges: readonly TPageIdentityRangeOperation[];
 }
 
 function appendMapping(
-    ranges: TPageIdentityRangeOperation[],
+    ranges: TMutablePageIdentityRangeOperation[],
     fromPageNumber: number,
     toPageNumber: number,
     count: number,
@@ -41,7 +47,7 @@ function appendMapping(
 }
 
 function appendDelete(
-    ranges: TPageIdentityRangeOperation[],
+    ranges: TMutablePageIdentityRangeOperation[],
     fromPageNumber: number,
     count: number,
 ) {
@@ -64,7 +70,7 @@ function appendDelete(
 }
 
 function appendInsert(
-    ranges: TPageIdentityRangeOperation[],
+    ranges: TMutablePageIdentityRangeOperation[],
     toPageNumber: number,
     count: number,
 ) {
@@ -106,7 +112,7 @@ export function createOcrRangeDelta(delta: IPageIdentityDelta): IOcrRangeIdentit
     if (delta.nextPageCount !== undefined && delta.nextPageCount !== nextPageCount) {
         throw new Error('Page identity delta page count does not match its page entries');
     }
-    const ranges: TPageIdentityRangeOperation[] = [];
+    const ranges: TMutablePageIdentityRangeOperation[] = [];
     const sourcePages = new Set<number>();
     for (const [
         index,

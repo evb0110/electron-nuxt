@@ -86,7 +86,7 @@ function createOriginalChangedValidationResult(): IPdfValidationResult {
 
 function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null): TDocumentRevisionToken | null {
     const token = options?.expectedDocumentRevisionToken;
-    if (token === undefined || token === null) {
+    if (token === undefined) {
         return null;
     }
     const parsedToken = parseDocumentRevisionToken(token);

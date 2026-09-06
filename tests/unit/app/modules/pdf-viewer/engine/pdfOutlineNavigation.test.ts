@@ -1,3 +1,5 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -27,7 +29,7 @@ describe('navigateToBookmarkDestination', () => {
         navigateToBookmarkDestination({
             item: createBookmark({
                 dest: 'chapter',
-                pageIndex: 4,
+                pageIndex: requirePageIndex(4),
             }),
             pdfDocument: null,
             navigationRequestId: 2,
@@ -50,7 +52,7 @@ describe('navigateToBookmarkDestination', () => {
     it('emits a page target when the bookmark has no named destination', () => {
         const emitGoToPage = vi.fn();
         navigateToBookmarkDestination({
-            item: createBookmark({pageIndex: 6}),
+            item: createBookmark({pageIndex: requirePageIndex(6)}),
             pdfDocument: null,
             navigationRequestId: 1,
             isBookmarkNavigationRequestCurrent: () => true,
@@ -79,7 +81,9 @@ describe('navigateToBookmarkDestination', () => {
         });
         navigateToBookmarkDestination({
             ...common,
-            item: createBookmark({pageIndex: Number.NaN}),
+            // Invalid persisted page indexes are a runtime input case, not a
+            // valid page-number fixture.
+            item: createBookmark({pageIndex: Number.NaN as TPageIndex}),
             isBookmarkNavigationRequestCurrent: () => true,
         });
         expect(emitGoToPage).not.toHaveBeenCalled();

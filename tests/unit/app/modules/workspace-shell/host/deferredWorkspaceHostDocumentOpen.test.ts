@@ -8,6 +8,10 @@ import {
     ref,
     shallowRef,
 } from 'vue';
+import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     canBeginDocumentOpenSynchronously,
     createWorkspaceDocumentOpenTransactions,
@@ -26,16 +30,16 @@ import {
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import { workspaceSessionHasOpenedDocument } from '@app/modules/workspace-shell/host/deferredWorkspaceHostState';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
-const PDF_GEOMETRY = {
-    pageNumber: 1 as const,
+const PDF_GEOMETRY: IPdfOpeningGeometry = {
+    pageNumber: requirePageNumber(1),
     pageCount: 431,
     width: 612,
     height: 792,
     rotation: 0 as const,
     size: 538_000_000,
-    modifiedAt: 1_720_000_000_000,
+    modifiedAt: requireEpochMs(1_720_000_000_000),
 };
 
 describe('deferredWorkspaceHostDocumentOpen', () => {
@@ -47,17 +51,17 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
 
     it('uses the geometry/viewer original path instead of a differing transaction ref', () => {
         expect(resolveOpenSurfaceDocumentId(
-            {originalPath: '/documents/original.pdf'},
-            '/managed/working-copy.pdf',
+            {originalPath: requireDocumentRef('/documents/original.pdf')},
+            requireDocumentRef('/managed/working-copy.pdf'),
             'tab-1',
         )).toBe('/documents/original.pdf');
-        expect(resolveOpenSurfaceDocumentId(null, '/managed/working-copy.pdf', 'tab-1'))
+        expect(resolveOpenSurfaceDocumentId(null, requireDocumentRef('/managed/working-copy.pdf'), 'tab-1'))
             .toBe('/managed/working-copy.pdf');
         expect(resolveOpenSurfaceDocumentId(null, null, 'tab-1')).toBe('tab-1');
     });
 
     it('binds authoritative main-process PDF geometry to the host document identity', () => {
-        const geometry = resolvePreparedPdfOpeningGeometry('/documents/scan.pdf', PDF_GEOMETRY);
+        const geometry = resolvePreparedPdfOpeningGeometry(requireDocumentRef('/documents/scan.pdf'), PDF_GEOMETRY);
 
         expect(geometry).toEqual({
             documentId: '/documents/scan.pdf',
@@ -71,7 +75,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         });
         expect(Object.isFrozen(geometry)).toBe(true);
         expect(resolvePreparedPdfOpeningGeometry('', geometry)).toBeNull();
-        expect(resolvePreparedPdfOpeningGeometry('/documents/scan.pdf', null)).toBeNull();
+        expect(resolvePreparedPdfOpeningGeometry(requireDocumentRef('/documents/scan.pdf'), null)).toBeNull();
     });
 
     it('waits only when a prepared frame still lacks its canonical viewer owner', () => {
@@ -106,7 +110,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
                 },
             };
         });
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             getToolbarSnapshot: () => toolbarSnapshot,
             waitForDocumentOpenSettled,
         });
@@ -137,7 +141,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
             action: 'handleOpenFileDirectWithPersist',
             target: {
                 fileName: 'generated.pdf',
-                originalPath: '/documents/generated.pdf',
+                originalPath: requireDocumentRef('/documents/generated.pdf'),
                 isDjvu: false,
             },
         }, sourceOpen)).resolves.toBe(true);
@@ -173,7 +177,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
                 isOpeningDocument: false,
             };
         });
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             getToolbarSnapshot: () => toolbarSnapshot,
             waitForDocumentOpenSettled,
         });
@@ -198,7 +202,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
             action: 'handleOpenFileWithResultFromUi',
             target: {
                 fileName: 'generated.pdf',
-                originalPath: '/documents/generated.pdf',
+                originalPath: requireDocumentRef('/documents/generated.pdf'),
                 isDjvu: false,
             },
         }, async () => true)).resolves.toBe(true);
@@ -212,7 +216,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
     it('does not let a stale failed open clear a newer transaction presentation', async () => {
         const documentOpenSurface = createDocumentOpenSurfaceSession();
         const toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             getToolbarSnapshot: () => toolbarSnapshot,
             waitForDocumentOpenSettled: vi.fn(async () => {}),
         });
@@ -242,10 +246,10 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
             action: 'handleOpenFileWithResultFromUi',
             target: {
                 fileName: 'a.pdf',
-                originalPath: '/documents/a.pdf',
+                originalPath: requireDocumentRef('/documents/a.pdf'),
                 isDjvu: false,
             },
-        }, 'transaction-a', '/documents/a.pdf', async () => {
+        }, 'transaction-a', requireDocumentRef('/documents/a.pdf'), async () => {
             activeTransactionId = 'transaction-b';
             documentOpenSurface.begin({
                 documentId: '/documents/b.pdf',
@@ -291,7 +295,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         const opening = controller.open({
             action: 'openRecentFromPlaceholder',
             preparedOpeningGeometry: PDF_GEOMETRY,
-            target: {originalPath: '/documents/scan.pdf'},
+            target: {originalPath: requireDocumentRef('/documents/scan.pdf')},
         }, run);
         controller.requestDocumentPage(2);
 
@@ -324,17 +328,17 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
             requestWorkspaceMount,
             isHostUnmounted: () => false,
         });
-        controller.attachWorkspace(cast<IWorkspaceExpose>({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
+        controller.attachWorkspace(createWorkspaceExposeFixture({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
             options?.onCloseCommit?.();
             return true;
         }}));
 
         const opening = controller.open({
             action: 'openRecentFromPlaceholder',
-            target: {originalPath: '/documents/scan.pdf'},
+            target: {originalPath: requireDocumentRef('/documents/scan.pdf')},
         }, signal => loadGateway.withWorkspace(
             'openRecentFromPlaceholder',
-            workspace => workspace.handleOpenFileDirectWithPersist('/documents/scan.pdf'),
+            workspace => workspace.handleOpenFileDirectWithPersist(requireDocumentRef('/documents/scan.pdf')),
             signal,
         ));
 
@@ -342,7 +346,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         await expect(controller.close({persist: false})).resolves.toBe(true);
         await expect(opening).resolves.toBe(false);
 
-        mountedWorkspace.value = cast<IWorkspaceExpose>({handleOpenFileDirectWithPersist: realOpen});
+        mountedWorkspace.value = createWorkspaceExposeFixture({handleOpenFileDirectWithPersist: realOpen});
         await Promise.resolve();
         await Promise.resolve();
 
@@ -372,7 +376,7 @@ describe('deferredWorkspaceHostDocumentOpen', () => {
         const run = vi.fn(async () => true);
         await expect(controller.open({
             action: 'openRecentFromPlaceholder',
-            target: {originalPath: '/documents/scan.pdf'},
+            target: {originalPath: requireDocumentRef('/documents/scan.pdf')},
         }, run)).resolves.toBe(false);
         expect(run).not.toHaveBeenCalled();
     });

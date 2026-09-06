@@ -2,22 +2,18 @@ import {
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
 import {
     nextTick,
     ref,
     watch,
 } from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type { ITab } from '@app/types/tabs';
-import {
-    createDefaultWorkspaceViewerCapabilities,
-    type IWorkspaceExpose,
-} from '@app/types/workspaceExpose';
+import {createDefaultWorkspaceViewerCapabilities} from '@app/types/workspaceExpose';
 import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { workspaceExposeRequiredMethodNames } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 function createTab(overrides: Partial<ITab> = {}): ITab {
     return {
@@ -31,18 +27,14 @@ function createTab(overrides: Partial<ITab> = {}): ITab {
 }
 
 function createWorkspace() {
-    const workspace: Record<string, unknown> = {hasPdf: true};
-    for (const method of workspaceExposeRequiredMethodNames) {
-        workspace[method] = vi.fn();
-    }
-    return cast<IWorkspaceExpose>(workspace);
+    return createWorkspaceExposeFixture({hasPdf: true});
 }
 
 function createReadyRecord(fileName: string, originalPath: string, overrides: Partial<ITab> = {}) {
     return createWorkspaceDocumentRecord({
         tab: {
             fileName,
-            originalPath,
+            originalPath: requireDocumentRef(originalPath),
             isDirty: overrides.isDirty ?? false,
             isDjvu: overrides.isDjvu ?? false,
         },
@@ -66,7 +58,7 @@ describe('useWorkspaceDocumentSessions', () => {
             activeTabId: ref('tab-1'),
             tabs: ref([createTab({
                 fileName: 'Paper.pdf',
-                originalPath: '/tmp/Paper.pdf',
+                originalPath: requireDocumentRef('/tmp/Paper.pdf'),
             })]),
         });
 
@@ -105,7 +97,7 @@ describe('useWorkspaceDocumentSessions', () => {
         sessions.setWorkspaceDocumentRecord('tab-1', createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'Ready.pdf',
-                originalPath: '/tmp/Ready.pdf',
+                originalPath: requireDocumentRef('/tmp/Ready.pdf'),
                 isDirty: true,
                 isDjvu: false,
             },
@@ -185,7 +177,7 @@ describe('useWorkspaceDocumentSessions', () => {
             const secondTab = createTab({
                 id: 'tab-2',
                 fileName: 'Second.pdf',
-                originalPath: '/docs/second.pdf',
+                originalPath: requireDocumentRef('/docs/second.pdf'),
             });
             tabs.value = [
                 tabs.value[0]!,

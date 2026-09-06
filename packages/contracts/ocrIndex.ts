@@ -1,3 +1,6 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+import { parsePageNumber } from '@contracts/pageNumbers';
+
 import type { IOcrWord } from '@contracts/shared';
 import { isOcrWord } from '@contracts/shared';
 import type {
@@ -6,6 +9,13 @@ import type {
 } from '@contracts/documentRevision';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    createEpochMs,
+    isEpochMs,
+    isIsoTimestamp,
+    type TEpochMs,
+    type TIsoTimestamp,
+} from '@contracts/timestamps';
 
 /** The current sharded OCR catalog format. */
 export const OCR_CATALOG_VERSION = 4 as const;
@@ -33,7 +43,7 @@ export const OCR_CATALOG_PREPARED_DESCRIPTOR_VERSION = 1 as const;
 export type TOcrIndexRotation = 0 | 90 | 180 | 270;
 
 interface IOcrIndexV3PageMapping {
-    path: string;
+    readonly path: string;
     /**
      * Mirrors `canonicalText.generation` of the artifact at `path` so callers can
      * tell evb-written pages from foreign text by reading the manifest alone.
@@ -41,7 +51,7 @@ interface IOcrIndexV3PageMapping {
      * back to a catalog-wide stamp rather than invalidating. Make it required
      * once the manifest version moves past 3.
      */
-    generation?: string;
+    readonly generation?: string;
 }
 
 /**
@@ -50,102 +60,105 @@ interface IOcrIndexV3PageMapping {
  * page reorder costs one manifest write instead of one rewrite per page.
  */
 export interface IOcrIndexV3Manifest {
-    version: 3;
-    documentRevision: IDocumentRevisionStamp;
-    createdAt: number;
-    source: { pdfPath: string };
-    pageCount: number;
-    pageBox: 'crop';
-    ocr: {
-        engine: 'tesseract';
-        languages: string[];
-        renderDpi: number;
+    readonly version: 3;
+    readonly documentRevision: IDocumentRevisionStamp;
+    readonly createdAt: TEpochMs;
+    readonly source: {readonly pdfPath: string};
+    readonly pageCount: number;
+    readonly pageBox: 'crop';
+    readonly ocr: {
+        readonly engine: 'tesseract';
+        readonly languages: readonly string[];
+        readonly renderDpi: number;
     };
-    pages: Record<number, IOcrIndexV3PageMapping>;
+    readonly pages: Readonly<Record<number, IOcrIndexV3PageMapping>>;
 }
 
 export interface IOcrIndexV3Page {
-    rotation: TOcrIndexRotation;
-    render: {
-        dpi: number;
-        imagePx: {
-            w: number;
-            h: number;
+    readonly rotation: TOcrIndexRotation;
+    readonly render: {
+        readonly dpi: number;
+        readonly imagePx: {
+            readonly w: number;
+            readonly h: number;
         };
     };
-    text: string;
-    words: IOcrWord[];
-    canonicalText?: {
-        source: 'evb-ocr';
-        generation: string;
-        contentDigest: string;
+    readonly text: string;
+    readonly words: readonly IOcrWord[];
+    readonly canonicalText?: {
+        readonly source: 'evb-ocr';
+        readonly generation: string;
+        readonly contentDigest: string;
     };
 }
 
 /** The page payload remains the v3 JSON artifact in v4. */
 export type TOcrPageArtifact = IOcrIndexV3Page;
 
-export interface IOcrCatalogSourceV4 {pdfPath: string;}
+export interface IOcrCatalogSourceV4 {readonly pdfPath: string;}
 
 /** Small root manifest published at the existing `manifest.json` path. */
 export interface IOcrCatalogRootV4 {
-    version: typeof OCR_CATALOG_VERSION;
-    catalogId: string;
-    source: IOcrCatalogSourceV4;
-    documentRevision: IDocumentRevisionStamp;
-    pageCount: number;
-    shardSize: typeof OCR_SHARD_SIZE;
-    generation: number;
-    publishedAt: string;
+    readonly version: typeof OCR_CATALOG_VERSION;
+    readonly catalogId: string;
+    readonly source: IOcrCatalogSourceV4;
+    readonly documentRevision: IDocumentRevisionStamp;
+    readonly pageCount: number;
+    readonly shardSize: typeof OCR_SHARD_SIZE;
+    readonly generation: number;
+    // The v4 root manifest is persisted on disk and keeps its established ISO wire format.
+    readonly publishedAt: TIsoTimestamp;
 }
 
 export interface IOcrPageMappingV4 {
     /** Path relative to the catalog directory. */
-    path: string;
+    readonly path: string;
     /** Generation that first recorded the referenced page artifact. */
-    generation: number;
+    readonly generation: number;
     /** Carried from migrated v3 mappings for diagnostics and tie breaking. */
-    createdAt?: string;
+    // Migrated v3 page mappings persist their established ISO wire format.
+    readonly createdAt?: TIsoTimestamp;
 }
 
 /** Alias retained for callers that group this with the index types. */
 export type IOcrIndexV4PageMapping = IOcrPageMappingV4;
 
 export interface IOcrShardV4 {
-    version: typeof OCR_CATALOG_VERSION;
-    generation: number;
-    shard: number;
-    pages: Record<string, IOcrPageMappingV4>;
+    readonly version: typeof OCR_CATALOG_VERSION;
+    readonly generation: number;
+    readonly shard: number;
+    readonly pages: Readonly<Record<string, IOcrPageMappingV4>>;
 }
 
 export interface IOcrShardIndexRecord {
-    generation: number;
-    mappedCount: number;
-    reserved: 0;
+    readonly generation: number;
+    readonly mappedCount: number;
+    readonly reserved: 0;
 }
 
 export interface IOcrShardIndex {
-    shardSize: typeof OCR_SHARD_SIZE;
-    shardCount: number;
-    records: IOcrShardIndexRecord[];
+    readonly shardSize: typeof OCR_SHARD_SIZE;
+    readonly shardCount: number;
+    readonly records: readonly IOcrShardIndexRecord[];
 }
 
 export interface IOcrGenerationV4 {
-    version: typeof OCR_CATALOG_VERSION;
-    catalogId: string;
-    generation: number;
-    parent: number | null;
-    source: IOcrCatalogSourceV4;
-    documentRevision: IDocumentRevisionStamp;
-    pageCount: number;
-    shardSize: typeof OCR_SHARD_SIZE;
-    shardCount: number;
-    mappedPageCount: number;
-    createdAt: string;
-    dirtyShards: number[];
-    liveRefs: Record<string, number>;
-    releasedGenerations: number[];
-    releasedLegacyPaths: string[];
+    readonly version: typeof OCR_CATALOG_VERSION;
+    readonly catalogId: string;
+    readonly generation: number;
+    readonly parent: number | null;
+    readonly source: IOcrCatalogSourceV4;
+    readonly documentRevision: IDocumentRevisionStamp;
+    readonly pageCount: number;
+    readonly shardSize: typeof OCR_SHARD_SIZE;
+    readonly shardCount: number;
+    readonly mappedPageCount: number;
+    // Generation manifests are persisted on disk and keep their established ISO wire format.
+    readonly createdAt: TIsoTimestamp;
+    readonly dirtyShards: readonly number[];
+    readonly liveRefs: Readonly<Record<string, number>>;
+    readonly releasedGenerations: readonly number[];
+    readonly releasedLegacyPaths: readonly string[];
 }
 
 /**
@@ -154,26 +167,23 @@ export interface IOcrGenerationV4 {
  * that generation to the staged PDF that will trigger the eventual rebind.
  */
 export interface IOcrCatalogV4PreparedDescriptor {
-    version: typeof OCR_CATALOG_PREPARED_DESCRIPTOR_VERSION;
-    catalogId: string;
-    catalogRoot: string;
-    sourceRootGeneration: number | null;
-    sourceRootRevisionToken: TDocumentRevisionToken | null;
-    stagedGeneration: number;
-    pageCount: number;
-    resultPath: string;
-    resultIdentity: string;
-    createdAt: string;
+    readonly version: typeof OCR_CATALOG_PREPARED_DESCRIPTOR_VERSION;
+    readonly catalogId: string;
+    readonly catalogRoot: string;
+    readonly sourceRootGeneration: number | null;
+    readonly sourceRootRevisionToken: TDocumentRevisionToken | null;
+    readonly stagedGeneration: number;
+    readonly pageCount: number;
+    readonly resultPath: string;
+    readonly resultIdentity: string;
+    // Prepared descriptors are persisted on disk and keep their established ISO wire format.
+    readonly createdAt: TIsoTimestamp;
 }
 
 export type TOcrIndexDecodeMode = 'strict' | 'repair-legacy';
 
 function isPositiveSafeInteger(value: unknown): value is number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
-}
-
-function isFiniteNonNegativeNumber(value: unknown): value is number {
-    return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function isFinitePositiveNumber(value: unknown): value is number {
@@ -208,7 +218,7 @@ export function parseOcrIndexV3Manifest(
     const languages = Array.isArray(ocr?.languages) && ocr.languages.every(language => typeof language === 'string')
         ? ocr.languages
         : null;
-    const createdAt = isFiniteNonNegativeNumber(value.createdAt) ? value.createdAt : null;
+    const createdAt = isEpochMs(value.createdAt) ? value.createdAt : null;
     const renderDpi = isFinitePositiveNumber(ocr?.renderDpi) ? ocr.renderDpi : null;
     if (
         strict
@@ -255,7 +265,7 @@ export function parseOcrIndexV3Manifest(
     return {
         version: 3,
         documentRevision,
-        createdAt: createdAt ?? Date.now(),
+        createdAt: createdAt ?? createEpochMs(),
         source: {pdfPath: value.source.pdfPath},
         pageCount: value.pageCount,
         pageBox: 'crop',
@@ -325,12 +335,7 @@ function isSafeNonNegativeInteger(value: unknown): value is number {
         && value >= 0;
 }
 
-function isIsoDateString(value: unknown): value is string {
-    return typeof value === 'string'
-        && value.length > 0
-        && value.length <= 128
-        && Number.isFinite(Date.parse(value));
-}
+const isIsoDateString = isIsoTimestamp;
 
 function isSafeCatalogRelativePath(value: string): boolean {
     if (
@@ -352,7 +357,7 @@ const CANONICAL_PAGE_PATH_PARTS = /^gen-(\d{8,})\/pages\/(\d{6,})\/p(\d{8,})\.js
 function parseCanonicalPagePath(value: string): {
     generation: number;
     shard: number;
-    pageNumber: number;
+    pageNumber: TPageNumber;
 } | null {
     const match = CANONICAL_PAGE_PATH_PARTS.exec(value);
     if (match === null) {
@@ -361,20 +366,18 @@ function parseCanonicalPagePath(value: string): {
     const generation = Number(match[1]);
     const shard = Number(match[2]);
     const pageNumber = Number(match[3]);
+    const parsedPageNumber = parsePageNumber(pageNumber, OCR_MAX_PAGE_NUMBER);
     return isSafeNonNegativeInteger(generation)
         && generation > 0
         && generation <= OCR_MAX_GENERATION
         && isSafeNonNegativeInteger(shard)
         && shard <= OCR_MAX_SHARD_NUMBER
-        && typeof pageNumber === 'number'
-        && Number.isSafeInteger(pageNumber)
-        && pageNumber > 0
-        && pageNumber <= OCR_MAX_PAGE_NUMBER
+        && parsedPageNumber !== null
         && Math.floor((pageNumber - 1) / OCR_SHARD_SIZE) === shard
         ? {
             generation,
             shard,
-            pageNumber,
+            pageNumber: parsedPageNumber,
         }
         : null;
 }
@@ -541,7 +544,7 @@ export function parseOcrGenerationV4(
         || dirtyShards === null
         || releasedGenerations === null
         || releasedLegacyPaths === null
-        || releasedGenerations.some(releasedGeneration => generation !== null && releasedGeneration >= generation)
+        || releasedGenerations.some(releasedGeneration => releasedGeneration >= generation)
         || (expectedRoot !== undefined && (
             value.catalogId !== expectedRoot.catalogId
             || value.generation !== expectedRoot.generation
@@ -727,8 +730,8 @@ export function parseOcrShardV4(
 
 /** Decodes only the fixed 16-byte shard-index header. */
 export interface IOcrShardIndexHeader {
-    shardSize: number;
-    shardCount: number;
+    readonly shardSize: number;
+    readonly shardCount: number;
 }
 
 export function parseOcrShardIndexHeader(value: Uint8Array): IOcrShardIndexHeader | null {
@@ -837,14 +840,28 @@ export function decodeOcrShardIndex(
 export function encodeOcrShardIndex(
     value: IOcrShardIndex | readonly IOcrShardIndexRecord[],
 ): Uint8Array {
-    if (!Array.isArray(value) && !isRecord(value)) {
+    let shardSize: number;
+    let records: readonly IOcrShardIndexRecord[];
+    if (Array.isArray(value)) {
+        if (!value.every(isOcrShardIndexRecord)) {
+            throw new TypeError('Invalid OCR shard index');
+        }
+        shardSize = OCR_SHARD_SIZE;
+        records = value;
+    } else if (isRecord(value)) {
+        const rawRecords = value.records;
+        if (
+            typeof value.shardSize !== 'number'
+            || !Array.isArray(rawRecords)
+            || !rawRecords.every(isOcrShardIndexRecord)
+        ) {
+            throw new TypeError('Invalid OCR shard index');
+        }
+        shardSize = value.shardSize;
+        records = rawRecords;
+    } else {
         throw new TypeError('Invalid OCR shard index');
     }
-    const isRecordList = Array.isArray(value);
-    const shardSize = isRecordList ? OCR_SHARD_SIZE : (value as IOcrShardIndex).shardSize;
-    const records: readonly IOcrShardIndexRecord[] = isRecordList
-        ? value as readonly IOcrShardIndexRecord[]
-        : (value as IOcrShardIndex).records;
     if (shardSize !== OCR_SHARD_SIZE || !Array.isArray(records) || records.length > 0xFFFF_FFFF) {
         throw new TypeError('Invalid OCR shard index');
     }
@@ -865,7 +882,6 @@ export function encodeOcrShardIndex(
             || record.generation > OCR_MAX_GENERATION
             || !isSafeNonNegativeInteger(record.mappedCount)
             || record.mappedCount > OCR_SHARD_SIZE
-            || record.reserved !== 0
         ) {
             throw new TypeError(`Invalid OCR shard index record ${index}`);
         }
@@ -875,4 +891,11 @@ export function encodeOcrShardIndex(
         view.setUint16(offset + 6, 0, true);
     });
     return result;
+}
+
+function isOcrShardIndexRecord(value: unknown): value is IOcrShardIndexRecord {
+    return isRecord(value)
+        && isSafeNonNegativeInteger(value.generation)
+        && isSafeNonNegativeInteger(value.mappedCount)
+        && value.reserved === 0;
 }

@@ -15,6 +15,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 import {
     beginPdfAnnotationIndex,
@@ -152,7 +153,7 @@ describe('PDF annotation index main session', () => {
 
         await expect(beginPdfAnnotationIndex(
             context,
-            '/outside/document.pdf',
+            requireDocumentRef('/outside/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         )).rejects.toThrow('not authorized');
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
@@ -163,7 +164,7 @@ describe('PDF annotation index main session', () => {
 
         await expect(beginPdfAnnotationIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         )).rejects.toThrow('STALE_REVISION');
         expect(mocks.assertWorkingCopyRevisionCurrent).not.toHaveBeenCalled();
@@ -173,7 +174,7 @@ describe('PDF annotation index main session', () => {
     it('reads bounded page chunks and removes the private sidecar on release', async () => {
         const session = await beginPdfAnnotationIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         );
         expect(session).toMatchObject({
@@ -235,7 +236,7 @@ describe('PDF annotation index main session', () => {
         })}\n`;
         const session = await beginPdfAnnotationIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         );
 
@@ -255,7 +256,7 @@ describe('PDF annotation index main session', () => {
     it('rejects a requested chunk size smaller than one sidecar line', async () => {
         const session = await beginPdfAnnotationIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         );
 
@@ -271,7 +272,7 @@ describe('PDF annotation index main session', () => {
 
         await expect(beginPdfAnnotationIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         )).rejects.toThrow('stale after indexing');
         expect(existsSync(sidecarPath)).toBe(false);
@@ -280,7 +281,7 @@ describe('PDF annotation index main session', () => {
     it('cancels a ready session and removes its sidecar', async () => {
         const session = await beginPdfAnnotationIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         );
 

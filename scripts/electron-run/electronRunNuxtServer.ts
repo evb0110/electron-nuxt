@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     execFileSync,
     spawn,
@@ -205,7 +206,7 @@ async function cleanupStaleNuxtPortOwners(reason: string) {
         if (!info) {
             continue;
         }
-        const nuxtPid = info?.nuxtPid ?? null;
+        const nuxtPid = info.nuxtPid ?? null;
         const nuxtAlive = Boolean(nuxtPid && isProcessAlive(nuxtPid));
         const sessionAlive = isVerifiedSessionProcess(info.pid, {
             kind: 'controller',
@@ -676,7 +677,7 @@ async function sampleElectronAppDependencyWarmup(options: {
         return {
             ok: false,
             status: null,
-            bodySnippet: error instanceof Error ? error.message : String(error),
+            bodySnippet: getErrorMessage(error),
         };
     }
 }

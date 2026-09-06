@@ -64,6 +64,10 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 
 export interface IBrowserDocumentMutation {
     write(
@@ -80,7 +84,7 @@ export interface IBrowserDocumentMutation {
 export interface IBrowserDocumentSourceMutation extends IBrowserDocumentMutation { writeSource(data: Uint8Array | ArrayBuffer): Promise<boolean>; }
 
 function createBrowserFileDocumentEntry(
-    ref: string,
+    ref: TDocumentRef,
     file: File,
     options: IRegisterFileOptions = {},
 ): IBrowserDocumentEntry {
@@ -125,10 +129,8 @@ function getPersistedDocumentRevisionToken(
         return null;
     }
 
-    return createBrowserDocumentRevisionInfo(
-        createEntryFromPersistedRecord(revisionRecord),
-        record.ref,
-    ).token;
+    const entry = createEntryFromPersistedRecord(revisionRecord);
+    return createBrowserDocumentRevisionInfo(entry, entry.ref).token;
 }
 
 function queuePersistedChunkDeletes(
@@ -146,7 +148,7 @@ function queuePersistedChunkDeletes(
 }
 
 export class BrowserDocumentStore extends BrowserDocumentRecordStore {
-    private readonly fileRefs = new WeakMap<File, string>();
+    private readonly fileRefs = new WeakMap<File, TDocumentRef>();
     private readonly fileHandleRefs = new BrowserDocumentFileHandleRefs();
 
     protected override onDocumentRemoved(ref: string) {
@@ -159,9 +161,9 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             ref => this.ensureEntry(ref),
         );
         if (localRef) {
-            return localRef;
+            return parseDocumentRef(localRef);
         }
-        return this.findPersistedFileHandleRef(handle);
+        return parseDocumentRef(await this.findPersistedFileHandleRef(handle));
     }
 
     /**
@@ -244,7 +246,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         );
     }
 
-    public getRefForFile(file: File) {
+    public getRefForFile(file: File): TDocumentRef {
         const existingRef = this.fileRefs.get(file);
         if (existingRef && this.hasLoadedEntry(existingRef)) {
             return existingRef;
@@ -264,7 +266,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     }
 
     private async applyFileRegistrationOptions(
-        ref: string,
+        ref: TDocumentRef,
         file: File,
         options: IRegisterFileOptions,
     ) {
@@ -302,7 +304,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
     }
 
-    public async registerFile(file: File, options: IRegisterFileOptions = {}) {
+    public async registerFile(file: File, options: IRegisterFileOptions = {}): Promise<TDocumentRef> {
         return (await this.registerFileWithOwnership(file, options)).ref;
     }
 
@@ -347,7 +349,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         fileName: string,
         data: Uint8Array | ArrayBuffer,
         options: ICreateStoredDocumentOptions,
-    ) {
+    ): Promise<TDocumentRef> {
         await this.ensureMaintenance();
         const create = () => this.createStoredEntry(fileName, data, options);
         const sourceRef = options.sourceRef;

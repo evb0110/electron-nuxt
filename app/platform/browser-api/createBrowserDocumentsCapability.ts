@@ -55,6 +55,7 @@ import {
     normalizeTranslationParams,
 } from '@i18n-core';
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
+import type { TDocumentRef } from '@contracts/documentRef';
 
 interface ICreateBrowserDocumentsCapabilityOptions {clearSearchCaches: (pdfPath?: string) => void | Promise<void>;}
 
@@ -222,7 +223,7 @@ export function createBrowserDocumentsCapability(
     } satisfies IDocumentsPdfCapability;
     const recentFiles = {
         get: fileCapability.recentFiles.get,
-        remove: async (path: string) => {
+        remove: async (path: TDocumentRef) => {
             await fileCapability.recentFiles.remove(path);
             return undefined;
         },

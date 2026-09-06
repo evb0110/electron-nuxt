@@ -4,6 +4,7 @@ import {
     sortBy,
 } from 'es-toolkit/array';
 import type { IWindowTabTargetWindow } from '@contracts/windowTabs';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     WINDOW_TABS_PLATFORM_FEATURE,
     type IWindowTabsInvokeMap,
@@ -27,6 +28,7 @@ import {
 import {
     CORE_IPC_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
+    decodeDiagnosticsCanaryAction,
 } from '@electron/platform-ipc/coreContract';
 import {
     acknowledgeWorkspaceCheckpoint,
@@ -39,8 +41,8 @@ import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 
 export interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
-    claimPendingExternalOpenPaths?: (sender: Electron.WebContents) => Promise<string[]>;
-    acknowledgePendingExternalOpenPaths?: (sender: Electron.WebContents, failedPaths: string[]) => void;
+    claimPendingExternalOpenPaths?: (sender: Electron.WebContents) => Promise<TDocumentRef[]>;
+    acknowledgePendingExternalOpenPaths?: (sender: Electron.WebContents, failedPaths: TDocumentRef[]) => void;
 }
 
 const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
@@ -48,6 +50,12 @@ const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
     CORE_IPC_SEND_CHANNELS.rendererLog,
     CORE_IPC_SEND_CHANNELS.windowCloseResponse,
 ]);
+
+function isDiagnosticsCanaryEnabled() {
+    return process.env.EVB_ENABLE_DIAGNOSTICS_CANARY === '1'
+        && Boolean(process.env.EVB_AUTOMATION_USER_DATA_DIR?.trim())
+        && Boolean(process.env.EVB_AUTOMATION_SESSION_NAME?.trim());
+}
 
 function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetWindow[] {
     const otherWindows = sortBy(
@@ -79,6 +87,44 @@ export function registerCoreIpcHandlers(
     ipcMain: Electron.IpcMain,
     options: ICoreIpcHandlerOptions,
 ) {
+    if (isDiagnosticsCanaryEnabled()) {
+        ipcMain.handle(CORE_IPC_CHANNELS.diagnosticsCanary, (event, value: unknown) => {
+            if (!isTrustedWebContentsSender(
+                event.sender,
+                event.senderFrame,
+                CORE_IPC_CHANNELS.diagnosticsCanary,
+            )) {
+                return null;
+            }
+            const action = decodeDiagnosticsCanaryAction(value);
+            if (action === 'main-health') {
+                const reporter = getMainFailureReporter();
+                return reporter === null
+                    ? null
+                    : {
+                        preference: reporter.getPreference(),
+                        transportReady: reporter.isTransportReady(),
+                    };
+            }
+            if (action === 'main-error') {
+                return getMainFailureReporter()?.capture({
+                    code: 'MAIN_RENDERER_LOG_BRIDGE_FAILED',
+                    context: {},
+                    local: {
+                        source: 'diagnostics-canary',
+                        message: 'Packaged main diagnostics canary',
+                    },
+                }) ?? null;
+            }
+            if (action === 'crash-main') {
+                setImmediate(() => {
+                    throw new Error('Packaged startup crash-marker canary');
+                });
+                return true;
+            }
+            return null;
+        });
+    }
     const windowTabsRegistrar = createValidatedIpcMainRegistrar<IWindowTabsInvokeMap>(ipcMain, {
         allowedChannels: WINDOW_TABS_PLATFORM_FEATURE.invokeChannelSet,
         codecs: WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs,
@@ -141,7 +187,7 @@ export function registerCoreIpcHandlers(
                 allowOpenPaths(checkpoint.tabs.flatMap(tab => [
                     tab.sourceRef,
                     tab.workingCopyRef,
-                ].filter((path): path is string => path !== null)), sender);
+                ].filter((path): path is TDocumentRef => path !== null)), sender);
             }
             return checkpoint;
         },

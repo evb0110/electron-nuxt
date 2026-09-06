@@ -1,4 +1,6 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type {
     ComputedRef,
     Ref,
@@ -26,9 +28,9 @@ interface IUsePdfViewerActivationRestoreOptions {
     viewMode: ComputedRef<TPdfViewMode>;
     getVisiblePageRange?: ((container: HTMLElement | null, numPages: number) => IPageRange) | undefined;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
-    scrollToPage: (pageNumber: number) => void;
+    scrollToPage: (pageNumber: TPageNumber) => void;
     renderVisiblePages: (range: IPageRange, options?: {preserveRenderedPages?: boolean}) => Promise<void>;
-    isPageRendered?: ((pageNumber: number) => boolean) | undefined;
+    isPageRendered?: ((pageNumber: TPageNumber) => boolean) | undefined;
     applySearchHighlights: () => void;
     // Retained only while callers shed the old transaction-controller argument.
     transactionController?: unknown;
@@ -53,7 +55,7 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
 
     function currentRow(): IPageRange {
         const row = getPageRowBoundsForViewMode({
-            pageNumber: options.currentPage.value,
+            pageNumber: requirePageNumber(options.currentPage.value, Math.max(1, options.numPages.value)),
             viewMode: options.viewMode.value,
             totalPages: Math.max(1, options.numPages.value),
         });
@@ -92,7 +94,7 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
             reconcile: async () => {
                 const row = currentRow();
                 const container = options.viewerContainer.value;
-                const page = options.currentPage.value;
+                const page = requirePageNumber(options.currentPage.value, Math.max(1, options.numPages.value));
                 const physicallyVisible = isPdfInitialVisualCanvasReady(container, page, page);
                 if (
                     !physicallyVisible
@@ -105,7 +107,7 @@ export const usePdfViewerActivationRestore = (options: IUsePdfViewerActivationRe
                         scrollTop: container?.scrollTop ?? null,
                         visibleRange: options.visibleRange.value,
                     });
-                    options.scrollToPage(options.currentPage.value);
+                    options.scrollToPage(page);
                 }
                 await options.renderVisiblePages(row, {preserveRenderedPages: true});
                 if (isCurrent()) {

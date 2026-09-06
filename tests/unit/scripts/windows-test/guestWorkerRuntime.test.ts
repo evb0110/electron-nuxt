@@ -33,6 +33,14 @@ import {
 import { guestWorkerMain } from '@scripts/windows-test/guest/guestWorkerMain';
 import { createPuppeteerViewerDriver } from '@scripts/windows-test/guest/viewer/createPuppeteerViewerDriver';
 import {
+    createNativeUiActionLog,
+    type INativeUiAdapter,
+    type IUiElementRef,
+    type IUiSelector,
+    type IUiWindowQuery,
+} from '@scripts/windows-test/guest/native-ui/nativeUiAdapter';
+import { DEFAULT_VIEWER_FIRST_LAUNCH_PROMPT } from '@scripts/windows-test/guest/native-ui/firstLaunchPrompt';
+import {
     createPuppeteerViewerFactory,
     selectViewerPage,
 } from '@scripts/windows-test/guest/viewer/createPuppeteerViewerFactory';
@@ -99,6 +107,79 @@ function stubDriver(calls: string[]) {
         calls.push(String(property));
         return Promise.resolve();
     } }) as IViewerDriver;
+}
+
+function stubFirstLaunchUi(calls: string[]) {
+    const actionLog = createNativeUiActionLog();
+    const mainWindow: IUiElementRef = {
+        handle: 'main-window',
+        controlType: 'Window',
+        name: 'EVB Viewer',
+        automationId: null,
+        processId: ownedProcess.pid,
+    };
+    const promptWindow: IUiElementRef = {
+        handle: 'prompt-window',
+        controlType: 'Window',
+        name: DEFAULT_VIEWER_FIRST_LAUNCH_PROMPT.title,
+        automationId: null,
+        processId: ownedProcess.pid,
+    };
+    const notNow: IUiElementRef = {
+        handle: 'not-now',
+        controlType: 'Button',
+        name: DEFAULT_VIEWER_FIRST_LAUNCH_PROMPT.buttonName,
+        automationId: DEFAULT_VIEWER_FIRST_LAUNCH_PROMPT.buttonAutomationId,
+        processId: ownedProcess.pid,
+    };
+    let promptVisible = true;
+    const adapter: INativeUiAdapter = {
+        driver: 'uia3',
+        actionLog,
+        findWindow: async (query: IUiWindowQuery) => {
+            calls.push(`findWindow:${query.titleContains ?? ''}:${query.className ?? ''}`);
+            if (query.processId !== ownedProcess.pid) {
+                return null;
+            }
+            if (query.className === 'Chrome_WidgetWin_1') {
+                return mainWindow;
+            }
+            return promptVisible ? promptWindow : null;
+        },
+        findControl: async (window: IUiElementRef, selector: IUiSelector) => {
+            expect(window).toEqual(promptWindow);
+            expect(selector).toEqual({
+                automationId: notNow.automationId,
+                controlType: 'Button',
+                name: {exact: notNow.name},
+                processId: ownedProcess.pid,
+            });
+            calls.push('findControl');
+            return promptVisible ? [notNow] : [];
+        },
+        invoke: async (target) => {
+            expect(target).toEqual(notNow);
+            calls.push('invoke');
+            promptVisible = false;
+            actionLog.record({
+                actionKind: 'pattern',
+                action: 'invoke',
+                target: notNow.handle,
+            });
+        },
+        setValue: async () => undefined,
+        select: async () => undefined,
+        sendKeys: async () => undefined,
+        waitFor: async () => {
+            throw new Error('waitFor is not used by first-launch prompt handling');
+        },
+        captureTree: async () => ({}),
+        screenshot: async () => undefined,
+    };
+    return {
+        adapter,
+        actionLog,
+    };
 }
 
 interface IStubLauncher {
@@ -301,6 +382,36 @@ describe('puppeteer viewer factory', () => {
         expect(launcher.terminated).toHaveLength(1);
     });
 
+    it('dismisses the owned first-launch prompt before opening an instrumented document', async () => {
+        const launcher = stubLauncher();
+        const calls: string[] = [];
+        const nativeUi = stubFirstLaunchUi(calls);
+        const factory = createPuppeteerViewerFactory({
+            launcher: launcher.launcher,
+            profileDirectory: 'C:\\evb-test\\work\\run\\profile',
+            nativeUi: nativeUi.adapter,
+            clock: {
+                now: () => 0,
+                sleep: async () => undefined,
+            },
+            firstLaunchPromptTimeoutMs: 0,
+            allocatePort: () => Promise.resolve(9_333),
+            waitForBrowserReady: () => Promise.resolve(),
+            connectBrowser: browserUrl => Promise.resolve(stubBrowser(
+                [stubPage(`${browserUrl.startsWith('http') ? 'evb-viewer://app/' : 'about:blank'}index.html`)],
+                calls,
+            )),
+            createDriver: () => stubDriver(calls),
+        });
+
+        const session = await factory.openInstrumented('C:\\evb-test\\work\\run\\inputs\\source.pdf');
+
+        expect(calls.indexOf('invoke')).toBeGreaterThanOrEqual(0);
+        expect(calls.indexOf('invoke')).toBeLessThan(calls.indexOf('openDocument'));
+        expect(nativeUi.actionLog.entries()).toHaveLength(1);
+        await session.close();
+    });
+
     it('refuses an instrumentation launch that produced no debugging url', async () => {
         const launcher = stubLauncher({ browserUrl: null });
         const factory = createPuppeteerViewerFactory({
@@ -333,6 +444,36 @@ describe('puppeteer viewer factory', () => {
             documentPath: 'C:\\evb-test\\inputs\\source.pdf',
         }]);
         await expect(session.close()).rejects.toThrow('refusing to report a clean shutdown');
+    });
+
+    it('waits for the owned acceptance window before dismissing the first-launch prompt', async () => {
+        const launcher = stubLauncher();
+        const calls: string[] = [];
+        const nativeUi = stubFirstLaunchUi(calls);
+        const factory = createPuppeteerViewerFactory({
+            launcher: launcher.launcher,
+            profileDirectory: 'C:\\evb-test\\profile',
+            nativeUi: nativeUi.adapter,
+            clock: {
+                now: () => 0,
+                sleep: async () => undefined,
+            },
+            firstLaunchPromptTimeoutMs: 0,
+            allocatePort: () => Promise.reject(new Error('acceptance must not allocate a debugging port')),
+            waitForBrowserReady: () => Promise.reject(new Error('acceptance must not wait for a debugger')),
+            connectBrowser: () => Promise.reject(new Error('acceptance must not connect a debugger')),
+            createDriver: () => stubDriver(calls),
+        });
+
+        const session = await factory.launchAcceptance('C:\\evb-test\\inputs\\source.pdf');
+
+        expect(calls.slice(0, 2)).toEqual([
+            'findWindow:EVB Viewer:Chrome_WidgetWin_1',
+            `findWindow:${DEFAULT_VIEWER_FIRST_LAUNCH_PROMPT.title}:${DEFAULT_VIEWER_FIRST_LAUNCH_PROMPT.className}`,
+        ]);
+        expect(calls).toContain('invoke');
+        expect(nativeUi.actionLog.entries()).toHaveLength(1);
+        await session.close();
     });
 });
 

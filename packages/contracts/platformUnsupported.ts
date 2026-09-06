@@ -6,14 +6,14 @@ export type TPlatformUnsupportedReason =
     | 'requires-native-backend';
 
 export interface IPlatformUnsupportedResult {
-    ok: false;
-    reason: TPlatformUnsupportedReason;
-    message?: string;
+    readonly ok: false;
+    readonly reason: TPlatformUnsupportedReason;
+    readonly message?: string;
 }
 
 export interface IPlatformOkResult<T> {
-    ok: true;
-    value: T;
+    readonly ok: true;
+    readonly value: T;
 }
 
 export type TPlatformResult<T> = IPlatformOkResult<T> | IPlatformUnsupportedResult;

@@ -24,7 +24,10 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
-import { setMainDiagnosticsPreference } from '@electron/features/diagnostics/public';
+import {
+    setMainDiagnosticsPreference,
+    waitForMainDiagnosticsTransportReady,
+} from '@electron/features/diagnostics/public';
 
 const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -208,6 +211,9 @@ export async function updateSettings(
         }
         await writeSettingsAtomically(storagePath, next);
         setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
+        if (next.clientDiagnosticsPreference === 'granted') {
+            await waitForMainDiagnosticsTransportReady();
+        }
         settingsCache = next;
         return cloneSettings(next);
     });

@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import {requireEpochMs} from '@contracts/timestamps';
 import {
     PDFINFO_SMALL_PAGE_SIZE_ARRAY_LIMIT,
     parsePdfInfoPageSizes,
@@ -153,7 +154,7 @@ Page    1 size:  612 x 792 pts (letter)
 Page    1 rot:   -90
 `, {
             size: 28_000_000,
-            modifiedAt: 1_720_000_000_000,
+            modifiedAt: requireEpochMs(1_720_000_000_000),
         })).toEqual({
             pageNumber: 1,
             pageCount: 431,
@@ -174,7 +175,7 @@ Pages:           ${String(pageCount)}
 Page    1 size:  612 x 792 pts (letter)
 `, {
             size: 1,
-            modifiedAt: 0,
+            modifiedAt: requireEpochMs(0),
         })).toMatchObject({
             pageCount,
             width: 612,

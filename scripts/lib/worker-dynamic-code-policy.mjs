@@ -37,6 +37,7 @@ const ALLOWED_VENDOR_IDIOMS = [
     },
 ];
 
+/** @param {string} matchText */
 function classifyCallSite(matchText) {
     if (matchText.startsWith('(')) {
         return 'indirect (0, eval)';

@@ -17,6 +17,7 @@ import {
 import type { IShapeAnnotation } from '@app/types/annotations';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildNativeShapesMutationForSave} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 function createShapeProjection() {
     const application = shallowRef(new AnnotationApplication('doc-key'));
@@ -33,7 +34,7 @@ function createEmbeddedShape(): IShapeAnnotation {
     return {
         id: 'embedded-shape-1',
         type: 'rectangle',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         x: 0.1,
         y: 0.15,
         width: 0.2,
@@ -53,7 +54,7 @@ function createEmbeddedInkShape(overrides?: Partial<IShapeAnnotation>): IShapeAn
     return {
         id: 'embedded-ink-1',
         type: 'polyline',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         x: 0.1,
         y: 0.2,
         width: 0.15,
@@ -102,7 +103,7 @@ function drawLocalShape(projection: ReturnType<typeof createShapeProjection>, to
         shapes,
         application,
     } = projection;
-    shapes.startDrawing(0, tool, 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+    shapes.startDrawing(requirePageIndex(0), tool, 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
     shapes.continueDrawing(0.15, 0.25);
     shapes.continueDrawing(0.25, 0.35);
     const created = shapes.finishDrawing();
@@ -153,7 +154,7 @@ describe('useAnnotationShapes', () => {
             projection.application.value.store.updateShape(entity.identity.id, {strokeColor: '#ff0000'});
         }
         expect(projection.shapes.getShapeById('embedded-shape-1')?.color).toBe('#ff0000');
-        expect(projection.shapes.getShapesForPage(0)).toHaveLength(1);
+        expect(projection.shapes.getShapesForPage(requirePageIndex(0))).toHaveLength(1);
     });
 
     it('does not mark imported embedded shapes as dirty until they change', () => {
@@ -179,7 +180,7 @@ describe('useAnnotationShapes', () => {
         const note = projection.application.value.store.createNote({
             kind: 'note',
             identity: {id: asAnnotationId('shape-dirty-note')},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -314,7 +315,7 @@ describe('useAnnotationShapes', () => {
     it('creates draw strokes as local Ink polyline drafts before they enter the store', () => {
         const projection = createShapeProjection();
 
-        projection.shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+        projection.shapes.startDrawing(requirePageIndex(0), 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
         projection.shapes.continueDrawing(0.15, 0.25);
         projection.shapes.continueDrawing(0.25, 0.35);
 
@@ -350,7 +351,7 @@ describe('useAnnotationShapes', () => {
 
         try {
             const projection = createShapeProjection();
-            projection.shapes.startDrawing(0, 'rectangle', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+            projection.shapes.startDrawing(requirePageIndex(0), 'rectangle', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
 
             vi.setSystemTime(new Date('2026-05-25T10:01:00Z'));
             projection.shapes.continueDrawing(0.3, 0.4);

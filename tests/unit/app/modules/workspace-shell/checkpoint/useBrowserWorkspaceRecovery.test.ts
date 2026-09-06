@@ -7,6 +7,10 @@ import {
     vi,
 } from 'vitest';
 import type * as Vue from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requirePaneId } from '@contracts/editorPanes';
+import { requireTabId } from '@contracts/windowTabs';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 
 const mocks = vi.hoisted(() => ({
@@ -64,24 +68,24 @@ vi.mock('@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint', () =
 function makeCheckpoint(): IWorkspaceCheckpoint {
     return {
         version: 1,
-        capturedAt: 1,
-        activePaneId: 'pane-1',
-        activeTabId: 'tab-1',
+        capturedAt: requireEpochMs(1),
+        activePaneId: requirePaneId('pane-1'),
+        activeTabId: requireTabId('tab-1'),
         layout: {
             type: 'leaf',
-            paneId: 'pane-1',
+            paneId: requirePaneId('pane-1'),
         },
         panes: [{
-            paneId: 'pane-1',
-            tabIds: ['tab-1'],
-            activeTabId: 'tab-1',
+            paneId: requirePaneId('pane-1'),
+            tabIds: [requireTabId('tab-1')],
+            activeTabId: requireTabId('tab-1'),
         }],
         tabs: [{
-            tabId: 'tab-1',
-            paneId: 'pane-1',
+            tabId: requireTabId('tab-1'),
+            paneId: requirePaneId('pane-1'),
             fileName: 'report.pdf',
-            sourceRef: 'browser://documents/source.pdf',
-            workingCopyRef: 'browser://documents/live-working.pdf',
+            sourceRef: requireDocumentRef('browser://documents/source.pdf'),
+            workingCopyRef: requireDocumentRef('browser://documents/live-working.pdf'),
             requiresSaveAsOnFirstSave: false,
             isDirty: true,
             isDjvu: false,
@@ -208,12 +212,16 @@ describe('useBrowserWorkspaceRecovery', () => {
     });
 
     it('refreshes successful tabs while retaining a failed restored tab and its lease', async () => {
-        const current = makeCheckpoint();
+        const checkpoint = makeCheckpoint();
+        const current = {
+            ...checkpoint,
+            tabs: [...checkpoint.tabs],
+        };
         current.tabs.push({
             ...current.tabs[0]!,
-            tabId: 'tab-2',
+            tabId: requireTabId('tab-2'),
             fileName: 'failed.pdf',
-            sourceRef: 'browser://documents/failed-source.pdf',
+            sourceRef: requireDocumentRef('browser://documents/failed-source.pdf'),
             workingCopyRef: null,
         });
         mocks.buildCheckpoint.mockReturnValue(current);
@@ -278,12 +286,16 @@ describe('useBrowserWorkspaceRecovery', () => {
     });
 
     it('publishes recoverable tabs while retrying a dirty tab without snapshot bytes', async () => {
-        const current = makeCheckpoint();
+        const checkpoint = makeCheckpoint();
+        const current = {
+            ...checkpoint,
+            tabs: [...checkpoint.tabs],
+        };
         current.tabs.push({
             ...current.tabs[0]!,
-            tabId: 'tab-2',
+            tabId: requireTabId('tab-2'),
             fileName: 'pending.pdf',
-            workingCopyRef: 'browser://documents/pending-live.pdf',
+            workingCopyRef: requireDocumentRef('browser://documents/pending-live.pdf'),
         });
         mocks.buildCheckpoint.mockReturnValue(current);
         mocks.loadRecovery.mockResolvedValue(null);
@@ -329,7 +341,11 @@ describe('useBrowserWorkspaceRecovery', () => {
     });
 
     it('keeps an all-failed recovery checkpoint retryable without deleting its bytes', async () => {
-        const current = makeCheckpoint();
+        const checkpoint = makeCheckpoint();
+        const current = {
+            ...checkpoint,
+            tabs: checkpoint.tabs.map(tab => ({...tab})),
+        };
         current.tabs[0]!.workingCopyRef = null;
         mocks.buildCheckpoint.mockReturnValue(current);
         mocks.loadRecovery.mockResolvedValue({
@@ -451,13 +467,17 @@ describe('useBrowserWorkspaceRecovery', () => {
     });
 
     it('refreshes only the mutated dirty tab and retains other dirty snapshots', async () => {
-        const current = makeCheckpoint();
+        const checkpoint = makeCheckpoint();
+        const current = {
+            ...checkpoint,
+            tabs: [...checkpoint.tabs],
+        };
         current.tabs.push({
             ...current.tabs[0]!,
-            tabId: 'tab-2',
+            tabId: requireTabId('tab-2'),
             fileName: 'other.pdf',
-            sourceRef: 'browser://documents/other-source.pdf',
-            workingCopyRef: 'browser://documents/other-live.pdf',
+            sourceRef: requireDocumentRef('browser://documents/other-source.pdf'),
+            workingCopyRef: requireDocumentRef('browser://documents/other-live.pdf'),
         });
         mocks.buildCheckpoint.mockReturnValue(current);
         mocks.loadRecovery.mockResolvedValue({

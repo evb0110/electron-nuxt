@@ -438,11 +438,73 @@ empty optical drive definitions were removed. The complete copied bundle is
 at `images/baselines/EVB-Lab-Golden.utm` under the host data root. The original
 VM is denylisted locally and remains outside the automated reset targets.
 
-The lab manifest does not claim a verified Windows build or qualification.
-No launchers are marked qualified. Guest provisioning, candidate registration,
-native-dialog acceptance, cold resets and repeated-run closure gates remain open.
+At that takeover boundary, the lab manifest did not claim a verified Windows
+build or qualification. No launchers were marked qualified. Guest provisioning,
+candidate registration, native-dialog acceptance, cold resets and repeated-run
+closure gates remained open.
 The combined Windows suite passed 417 tests with two workers. These checks prove
 the runner code and protocol, not a completed Windows application journey.
+
+## Live continuation on 2026-09-05
+
+The [live transport investigation](utm-windows-live-transport-2026-09-05.md)
+records the current launcher's successful UTM access, the standalone CLI Dock
+fix, supervised guest completion, and measured file-transfer limits. It also
+records dedicated-account provisioning, Windows 11 25H2 ARM64 build 26200.9168,
+UAC and Defender checks, and the verified ARM64 0.1.452 candidate.
+
+The first two disposable runs reached the standard interactive test desktop.
+Both failed before installation. The first exposed Joliet filename truncation;
+the second exposed an insufficient guest-transport deadline. Their run IDs and
+retained evidence paths are in the investigation. No native-dialog or host PDF
+oracle acceptance gate is closed by those attempts.
+
+Endpoint mute returned success but the user still heard Windows sounds. The
+lab now disables and stops Windows Audio during provisioning and checks that
+policy before the standard-account worker starts. Keep the virtual sound card;
+removing it stalled boot. Do not treat endpoint mute readings as silence proof.
+
+Image qualification remains unset and the qualified-launcher list remains empty.
+The required reset, repeated-run, second-launcher, and later-day checks stay open.
+
+The later run `20260905T092328Z-e78f6680b38a` installed and verified ARM64
+EVB Viewer 0.1.452.0, then returned its failed application result and source
+fixture through the real transport. It failed opening the fixture because the
+instrumentation launch did not enable its required renderer test API. The
+first-launch native prompt was also still open. The source fixture alone does
+not close a print or host-oracle gate. The investigation records the verified
+first-launch selector and invoke, audio service policy, UTM crash handling, and
+byte-for-byte result preservation after reboot.
+
+The subsequent real run `20260905T104407Z-b65415a73ba0` reached the native
+print journey and exposed a guest image defect. Microsoft Print to PDF emitted
+valid twelve-page, OCR-correct output at Letter size, while the numbered
+fixture contract requires A4. The host geometry oracle rejected both cold and
+warm outputs, as it should. Provisioning now sets Microsoft Print to PDF to A4
+as an administrator and verifies the policy at every interactive logon before
+starting the worker. The same logon path requires `Audiosrv` to remain Disabled
+and Stopped, which addresses the reported periodic Windows sound while keeping
+the virtual sound device needed for reliable firmware boot.
+
+Run `20260905T112228Z-3fc2426250dd` passed WIN-PRINT-01 end to end through the
+real host-to-guest transport. It installed the ARM64 candidate, drove the
+modern native print and save dialogs, produced cold and warm twelve-page A4
+PDFs, and passed page count, PDF geometry, rendered nonblank, OCR marker-order,
+and generated-PDF checks for both passes. Evidence is under
+`~/Library/Application Support/EVBViewerWindowsTests/runs/20260905T112228Z-3fc2426250dd/`.
+This closes the first real M1 case only. M0a and M0b remain In progress, and M1
+remains unqualified until the three cold-reset cycles, repeated-run and
+two-terminal gates, later-day stability, and human review are recorded here.
+
+The host-input invariant is now enforced in the production launcher and stop
+paths. The Accessibility probe reads UTM's `Capture Input` checkbox, releases
+it only with the supported Command+Option chord, and fails closed if the value
+remains on. Runs `20260905T130111Z-c46c356e37b2` and
+`20260905T131030Z-531f4a3b421d` each started a fresh clone from the stopped
+golden image, passed WIN-PRINT-01 and all host oracles, and recorded
+`before: 0`, `after: 0`, and `hostInputAvailable: true` at launch and cleanup.
+These records prove the input guard across repeated cold resets, but do not
+close the broader qualification gates.
 
 ## Closure rule
 

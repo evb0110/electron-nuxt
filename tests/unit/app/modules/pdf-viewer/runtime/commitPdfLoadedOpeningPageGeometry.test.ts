@@ -1,19 +1,35 @@
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    type Ref,
+} from 'vue';
 import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
 import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import { cast } from '@tests/helpers/cast';
+
+function createChassisAuthority(
+    snapshot: Ref<IDocumentOpenSurfaceSnapshot>,
+    commitOpeningPageGeometry: (...args: never[]) => boolean,
+): IDocumentViewerChassisAuthority {
+    // This lifecycle unit reads only the open-surface snapshot and commit
+    // method from the larger viewer authority.
+    return {openSurface: {
+        snapshot,
+        commitOpeningPageGeometry,
+    }} as IDocumentViewerChassisAuthority;
+}
 
 function createHarness() {
     const source = {
         kind: 'path',
-        path: '/tmp/scan.pdf',
+        path: requireDocumentRef('/tmp/scan.pdf'),
         size: 28_000_000,
     } as const;
     const snapshot = ref<IDocumentOpenSurfaceSnapshot>({
@@ -32,16 +48,13 @@ function createHarness() {
         failure: null,
     });
     const commitOpeningPageGeometry = vi.fn(() => true);
-    const authority = cast<IDocumentViewerChassisAuthority>({openSurface: {
-        snapshot,
-        commitOpeningPageGeometry,
-    }});
+    const authority = createChassisAuthority(snapshot, commitOpeningPageGeometry);
     const input = {
         expectedGeneration: 4,
         documentId: '/tmp/scan.pdf',
         metricSource: source,
         currentSource: source,
-        pageNumber: 1,
+        pageNumber: requirePageNumber(1),
         currentPage: 1,
         pageCount: 431,
         metric: {
@@ -95,7 +108,7 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
         };
         const aliasedSource = {
             kind: 'path',
-            path: '/private/var/tmp/scan.pdf',
+            path: requireDocumentRef('/private/var/tmp/scan.pdf'),
             size: 28_000_000,
         } as const;
 
@@ -155,7 +168,7 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
             ...harness.input,
             metricSource: {
                 kind: 'path',
-                path: '/tmp/older-copy.pdf',
+                path: requireDocumentRef('/tmp/older-copy.pdf'),
                 size: 28_000_000,
             },
         })).toBe(false);

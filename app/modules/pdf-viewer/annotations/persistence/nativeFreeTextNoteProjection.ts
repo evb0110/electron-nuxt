@@ -3,7 +3,8 @@ import { toFreeTextNoteMarkerRect } from '@app/modules/pdf-viewer/engine/annotat
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import type { IPdfNativeFreeTextNote } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
-import {parsePdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
+import { parseEpochMs } from '@contracts/timestamps';
+import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 export function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
@@ -45,9 +46,7 @@ export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNa
         markerRect,
         author: comment.author ?? null,
         color: comment.color ?? null,
-        createdAt: typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
-            ? Math.trunc(comment.createdAt)
-            : null,
+        createdAt: parseEpochMs(comment.createdAt),
     };
 }
 

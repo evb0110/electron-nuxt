@@ -12,6 +12,7 @@ import {
 } from 'vitest';
 import type { ITab } from '@app/types/tabs';
 import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 
@@ -21,7 +22,7 @@ function createTab(id: string, fileName: string, documentInstanceId: string): IT
     return {
         id,
         fileName,
-        originalPath: `/documents/${fileName}`,
+        originalPath: requireDocumentRef(`/documents/${fileName}`),
         documentInstanceId: documentInstanceId as Exclude<ITab['documentInstanceId'], undefined>,
         isDirty: true,
         isDjvu: false,
@@ -47,10 +48,10 @@ afterEach(() => {
 
 describe('useDirtyTabCloseDialog', () => {
     it('resolves confirmation with true when confirmed', async () => {
-        const tabs = ref([{
+        const tabs = ref<ITab[]>([{
             id: 'tab-1',
             fileName: 'a.pdf',
-            originalPath: '/docs/a.pdf',
+            originalPath: requireDocumentRef('/docs/a.pdf'),
             isDirty: true,
             isDjvu: false,
         }]);

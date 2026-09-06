@@ -843,12 +843,132 @@ const noUnclassifiedDiagnosticCodeRule = {
     },
 };
 
+function containsBareTimestampPrimitive(node) {
+    if (!node) {
+        return false;
+    }
+    if (node.type === 'TSNumberKeyword' || node.type === 'TSStringKeyword') {
+        return true;
+    }
+    return node.type === 'TSUnionType'
+        && node.types.some(containsBareTimestampPrimitive);
+}
+
+const namedTimestampsRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Require contract timestamp properties to use TEpochMs or TIsoTimestamp',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        const repoPath = getSentryRepoPath(context);
+        if (!repoPath.startsWith('packages/contracts/')) {
+            return {};
+        }
+
+        return {TSPropertySignature(node) {
+            const name = getStaticPropertyName(node);
+            const type = node.typeAnnotation?.typeAnnotation;
+            if (name === 'insertAt' || !name?.endsWith('At') || !containsBareTimestampPrimitive(type)) {
+                return;
+            }
+            context.report({
+                node: node.typeAnnotation ?? node,
+                message: `Timestamp property "${name}" must use TEpochMs or TIsoTimestamp.`,
+            });
+        }};
+    },
+};
+
+const PAGE_ADDRESS_NAMES = new Set([
+    'pageNumber',
+    'pageIndex',
+    'pageNumbers',
+    'pageIndexes',
+    'pageIndices',
+]);
+
+function getPageAddressTypeAnnotation(node) {
+    if (node?.type === 'Identifier') {
+        return node.typeAnnotation?.typeAnnotation ?? null;
+    }
+    if (node?.type === 'TSPropertySignature' || node?.type === 'PropertyDefinition') {
+        return node.typeAnnotation?.typeAnnotation ?? null;
+    }
+    return null;
+}
+
+function getPageAddressName(node) {
+    if (node?.type === 'Identifier') {
+        return node.name;
+    }
+    if (node?.type === 'TSPropertySignature' || node?.type === 'PropertyDefinition') {
+        return getStaticPropertyName(node);
+    }
+    return null;
+}
+
+function isBarePageAddressType(node) {
+    if (!node) {
+        return false;
+    }
+    if (node.type === 'TSNumberKeyword') {
+        return true;
+    }
+    if (node.type === 'TSArrayType') {
+        return node.elementType?.type === 'TSNumberKeyword';
+    }
+    if (node.type === 'TSTypeReference') {
+        const typeName = node.typeName?.type === 'Identifier' ? node.typeName.name : null;
+        const parameters = node.typeParameters?.params ?? node.typeArguments?.params ?? [];
+        return typeName === 'Array'
+            && parameters.length === 1
+            && parameters[0]?.type === 'TSNumberKeyword';
+    }
+    return node.type === 'TSUnionType' && node.types.some(isBarePageAddressType);
+}
+
+const noBarePageNumberTypeRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Require branded types for page-number and page-index declarations',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        function reportIfBare(node) {
+            const name = getPageAddressName(node);
+            const annotation = getPageAddressTypeAnnotation(node);
+            if (!PAGE_ADDRESS_NAMES.has(name) || !isBarePageAddressType(annotation)) {
+                return;
+            }
+            context.report({
+                node: annotation,
+                message: 'Use TPageNumber or TPageIndex instead of a bare number page address type.',
+            });
+        }
+
+        return {
+            Identifier: reportIfBare,
+            TSPropertySignature: reportIfBare,
+            PropertyDefinition: reportIfBare,
+        };
+    },
+};
+
 export default {rules: {
     'no-raw-red-presentation': noRawRedPresentationRule,
     'no-direct-console-error': noDirectConsoleErrorRule,
     'require-failure-receipt': requireFailureReceiptRule,
     'require-classified-error-log': requireClassifiedErrorLogRule,
     'no-unclassified-diagnostic-code': noUnclassifiedDiagnosticCodeRule,
+    'no-bare-page-number-type': noBarePageNumberTypeRule,
+    'named-timestamps': namedTimestampsRule,
     'commonjs-named-imports': {
         meta: {
             type: 'problem',

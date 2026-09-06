@@ -7,6 +7,15 @@ import {
     vi,
 } from 'vitest';
 import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePaneId } from '@contracts/editorPanes';
+import type {
+    IEditorPaneState,
+    TEditorLayoutNode,
+} from '@contracts/editorPanes';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requireRequestId } from '@contracts/shared';
+import { requireTabId } from '@contracts/windowTabs';
 import {
     createApp,
     ref,
@@ -26,16 +35,22 @@ import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composab
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import {requireDocumentRevisionToken} from '@contracts';
 
 interface IWindowWithElectronApi extends Window {electronAPI?: IElectronAPI;}
+type TAgentHarnessCapability = Pick<IAgentCapability,
+    | 'onCommandCancelRequest'
+    | 'onCommandRequest'
+    | 'onWorkspaceSnapshotRequest'
+    | 'submitCommandResponse'
+    | 'submitWorkspaceSnapshot'
+>;
 
 const initialElectronApi = (window as IWindowWithElectronApi).electronAPI;
 type TWorkspaceDocumentRecordMap = Record<string, ReturnType<typeof createWorkspaceDocumentRecord>>;
@@ -44,7 +59,7 @@ function createWorkspace(
     overrides: Partial<ReturnType<IWorkspaceExpose['getToolbarSnapshot']>>,
     workspaceOverrides: Partial<IWorkspaceExpose> = {},
 ) {
-    return cast<IWorkspaceExpose>({
+    return createWorkspaceExposeFixture({
         getToolbarSnapshot: () => ({
             ...createDefaultWorkspaceToolbarSnapshot(),
             ...overrides,
@@ -64,10 +79,10 @@ function createDocumentIdentity(
     return {
         version: 1,
         token: requireDocumentRevisionToken(token),
-        documentRef,
+        documentRef: requireDocumentRef(documentRef),
         authority: 'browser-document-store',
         contentRevision,
-        mintedAt: contentRevision,
+        mintedAt: requireEpochMs(contentRevision),
     };
 }
 
@@ -75,7 +90,7 @@ function createSessionRecord(path = '/tmp/document.pdf') {
     return createWorkspaceDocumentRecord({
         tab: {
             fileName: path.split('/').pop() ?? null,
-            originalPath: path,
+            originalPath: requireDocumentRef(path),
             isDirty: false,
             isDjvu: false,
         },
@@ -88,6 +103,24 @@ function createSessionRecord(path = '/tmp/document.pdf') {
     });
 }
 
+function createPane(id: string, tabIds: string[], activeTabId: string | null): IEditorPaneState {
+    return {
+        paneId: requirePaneId(id),
+        tabIds: tabIds.map(tabId => requireTabId(tabId)),
+        activeTabId: activeTabId === null ? null : requireTabId(activeTabId),
+    };
+}
+
+function createTab(id: string, fileName: string | null, originalPath: string | null): ITab {
+    return {
+        id,
+        fileName,
+        originalPath: originalPath === null ? null : requireDocumentRef(originalPath),
+        isDirty: false,
+        isDjvu: false,
+    };
+}
+
 function createTestSession(path = '/tmp/document.pdf') {
     return createWorkspaceDocumentController({
         tabId: 'tab-1',
@@ -96,7 +129,7 @@ function createTestSession(path = '/tmp/document.pdf') {
     });
 }
 
-function createElectronApiFixture(agent: IAgentCapability) {
+function createElectronApiFixture(agent: Partial<TAgentHarnessCapability>) {
     return createElectronPlatformApiFixture({agent});
 }
 
@@ -129,7 +162,7 @@ async function waitForAssertion(assertion: () => void) {
 
 async function mountAgentWorkspaceSnapshotHarness(options: {
     activateTab?: () => void;
-    agent?: IAgentCapability;
+    agent?: TAgentHarnessCapability;
     getPaneByTabId?: (tabId: string) => IEditorPaneState | null;
     installElectronApi?: boolean;
     session?: IWorkspaceDocumentController;
@@ -137,18 +170,8 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
     waitForWorkspace?: () => Promise<IWorkspaceExpose | null>;
     workspace?: IWorkspaceExpose;
 } = {}) {
-    const panes = ref<IEditorPaneState[]>([{
-        paneId: 'pane-1',
-        tabIds: ['tab-1'],
-        activeTabId: 'tab-1',
-    }]);
-    const tabs = ref<ITab[]>([{
-        id: 'tab-1',
-        fileName: 'Document.pdf',
-        originalPath: '/tmp/document.pdf',
-        isDirty: false,
-        isDjvu: false,
-    }]);
+    const panes = ref<IEditorPaneState[]>([createPane('pane-1', ['tab-1'], 'tab-1')]);
+    const tabs = ref<ITab[]>([createTab('tab-1', 'Document.pdf', '/tmp/document.pdf')]);
     const activePaneId = ref('pane-1');
     const activeTabId = ref('tab-1');
     const workspace = options.workspace ?? createWorkspace({
@@ -171,12 +194,12 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
     const commandCallbacks: Array<(request: IAgentCommandRequest) => void> = [];
     const snapshotCallbacks: Array<(request: IAgentWorkspaceSnapshotRequest) => void> = [];
     const commandResponses: IAgentCommandResponse[] = [];
-    const agent = options.agent ?? cast<IAgentCapability>({
+    const agent = options.agent ?? ({
         onWorkspaceSnapshotRequest: vi.fn((callback) => {
             snapshotCallbacks.push(callback);
             return vi.fn();
         }),
-        submitWorkspaceSnapshot: vi.fn(async () => ({accepted: true})),
+        submitWorkspaceSnapshot: vi.fn<IAgentCapability['submitWorkspaceSnapshot']>(async (_response) => ({accepted: true})),
         onCommandRequest: vi.fn((callback) => {
             commandCallbacks.push(callback);
             return vi.fn();
@@ -189,7 +212,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
             commandResponses.push(response);
             return {accepted: true};
         }),
-    });
+    } satisfies TAgentHarnessCapability);
     if (options.installElectronApi !== false) {
         (window as IWindowWithElectronApi).electronAPI = createElectronApiFixture(agent);
     }
@@ -211,7 +234,7 @@ async function mountAgentWorkspaceSnapshotHarness(options: {
                 : {documentSessionsByTabId: shallowRef({'tab-1': options.session} satisfies Record<string, IWorkspaceDocumentController>)}),
             shouldWaitForDesktopBridge: options.shouldWaitForDesktopBridge ?? (() => false),
             getPaneByTabId: options.getPaneByTabId
-                ?? (tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null),
+                ?? (tabId => panes.value.find(pane => pane.tabIds.some(candidate => candidate === tabId)) ?? null),
             activateTab: (paneId, tabId) => {
                 activePaneId.value = paneId;
                 activeTabId.value = tabId;
@@ -262,42 +285,19 @@ afterEach(() => {
 describe('buildAgentWorkspaceSnapshot', () => {
     it('serializes panes, tabs, layout, and document preparation recommendations', () => {
         const panes = ref<IEditorPaneState[]>([
-            {
-                paneId: 'pane-left',
-                tabIds: [
-                    'tab-pdf',
-                    'tab-djvu',
-                ],
-                activeTabId: 'tab-pdf',
-            },
-            {
-                paneId: 'pane-right',
-                tabIds: ['tab-image'],
-                activeTabId: 'tab-image',
-            },
+            createPane('pane-left', [
+                'tab-pdf',
+                'tab-djvu',
+            ], 'tab-pdf'),
+            createPane('pane-right', ['tab-image'], 'tab-image'),
         ]);
         const tabs = ref<ITab[]>([
+            createTab('tab-pdf', 'Grammar.pdf', '/tmp/Grammar.pdf'),
             {
-                id: 'tab-pdf',
-                fileName: 'Grammar.pdf',
-                originalPath: '/tmp/Grammar.pdf',
-                isDirty: false,
-                isDjvu: false,
-            },
-            {
-                id: 'tab-djvu',
-                fileName: 'Reader.djvu',
-                originalPath: '/tmp/Reader.djvu',
-                isDirty: false,
+                ...createTab('tab-djvu', 'Reader.djvu', '/tmp/Reader.djvu'),
                 isDjvu: true,
             },
-            {
-                id: 'tab-image',
-                fileName: 'scan.png',
-                originalPath: '/tmp/scan.png',
-                isDirty: false,
-                isDjvu: false,
-            },
+            createTab('tab-image', 'scan.png', '/tmp/scan.png'),
         ]);
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>([
             [
@@ -317,24 +317,24 @@ describe('buildAgentWorkspaceSnapshot', () => {
                 }),
             ],
         ]));
-        const layout = ref({
+        const layout = ref<TEditorLayoutNode | null>({
             type: 'split',
             id: 'split-root',
             orientation: 'horizontal',
             ratio: 0.5,
             first: {
                 type: 'leaf',
-                paneId: 'pane-left',
+                paneId: requirePaneId('pane-left'),
             },
             second: {
                 type: 'leaf',
-                paneId: 'pane-right',
+                paneId: requirePaneId('pane-right'),
             },
         } as const);
         const recentFiles = ref<IRecentFile[]>([{
             fileName: 'Previous.pdf',
-            originalPath: '/tmp/Previous.pdf',
-            timestamp: Date.UTC(2026, 4, 31),
+            originalPath: requireDocumentRef('/tmp/Previous.pdf'),
+            timestamp: requireEpochMs(Date.UTC(2026, 4, 31)),
         }]);
         const documentRecordsByTabId = ref<Record<string, ReturnType<typeof createWorkspaceDocumentRecord>>>({
             'tab-pdf': createWorkspaceDocumentRecord({toolbarSnapshot: {
@@ -345,7 +345,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
             'tab-djvu': createWorkspaceDocumentRecord({
                 tab: {
                     fileName: 'Reader.djvu',
-                    originalPath: '/tmp/Reader.djvu',
+                    originalPath: requireDocumentRef('/tmp/Reader.djvu'),
                     isDirty: false,
                     isDjvu: true,
                 },
@@ -362,7 +362,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
             initialRecord: createWorkspaceDocumentRecord({
                 tab: {
                     fileName: 'Grammar.pdf',
-                    originalPath: '/tmp/Grammar.pdf',
+                    originalPath: requireDocumentRef('/tmp/Grammar.pdf'),
                     isDirty: false,
                     isDjvu: false,
                 },
@@ -388,7 +388,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
             workspaceRefs,
             documentRecordsByTabId,
             documentSessionsByTabId,
-            getPaneByTabId: tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null,
+            getPaneByTabId: tabId => panes.value.find(pane => pane.tabIds.some(candidate => candidate === tabId)) ?? null,
         });
 
         expect(snapshot.activePaneId).toBe('pane-left');
@@ -444,26 +444,16 @@ describe('buildAgentWorkspaceSnapshot', () => {
     });
 
     it('distinguishes an empty attached tab from an open document and exposes recent files as metadata', () => {
-        const panes = ref<IEditorPaneState[]>([{
-            paneId: 'pane-start',
-            tabIds: ['tab-empty'],
-            activeTabId: 'tab-empty',
-        }]);
-        const tabs = ref<ITab[]>([{
-            id: 'tab-empty',
-            fileName: null,
-            originalPath: null,
-            isDirty: false,
-            isDjvu: false,
-        }]);
+        const panes = ref<IEditorPaneState[]>([createPane('pane-start', ['tab-empty'], 'tab-empty')]);
+        const tabs = ref<ITab[]>([createTab('tab-empty', null, null)]);
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>([[
             'tab-empty',
             createWorkspace({}),
         ]]));
         const recentFiles = ref<IRecentFile[]>([{
             fileName: 'Recent.djvu',
-            originalPath: '/tmp/Recent.djvu',
-            timestamp: Date.UTC(2026, 5, 1),
+            originalPath: requireDocumentRef('/tmp/Recent.djvu'),
+            timestamp: requireEpochMs(Date.UTC(2026, 5, 1)),
             fileSize: 1234,
         }]);
         const documentRecordsByTabId = ref<Record<string, ReturnType<typeof createWorkspaceDocumentRecord>>>({'tab-empty': createWorkspaceDocumentRecord()});
@@ -478,7 +468,7 @@ describe('buildAgentWorkspaceSnapshot', () => {
             recentFilesResolved: ref(true),
             workspaceRefs,
             documentRecordsByTabId,
-            getPaneByTabId: tabId => panes.value.find(pane => pane.tabIds.includes(tabId)) ?? null,
+            getPaneByTabId: tabId => panes.value.find(pane => pane.tabIds.some(candidate => candidate === tabId)) ?? null,
         });
 
         expect(snapshot.summary).toEqual({
@@ -518,7 +508,7 @@ describe('useAgentWorkspaceSnapshot bridge registration', () => {
         });
 
         await harness.submitSnapshot({
-            requestId: 'structured-cloneable-snapshot',
+            requestId: requireRequestId('structured-cloneable-snapshot'),
             windowId: 42,
         });
 
@@ -554,7 +544,7 @@ describe('useAgentWorkspaceSnapshot bridge registration', () => {
         });
 
         await harness.submitSnapshot({
-            requestId: 'delayed-electron-bridge-snapshot',
+            requestId: requireRequestId('delayed-electron-bridge-snapshot'),
             windowId: 42,
         });
 
@@ -595,7 +585,7 @@ describe('useAgentWorkspaceSnapshot bridge registration', () => {
         const harness = await mountAgentWorkspaceSnapshotHarness({getPaneByTabId: explodeWhenResolvingPane});
 
         await harness.submitSnapshot({
-            requestId: 'snapshot-error',
+            requestId: requireRequestId('snapshot-error'),
             windowId: 42,
         });
 
@@ -634,12 +624,12 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         });
 
         const responsePromise = harness.submitCommand({
-            requestId: 'command-cancelled',
+            requestId: requireRequestId('command-cancelled'),
             command: {
                 name: 'run_action',
                 arguments: {
                     id: 'document.save',
-                    tabId: 'tab-1',
+                    tabId: requireTabId('tab-1'),
                 },
             },
         });
@@ -647,7 +637,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
             expect(workspace.runAgentAction).toHaveBeenCalledTimes(1);
         });
 
-        harness.submitCommandCancel({requestId: 'command-cancelled'});
+        harness.submitCommandCancel({requestId: requireRequestId('command-cancelled')});
 
         await expect(responsePromise).resolves.toMatchObject({
             ok: false,
@@ -677,11 +667,11 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         });
 
         const response = await harness.submitCommand({
-            requestId: 'command-session-context',
+            requestId: requireRequestId('command-session-context'),
             command: {
                 name: 'read_resource',
                 arguments: {
-                    tabId: 'tab-1',
+                    tabId: requireTabId('tab-1'),
                     uri: 'evb://document/tab-1/state',
                 },
             },
@@ -712,11 +702,11 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         });
 
         const response = await harness.submitCommand({
-            requestId: 'command-session-activation-change',
+            requestId: requireRequestId('command-session-activation-change'),
             command: {
                 name: 'go_to_page',
                 arguments: {
-                    tabId: 'tab-1',
+                    tabId: requireTabId('tab-1'),
                     page: 2,
                 },
             },
@@ -746,7 +736,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
             activateTab: () => {
                 const reopen = session.beginTransaction({
                     kind: 'open',
-                    documentRef: '/tmp/document.pdf',
+                    documentRef: requireDocumentRef('/tmp/document.pdf'),
                 });
                 session.applyWorkspaceRecord(createSessionRecord('/tmp/document.pdf'), 'workspace');
                 session.finishTransaction(reopen.id, 'committed');
@@ -754,11 +744,11 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         });
 
         const response = await harness.submitCommand({
-            requestId: 'command-session-instance-change',
+            requestId: requireRequestId('command-session-instance-change'),
             command: {
                 name: 'go_to_page',
                 arguments: {
-                    tabId: 'tab-1',
+                    tabId: requireTabId('tab-1'),
                     page: 2,
                 },
             },
@@ -782,7 +772,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
             currentHarness.documentRecordsByTabId.value['tab-1'] = createWorkspaceDocumentRecord({
                 tab: {
                     fileName: 'Document.pdf',
-                    originalPath: '/tmp/document.pdf',
+                    originalPath: requireDocumentRef('/tmp/document.pdf'),
                     isDirty: false,
                     isDjvu: false,
                 },
@@ -797,11 +787,11 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         harnessRef.current = harness;
 
         const response = await harness.submitCommand({
-            requestId: 'command-activate-change',
+            requestId: requireRequestId('command-activate-change'),
             command: {
                 name: 'go_to_page',
                 arguments: {
-                    tabId: 'tab-1',
+                    tabId: requireTabId('tab-1'),
                     page: 2,
                 },
             },
@@ -832,7 +822,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
                 currentHarness.documentRecordsByTabId.value['tab-1'] = createWorkspaceDocumentRecord({
                     tab: {
                         fileName: 'Document.pdf',
-                        originalPath: '/tmp/document.pdf',
+                        originalPath: requireDocumentRef('/tmp/document.pdf'),
                         isDirty: false,
                         isDjvu: false,
                     },
@@ -849,11 +839,11 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
         harnessRef.current = harness;
 
         const response = await harness.submitCommand({
-            requestId: 'command-wait-change',
+            requestId: requireRequestId('command-wait-change'),
             command: {
                 name: 'read_resource',
                 arguments: {
-                    tabId: 'tab-1',
+                    tabId: requireTabId('tab-1'),
                     uri: 'evb://document/tab-1/state',
                 },
             },

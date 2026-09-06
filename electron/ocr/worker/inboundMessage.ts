@@ -4,6 +4,13 @@ import type {
     TDocumentRevisionAuthority,
 } from '@contracts/documentRevision';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {parseEpochMs} from '@contracts/timestamps';
+import {
+    parseJobId,
+    type TJobId,
+    type TRequestId,
+} from '@contracts/shared';
 import type {
     IOcrWorkerStartPayload,
     TOcrWorkerInboundMessage,
@@ -22,29 +29,30 @@ const DOCUMENT_REVISION_AUTHORITIES: ReadonlySet<TDocumentRevisionAuthority> = n
 function parseDocumentRevisionInfo(value: unknown): IDocumentRevisionInfo | null {
     const authority = isRecord(value) ? value.authority : undefined;
     const token = isRecord(value) ? parseDocumentRevisionToken(value.token) : null;
+    const documentRef = isRecord(value) ? parseDocumentRef(value.documentRef) : null;
+    const mintedAt = isRecord(value) ? parseEpochMs(value.mintedAt) : null;
     if (
         !isRecord(value)
         || value.version !== 1
-        || typeof value.documentRef !== 'string'
+        || documentRef === null
         || typeof authority !== 'string'
         || !DOCUMENT_REVISION_AUTHORITIES.has(authority as TDocumentRevisionAuthority)
         || token === null
         || typeof value.contentRevision !== 'number'
         || !Number.isSafeInteger(value.contentRevision)
         || value.contentRevision < 1
-        || typeof value.mintedAt !== 'number'
-        || !Number.isFinite(value.mintedAt)
+        || mintedAt === null
     ) {
         return null;
     }
 
     return {
         version: 1,
-        documentRef: value.documentRef,
+        documentRef,
         authority: authority as TDocumentRevisionAuthority,
         token,
         contentRevision: value.contentRevision,
-        mintedAt: value.mintedAt,
+        mintedAt,
     };
 }
 
@@ -84,13 +92,12 @@ export function parseOcrWorkerStartPayload(value: unknown): IOcrWorkerStartPaylo
     }
 }
 
-function isValidRequestId(value: unknown) {
+function parseValidatedRequestId(value: unknown): TRequestId | null {
     try {
-        validateCancelRequestId(value);
-        return true;
+        return validateCancelRequestId(value);
     } catch (error) {
         if (error instanceof OcrPayloadValidationError) {
-            return false;
+            return null;
         }
         throw error;
     }
@@ -131,11 +138,21 @@ function isValidWorkerId(value: unknown) {
     }
 }
 
-export function parseOcrWorkerInboundMessage(value: unknown): TOcrWorkerInboundMessage | null {
-    if (!isRecord(value) || typeof value.jobId !== 'string' || !isValidWorkerId(value.jobId)) {
+function parseValidatedWorkerId(value: unknown): TJobId | null {
+    if (!isValidWorkerId(value)) {
         return null;
     }
-    const jobId = value.jobId;
+    return parseJobId(value);
+}
+
+export function parseOcrWorkerInboundMessage(value: unknown): TOcrWorkerInboundMessage | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const jobId = parseValidatedWorkerId(value.jobId);
+    if (jobId === null) {
+        return null;
+    }
 
     if (value.type === 'cancel') {
         return {
@@ -146,16 +163,14 @@ export function parseOcrWorkerInboundMessage(value: unknown): TOcrWorkerInboundM
 
     if (value.type === 'resource-acquired') {
         const effectiveDpi = parseResourceAcquiredDpi(value.effectiveDpi);
+        const requestId = parseValidatedRequestId(value.requestId);
         if (
-            typeof value.requestId !== 'string'
-            ||
-            !isValidRequestId(value.requestId)
+            requestId === null
             || typeof value.token !== 'string'
             || effectiveDpi === null
         ) {
             return null;
         }
-        const requestId = value.requestId;
         const token = value.token;
         return {
             type: 'resource-acquired',
@@ -167,9 +182,9 @@ export function parseOcrWorkerInboundMessage(value: unknown): TOcrWorkerInboundM
     }
 
     if (value.type === 'resource-denied') {
+        const requestId = parseValidatedRequestId(value.requestId);
         if (
-            typeof value.requestId !== 'string'
-            || !isValidRequestId(value.requestId)
+            requestId === null
             || typeof value.reason !== 'string'
             || value.reason.trim().length === 0
         ) {
@@ -178,7 +193,7 @@ export function parseOcrWorkerInboundMessage(value: unknown): TOcrWorkerInboundM
         return {
             type: 'resource-denied',
             jobId,
-            requestId: value.requestId,
+            requestId,
             reason: value.reason,
         };
     }
@@ -200,12 +215,11 @@ export function parseOcrWorkerInboundMessage(value: unknown): TOcrWorkerInboundM
 }
 
 export function parseInvalidOcrWorkerStartMessage(value: unknown) {
-    if (
-        !isRecord(value)
-        || value.type !== 'start'
-        || typeof value.jobId !== 'string'
-        || !isValidWorkerId(value.jobId)
-    ) {
+    if (!isRecord(value) || value.type !== 'start') {
+        return null;
+    }
+    const jobId = parseValidatedWorkerId(value.jobId);
+    if (jobId === null) {
         return null;
     }
 
@@ -214,7 +228,7 @@ export function parseInvalidOcrWorkerStartMessage(value: unknown) {
     }
 
     return {
-        jobId: value.jobId,
+        jobId,
         error: 'Invalid OCR worker start payload',
     };
 }

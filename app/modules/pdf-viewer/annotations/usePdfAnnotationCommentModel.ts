@@ -7,6 +7,7 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import {parseMarkupSubtype} from '@contracts/annotations';
+import { createEpochMs } from '@contracts/timestamps';
 import type {IPdfAnnotationCommentModel} from '@app/modules/pdf-viewer/annotations/pdfAnnotationCommentModel.types';
 
 interface IUsePdfAnnotationCommentModelOptions {
@@ -70,7 +71,7 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
         return {
             ...comment,
             hasNote: true,
-            createdAt: comment.createdAt ?? Date.now(),
+            createdAt: comment.createdAt ?? createEpochMs(),
         };
     }
 
@@ -100,7 +101,7 @@ export const usePdfAnnotationCommentModel = (options: IUsePdfAnnotationCommentMo
         const updated = {
             ...current,
             markerRect: {...markerRect},
-            modifiedAt: Date.now(),
+            modifiedAt: createEpochMs(),
         };
         moveOptions.markEditorPending?.(updated, current, markerRect);
         moveOptions.markModified?.();

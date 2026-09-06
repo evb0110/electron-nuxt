@@ -1,6 +1,10 @@
 import type { IDjvuPageSourceInfo } from '@contracts/electronApiDjvu';
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 import type { IRecentFile } from '@contracts/shared';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { IStartupWorkProfile } from '@app/utils/startupWorkProfile';
 import {
     beginRecentOpenGeometryPrewarm,
@@ -8,8 +12,8 @@ import {
 } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
 
 export interface IPostReadyRecentGeometryPorts {
-    readPdfOpeningGeometry?: (path: string) => Promise<IPdfOpeningGeometry | null>;
-    readDjvuSourceInfo: (path: string) => Promise<IDjvuPageSourceInfo>;
+    readPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry | null>;
+    readDjvuSourceInfo: (path: TDocumentRef) => Promise<IDjvuPageSourceInfo>;
 }
 
 export interface IRunPostReadyRecentGeometryPrewarmOptions {
@@ -17,7 +21,7 @@ export interface IRunPostReadyRecentGeometryPrewarmOptions {
     ports: IPostReadyRecentGeometryPorts;
     profile: IStartupWorkProfile;
     settleTimeoutMs?: number;
-    onError?: (kind: 'pdf' | 'djvu', path: string, error: unknown) => void;
+    onError?: (kind: 'pdf' | 'djvu', path: TDocumentRef, error: unknown) => void;
 }
 
 export interface IPostReadyRecentGeometryPrewarmResult {
@@ -50,6 +54,7 @@ export async function runPostReadyRecentGeometryPrewarm(
     const settleTimeoutMs = options.settleTimeoutMs ?? 1_500;
     const pdfCandidates = selectCandidates(options.files, /\.pdf$/iu, limit);
     const djvuCandidates = selectCandidates(options.files, /\.djvu?$/iu, limit);
+    const readPdfOpeningGeometry = options.ports.readPdfOpeningGeometry;
 
     beginRecentOpenGeometryPrewarm(pdfCandidates.map(file => file.originalPath));
     beginRecentOpenGeometryPrewarm(djvuCandidates.map(file => file.originalPath));
@@ -61,7 +66,14 @@ export async function runPostReadyRecentGeometryPrewarm(
             );
             const results = await prewarmRecentPdfOpeningGeometry(
                 options.files,
-                {readOpeningGeometry: options.ports.readPdfOpeningGeometry},
+                {readOpeningGeometry: readPdfOpeningGeometry
+                    ? async (path) => {
+                        const documentRef = parseDocumentRef(path);
+                        return documentRef === null
+                            ? null
+                            : readPdfOpeningGeometry(documentRef);
+                    }
+                    : undefined},
                 {
                     concurrency,
                     limit,
@@ -100,10 +112,14 @@ export async function runPostReadyRecentGeometryPrewarm(
             const results = await prewarmRecentDjvuOpeningGeometry(
                 options.files,
                 {readSourceInfo: async (path) => {
+                    const documentRef = parseDocumentRef(path);
+                    if (documentRef === null) {
+                        throw new TypeError('Recent DjVu path is not a document reference');
+                    }
                     try {
-                        return await options.ports.readDjvuSourceInfo(path);
+                        return await options.ports.readDjvuSourceInfo(documentRef);
                     } catch (error) {
-                        options.onError?.('djvu', path, error);
+                        options.onError?.('djvu', documentRef, error);
                         throw error;
                     }
                 }},

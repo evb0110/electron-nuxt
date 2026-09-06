@@ -915,7 +915,7 @@ watch(
 
 watch(
     [
-        () => props.bookmarksDirty ?? false,
+        () => props.bookmarksDirty,
         () => props.bookmarkItems,
     ],
     ([

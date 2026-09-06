@@ -12,13 +12,14 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type { INoteEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { useAnnotationPointerGesture } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 const gesture: IAnnotationGesture = {
     annotationId: 'text-box' as IAnnotationGesture['annotationId'],
     entity: {
         kind: 'text-box',
         identity: {id: 'text-box' as IAnnotationGesture['annotationId']},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 1,
         persistedRevision: 1,
         deleted: false,
@@ -45,7 +46,7 @@ const noteGesture: IAnnotationGesture = {
     entity: {
         kind: 'note',
         identity: {id: 'note' as INoteEntity['identity']['id']},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 1,
         persistedRevision: 1,
         deleted: false,
@@ -106,7 +107,7 @@ function createHarness(scopes: Set<ReturnType<typeof effectScope>>) {
     const surface = {...surfaceMethods} as IAnnotationEditorSurface;
     const interaction = scope.run(() => useAnnotationPointerGesture({
         surface,
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
     }))!;
     return {
         scope,

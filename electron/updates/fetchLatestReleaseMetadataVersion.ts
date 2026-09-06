@@ -16,6 +16,11 @@ let releaseCohortCookieRetryAt = 0;
 
 interface IReleaseMetadataLogger {warn: (message: string) => void;}
 
+interface IResponseHeaders {
+    get(name: string): string | null;
+    getSetCookie?: () => string[];
+}
+
 function isValidReleaseCohortCookieValue(value: string | undefined): value is string {
     return value !== undefined && RELEASE_COHORT_COOKIE_VALUE_PATTERN.test(value);
 }
@@ -33,11 +38,11 @@ async function loadReleaseCohortCookie(metadataUrl: string, logger: IReleaseMeta
 
     releaseCohortCookieLoadPromise = (async () => {
         try {
-            const cookies = await session?.defaultSession?.cookies.get({
+            const cookies = await session.defaultSession.cookies.get({
                 name: RELEASE_COHORT_COOKIE_NAME,
                 url: metadataUrl,
             });
-            releaseCohortCookie = cookies?.find(cookie => isValidReleaseCohortCookieValue(cookie.value))?.value ?? null;
+            releaseCohortCookie = cookies.find(cookie => isValidReleaseCohortCookieValue(cookie.value))?.value ?? null;
             releaseCohortCookieRetryAt = 0;
         } catch (error) {
             releaseCohortCookie = undefined;
@@ -53,8 +58,11 @@ async function loadReleaseCohortCookie(metadataUrl: string, logger: IReleaseMeta
 }
 
 function getSetCookieHeaders(response: Response) {
-    const headers = response.headers as Headers & {getSetCookie?: () => string[];};
-    return headers.getSetCookie?.() ?? [headers.get('set-cookie') ?? ''];
+    const headers: IResponseHeaders = response.headers;
+    if (headers.getSetCookie) {
+        return headers.getSetCookie();
+    }
+    return [headers.get('set-cookie') ?? ''];
 }
 
 function getReleaseCohortCookieValue(response: Response) {
@@ -70,7 +78,7 @@ function getReleaseCohortCookieValue(response: Response) {
 async function persistReleaseCohortCookie(value: string, sourceUrl: string, logger: IReleaseMetadataLogger) {
     releaseCohortCookie = value;
     try {
-        await session?.defaultSession?.cookies.set({
+        await session.defaultSession.cookies.set({
             expirationDate: Math.floor(Date.now() / 1000) + RELEASE_COHORT_COOKIE_MAX_AGE_SECONDS,
             httpOnly: true,
             name: RELEASE_COHORT_COOKIE_NAME,

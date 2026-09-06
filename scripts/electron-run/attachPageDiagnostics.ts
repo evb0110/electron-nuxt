@@ -1,9 +1,11 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import type {
     ConsoleMessage,
     JSHandle,
     Page,
 } from 'puppeteer-core';
 import type { ISessionState } from '@scripts/electron-run/electronRunSessionTypes';
+import { stringifyJson } from '@contracts/stringifyJson';
 
 const MAX_CONSOLE_MESSAGES = 400;
 const MAX_CONSOLE_ARG_TEXT_LENGTH = 2000;
@@ -27,7 +29,7 @@ function stringifyConsoleArgValue(value: unknown) {
     try {
         const text = typeof value === 'string'
             ? value
-            : JSON.stringify(value);
+            : stringifyJson(value);
         return boundConsoleArgText(text ?? String(value));
     } catch {
         return boundConsoleArgText(String(value));
@@ -143,7 +145,7 @@ export function attachPageDiagnostics(page: Page) {
         console.log(`[ERROR] ${error.message}`);
     });
     page.on('pageerror', (error) => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         const entry: TConsoleEntry = {
             type: 'error',
             text: `[PAGE CRASH] ${message}`,

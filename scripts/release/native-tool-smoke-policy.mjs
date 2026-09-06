@@ -1,16 +1,20 @@
 import releaseTargetManifest from './generated-release-targets.cjs';
 
+/** @typedef {{allowedExitCodes: Set<number>, expectedOutputTokens: string[]}} IToolSmokePolicy */
+
 export const RELEASE_TARGET_MANIFEST = releaseTargetManifest.manifest;
 
 const protocolVersionByBinaryName = new Map(
     RELEASE_TARGET_MANIFEST.families
-        .filter(family => family.binaryName !== null)
-        .map(family => [
-            family.binaryName,
-            family.protocolVersion,
-        ]),
+        .flatMap(family => family.binaryName !== null && family.protocolVersion !== null
+            ? [[
+                family.binaryName,
+                family.protocolVersion,
+            ]]
+            : []),
 );
 
+/** @param {string} binaryName @returns {number} */
 function getGeneratedProtocolVersion(binaryName) {
     const protocolVersion = protocolVersionByBinaryName.get(binaryName);
     if (protocolVersion === undefined) {
@@ -123,8 +127,9 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
     },
 };
 
+/** @param {string} toolName @returns {IToolSmokePolicy} */
 export function getPackagedToolSmokePolicy(toolName) {
-    const policy = PACKAGED_TOOL_SMOKE_POLICY[toolName];
+    const policy = /** @type {Record<string, IToolSmokePolicy>} */ (PACKAGED_TOOL_SMOKE_POLICY)[toolName];
     if (!policy) {
         throw new Error(`Unsupported packaged tool smoke policy "${toolName}"`);
     }
@@ -132,6 +137,7 @@ export function getPackagedToolSmokePolicy(toolName) {
     return policy;
 }
 
+/** @param {string} toolName @param {number} exitCode @param {string} output */
 export function assertPackagedToolSmoke(toolName, exitCode, output) {
     const policy = getPackagedToolSmokePolicy(toolName);
     if (!policy.allowedExitCodes.has(exitCode)) {

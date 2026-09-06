@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     IDjvuConvertResult,
     IDjvuConvertOptions,
@@ -25,7 +27,11 @@ import {
     decodeDjvuPageText,
     isDjvuDocumentOutputOperation,
 } from '@contracts/electronApiDjvu';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { SEARCH_WIRE_CODEC } from '@contracts/search';
 import {
     decodeFailureReceipt,
@@ -43,10 +49,24 @@ import {
     isFiniteNumber,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {
+    parseJobId,
+    parseRequestId,
+    type TJobId,
+    type TRequestId,
+} from '@contracts/shared';
+import {parseEpochMs} from '@contracts/timestamps';
 
 const MAX_COLLECTION_ITEMS = 100_000;
 const IPC_REQUEST_ID_MAX_LENGTH = 128;
 const DJVU_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1_000;
+const DJVU_PROGRESS_PHASES = [
+    'converting',
+    'bookmarks',
+    'optimizing',
+    'loading',
+    'printing',
+] as const;
 type TVoidResult = ReturnType<() => void>;
 
 function requireArgs(args: readonly unknown[], count: number | {
@@ -83,7 +103,7 @@ function decodeSafeIntegerArg(
     return value;
 }
 
-function normalizeOptionalRequestId(value: unknown, fieldName = 'requestId') {
+function normalizeOptionalRequestId(value: unknown, fieldName = 'requestId'): TRequestId | undefined {
     if (value === null || value === undefined) {
         return undefined;
     }
@@ -97,7 +117,41 @@ function normalizeOptionalRequestId(value: unknown, fieldName = 'requestId') {
     if (normalized.length > IPC_REQUEST_ID_MAX_LENGTH) {
         throw new Error(`${fieldName} exceeds maximum length (${IPC_REQUEST_ID_MAX_LENGTH})`);
     }
-    return normalized;
+    const parsed = parseRequestId(normalized);
+    if (parsed === null) {
+        throw new Error(`${fieldName} must be a valid request ID`);
+    }
+    return parsed;
+}
+
+function normalizeOptionalJobId(value: unknown, fieldName = 'jobId'): TJobId | undefined {
+    if (value === null || value === undefined) {
+        return undefined;
+    }
+    const parsed = parseJobId(value);
+    if (parsed === null) {
+        throw new Error(`${fieldName} must be a valid job ID`);
+    }
+    return parsed;
+}
+
+function decodeDocumentRefArg(args: readonly unknown[], index: number, fieldName: string): TDocumentRef {
+    const parsed = parseDocumentRef(args[index]);
+    if (parsed === null) {
+        throw new Error(`${fieldName} must be an absolute document reference`);
+    }
+    return parsed;
+}
+
+function decodeOptionalDocumentRef(value: unknown, fieldName: string): TDocumentRef | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        throw new Error(`${fieldName} must be an absolute document reference`);
+    }
+    return parsed;
 }
 
 function decodeOptionalPositiveInteger(value: unknown, fieldName: string) {
@@ -120,8 +174,8 @@ function decodeOptionalString(value: unknown, fieldName: string) {
     return value;
 }
 
-function normalizeDjvuTextSearchOptions(options: IDjvuTextSearchOptions) {
-    if (!options || typeof options !== 'object') {
+function normalizeDjvuTextSearchOptions(options: unknown) {
+    if (!isRecord(options)) {
         throw new TypeError('searchText.options must be an object');
     }
     const requestId = normalizeOptionalRequestId(
@@ -131,19 +185,20 @@ function normalizeDjvuTextSearchOptions(options: IDjvuTextSearchOptions) {
     if (!requestId) {
         throw new TypeError('searchText.options.requestId is required');
     }
-    if (!Number.isSafeInteger(options.pageCount) || options.pageCount < 1) {
+    const pageCount = options.pageCount;
+    if (typeof pageCount !== 'number' || !Number.isSafeInteger(pageCount) || pageCount < 1) {
         throw new TypeError('searchText.options.pageCount must be a positive safe integer');
     }
     return {
         requestId,
-        pageCount: options.pageCount,
+        pageCount,
         matchCase: Boolean(options.matchCase),
         wholeWord: Boolean(options.wholeWord),
         useRegex: Boolean(options.useRegex),
     };
 }
 
-function normalizeDjvuPagePreviewOptions(options: IDjvuPagePreviewOptions | undefined) {
+function normalizeDjvuPagePreviewOptions(options: unknown) {
     if (options === undefined) {
         return undefined;
     }
@@ -195,12 +250,12 @@ function normalizePrintPageNumbers(pageNumbers: unknown) {
         if (typeof pageNumber !== 'number' || !Number.isInteger(pageNumber) || pageNumber < 1) {
             throw new TypeError('printDjvuPath.options.pageNumbers must contain positive integers');
         }
-        return pageNumber;
+        return requirePageNumber(pageNumber);
     });
 }
 
 function normalizeDjvuConvertOptions(
-    options: IDjvuConvertOptions,
+    options: unknown,
     requestIdFieldName = 'startConvertToPdf.options.requestId',
 ) {
     if (!isRecord(options)) {
@@ -209,7 +264,7 @@ function normalizeDjvuConvertOptions(
 
     const normalizedOptions: IDjvuConvertOptions = {};
     if (options.jobId !== undefined) {
-        const jobId = normalizeOptionalRequestId(options.jobId, 'startConvertToPdf.options.jobId');
+        const jobId = normalizeOptionalJobId(options.jobId, 'startConvertToPdf.options.jobId');
         if (jobId === undefined) {
             throw new TypeError('startConvertToPdf.options.jobId must be a non-empty string');
         }
@@ -253,15 +308,16 @@ function normalizeDjvuConvertOptions(
         normalizedOptions.requestId = requestId;
     }
     if (options.documentRef !== undefined) {
-        if (typeof options.documentRef !== 'string' || options.documentRef.trim() === '') {
-            throw new TypeError('startConvertToPdf.options.documentRef must be a non-empty string');
+        const documentRef = parseDocumentRef(options.documentRef);
+        if (documentRef === null) {
+            throw new TypeError('startConvertToPdf.options.documentRef must be an absolute document reference');
         }
-        normalizedOptions.documentRef = options.documentRef.trim();
+        normalizedOptions.documentRef = documentRef;
     }
     return normalizedOptions;
 }
 
-function normalizeDjvuPrintOptions(options: IDjvuPrintOptions) {
+function normalizeDjvuPrintOptions(options: unknown) {
     if (!isRecord(options)) {
         throw new TypeError('printDjvuPath.options must be an object');
     }
@@ -333,7 +389,7 @@ function decodeConvertOptions(
     requestIdFieldName = 'startConvertToPdf.options.requestId',
 ) {
     return normalizeDjvuConvertOptions(
-        value as IDjvuConvertOptions,
+        value,
         requestIdFieldName,
     );
 }
@@ -347,11 +403,11 @@ function decodePrintOptions(value: unknown) {
             throw new Error(`pageNumbers exceeds maximum item count (${MAX_COLLECTION_ITEMS})`);
         }
     }
-    return normalizeDjvuPrintOptions(value as IDjvuPrintOptions);
+    return normalizeDjvuPrintOptions(value);
 }
 
 function decodePreviewOptions(value: unknown) {
-    return normalizeDjvuPagePreviewOptions(value as IDjvuPagePreviewOptions | undefined);
+    return normalizeDjvuPagePreviewOptions(value);
 }
 
 function decodeTextSearchOptions(value: unknown) {
@@ -366,7 +422,7 @@ function decodeTextSearchOptions(value: unknown) {
             }
         }
     }
-    return normalizeDjvuTextSearchOptions(value as IDjvuTextSearchOptions);
+    return normalizeDjvuTextSearchOptions(value);
 }
 
 function decodeOptionalNonNegativeInteger(value: unknown) {
@@ -390,9 +446,10 @@ export function decodeDjvuTextSearchProgress(value: unknown): IDjvuTextSearchPro
     const resultsStartIndex = isRecord(value)
         ? decodeOptionalNonNegativeInteger(value.resultsStartIndex)
         : null;
+    const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
     if (
         !isRecord(value)
-        || typeof value.requestId !== 'string'
+        || requestId === null
         || typeof value.processed !== 'number'
         || !Number.isSafeInteger(value.processed)
         || value.processed < 0
@@ -423,7 +480,7 @@ export function decodeDjvuTextSearchProgress(value: unknown): IDjvuTextSearchPro
         return null;
     }
     return {
-        requestId: value.requestId,
+        requestId,
         processed: value.processed,
         total: value.total,
         ...(results === undefined ? {} : {results}),
@@ -436,9 +493,16 @@ export function decodeDjvuTextSearchProgress(value: unknown): IDjvuTextSearchPro
 }
 
 function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
+    const jobId = isRecord(payload) ? parseJobId(payload.jobId) : null;
+    const requestId = isRecord(payload) && payload.requestId !== undefined
+        ? parseRequestId(payload.requestId)
+        : undefined;
+    const documentRef = isRecord(payload) && payload.documentRef !== undefined
+        ? parseDocumentRef(payload.documentRef)
+        : undefined;
     if (
         !isRecord(payload)
-        || typeof payload.jobId !== 'string'
+        || jobId === null
         || !isFiniteNumber(payload.percent)
         || (
             payload.phase !== 'converting'
@@ -449,8 +513,8 @@ function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
         )
         || (payload.current !== undefined && !isFiniteNumber(payload.current))
         || (payload.total !== undefined && !isFiniteNumber(payload.total))
-        || (payload.requestId !== undefined && typeof payload.requestId !== 'string')
-        || (payload.documentRef !== undefined && typeof payload.documentRef !== 'string')
+        || requestId === null
+        || documentRef === null
         || (
             payload.status !== undefined
             && payload.status !== 'running'
@@ -464,9 +528,9 @@ function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
     }
 
     return {
-        jobId: payload.jobId,
-        ...(payload.requestId === undefined ? {} : {requestId: payload.requestId}),
-        ...(payload.documentRef === undefined ? {} : {documentRef: payload.documentRef}),
+        jobId,
+        ...(requestId === undefined ? {} : {requestId}),
+        ...(documentRef === undefined ? {} : {documentRef}),
         phase: payload.phase,
         percent: payload.percent,
         ...(payload.status === undefined ? {} : {status: payload.status}),
@@ -478,6 +542,28 @@ function decodeDjvuProgress(payload: unknown): IDjvuProgress | null {
 
 function decodeOptionalResultString(value: unknown, fieldName: string) {
     return decodeOptionalString(value, fieldName);
+}
+
+function decodeOptionalJobId(value: unknown, fieldName: string): TJobId | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    // A decoded result may omit the field, but a present null is malformed rather
+    // than an omission the way it is for an outgoing optional argument.
+    if (value === null) {
+        throw new Error(`${fieldName} must be a valid job ID`);
+    }
+    return normalizeOptionalJobId(value, fieldName);
+}
+
+function decodeOptionalRequestId(value: unknown, fieldName: string): TRequestId | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (value === null) {
+        throw new Error(`${fieldName} must be a string`);
+    }
+    return normalizeOptionalRequestId(value, fieldName);
 }
 
 function decodeFailureOutcomeFields(
@@ -522,7 +608,7 @@ function decodeSuccessResult(value: unknown): Record<PropertyKey, unknown> & {su
 
 function decodeOpenResult(value: unknown) {
     const result = decodeSuccessResult(value);
-    const jobId = decodeOptionalResultString(result.jobId, 'jobId');
+    const jobId = decodeOptionalJobId(result.jobId, 'jobId');
     const error = decodeOptionalResultString(result.error, 'error');
     const pageCount = decodeOptionalPositiveInteger(result.pageCount, 'pageCount');
     const pageSourceInfo = result.pageSourceInfo === undefined
@@ -538,21 +624,23 @@ function decodeOpenResult(value: unknown) {
 }
 
 function decodeJobStartHandle(value: unknown) {
-    if (!isRecord(value) || typeof value.jobId !== 'string' || typeof value.requestId !== 'string') {
+    const jobId = isRecord(value) ? parseJobId(value.jobId) : null;
+    const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
+    if (!isRecord(value) || jobId === null || requestId === null) {
         throw new Error('invalid DjVu job start handle');
     }
     return {
-        jobId: value.jobId,
-        requestId: value.requestId,
+        jobId,
+        requestId,
     };
 }
 
 function decodeConvertResult(value: unknown) {
     const result = decodeSuccessResult(value);
-    const pdfPath = decodeOptionalResultString(result.pdfPath, 'pdfPath');
-    const jobId = decodeOptionalResultString(result.jobId, 'jobId');
-    const requestId = decodeOptionalResultString(result.requestId, 'requestId');
-    const documentRef = decodeOptionalResultString(result.documentRef, 'documentRef');
+    const pdfPath = decodeOptionalDocumentRef(result.pdfPath, 'pdfPath');
+    const jobId = decodeOptionalJobId(result.jobId, 'jobId');
+    const requestId = decodeOptionalRequestId(result.requestId, 'requestId');
+    const documentRef = decodeOptionalDocumentRef(result.documentRef, 'documentRef');
     const error = decodeOptionalResultString(result.error, 'error');
     const failureOutcome = decodeFailureOutcomeFields(result, 'DjVu conversion result');
     if (result.success && Object.keys(failureOutcome).length > 0) {
@@ -571,7 +659,7 @@ function decodeConvertResult(value: unknown) {
 
 function decodePrintResult(value: unknown) {
     const result = decodeSuccessResult(value);
-    const jobId = decodeOptionalResultString(result.jobId, 'jobId');
+    const jobId = decodeOptionalJobId(result.jobId, 'jobId');
     const error = decodeOptionalResultString(result.error, 'error');
     if (result.canceled !== undefined && typeof result.canceled !== 'boolean') {
         throw new Error('canceled must be a boolean');
@@ -592,26 +680,32 @@ function decodeCanceledResult(value: unknown) {
 }
 
 function decodeJobProgress(value: unknown): IDjvuProgress {
+    const jobId = isRecord(value) ? parseJobId(value.jobId) : null;
+    const requestId = isRecord(value) && value.requestId !== undefined
+        ? parseRequestId(value.requestId)
+        : undefined;
+    const documentRef = isRecord(value) && value.documentRef !== undefined
+        ? parseDocumentRef(value.documentRef)
+        : undefined;
     if (
         !isRecord(value)
-        || typeof value.jobId !== 'string'
+        || jobId === null
+        || requestId === null
+        || documentRef === null
         || !isFiniteNumber(value.percent)
-        || ![
-            'converting',
-            'bookmarks',
-            'optimizing',
-            'loading',
-            'printing',
-        ].includes(String(value.phase))
     ) {
         throw new Error('invalid document output progress');
     }
+    const phase = DJVU_PROGRESS_PHASES.find(candidate => candidate === value.phase);
+    if (phase === undefined) {
+        throw new Error('invalid document output progress');
+    }
     return {
-        jobId: value.jobId,
-        phase: value.phase as IDjvuProgress['phase'],
+        jobId,
+        phase,
         percent: value.percent,
-        ...(typeof value.requestId === 'string' ? {requestId: value.requestId} : {}),
-        ...(typeof value.documentRef === 'string' ? {documentRef: value.documentRef} : {}),
+        ...(requestId === undefined ? {} : {requestId}),
+        ...(documentRef === undefined ? {} : {documentRef}),
         ...(isFiniteNumber(value.current) ? {current: value.current} : {}),
         ...(isFiniteNumber(value.total) ? {total: value.total} : {}),
         ...(value.status === 'running' || value.status === 'success' || value.status === 'canceled' || value.status === 'failed'
@@ -629,8 +723,10 @@ function decodeJobState(value: unknown): TDocumentOutputJobState | null {
         throw new Error('invalid document output job state');
     }
     const operation = value.operation;
+    const jobId = parseJobId(value.jobId);
+    const updatedAtMs = parseEpochMs(value.updatedAtMs);
     if (
-        typeof value.jobId !== 'string'
+        jobId === null
         || !isDjvuDocumentOutputOperation(operation)
         || ![
             'queued',
@@ -640,30 +736,31 @@ function decodeJobState(value: unknown): TDocumentOutputJobState | null {
             'canceled',
             'failed',
         ].includes(String(value.status))
-        || !isFiniteNumber(value.updatedAtMs)
+        || updatedAtMs === null
     ) {
         throw new Error('invalid document output job state');
     }
     const progress = decodeJobProgress(value.progress);
     if (value.status === 'handoff') {
-        if (typeof value.artifactPath !== 'string') throw new Error('handoff state requires artifactPath');
+        const artifactPath = parseDocumentRef(value.artifactPath);
+        if (artifactPath === null) throw new Error('handoff state requires artifactPath');
         return {
-            jobId: value.jobId,
+            jobId,
             operation,
             status: 'handoff',
-            artifactPath: value.artifactPath,
+            artifactPath,
             progress,
-            updatedAtMs: value.updatedAtMs,
+            updatedAtMs,
         };
     }
     if (value.status === 'completed') {
         return {
-            jobId: value.jobId,
+            jobId,
             operation,
             status: 'completed',
-            ...(typeof value.artifactPath === 'string' ? {artifactPath: value.artifactPath} : {}),
+            ...(value.artifactPath === undefined ? {} : {artifactPath: parseDocumentRef(value.artifactPath) ?? (() => { throw new Error('invalid artifact path'); })()}),
             progress,
-            updatedAtMs: value.updatedAtMs,
+            updatedAtMs,
         };
     }
     if (value.status === 'failed' || value.status === 'canceled') {
@@ -672,21 +769,21 @@ function decodeJobState(value: unknown): TDocumentOutputJobState | null {
             throw new Error('canceled DjVu job state cannot contain a failure receipt');
         }
         return {
-            jobId: value.jobId,
+            jobId,
             operation,
             status: value.status,
             ...(typeof value.error === 'string' ? {error: value.error} : {}),
             ...failureOutcome,
             progress,
-            updatedAtMs: value.updatedAtMs,
+            updatedAtMs,
         };
     }
     return {
-        jobId: value.jobId,
+        jobId,
         operation,
         status: value.status === 'queued' ? 'queued' : 'running',
         progress,
-        updatedAtMs: value.updatedAtMs,
+        updatedAtMs,
     };
 }
 
@@ -772,54 +869,101 @@ function resultSchema<TResult>(
     return s.declared<TResult>()(s.fromParser(decode, example));
 }
 
-function singleStringArgs<TValue extends string>(
+function singleDocumentRefArgs(
     fieldName: string,
-    example: TValue,
+    example: TDocumentRef,
 ) {
-    return argsSchema<[TValue]>(
-        args => [decodeStringArg(requireArgs(args, 1), 0, fieldName) as TValue],
+    return argsSchema<[TDocumentRef]>(
+        args => [decodeDocumentRefArg(requireArgs(args, 1), 0, fieldName)],
         () => [example],
     );
 }
 
-function singleRequestIdArgs(fieldName: string, example: string) {
-    return argsSchema<[string]>(
+function singleJobIdArgs(fieldName: string, example: TJobId) {
+    return argsSchema<[TJobId]>(
         (args) => {
-            const value = decodeStringArg(requireArgs(args, 1), 0, fieldName);
-            return [normalizeOptionalRequestId(value, fieldName) ?? ''];
+            const value = normalizeOptionalJobId(
+                decodeStringArg(requireArgs(args, 1), 0, fieldName),
+                fieldName,
+            );
+            if (value === undefined) {
+                throw new Error(`${fieldName} must be a non-empty string`);
+            }
+            return [value];
         },
         () => [example],
     );
 }
 
-const documentArgs = singleStringArgs<TDocumentRef>('djvuPath', '/tmp/fixture.djvu');
-const jobArgs = singleStringArgs<string>('jobId', 'djvu-convert-fixture');
+function singleRequestIdArgs(fieldName: string, example: TRequestId) {
+    return argsSchema<[TRequestId]>(
+        (args) => {
+            const value = decodeStringArg(requireArgs(args, 1), 0, fieldName);
+            const normalized = normalizeOptionalRequestId(value, fieldName);
+            if (normalized === undefined) {
+                throw new Error(`${fieldName} must be a non-empty string`);
+            }
+            return [normalized];
+        },
+        () => [example],
+    );
+}
+
+const documentArgs = singleDocumentRefArgs(
+    'djvuPath',
+    parseDocumentRef('/tmp/fixture.djvu') ?? (() => {
+        throw new Error('invalid fixture document reference');
+    })(),
+);
+const jobArgs = singleJobIdArgs(
+    'jobId',
+    parseJobId('djvu-convert-fixture') ?? (() => {
+        throw new Error('invalid fixture job ID');
+    })(),
+);
 const cancelPreviewArgs = singleRequestIdArgs(
     'cancelPagePreview.requestId',
-    'djvu-preview-fixture',
+    parseRequestId('djvu-preview-fixture') ?? (() => {
+        throw new Error('invalid fixture request ID');
+    })(),
 );
 const cancelTextSearchArgs = singleRequestIdArgs(
     'cancelTextSearch.requestId',
-    'djvu-search-fixture',
+    parseRequestId('djvu-search-fixture') ?? (() => {
+        throw new Error('invalid fixture request ID');
+    })(),
 );
-const tempPathArgs = singleStringArgs<TDocumentRef>('tempPdfPath', '/tmp/djvu-fixture.pdf');
-const startOpenArgs = argsSchema<[TDocumentRef, string]>(
+const tempPathArgs = singleDocumentRefArgs(
+    'tempPdfPath',
+    parseDocumentRef('/tmp/djvu-fixture.pdf') ?? (() => {
+        throw new Error('invalid fixture document reference');
+    })(),
+);
+const startOpenArgs = argsSchema<[TDocumentRef, TRequestId]>(
     (args) => {
         requireArgs(args, 2);
+        const requestId = normalizeOptionalRequestId(
+            decodeStringArg(args, 1, 'requestId'),
+            'startOpenForViewing.requestId',
+        );
+        if (requestId === undefined) {
+            throw new Error('startOpenForViewing.requestId must be a non-empty string');
+        }
         return [
-            decodeStringArg(args, 0, 'djvuPath'),
-            normalizeOptionalRequestId(
-                decodeStringArg(args, 1, 'requestId'),
-                'startOpenForViewing.requestId',
-            ) ?? '',
+            decodeDocumentRefArg(args, 0, 'djvuPath'),
+            requestId,
         ];
     },
     () => [
-        '/tmp/fixture.djvu',
-        'djvu-open-fixture',
+        parseDocumentRef('/tmp/fixture.djvu') ?? (() => {
+            throw new Error('invalid fixture document reference');
+        })(),
+        parseRequestId('djvu-open-fixture') ?? (() => {
+            throw new Error('invalid fixture request ID');
+        })(),
     ],
 );
-const startConvertArgs = argsSchema<[TDocumentRef, string, IDjvuConvertOptions]>(
+const startConvertArgs = argsSchema<[TDocumentRef, TDocumentRef, IDjvuConvertOptions]>(
     (args) => {
         requireArgs(args, 3);
         const options = decodeConvertOptions(
@@ -830,17 +974,23 @@ const startConvertArgs = argsSchema<[TDocumentRef, string, IDjvuConvertOptions]>
             throw new Error('startConvertToPdf.options.requestId is required');
         }
         return [
-            decodeStringArg(args, 0, 'djvuPath'),
-            decodeStringArg(args, 1, 'outputPath'),
+            decodeDocumentRefArg(args, 0, 'djvuPath'),
+            decodeDocumentRefArg(args, 1, 'outputPath'),
             options,
         ];
     },
     () => [
-        '/tmp/fixture.djvu',
-        '/tmp/fixture.pdf',
+        parseDocumentRef('/tmp/fixture.djvu') ?? (() => {
+            throw new Error('invalid fixture document reference');
+        })(),
+        parseDocumentRef('/tmp/fixture.pdf') ?? (() => {
+            throw new Error('invalid fixture document reference');
+        })(),
         {
             preserveBookmarks: true,
-            requestId: 'djvu-convert-fixture',
+            requestId: parseRequestId('djvu-convert-fixture') ?? (() => {
+                throw new Error('invalid fixture request ID');
+            })(),
         },
     ],
 );
@@ -848,12 +998,14 @@ const printArgs = argsSchema<[TDocumentRef, IDjvuPrintOptions]>(
     (args) => {
         requireArgs(args, 2);
         return [
-            decodeStringArg(args, 0, 'djvuPath'),
+            decodeDocumentRefArg(args, 0, 'djvuPath'),
             decodePrintOptions(args[1]),
         ];
     },
     () => [
-        '/tmp/fixture.djvu',
+        parseDocumentRef('/tmp/fixture.djvu') ?? (() => {
+            throw new Error('invalid fixture document reference');
+        })(),
         {
             viewMode: 'single',
             orientation: 'auto',
@@ -864,27 +1016,33 @@ const searchTextArgs = argsSchema<[TDocumentRef, string, IDjvuTextSearchOptions]
     (args) => {
         requireArgs(args, 3);
         return [
-            decodeStringArg(args, 0, 'djvuPath'),
+            decodeDocumentRefArg(args, 0, 'djvuPath'),
             decodeStringArg(args, 1, 'query'),
             decodeTextSearchOptions(args[2]),
         ];
     },
     () => [
-        '/tmp/fixture.djvu',
+        parseDocumentRef('/tmp/fixture.djvu') ?? (() => {
+            throw new Error('invalid fixture document reference');
+        })(),
         'needle',
         {
-            requestId: 'djvu-search-fixture',
+            requestId: parseRequestId('djvu-search-fixture') ?? (() => {
+                throw new Error('invalid fixture request ID');
+            })(),
             pageCount: 1,
         },
     ],
 );
 const pageSourceInfoArgs = argsSchema<[TDocumentRef, number]>(
     args => [
-        decodeStringArg(requireArgs(args, 2), 0, 'djvuPath'),
+        decodeDocumentRefArg(requireArgs(args, 2), 0, 'djvuPath'),
         decodeSafeIntegerArg(args, 1, 'pageNumber', 1),
     ],
     () => [
-        '/tmp/fixture.djvu',
+        parseDocumentRef('/tmp/fixture.djvu') ?? (() => {
+            throw new Error('invalid fixture document reference');
+        })(),
         1,
     ],
 );
@@ -899,13 +1057,15 @@ const previewArgs = argsSchema<[
             max: 3,
         });
         return [
-            decodeStringArg(args, 0, 'djvuPath'),
+            decodeDocumentRefArg(args, 0, 'djvuPath'),
             decodeSafeIntegerArg(args, 1, 'pageNumber', 1),
             decodePreviewOptions(args[2]),
         ];
     },
     () => [
-        '/tmp/fixture.djvu',
+        parseDocumentRef('/tmp/fixture.djvu') ?? (() => {
+            throw new Error('invalid fixture document reference');
+        })(),
         1,
         {targetWidthPx: 800},
     ],
@@ -922,15 +1082,23 @@ const convertResult = resultSchema<IDjvuConvertResult>(
     decodeConvertResult,
     () => ({
         success: true,
-        pdfPath: '/tmp/fixture.pdf',
-        jobId: 'djvu-convert-fixture',
+        pdfPath: parseDocumentRef('/tmp/fixture.pdf') ?? (() => {
+            throw new Error('invalid fixture document reference');
+        })(),
+        jobId: parseJobId('djvu-convert-fixture') ?? (() => {
+            throw new Error('invalid fixture job ID');
+        })(),
     }),
 );
 const jobStartResult = resultSchema<IDjvuJobStartHandle>(
     decodeJobStartHandle,
     () => ({
-        jobId: 'djvu-job-fixture',
-        requestId: 'djvu-request-fixture',
+        jobId: parseJobId('djvu-job-fixture') ?? (() => {
+            throw new Error('invalid fixture job ID');
+        })(),
+        requestId: parseRequestId('djvu-request-fixture') ?? (() => {
+            throw new Error('invalid fixture request ID');
+        })(),
     }),
 );
 const canceledResult = resultSchema(
@@ -943,7 +1111,9 @@ const jobStateResult = resultSchema<TDocumentOutputJobState | null>(
 );
 const progress = s.declared<IDjvuProgress>()(
     s.fromNullableDecoder(decodeDjvuProgress, 'DjVu progress', () => ({
-        jobId: 'djvu-job-fixture',
+        jobId: parseJobId('djvu-job-fixture') ?? (() => {
+            throw new Error('invalid fixture job ID');
+        })(),
         phase: 'converting',
         percent: 0,
         status: 'running',
@@ -954,7 +1124,9 @@ const textSearchProgress = s.declared<IDjvuTextSearchProgress>()(
         decodeDjvuTextSearchProgress,
         'DjVu text search progress',
         () => ({
-            requestId: 'djvu-search-fixture',
+            requestId: parseRequestId('djvu-search-fixture') ?? (() => {
+                throw new Error('invalid fixture request ID');
+            })(),
             processed: 0,
             total: 1,
             status: 'running',
@@ -1064,10 +1236,10 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             timeout: true,
             mapArgs: (
                 djvuPath: TDocumentRef,
-                requestId: string,
-            ): [TDocumentRef, string] => [
+                requestId: TRequestId,
+            ): [TDocumentRef, TRequestId] => [
                 djvuPath,
-                normalizeOptionalRequestId(requestId, 'startOpenForViewing.requestId') ?? '',
+                requestId,
             ],
         }),
         awaitOpenJob: defineDjvuMethod({
@@ -1091,9 +1263,9 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             timeout: true,
             mapArgs: (
                 djvuPath: TDocumentRef,
-                outputPath: string,
+                outputPath: TDocumentRef,
                 options: IDjvuConvertOptions,
-            ): [TDocumentRef, string, IDjvuConvertOptions] => [
+            ): [TDocumentRef, TDocumentRef, IDjvuConvertOptions] => [
                 djvuPath,
                 outputPath,
                 normalizeDjvuConvertOptions(options),
@@ -1146,7 +1318,7 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             channel: 'djvu:cancelPagePreview',
             args: cancelPreviewArgs,
             result: canceledResult,
-            mapArgs: (requestId: string): [string] => [normalizeOptionalRequestId(requestId, 'cancelPagePreview.requestId') ?? ''],
+            mapArgs: (requestId: TRequestId): [TRequestId] => [requestId],
         }),
         searchText: defineDjvuClientMethod({
             name: 'searchText',
@@ -1175,7 +1347,7 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             channel: 'djvu:text:cancel',
             args: cancelTextSearchArgs,
             result: canceledResult,
-            mapArgs: (requestId: string): [string] => [normalizeOptionalRequestId(requestId, 'cancelTextSearch.requestId') ?? ''],
+            mapArgs: (requestId: TRequestId): [TRequestId] => [requestId],
         }),
         getInfo: defineDjvuMethod({
             name: 'getInfo',
@@ -1196,7 +1368,7 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             args: pageSourceInfoArgs,
             result: resultSchema<IDjvuPageSourceInfo>(decodeDjvuPageSourceInfo, () => ({
                 pageCount: 1,
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 pageSize: {
                     width: 600,
                     height: 800,
@@ -1251,7 +1423,7 @@ export const DJVU_PLATFORM_FEATURE = definePlatformFeature({
             timeout: true,
             mapArgs: (
                 djvuPath: TDocumentRef,
-                pageNumber: number,
+                pageNumber: TPageNumber,
                 options?: IDjvuPagePreviewOptions,
             ): [TDocumentRef, number, IDjvuPagePreviewOptions | undefined] => [
                 djvuPath,

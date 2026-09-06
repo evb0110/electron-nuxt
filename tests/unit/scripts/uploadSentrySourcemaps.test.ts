@@ -103,6 +103,7 @@ describe('uploadSentrySourcemaps', () => {
         });
 
         expect(runCli).toHaveBeenCalledOnce();
+        expect(runCli.mock.calls[0]?.[0]).not.toContain('--url-prefix');
         expect(runCli.mock.calls[0]?.[0]).toEqual([
             'sourcemaps',
             'upload',
@@ -187,21 +188,30 @@ describe('uploadSentrySourcemaps', () => {
                 'private-web-project',
             ]);
             expect(args).not.toContain('private-desktop-project');
-            const staticRoot = args.at(-1)!;
-            expect(await readFile(path.join(
-                staticRoot,
-                '_nuxt/example.js',
-            ), 'utf8')).toContain('_sentryDebugIds');
-            expect(JSON.parse(await readFile(path.join(
-                staticRoot,
-                '_nuxt/example.js.map',
-            ), 'utf8'))).toMatchObject({version: 3});
-            await expect(readFile(path.join(
-                staticRoot,
-                '.vercel/output/static/_nuxt/example.js',
-            ))).rejects.toMatchObject({code: 'ENOENT'});
-            expect(await readFile(path.join(staticRoot, '../../../app/example.ts'), 'utf8'))
-                .toContain('fixture');
+            const staticRoot = args.find(argument => argument.endsWith('/vercel/output/static'));
+            if (staticRoot) {
+                expect(await readFile(path.join(
+                    staticRoot,
+                    '_nuxt/example.js',
+                ), 'utf8')).toContain('_sentryDebugIds');
+                expect(JSON.parse(await readFile(path.join(
+                    staticRoot,
+                    '_nuxt/example.js.map',
+                ), 'utf8'))).toMatchObject({
+                    sources: ['../app/example.ts'],
+                    version: 3,
+                });
+                await expect(readFile(path.join(
+                    staticRoot,
+                    '.vercel/output/static/_nuxt/example.js',
+                ))).rejects.toMatchObject({code: 'ENOENT'});
+            } else {
+                const sourceRoot = args.at(-1);
+                expect(args).toContain('~/app/');
+                expect(sourceRoot).toBeTypeOf('string');
+                expect(await readFile(path.join(sourceRoot!, 'example.ts'), 'utf8'))
+                    .toContain('fixture');
+            }
         });
 
         const receipt = await uploadSentrySourcemaps({
@@ -211,12 +221,87 @@ describe('uploadSentrySourcemaps', () => {
             runCli,
         });
 
-        expect(runCli).toHaveBeenCalledOnce();
+        expect(runCli).toHaveBeenCalledTimes(2);
+        const cliArgs = runCli.mock.calls[0]?.[0] ?? [];
+        const urlPrefixIndex = cliArgs.indexOf('--url-prefix');
+        expect(cliArgs.slice(urlPrefixIndex, urlPrefixIndex + 2)).toEqual([
+            '--url-prefix',
+            '~/',
+        ]);
+        const staticRoot = cliArgs.find(argument => argument.endsWith('/vercel/output/static'));
+        expect(staticRoot).toBeTypeOf('string');
+        expect(cliArgs.at(-1)).toBe(staticRoot);
+        const sourceArgs = runCli.mock.calls[1]?.[0] ?? [];
+        expect(sourceArgs).toContain('~/app/');
+        expect(sourceArgs.at(-1)).toBe(path.join(
+            staticRoot!,
+            '../../../app',
+        ));
         expect(receipt).toMatchObject({
             bundleCount: 1,
             identity: webIdentity,
             schemaVersion: 3,
         });
+    });
+
+    it('adds source aliases for browser-worker maps relative to the uploaded desktop bundle', async () => {
+        const projectRoot = await mkdtemp(path.join(tmpdir(), 'evb-sentry-worker-upload-'));
+        temporaryRoots.push(projectRoot);
+        const outputRoot = 'nuxt-output/public/_nuxt';
+        await mkdir(path.join(projectRoot, outputRoot), {recursive: true});
+        await mkdir(path.join(projectRoot, 'packages/contracts'), {recursive: true});
+        await writeFile(
+            path.join(projectRoot, 'packages/contracts/runtimeGuards.ts'),
+            'export const fixtureGuard = true;\n',
+        );
+        await writeFile(
+            path.join(projectRoot, `${outputRoot}/fixture.worker.js`),
+            'throw new Error("fixture");\n//# sourceMappingURL=fixture.worker.js.map\n',
+        );
+        await writeFile(path.join(projectRoot, `${outputRoot}/fixture.worker.js.map`), JSON.stringify({
+            file: 'fixture.worker.js',
+            mappings: 'AAAA',
+            names: [],
+            sources: ['../../packages/contracts/runtimeGuards.ts'],
+            version: 3,
+        }));
+        const workerIdentity: SentryBuildIdentity = {
+            target: 'desktop',
+            release: 'evb-viewer-desktop@0.1.449-worker-fixture',
+            dist: 'macos-arm64',
+            environment: 'test',
+        };
+        await stagePrivateSourcemaps({
+            projectRoot,
+            identity: workerIdentity,
+            outputRoots: ['nuxt-output'],
+            reset: true,
+        });
+        const runCli = vi.fn(async (args: string[]) => {
+            const uploadRoot = args.at(-1)!;
+            await expect(readFile(
+                path.join(uploadRoot, 'packages/contracts/runtimeGuards.ts'),
+                'utf8',
+            )).resolves.toContain('fixtureGuard');
+            await expect(readFile(
+                path.join(uploadRoot, 'nuxt-output/packages/contracts/runtimeGuards.ts'),
+                'utf8',
+            )).resolves.toContain('fixtureGuard');
+            const uploadedMap = JSON.parse(await readFile(
+                path.join(uploadRoot, `${outputRoot}/fixture.worker.js.map`),
+                'utf8',
+            ));
+            expect(uploadedMap).toMatchObject({sources: ['../../../packages/contracts/runtimeGuards.ts']});
+        });
+
+        await uploadSentrySourcemaps({
+            identity: workerIdentity,
+            projectRoot,
+            environment: privateEnvironment(),
+            runCli,
+        });
+
+        expect(runCli).toHaveBeenCalledOnce();
     });
 
     it('treats a matching private receipt as an exact-build no-op', async () => {

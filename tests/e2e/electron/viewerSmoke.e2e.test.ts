@@ -4,11 +4,13 @@ import {
     it,
 } from 'vitest';
 import {
+    createAnnotatedLinkFixturePdf,
     createLargeScannedFixturePdf,
     createMixedSizeTextFixturePdf,
     createNativeDjvuLatePageSearchFixture,
     createMultiPageTextFixturePdf,
     createPngFixture,
+    readPdfAnnotationSummary,
     resolveDjvuFixturePath,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -34,6 +36,7 @@ import {
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { captureDocumentThumbnailParitySnapshot } from '@tests/e2e/electron/helpers/captureDocumentThumbnailParitySnapshot';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -242,6 +245,84 @@ const DJVU_PROJECTED_SCROLL_WARMUP_SAMPLES = 3;
 const DJVU_HIGH_ZOOM_REGRESSION_ZOOM = 4.72;
 const DJVU_HIGH_ZOOM_PRESSURE_DURATION_MS = 5_500;
 const SPLIT_RESIZE_ANCHOR_TOLERANCE = 0.08;
+
+async function clickActiveTabCloseWithPointer(session: IElectronE2ESession) {
+    await session.page.waitForFunction(() => {
+        const button = document.querySelector<HTMLButtonElement>(
+            '.tab-list .tab.is-active .tab-close[aria-label="Close Tab"]',
+        );
+        if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') {
+            return false;
+        }
+        const rect = button.getBoundingClientRect();
+        const style = window.getComputedStyle(button);
+        return rect.width > 8
+            && rect.height > 8
+            && style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && Number(style.opacity || '1') > 0;
+    }, {timeout: 15_000});
+
+    const point = await session.page.evaluate(() => {
+        const button = document.querySelector<HTMLButtonElement>(
+            '.tab-list .tab.is-active .tab-close[aria-label="Close Tab"]',
+        );
+        if (!button) {
+            return null;
+        }
+        const rect = button.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const target = document.elementFromPoint(x, y);
+        return {
+            hitTarget: target === button || button.contains(target),
+            x: Math.round(x),
+            y: Math.round(y),
+        };
+    });
+    expect(point).not.toBeNull();
+    expect(point?.hitTarget).toBe(true);
+    if (!point) {
+        return;
+    }
+
+    await session.page.mouse.move(point.x, point.y);
+    await session.page.mouse.down();
+    await session.page.mouse.up();
+}
+
+interface ICloseTabState {
+    activeTabTitle: string;
+    bodyHasCrash: boolean;
+    visibleWorkspaceFailure: boolean;
+}
+
+async function waitForCloseTabState(session: IElectronE2ESession): Promise<ICloseTabState> {
+    const stateHandle = await session.page.waitForFunction(() => {
+        const activeTabTitle = document.querySelector<HTMLElement>('.tab-list .tab.is-active')
+            ?.textContent?.trim() ?? '';
+        const activeWorkspace = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+        );
+        const visibleWorkspaceFailure = Array.from(activeWorkspace?.querySelectorAll<HTMLElement>(
+            '.workspace-host__loading[role="alert"]',
+        ) ?? []).some(element => globalThis.__evbE2E.isElementVisible(element));
+        const bodyHasCrash = /RangeError|requirePageNumber|pageCount.?0|Internal Server Error/iu.test(
+            document.body.innerText,
+        );
+        if (!activeTabTitle.includes('New Tab') && !visibleWorkspaceFailure && !bodyHasCrash) {
+            return false;
+        }
+        return {
+            activeTabTitle,
+            bodyHasCrash,
+            visibleWorkspaceFailure,
+        };
+    }, {timeout: 15_000});
+    const state = await stateHandle.jsonValue() as ICloseTabState;
+    await stateHandle.dispose();
+    return state;
+}
 
 interface IThumbnailPaintSample {
     containerClientHeight: number;
@@ -1065,6 +1146,78 @@ async function collectDjvuProjectedScrollMetricSamples(session: IElectronE2ESess
 
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
+
+    it('closes and reopens an annotated PDF without crashing its workspace host', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        const fixturePath = await createAnnotatedLinkFixturePdf(
+            `viewer-smoke-close-tab-${Date.now()}.pdf`,
+        );
+        const annotationSummary = await readPdfAnnotationSummary(fixturePath);
+        expect(annotationSummary.bySubtype.Link ?? 0).toBe(1);
+        expect(annotationSummary.bySubtype.Text ?? 0).toBe(1);
+
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await goToPageViaToolbar(session.page, 5);
+        await waitForFunctionInPage(session.page, () => {
+            const page = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] '
+                + '.page_container[data-page="5"]',
+            );
+            return Boolean(page?.querySelector('.pdf-link-overlay[data-href]'));
+        }, {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+
+        const rendererFailures: string[] = [];
+        const isCloseCrash = (message: string) => /RangeError|requirePageNumber|pageCount.?0|workspace-host|Document tab crashed|RENDERER_WORKSPACE_OPERATION_FAILED/iu.test(message);
+        const onConsole = (message: {
+            type: () => string;
+            text: () => string;
+        }) => {
+            if (message.type() === 'error' && isCloseCrash(message.text())) {
+                rendererFailures.push(`console:${message.text()}`);
+            }
+        };
+        const onPageError = (error: unknown) => {
+            const message = getErrorMessage(error);
+            if (isCloseCrash(message)) {
+                rendererFailures.push(`pageerror:${message}`);
+            }
+        };
+        session.page.on('console', onConsole);
+        session.page.on('pageerror', onPageError);
+
+        try {
+            await clickActiveTabCloseWithPointer(session);
+            const closeState = await waitForCloseTabState(session);
+            expect(closeState.activeTabTitle).toContain('New Tab');
+            expect(closeState.bodyHasCrash).toBe(false);
+            expect(closeState.visibleWorkspaceFailure).toBe(false);
+            await session.page.waitForFunction(() => (
+                !document.querySelector('.runtime-error-reports')
+                && !document.body.innerText.match(/RangeError|requirePageNumber|pageCount.?0|Internal Server Error/iu)
+            ), {timeout: 5_000});
+            expect(rendererFailures).toEqual([]);
+
+            await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+            await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+            await goToPageViaToolbar(session.page, 5);
+            await waitForFunctionInPage(session.page, () => {
+                const page = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] '
+                    + '.page_container[data-page="5"]',
+                );
+                return Boolean(page?.querySelector('.pdf-link-overlay[data-href]'));
+            }, {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+            expect(rendererFailures).toEqual([]);
+        } finally {
+            session.page.off('console', onConsole);
+            session.page.off('pageerror', onPageError);
+        }
+    }, 120_000);
 
     it('loads Scan Cleanup through its skeleton, detection, and narrow overflow entry', async () => {
         let session = sessionFixture.getSession();
@@ -3691,7 +3844,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             }
         };
         const onPageError = (error: unknown) => {
-            rendererErrors.push(`pageerror:${error instanceof Error ? error.message : String(error)}`);
+            rendererErrors.push(`pageerror:${getErrorMessage(error)}`);
         };
         session.page.on('console', onConsole);
         session.page.on('pageerror', onPageError);

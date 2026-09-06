@@ -155,8 +155,8 @@ export async function streamPageIdentityIds(
     const stream = createReadStream(path, {highWaterMark: STREAM_CHUNK_BYTES});
     const decoder = new StringDecoder('utf8');
     const delimiterStack: Array<'{' | '['> = [];
-    let topLevelClosed = false;
-    let inString = false;
+    let topLevelClosed = false as boolean;
+    let inString = false as boolean;
     let escaped = false;
     let rawString = '';
     let lastString: string | undefined;
@@ -164,7 +164,7 @@ export async function streamPageIdentityIds(
     let pageIdsArrayDepth = 0;
     let foundPageIds = false;
     let count = 0;
-    let stopped = false;
+    let stopped = false as boolean;
 
     const scan = async (chunk: string) => {
         for (let index = 0; index < chunk.length && !stopped; index += 1) {
@@ -407,7 +407,7 @@ async function readPageIdentitySourceCacheRange(
     const identities: string[] = [];
     let pending = '';
     let currentPageIndex = chunkStartPage;
-    let complete = false;
+    let complete = false as boolean;
     const consume = (chunk: string) => {
         pending += chunk;
         let newlineIndex = pending.indexOf('\n');

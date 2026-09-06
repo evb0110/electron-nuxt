@@ -29,6 +29,8 @@ import type {
     TOpenBatchProgressOperation,
     TOpenDocumentDirectBatchProgress,
 } from '@contracts/electronApiDocuments';
+import type { TRequestId } from '@contracts/shared';
+import { parseRequestId } from '@contracts/shared';
 import { DOCUMENT_OPEN_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
 import { getErrorMessage } from '@electron/utils/error';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
@@ -132,7 +134,7 @@ export function handleCancelOpenDocumentDirectBatch(
 
 function createOpenBatchProgressReporter(
     sender: Electron.WebContents,
-    requestId: string,
+    requestId: TRequestId,
     operation: TOpenBatchProgressOperation,
 ) {
     const pump = createIpcProgressPump<TOpenDocumentDirectBatchProgress>({
@@ -253,11 +255,11 @@ export async function handleOpenPdfDirectBatch(
         const normalizedPaths = filePaths.filter((path): path is string => typeof path === 'string' && path.length > 0)
             .map(path => requireOpenPath(path, context.sender));
 
-        const normalizedRequestId = normalizeOptionalIpcRequestId(requestId) ?? '';
-        const abortController = normalizedRequestId ? new AbortController() : null;
-        const requestKey = abortController
-            ? getDirectBatchRequestKey(context.sender.id, normalizedRequestId)
-            : null;
+        const normalizedRequestId = parseRequestId(normalizeOptionalIpcRequestId(requestId));
+        const abortController = normalizedRequestId === null ? null : new AbortController();
+        const requestKey = normalizedRequestId === null
+            ? null
+            : getDirectBatchRequestKey(context.sender.id, normalizedRequestId);
         if (requestKey && abortController) {
             activeDirectBatchRequests.get(requestKey)?.abort(new Error('Superseded document open request'));
             activeDirectBatchRequests.set(requestKey, abortController);

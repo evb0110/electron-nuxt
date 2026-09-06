@@ -15,6 +15,8 @@ import {
     it,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
 import {writeWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
 import {recoverTwoTargetDocumentTransition} from '@electron/file-access/recoverTwoTargetDocumentTransition';
 
@@ -41,12 +43,12 @@ describe('two-target document transition recovery', () => {
             writeWorkingCopyRevisionSidecar(workingCopyPath, {
                 sidecarVersion: 1,
                 version: 1,
-                documentRef: workingCopyPath,
+                documentRef: requireDocumentRef(workingCopyPath),
                 authority: 'electron-working-copy',
                 token: requireDocumentRevisionToken(publicRevision),
                 contentRevision: 2,
-                mintedAt: 2,
-                updatedAt: 2,
+                mintedAt: requireEpochMs(2),
+                updatedAt: requireEpochMs(2),
             }),
             writeFile(`${workingCopyPath}.evb-two-target-transition.json`, JSON.stringify({
                 version: 1,

@@ -171,8 +171,7 @@ function createSparseDocumentPageMetrics(
 export function isSparseDocumentPageMetrics(
     metrics: TDocumentPageMetricsCollection,
 ): metrics is IDocumentPageMetricsCollection {
-    return 'isSparseDocumentPageMetrics' in metrics
-        && metrics.isSparseDocumentPageMetrics === true;
+    return 'isSparseDocumentPageMetrics' in metrics;
 }
 
 export function mergeDocumentPageMetrics(
@@ -388,7 +387,7 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
         return selectedPage;
     };
     const runWorker = async () => {
-        while (true) {
+        for (;;) {
             signal.throwIfAborted();
             if (!isCurrent()) {
                 return;

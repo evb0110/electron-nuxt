@@ -697,10 +697,10 @@ const emit = defineEmits<{
 const props = {
     get activeDocumentName() { return activeDocumentName ?? null; },
     get chatScope() { return chatScope ?? null; },
-    get hasActiveDocument() { return hasActiveDocument ?? false; },
-    get hasAnyDocument() { return hasAnyDocument ?? false; },
+    get hasActiveDocument() { return hasActiveDocument; },
+    get hasAnyDocument() { return hasAnyDocument; },
     get width() { return width; },
-    get isResizing() { return isResizing ?? false; },
+    get isResizing() { return isResizing; },
 } satisfies Readonly<IAgentAssistantPanelControllerProps>;
 
 const {

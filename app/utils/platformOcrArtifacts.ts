@@ -1,4 +1,7 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     safeJsonParse,
     type TJsonValidator,
@@ -64,7 +67,10 @@ export async function readOptionalOcrArtifactJson<T>(
         return null;
     }
 
-    const path = `${workingCopyPath}.ocr/${normalizedRelativePath}`;
+    const path = parseDocumentRef(`${workingCopyPath}.ocr/${normalizedRelativePath}`);
+    if (path === null) {
+        return null;
+    }
     const documents = getDocumentFilesCapability();
     const exists = await documents.fileExists(path);
     if (!exists) {
@@ -94,7 +100,10 @@ export async function readOptionalAdjacentJsonArtifact<T>(
         return null;
     }
 
-    const path = `${workingCopyPath}${normalizedSuffix}`;
+    const path = parseDocumentRef(`${workingCopyPath}${normalizedSuffix}`);
+    if (path === null) {
+        return null;
+    }
     const documents = getDocumentFilesCapability();
     const exists = await documents.fileExists(path);
     if (!exists) {

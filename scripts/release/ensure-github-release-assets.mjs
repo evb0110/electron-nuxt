@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {
     existsSync,
     mkdtempSync,
@@ -13,17 +14,22 @@ import {
     RELEASE_TAG_PATTERN,
 } from './releaseTag.mjs';
 
+/** @typedef {(args: string[]) => string} TGitHubCliRunner */
+/** @typedef {{assets?: Array<{name?: unknown}>}} IReleasePayload */
+
+/** @param {string[]} args @returns {string} */
 function runGh(args) {
-    return execFileSync('gh', args, {
+    return String(execFileSync('gh', args, {
         encoding: 'utf8',
         stdio: [
             'ignore',
             'pipe',
             'inherit',
         ],
-    });
+    }));
 }
 
+/** @param {string} localPath @param {string} remotePath @returns {Promise<string>} */
 export async function assertImmutableAsset(localPath, remotePath) {
     const [
         localHash,
@@ -40,7 +46,9 @@ export async function assertImmutableAsset(localPath, remotePath) {
     return localHash;
 }
 
+/** @param {string} repo @param {string} tag @param {TGitHubCliRunner} [run] @returns {Set<string>} */
 export function getReleaseAssetNames(repo, tag, run = runGh) {
+    /** @type {IReleasePayload} */
     const release = JSON.parse(run([
         'release',
         'view',
@@ -50,9 +58,12 @@ export function getReleaseAssetNames(repo, tag, run = runGh) {
         '--json',
         'assets',
     ]));
-    return new Set((release.assets ?? []).map(asset => asset.name));
+    return new Set((release.assets ?? []).flatMap(asset => (
+        typeof asset.name === 'string' ? [asset.name] : []
+    )));
 }
 
+/** @param {string} repo @param {string} tag @param {string} assetName @param {string} temporaryRoot @returns {string} */
 function downloadReleaseAsset(repo, tag, assetName, temporaryRoot) {
     const remotePath = path.join(temporaryRoot, assetName);
     if (existsSync(remotePath)) {
@@ -76,7 +87,7 @@ function downloadReleaseAsset(repo, tag, assetName, temporaryRoot) {
 }
 
 /**
- * @param {{assetPaths?: string[], drill?: boolean, repo?: string, tag?: string}} options
+ * @param {{assetPaths?: string[], drill?: boolean, repo?: string, tag?: string | undefined}} options
  */
 export async function ensureGithubReleaseAssets({
     assetPaths,
@@ -148,7 +159,7 @@ if (isMain) {
             tag,
         });
     } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getCliErrorMessage(error));
         process.exitCode = 1;
     }
 }

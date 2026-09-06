@@ -30,6 +30,7 @@ import type { INativeUiAdapter } from '@scripts/windows-test/guest/native-ui/nat
 import type { IViewerFactory } from '@scripts/windows-test/guest/viewer/viewerDriver';
 import type { ICaseDefinition } from '@scripts/windows-test/guest/cases/caseContext';
 import {
+    buildWorkerResult,
     fixtureLookup,
     runGuestWorker,
     selectReadyMarker,
@@ -392,6 +393,107 @@ describe('guest worker mailbox loop', () => {
         expect(summary.result?.artifactSha256).toBe(SENTINEL_SHA256);
         expect(summary.reason).toContain('missing or not JSON');
         expect(isWindowsTestResult(JSON.parse(await fs.readText(staged.paths.resultFile)))).toBe(true);
+    });
+
+    it('refuses a duplicate run without replacing its prior diagnostics', async () => {
+        const staged = await stageGuest();
+        const priorLog = 'prior worker log from the crashed attempt\n';
+        const priorEvidence = 'prior diagnostic evidence\n';
+        const priorManifest = `${JSON.stringify({
+            schemaVersion: WINDOWS_TEST_SCHEMA_VERSION,
+            runId,
+            entries: [{
+                relativePath: 'prior.txt',
+                sha256: sha256HexOfText(priorEvidence),
+                bytes: priorEvidence.length,
+            }],
+        }, null, 4)}\n`;
+        const priorResult = `${JSON.stringify(buildWorkerResult({
+            runId,
+            job: buildJob(),
+            outcome: 'infrastructure-failed',
+            startedAt: '2026-09-04T12:00:01.000Z',
+            endedAt: '2026-09-04T12:00:02.000Z',
+            cases: [],
+            worker: sentinelWorkerIdentity(9_876, '2026-09-04T12:00:01.000Z'),
+            platform: sentinelPlatform('arm64'),
+            evidenceManifestSha256: 'a'.repeat(64),
+            logTruncated: false,
+            humanReviewRequired: true,
+            failureReason: 'prior crash',
+        }), null, 4)}\n`;
+        expect(isWindowsTestResult(JSON.parse(priorResult))).toBe(true);
+        await fs.writeText(staged.paths.startedMarkerFile, '2026-09-04T12:00:01.000Z\n');
+        await fs.writeText(staged.paths.workerLogFile, priorLog);
+        await fs.writeText(staged.paths.evidenceManifestFile, priorManifest);
+        await fs.writeText(staged.paths.resultFile, priorResult);
+        await fs.writeText(joinGuestPath('/', staged.paths.evidenceDir, 'prior.txt'), priorEvidence);
+        const executed: string[] = [];
+        let installCalls = 0;
+
+        const summary = await runGuestWorker({
+            fs,
+            exec: stubExec(probePayload(), () => {
+                installCalls += 1;
+            }),
+            clock: stubClock(),
+            paths: staged.layout,
+            adapters: refusingAdapters,
+            env: { EVB_WINDOWS_TEST_APP_EXECUTABLE: staged.executablePath },
+            caseDefinitions: [passingCase('WIN-SAVE-01', executed)],
+            heartbeatIntervalMs: 0,
+        });
+
+        expect(summary.result).toBeNull();
+        expect(summary.resultFile).toBeNull();
+        expect(summary.reason).toContain('duplicate execution refused');
+        expect(installCalls).toBe(0);
+        expect(executed).toEqual([]);
+        expect(await fs.readText(staged.paths.startedMarkerFile)).toBe('2026-09-04T12:00:01.000Z\n');
+        expect(await fs.readText(staged.paths.workerLogFile)).toBe(priorLog);
+        expect(await fs.readText(staged.paths.evidenceManifestFile)).toBe(priorManifest);
+        expect(await fs.readText(staged.paths.resultFile)).toBe(priorResult);
+        expect(await fs.readText(joinGuestPath('/', staged.paths.evidenceDir, 'prior.txt'))).toBe(priorEvidence);
+        expect(await fs.exists(staged.paths.resultTempFile)).toBe(false);
+    });
+
+    it('refuses malformed input when a prior result exists without a started marker', async () => {
+        const staged = await stageGuest({ jobText: 'this is not json' });
+        const priorLog = 'prior log bytes\n';
+        const priorManifest = 'prior manifest bytes\n';
+        const priorResult = 'prior result bytes\n';
+        const priorEvidence = 'prior evidence bytes\n';
+        await fs.writeText(staged.paths.workerLogFile, priorLog);
+        await fs.writeText(staged.paths.evidenceManifestFile, priorManifest);
+        await fs.writeText(staged.paths.resultFile, priorResult);
+        await fs.writeText(joinGuestPath('/', staged.paths.evidenceDir, 'prior.txt'), priorEvidence);
+        const executed: string[] = [];
+        let installCalls = 0;
+
+        const summary = await runGuestWorker({
+            fs,
+            exec: stubExec(probePayload(), () => {
+                installCalls += 1;
+            }),
+            clock: stubClock(),
+            paths: staged.layout,
+            adapters: refusingAdapters,
+            env: { EVB_WINDOWS_TEST_APP_EXECUTABLE: staged.executablePath },
+            caseDefinitions: [passingCase('WIN-SAVE-01', executed)],
+            heartbeatIntervalMs: 0,
+        });
+
+        expect(summary.result).toBeNull();
+        expect(summary.resultFile).toBeNull();
+        expect(summary.reason).toContain('prior output');
+        expect(installCalls).toBe(0);
+        expect(executed).toEqual([]);
+        expect(await fs.exists(staged.paths.startedMarkerFile)).toBe(false);
+        expect(await fs.readText(staged.paths.workerLogFile)).toBe(priorLog);
+        expect(await fs.readText(staged.paths.evidenceManifestFile)).toBe(priorManifest);
+        expect(await fs.readText(staged.paths.resultFile)).toBe(priorResult);
+        expect(await fs.readText(joinGuestPath('/', staged.paths.evidenceDir, 'prior.txt'))).toBe(priorEvidence);
+        expect(await fs.exists(staged.paths.resultTempFile)).toBe(false);
     });
 
     it('refuses to run cases from a Session 0 worker (I9)', async () => {

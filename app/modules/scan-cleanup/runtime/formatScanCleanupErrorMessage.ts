@@ -1,11 +1,10 @@
+import { getErrorMessage } from '@app/utils/error';
 const MAX_SCAN_CLEANUP_TECHNICAL_DETAIL_LENGTH = 240;
 
 function getScanCleanupTechnicalDetail(error: unknown) {
     const detail = typeof error === 'string'
         ? error
-        : error instanceof Error
-            ? error.message
-            : '';
+        : error instanceof Error ? getErrorMessage(error) : '';
     const trimmed = detail.trim();
     if (trimmed.length <= MAX_SCAN_CLEANUP_TECHNICAL_DETAIL_LENGTH) {
         return trimmed;

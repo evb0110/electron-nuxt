@@ -23,6 +23,9 @@ import type {TPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions
 import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type {TPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import { cast } from '@tests/helpers/cast';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     EventBus: vi.fn(),
@@ -43,12 +46,12 @@ function note(id: string): INoteEntity {
     return {
         kind: 'note',
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: null,
         contents: '',
         position: {
@@ -113,14 +116,14 @@ function mountAnnotationSession() {
                 renderedPageStateVersion: ref(0),
             }),
             viewerContainer: ref(null),
-            originalPath: computed(() => '/documents/original.pdf'),
+            originalPath: computed(() => requireDocumentRef('/documents/original.pdf')),
             src: computed(() => ({
                 kind: 'path',
-                path: '/managed/working.pdf',
+                path: requireDocumentRef('/managed/working.pdf'),
                 size: 4,
             })),
             sourcePdfData: computed(() => null),
-            workingCopyPath: computed(() => '/managed/working.pdf'),
+            workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
             documentRevisionToken: computed(() => null),
             isAnySaving: computed(() => false),
             isActive: computed(() => true),

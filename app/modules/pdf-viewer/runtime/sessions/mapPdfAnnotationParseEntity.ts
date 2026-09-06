@@ -8,6 +8,7 @@ import type {
     IPdfAnnotationParseEntry,
     TPdfAnnotationParseEntity,
 } from '@contracts/pdfAnnotationParseTypes';
+import { createEpochMs } from '@contracts/timestamps';
 
 export function pdfAnnotationRefKey(objectNumber: number, generationNumber: number) {
     return `${objectNumber} ${generationNumber} R`;
@@ -30,8 +31,8 @@ function parsedEntityBase(entry: TPdfAnnotationParseEntity) {
         revision: 0,
         persistedRevision: 0,
         deleted: false,
-        createdAt: entry.createdAt,
-        modifiedAt: entry.modifiedAt,
+        createdAt: entry.createdAt === null ? null : createEpochMs(entry.createdAt),
+        modifiedAt: entry.modifiedAt === null ? null : createEpochMs(entry.modifiedAt),
         author: entry.author,
     };
 }
@@ -59,7 +60,11 @@ export function mapPdfAnnotationParseEntity(
                 position: {...entry.position},
                 color: entry.color,
                 open: entry.open,
-                replies: entry.replies.map(reply => ({...reply})),
+                replies: entry.replies.map(reply => ({
+                    ...reply,
+                    createdAt: reply.createdAt === null ? null : createEpochMs(reply.createdAt),
+                    modifiedAt: reply.modifiedAt === null ? null : createEpochMs(reply.modifiedAt),
+                })),
             };
         case 'highlight':
             return {

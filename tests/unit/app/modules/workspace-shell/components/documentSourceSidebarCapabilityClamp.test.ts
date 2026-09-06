@@ -12,6 +12,7 @@ import {
     h,
     shallowRef,
 } from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type {
     IDocumentOutlineItem,
     IDocumentPageSource,
@@ -107,7 +108,7 @@ function createSource(capabilities: ICapabilityOptions): IDocumentPageSource {
     }];
     return {
         kind: 'djvu',
-        documentRef: 'test.djvu',
+        documentRef: requireDocumentRef('/tmp/test.djvu'),
         pageCount: 2,
         ...(capabilities.outline ? {outlineProvider: {getOutline: () => Promise.resolve(outline)}} : {}),
         ...(capabilities.search ? {textProvider: {getPageText: vi.fn(async () => '')}} : {}),

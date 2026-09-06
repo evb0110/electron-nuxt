@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -8,7 +9,6 @@ import { usePdfScroll as usePdfScrollProduction } from '@app/modules/pdf-viewer/
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import {getPageTop} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import {PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import { cast } from '@tests/helpers/cast';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 const usePdfScroll = (
@@ -18,6 +18,11 @@ const usePdfScroll = (
     viewportWritePort: createTestPdfViewportWritePort().port,
 });
 
+function createElementShim(shape: Record<string, unknown>): HTMLElement {
+    // These geometry tests model only the layout and query methods they read.
+    return Object.assign(Object.create(null), shape);
+}
+
 function createContainerStub(options?: {
     clientWidth?: number;
     scrollLeft?: number;
@@ -25,7 +30,7 @@ function createContainerStub(options?: {
     let scrollTop = 0;
     let scrollLeft = options?.scrollLeft ?? 0;
 
-    const container = cast<HTMLElement>({
+    const container = createElementShim({
         clientWidth: options?.clientWidth ?? 200,
         clientHeight: 200,
         scrollHeight: 2000,
@@ -66,7 +71,7 @@ function createPageElementStub(
     },
 ) {
     const width = options?.width ?? 200;
-    return cast<HTMLElement>({
+    return createElementShim({
         dataset: { page: String(pageNumber) },
         offsetLeft: options?.left ?? 0,
         offsetTop: top,
@@ -90,7 +95,7 @@ function createMountedPageScrollHarness(options: {
     let scrollLeft = 0;
     let scrollTop = 0;
     const selector = `.page_container[data-page="${options.pageNumber}"]`;
-    const page = cast<HTMLElement>({
+    const page = createElementShim({
         dataset: { page: String(options.pageNumber) },
         offsetLeft: options.pageLeft,
         offsetTop: options.pageTop,
@@ -100,7 +105,7 @@ function createMountedPageScrollHarness(options: {
         clientHeight: options.pageHeight,
         classList: { contains: () => false },
     });
-    const container = cast<HTMLElement>({
+    const container = createElementShim({
         clientWidth: options.clientWidth,
         clientHeight: options.clientHeight,
         scrollWidth: Math.max(options.clientWidth, options.pageLeft + options.pageWidth),
@@ -172,7 +177,7 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 20,
         }));
 
-        scroll.scrollToPage(container, 3, 3, 20);
+        scroll.scrollToPage(container, requirePageNumber(3), 3, 20);
 
         expect(getScrollTop()).toBe(740);
     });
@@ -189,7 +194,7 @@ describe('usePdfScroll page layout fallback', () => {
             width: 0.1,
             height: 0.1,
         };
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 200,
             clientWidth: 200,
             scrollHeight: 2_000,
@@ -248,7 +253,7 @@ describe('usePdfScroll page layout fallback', () => {
                 paddingBottom: 20,
             }));
 
-            scroll.scrollToPage(container, 2, 3, 20, { markerRect });
+            scroll.scrollToPage(container, requirePageNumber(2), 3, 20, { markerRect });
 
             expect(scrollTop).not.toBe(1_300);
 
@@ -272,7 +277,7 @@ describe('usePdfScroll page layout fallback', () => {
         const originalResizeObserver = globalThis.ResizeObserver;
         const mutationDisconnect = vi.fn();
         const resizeDisconnect = vi.fn();
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 200,
             clientWidth: 200,
             scrollHeight: 2_000,
@@ -329,7 +334,7 @@ describe('usePdfScroll page layout fallback', () => {
                 width: 0.1,
                 height: 0.1,
             };
-            scroll.scrollToPage(container, 2, 2, 20, { markerRect });
+            scroll.scrollToPage(container, requirePageNumber(2), 2, 20, { markerRect });
             scroll.setPageLayoutMetrics(null);
 
             expect(mutationDisconnect).not.toHaveBeenCalled();
@@ -359,7 +364,7 @@ describe('usePdfScroll page layout fallback', () => {
         const originalResizeObserver = globalThis.ResizeObserver;
         const mutationDisconnect = vi.fn();
         const resizeDisconnect = vi.fn();
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 200,
             clientWidth: 200,
             scrollHeight: 2_000,
@@ -416,8 +421,8 @@ describe('usePdfScroll page layout fallback', () => {
                 width: 0.1,
                 height: 0.1,
             };
-            scroll.scrollToPage(container, 2, 2, 20, { markerRect });
-            scroll.scrollToPage(container, 2, 2, 20, {
+            scroll.scrollToPage(container, requirePageNumber(2), 2, 20, { markerRect });
+            scroll.scrollToPage(container, requirePageNumber(2), 2, 20, {
                 markerRect,
                 preferExactDom: true,
             });
@@ -446,7 +451,7 @@ describe('usePdfScroll page layout fallback', () => {
 
     it('prefers mounted DOM visibility when layout metrics disagree during virtualization', () => {
         const mountedPage = createPageElementStub(5, 500, 200);
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 100,
             clientWidth: 200,
             scrollHeight: 2000,
@@ -480,7 +485,7 @@ describe('usePdfScroll page layout fallback', () => {
     it('ignores offscreen buffered pages when resolving visible page state', () => {
         const bufferedPage = createPageElementStub(2, 0, 300, true);
         const activePage = createPageElementStub(4, 20, 180);
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 200,
             clientWidth: 200,
             scrollHeight: 240,
@@ -511,7 +516,7 @@ describe('usePdfScroll page layout fallback', () => {
             left: 200,
             width: 200,
         });
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 200,
             clientWidth: 200,
             scrollHeight: 200,
@@ -641,7 +646,7 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 20,
         }));
 
-        scroll.scrollToPage(container, 3, 5, 20);
+        scroll.scrollToPage(container, requirePageNumber(3), 5, 20);
 
         expect(getScrollTop()).toBe(160);
     });
@@ -667,7 +672,7 @@ describe('usePdfScroll page layout fallback', () => {
             height: 0.1,
         };
 
-        scroll.scrollToPage(container, 2, 3, 20, { markerRect: rightSideMarkerRect });
+        scroll.scrollToPage(container, requirePageNumber(2), 3, 20, { markerRect: rightSideMarkerRect });
 
         expect(getScrollLeft()).toBe(0);
     });
@@ -693,7 +698,7 @@ describe('usePdfScroll page layout fallback', () => {
             height: 0.02,
         };
 
-        scroll.scrollToPage(container, 2, 3, 20, { markerRect: nearBottomMarkerRect });
+        scroll.scrollToPage(container, requirePageNumber(2), 3, 20, { markerRect: nearBottomMarkerRect });
 
         expect(getScrollTop()).toBe(1020);
     });
@@ -713,7 +718,7 @@ describe('usePdfScroll page layout fallback', () => {
         });
         const scroll = usePdfScroll();
 
-        scroll.scrollToPage(container, 2, 3, 20, { pageYRatio: 0.25 });
+        scroll.scrollToPage(container, requirePageNumber(2), 3, 20, { pageYRatio: 0.25 });
 
         expect(getScrollTop()).toBe(580);
     });
@@ -739,7 +744,7 @@ describe('usePdfScroll page layout fallback', () => {
             height: 0.1,
         };
 
-        scroll.scrollToPage(container, 2, 3, 20, { markerRect: farRightMarkerRect });
+        scroll.scrollToPage(container, requirePageNumber(2), 3, 20, { markerRect: farRightMarkerRect });
 
         expect(getScrollLeft()).toBe(440);
     });
@@ -769,7 +774,7 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 0,
         }));
 
-        scroll.scrollToPage(container, 2, 2, 20, {markerRect: {
+        scroll.scrollToPage(container, requirePageNumber(2), 2, 20, {markerRect: {
             left: 0.8,
             top: 0.25,
             width: 0.2,
@@ -798,12 +803,12 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 20,
         });
         const targetPage = 69_001;
-        const targetTop = getPageTop(layout!, targetPage)!;
+        const targetTop = getPageTop(layout!, requirePageNumber(targetPage))!;
         const segmentOrigin = Math.floor(targetTop / PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT)
             * PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
         scroll.setPageLayoutMetrics(layout);
 
-        scroll.scrollToPage(container, targetPage, 138_000, 20);
+        scroll.scrollToPage(container, requirePageNumber(targetPage), 138_000, 20);
 
         expect(getScrollTop()).toBe(targetTop - segmentOrigin - 20);
         expect(getScrollTop()).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);

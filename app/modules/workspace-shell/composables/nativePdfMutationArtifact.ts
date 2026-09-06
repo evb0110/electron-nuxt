@@ -64,17 +64,6 @@ export async function consumeNativePdfMutationProjection(
     if (options.expectedDocumentRevisionToken === null || options.expectedDocumentRevisionToken === undefined) {
         throw createCapabilityFailure('Native PDF mutation staging requires the document revision');
     }
-    const consumer = options.operation === 'clone'
-        ? files.cloneStagedPdfNativeMutationToWorkingCopy
-        : files.replaceWorkingCopyFromStagedPdfNativeMutation;
-    if (typeof consumer !== 'function') {
-        throw createCapabilityFailure(
-            options.operation === 'clone'
-                ? 'Native split snapshot staging is unavailable'
-                : 'Native page-mutation staging is unavailable',
-        );
-    }
-
     let stagedLeaseConsumed = false;
     let stagedOutput: ITypedStagedArtifact | null = null;
     try {
@@ -106,14 +95,22 @@ export async function consumeNativePdfMutationProjection(
         // The receipt consumer validates owner, lease, revision, identity,
         // and stat witness again before it changes any working-copy bytes.
         if (options.operation === 'clone') {
-            const clonePath = await files.cloneStagedPdfNativeMutationToWorkingCopy!(
+            const cloneConsumer = files.cloneStagedPdfNativeMutationToWorkingCopy;
+            if (typeof cloneConsumer !== 'function') {
+                throw createCapabilityFailure('Native split snapshot staging is unavailable');
+            }
+            const clonePath = await cloneConsumer(
                 stagedOutput,
                 options.originalPath ?? undefined,
             );
             stagedLeaseConsumed = true;
             return clonePath;
         }
-        const replaced = await files.replaceWorkingCopyFromStagedPdfNativeMutation!(
+        const replaceConsumer = files.replaceWorkingCopyFromStagedPdfNativeMutation;
+        if (typeof replaceConsumer !== 'function') {
+            throw createCapabilityFailure('Native page-mutation staging is unavailable');
+        }
+        const replaced = await replaceConsumer(
             options.workingPath,
             stagedOutput,
             {expectedDocumentRevisionToken: options.expectedDocumentRevisionToken},

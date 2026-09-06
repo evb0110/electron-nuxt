@@ -15,7 +15,7 @@ import {
 } from 'vitest';
 import type {TOcrJobStorageBudget} from '@electron/ocr/worker/ocrJobStorageBudget';
 import {createAbortError} from '@electron/utils/abort';
-import {cast} from '@tests/helpers/cast';
+import {requireJobId} from '@contracts/shared';
 
 interface IResourceAcquireMessage {
     type: string;
@@ -70,11 +70,16 @@ const {processOcrPages} = await import('@electron/ocr/worker/main');
 
 type TPageContext = Parameters<typeof processOcrPages>[3];
 
-const storageBudget = cast<TOcrJobStorageBudget>({
+const storageBudget = {
     violation: null,
-    assertWithinBudget: async () => undefined,
-    assertFailureWithinBudget: async () => undefined,
-    fail: (error: Error) => error,
+    assertWithinBudget: async () => ({
+        availableBytes: Number.MAX_SAFE_INTEGER,
+        usedBytes: 0,
+    }),
+    assertFailureWithinBudget: async (_message: string | undefined) => undefined,
+    fail: (error: unknown): never => {
+        throw error;
+    },
     reserve: async () => () => undefined,
     withReservation: async <T>(_bytes: number, task: () => Promise<T>) => task(),
     stop: async () => undefined,
@@ -84,7 +89,7 @@ const storageBudget = cast<TOcrJobStorageBudget>({
         minFreeBytes: 0,
         pollIntervalMs: 0,
     }),
-});
+} satisfies TOcrJobStorageBudget;
 
 let checkpointDir: string;
 const events: string[] = [];
@@ -115,7 +120,7 @@ function grantResourceSlots() {
 
 function createContext(overrides: Partial<TPageContext> = {}): TPageContext {
     return {
-        jobId: randomUUID(),
+        jobId: requireJobId(randomUUID()),
         sessionId: 'session',
         popplerSourcePdfPath: join(checkpointDir, 'source.pdf'),
         extractionDpi: 300,

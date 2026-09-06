@@ -14,15 +14,64 @@ import {
     getAssistantImagePreviewUrl,
     navigateExpandedImagePreview,
 } from '@app/modules/agent-panel/utils/assistantImageAttachments';
-import { cast } from '@tests/helpers/cast';
 
-function createFileLike(patch: Partial<File> = {}) {
+type TFileOverrides = Partial<Pick<File, 'name' | 'size' | 'type'>>;
+
+interface IClipboardItemFixture {
+    kind: DataTransferItem['kind'];
+    type: string;
+    getAsFile: () => File | null;
+}
+
+interface IDataTransferFixture {
+    files: readonly File[];
+    items: readonly IClipboardItemFixture[];
+}
+
+function createFileLike(patch: TFileOverrides = {}) {
+    const name = patch.name ?? 'image.png';
+    const size = patch.size ?? 100;
+    const type = patch.type ?? 'image/png';
+    return new File([new Uint8Array(size)], name, {type});
+}
+
+function createFileList(files: readonly File[]): FileList {
+    const fileList = [...files];
+    return Object.assign(fileList, {item: (index: number) => fileList[index] ?? null});
+}
+
+function createDataTransferItem(fixture: IClipboardItemFixture): DataTransferItem {
     return {
-        name: 'image.png',
-        size: 100,
-        type: 'image/png',
-        ...patch,
-    } as File;
+        kind: fixture.kind,
+        type: fixture.type,
+        getAsFile: fixture.getAsFile,
+        getAsString: callback => callback?.(''),
+        webkitGetAsEntry: () => null,
+    };
+}
+
+function createDataTransferItemList(fixtures: readonly IClipboardItemFixture[]): DataTransferItemList {
+    const items = fixtures.map(createDataTransferItem);
+    return Object.assign(items, {
+        add: (_data: string | File, _type?: string) => null,
+        clear: () => { items.length = 0; },
+        remove: (index: number) => { items.splice(index, 1); },
+    });
+}
+
+function createDataTransfer(fixture: IDataTransferFixture): DataTransfer {
+    const dataTransfer = {
+        dropEffect: 'none',
+        effectAllowed: 'none',
+        files: createFileList(fixture.files),
+        items: createDataTransferItemList(fixture.items),
+        types: [],
+        clearData: (_format?: string) => undefined,
+        getData: (_format: string) => '',
+        setData: (_format: string, _data: string) => undefined,
+        setDragImage: (_image: Element, _x: number, _y: number) => undefined,
+    } satisfies DataTransfer;
+    return dataTransfer;
 }
 
 function createImageAttachment(patch: Partial<IAgentAssistantImageAttachment> = {}): IAgentAssistantImageAttachment {
@@ -153,7 +202,7 @@ describe('assistantImageAttachments', () => {
     it('uses data transfer files before item fallbacks', () => {
         const directFile = createFileLike({ name: 'direct.png' });
         const itemFile = createFileLike({ name: 'item.png' });
-        const transfer = cast<DataTransfer>({
+        const transfer = createDataTransfer({
             files: [directFile],
             items: [{
                 kind: 'file',
@@ -167,7 +216,7 @@ describe('assistantImageAttachments', () => {
 
     it('filters item fallbacks to image files', () => {
         const itemFile = createFileLike({ name: 'item.png' });
-        const transfer = cast<DataTransfer>({
+        const transfer = createDataTransfer({
             files: [],
             items: [
                 {

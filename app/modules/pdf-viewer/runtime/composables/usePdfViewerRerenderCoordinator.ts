@@ -1,4 +1,5 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { delay } from 'es-toolkit/promise';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {TFitMode} from '@app/types/pdfContracts';
@@ -284,7 +285,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             };
         }
         const rowBounds = getPageRowBoundsForViewMode({
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber, numPages.value),
             viewMode: viewMode.value,
             totalPages: numPages.value,
         });

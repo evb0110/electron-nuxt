@@ -189,7 +189,7 @@ function createContext(
                                     && elementStyle.display !== 'none'
                                     && elementStyle.visibility !== 'hidden';
                             })
-                            .map(element => element.textContent?.trim() ?? ''),
+                            .map(element => element.textContent.trim()),
                         x: rect ? Math.round(rect.left + rect.width / 2) : null,
                         y: rect ? Math.round(rect.top + rect.height / 2) : null,
                     };

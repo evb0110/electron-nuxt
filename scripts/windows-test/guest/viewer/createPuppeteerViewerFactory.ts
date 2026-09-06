@@ -9,6 +9,12 @@ import {
     type IAppLaunchRecord,
     type IWindowsAppLauncher,
 } from '@scripts/windows-test/guest/appLaunch';
+import type { IGuestClock } from '@scripts/windows-test/guest/guestRuntime';
+import {
+    dismissFirstLaunchPrompt,
+    waitForOwnedWindow,
+} from '@scripts/windows-test/guest/native-ui/firstLaunchPrompt';
+import type { INativeUiAdapter } from '@scripts/windows-test/guest/native-ui/nativeUiAdapter';
 import { createPuppeteerViewerDriver } from '@scripts/windows-test/guest/viewer/createPuppeteerViewerDriver';
 import {
     viewerDefaultTimeouts,
@@ -23,6 +29,9 @@ const VIEWER_PAGE_URL_PREFIX = 'evb-viewer://app/';
 export interface ICreatePuppeteerViewerFactoryOptions {
     launcher: IWindowsAppLauncher;
     profileDirectory: string;
+    nativeUi?: INativeUiAdapter;
+    clock?: Pick<IGuestClock, 'now' | 'sleep'>;
+    firstLaunchPromptTimeoutMs?: number;
     allocatePort?: () => Promise<number>;
     waitForBrowserReady?: (port: number, timeoutMs: number) => Promise<void>;
     connectBrowser?: (browserUrl: string) => Promise<Browser>;
@@ -41,6 +50,9 @@ export function selectViewerPage(pages: readonly Page[]) {
 export function createPuppeteerViewerFactory({
     launcher,
     profileDirectory,
+    nativeUi,
+    clock,
+    firstLaunchPromptTimeoutMs,
     allocatePort = findFreePort,
     waitForBrowserReady = async (port, timeoutMs) => {
         await waitForPackagedCdpEndpoint(port, timeoutMs, 'EVB Viewer');
@@ -48,11 +60,39 @@ export function createPuppeteerViewerFactory({
     connectBrowser = browserUrl => connectInstrumentationBrowser(browserUrl),
     createDriver = createPuppeteerViewerDriver,
 }: ICreatePuppeteerViewerFactoryOptions): IViewerFactory {
+    const dismissedFirstLaunchProfiles = new Set<string>();
+    const handleFirstLaunchPrompt = async (record: IAppLaunchRecord) => {
+        if (nativeUi === undefined) {
+            return;
+        }
+        if (dismissedFirstLaunchProfiles.has(profileDirectory)) {
+            return;
+        }
+        if (record.profile === 'acceptance') {
+            await waitForOwnedWindow({
+                adapter: nativeUi,
+                processId: record.process.pid,
+                query: {
+                    titleContains: 'EVB Viewer',
+                    className: 'Chrome_WidgetWin_1',
+                },
+                ...(clock === undefined ? {} : { clock }),
+                timeoutMs: viewerDefaultTimeouts.startupMs,
+            });
+        }
+        await dismissFirstLaunchPrompt({
+            adapter: nativeUi,
+            processId: record.process.pid,
+            ...(clock === undefined ? {} : { clock }),
+            ...(firstLaunchPromptTimeoutMs === undefined ? {} : { timeoutMs: firstLaunchPromptTimeoutMs }),
+        });
+        dismissedFirstLaunchProfiles.add(profileDirectory);
+    };
     const closeInstrumented = async (browser: Browser, record: IAppLaunchRecord) => {
         await browser.disconnect();
         const outcome = launcher.terminate(record);
         if (!outcome.terminated) {
-            throw new Error(`refusing to report a clean shutdown: ${outcome.reason ?? 'unknown reason'}`);
+            throw new Error(`refusing to report a clean shutdown: ${outcome.reason}`);
         }
     };
 
@@ -72,6 +112,7 @@ export function createPuppeteerViewerFactory({
                 await waitForBrowserReady(remoteDebuggingPort, viewerDefaultTimeouts.startupMs);
                 const connected = await connectBrowser(record.browserUrl);
                 browser = connected;
+                await handleFirstLaunchPrompt(record);
                 const driver = createDriver(selectViewerPage(await connected.pages()));
                 await driver.openDocument(documentPath);
                 await driver.waitUntilReady();
@@ -90,20 +131,26 @@ export function createPuppeteerViewerFactory({
                 throw error;
             }
         },
-        launchAcceptance: (documentPath): Promise<IAcceptanceAppSession> => {
+        launchAcceptance: async (documentPath): Promise<IAcceptanceAppSession> => {
             const record = launcher.launch({
                 profile: 'acceptance',
                 ...(documentPath === undefined ? {} : { documentPath }),
             });
-            return Promise.resolve({
-                process: record.process,
-                close: () => {
-                    const outcome = launcher.terminate(record);
-                    return outcome.terminated
-                        ? Promise.resolve()
-                        : Promise.reject(new Error(`refusing to report a clean shutdown: ${outcome.reason ?? 'unknown reason'}`));
-                },
-            });
+            try {
+                await handleFirstLaunchPrompt(record);
+                return {
+                    process: record.process,
+                    close: () => {
+                        const outcome = launcher.terminate(record);
+                        return outcome.terminated
+                            ? Promise.resolve()
+                            : Promise.reject(new Error(`refusing to report a clean shutdown: ${outcome.reason}`));
+                    },
+                };
+            } catch (error) {
+                launcher.terminate(record);
+                throw error;
+            }
         },
     };
 }

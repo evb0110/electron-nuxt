@@ -16,29 +16,34 @@ import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
-import { cast } from '@tests/helpers/cast';
 
 type TEventHandler = (event: unknown, payload: unknown) => void;
+type TTestIpcRenderer = Pick<IpcRenderer, 'invoke' | 'on' | 'postMessage' | 'removeListener' | 'send'>;
 
 function createIpcRendererHarness() {
     const listeners = new Map<string, TEventHandler>();
     const invoke = vi.fn(async (_channel: string, ..._args: unknown[]) => undefined);
-    const ipcRenderer = {
+    const on = vi.fn();
+    const removeListener = vi.fn();
+    const ipcRenderer: TTestIpcRenderer = {
         invoke,
         postMessage: vi.fn(),
-        on: vi.fn((channel: string, handler: TEventHandler) => {
-            listeners.set(channel, handler);
-            return cast<IpcRenderer>(ipcRenderer);
-        }),
-        removeListener: vi.fn((channel: string, handler: TEventHandler) => {
-            if (listeners.get(channel) === handler) {
-                listeners.delete(channel);
-            }
-            return cast<IpcRenderer>(ipcRenderer);
-        }),
+        on,
+        removeListener,
+        send: vi.fn(),
     };
+    on.mockImplementation((channel: string, handler: TEventHandler) => {
+        listeners.set(channel, handler);
+        return ipcRenderer;
+    });
+    removeListener.mockImplementation((channel: string, handler: TEventHandler) => {
+        if (listeners.get(channel) === handler) {
+            listeners.delete(channel);
+        }
+        return ipcRenderer;
+    });
     return {
-        ipcRenderer: cast<IpcRenderer>(ipcRenderer),
+        ipcRenderer,
         invoke,
         listeners,
     };

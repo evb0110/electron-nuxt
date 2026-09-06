@@ -71,7 +71,7 @@ vi.mock('@electron/menu', () => ({
 
 vi.mock('@electron/recentFiles', () => ({addRecentFile: (...args: unknown[]) => mocks.addRecentFile(...args)}));
 vi.mock('@electron/file-access/docxExportPaths', () => ({allowDocxWritePath: vi.fn()}));
-vi.mock('@electron/djvu/exportPaths', () => ({allowDjvuWritePath: vi.fn()}));
+vi.mock('@electron/features/djvu/main/exportPaths', () => ({allowDjvuWritePath: vi.fn()}));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({
     createWorkingCopy: vi.fn(),
     createWorkingCopyFromData: vi.fn(),

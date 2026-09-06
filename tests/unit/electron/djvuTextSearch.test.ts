@@ -5,18 +5,19 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireRequestId} from '@contracts/shared';
 
 const mocks = vi.hoisted(() => ({runNativeCommand: vi.fn()}));
 
-vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
-vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
+vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({})}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 
 const {
     createDjvuTextSExpressionParser,
     detectDjvuHasText,
     searchDjvuText,
-} = await import('@electron/djvu/textSearch');
+} = await import('@electron/features/djvu/main/textSearch');
 
 interface IRunOptions {
     onStdout?: (chunk: string) => void;
@@ -134,7 +135,7 @@ describe('DjVu native streamed text search', () => {
         const onPageProcessed = vi.fn();
 
         const response = await searchDjvuText('/library/book.djvu', {
-            requestId: 'late-page-search',
+            requestId: requireRequestId('late-page-search'),
             pageCount: 2,
             query: 'needle',
             matchOptions,
@@ -197,7 +198,7 @@ describe('DjVu native streamed text search', () => {
         const onPageProcessed = vi.fn();
 
         const response = await searchDjvuText('/library/book.djvu', {
-            requestId: 'bounded-search',
+            requestId: requireRequestId('bounded-search'),
             pageCount: 10_000,
             query: 'hit',
             matchOptions,
@@ -227,7 +228,7 @@ describe('DjVu native streamed text search', () => {
         }));
         const controller = new AbortController();
         const pending = searchDjvuText('/library/book.djvu', {
-            requestId: 'cancel-search',
+            requestId: requireRequestId('cancel-search'),
             pageCount: 800,
             query: 'needle',
             matchOptions,

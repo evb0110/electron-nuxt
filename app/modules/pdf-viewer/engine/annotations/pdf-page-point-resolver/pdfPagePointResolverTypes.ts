@@ -1,5 +1,7 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 export interface IPageCandidateLogEntry {
-    pageNumber: number | null;
+    pageNumber: TPageNumber | null;
     inside: boolean;
     distanceSquared: number;
     rect: {

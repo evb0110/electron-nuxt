@@ -18,10 +18,15 @@ const artifactNames = readdirSync(artifactsDir);
 const expectedVersion = process.argv[3]
     ?? JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')).version;
 
+/** @param {string} metadataFileName */
+function readMetadataText(metadataFileName) {
+    return readFileSync(resolve(artifactsDir, metadataFileName), 'utf8');
+}
+
 assertPublishUpdaterMetadataPolicy(artifactNames, process.env);
 const hasUpdaterMetadata = assertPublishUpdaterMetadataReferences(
     artifactNames,
-    metadataFileName => readFileSync(resolve(artifactsDir, metadataFileName), 'utf8'),
+    readMetadataText,
 );
 
 if (!hasUpdaterMetadata) {
@@ -29,18 +34,18 @@ if (!hasUpdaterMetadata) {
 } else {
     assertUpdaterMetadataVersion(
         artifactNames,
-        metadataFileName => readFileSync(resolve(artifactsDir, metadataFileName), 'utf8'),
+        readMetadataText,
         expectedVersion,
     );
     assertUpdaterArtifactIntegrity({
         artifactNames,
         artifactsDir,
-        readMetadataText: metadataFileName => readFileSync(resolve(artifactsDir, metadataFileName), 'utf8'),
+        readMetadataText,
     });
     assertMacUpdaterMetadataHashes({
         artifactNames,
         artifactsDir,
-        readMetadataText: metadataFileName => readFileSync(resolve(artifactsDir, metadataFileName), 'utf8'),
+        readMetadataText,
     });
     process.stdout.write('Publish updater metadata policy passed.\n');
 }

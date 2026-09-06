@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 const mocks = vi.hoisted(() => ({
     copyFile: vi.fn(),
@@ -68,14 +69,14 @@ describe('embedBookmarksIntoPdfFile', () => {
             })
             .mockRejectedValueOnce(abortError);
 
-        const { embedBookmarksIntoPdfFile } = await import('@electron/djvu/embedBookmarksIntoPdfFile');
+        const { embedBookmarksIntoPdfFile } = await import('@electron/features/djvu/main/embedBookmarksIntoPdfFile');
 
         await expect(embedBookmarksIntoPdfFile(
             '/tmp/input.pdf',
             '/tmp/output.pdf',
             [{
                 title: 'Chapter 1',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 namedDest: null,
                 bold: false,
                 italic: false,
@@ -91,14 +92,14 @@ describe('embedBookmarksIntoPdfFile', () => {
         const abortController = new AbortController();
         abortController.abort(new DOMException('Operation aborted', 'AbortError'));
 
-        const { embedBookmarksIntoPdfFile } = await import('@electron/djvu/embedBookmarksIntoPdfFile');
+        const { embedBookmarksIntoPdfFile } = await import('@electron/features/djvu/main/embedBookmarksIntoPdfFile');
 
         await expect(embedBookmarksIntoPdfFile(
             '/tmp/input.pdf',
             '/tmp/output.pdf',
             [{
                 title: 'Chapter 1',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 namedDest: null,
                 bold: false,
                 italic: false,

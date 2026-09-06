@@ -5,7 +5,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type { IRecentFile } from '@contracts/shared';
+import { requireEpochMs } from '@contracts/timestamps';
 import type { IStartupWorkProfile } from '@app/utils/startupWorkProfile';
 
 const mocks = vi.hoisted(() => ({
@@ -25,14 +27,14 @@ vi.mock('@app/modules/djvu-viewer/runtime/djvuTrustedOpenGeometryCache', () => (
 function createFiles(): IRecentFile[] {
     return Array.from({length: 5}, (_, index) => [
         {
-            originalPath: `/files/pdf-${index + 1}.pdf`,
+            originalPath: requireDocumentRef(`/files/pdf-${index + 1}.pdf`),
             fileName: `pdf-${index + 1}.pdf`,
-            timestamp: index,
+            timestamp: requireEpochMs(index),
         },
         {
-            originalPath: `/files/djvu-${index + 1}.djvu`,
+            originalPath: requireDocumentRef(`/files/djvu-${index + 1}.djvu`),
             fileName: `djvu-${index + 1}.djvu`,
-            timestamp: index,
+            timestamp: requireEpochMs(index),
         },
     ]).flat();
 }

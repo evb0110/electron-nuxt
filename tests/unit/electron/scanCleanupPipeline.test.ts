@@ -20,6 +20,7 @@ import type {
     TScanCleanupOutputMode,
     TScanCleanupProgress,
 } from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import type {INativeScanCleanupOutputV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
@@ -53,6 +54,10 @@ import {
 import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver';
 import {mapScanCleanupRasterPages} from '@scan-cleanup-core/resolveRasterHandoff';
 import {resolveCompactSourcePreservation} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
+import {
+    createArrayBackedPdfPageSizeStore,
+    type IPdfPageSizeStore,
+} from '@scan-cleanup-core/pdfPageSizes';
 import {
     fitScanCleanupMarginAxisPx,
     placeScanCleanupCanvasBox,
@@ -214,7 +219,7 @@ async function answerPageSizesCommand(args: readonly string[], pageCount = 4) {
         {length: pageCount},
         (_, index) => index + 1,
     ).map(pageNumber => ({
-        pageNumber,
+        pageNumber: requirePageNumber(pageNumber),
         xPoints: 0,
         yPoints: 0,
         widthPoints: 240,
@@ -227,7 +232,7 @@ async function answerPageSizesCommand(args: readonly string[], pageCount = 4) {
 // The document's own geometry in whatever order a producer hands it over.
 function documentGeometry(pageNumbers: readonly number[]) {
     return pageNumbers.map(pageNumber => ({
-        pageNumber,
+        pageNumber: requirePageNumber(pageNumber),
         xPoints: 0,
         yPoints: 0,
         widthPoints: 240,
@@ -798,7 +803,7 @@ describe('scan cleanup pipeline', () => {
             options,
             layoutByPage: {'1': 'single-uncut-page' as const},
             pagePlanEvidenceByPage: {'1': {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 rotationDegrees: 0 as const,
                 layoutClassification: 'single-uncut-page' as const,
                 automaticSplit: {
@@ -869,7 +874,7 @@ describe('scan cleanup pipeline', () => {
 
     it('counts pinned plans and rejects stale evidence instead of silently reanalyzing', () => {
         const evidence = {'1': {
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             rotationDegrees: 0 as const,
             layoutClassification: 'single-uncut-page' as const,
             outputs: {},
@@ -907,7 +912,7 @@ describe('scan cleanup pipeline', () => {
             rotationDegrees: 0 as const,
         };
         const evidence = {'1': {
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             rotationDegrees: 0 as const,
             layoutClassification: 'single-uncut-page' as const,
             outputs: {full: {
@@ -956,7 +961,7 @@ describe('scan cleanup pipeline', () => {
             rotationDegrees: 0 as const,
         };
         const evidence = {'1': {
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             rotationDegrees: 0 as const,
             layoutClassification: 'single-uncut-page' as const,
             outputs: {full: {contentBox}},
@@ -986,7 +991,7 @@ describe('scan cleanup pipeline', () => {
             rotationDegrees: 0 as const,
         };
         const evidence = {'20001': {
-            pageNumber: 20_001,
+            pageNumber: requirePageNumber(20_001),
             rotationDegrees: 0 as const,
             layoutClassification: 'single-uncut-page' as const,
             outputs: {full: {contentBox}},
@@ -1642,7 +1647,7 @@ describe('scan cleanup pipeline', () => {
                 },
                 outputModeRecommendations: {1: 'color'},
                 sourcePageMetadataByPage: {1: {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     xPoints: 0,
                     yPoints: 0,
                     widthPoints: 240,
@@ -2132,7 +2137,7 @@ describe('scan cleanup pipeline', () => {
             ].map(pageNumber => [
                 String(pageNumber),
                 {
-                    pageNumber,
+                    pageNumber: requirePageNumber(pageNumber),
                     xPoints: 0,
                     yPoints: 0,
                     widthPoints: 240,
@@ -3233,7 +3238,7 @@ describe('scan cleanup pipeline', () => {
             },
             outputModeRecommendations: {'1': 'mixed'},
             sourcePageMetadataByPage: {'1': {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 xPoints: 0,
                 yPoints: 0,
                 widthPoints: 240,
@@ -3306,7 +3311,7 @@ describe('scan cleanup pipeline', () => {
             outputModeRecommendations: {'1': 'mixed'},
             layoutByPage: {'1': 'single-uncut-page'},
             pagePlanEvidenceByPage: {'1': {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 rotationDegrees: 0,
                 layoutClassification: 'single-uncut-page',
                 outputs: {right: {contentBox: {
@@ -3461,7 +3466,7 @@ describe('scan cleanup pipeline', () => {
                     matchPageSize: false,
                 },
                 sourcePageMetadataByPage: {'1': {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     xPoints: 0,
                     yPoints: 0,
                     widthPoints: 240,
@@ -5078,7 +5083,7 @@ describe('scan cleanup pipeline', () => {
         // user believe nothing was touched.
         expect(summary.warnings).toContain(formatScanCleanupWarningEvent({
             code: 'matched-canvas-pages-resampled',
-            pages: [2],
+            pages: [requirePageNumber(2)],
         }));
         // The meter follows the run that actually happened. On the lossless
         // weights `rendering` is not a stage at all, so a profile fixed before
@@ -5135,7 +5140,7 @@ describe('scan cleanup pipeline', () => {
         });
         expect(summary.warnings).toContain(formatScanCleanupWarningEvent({
             code: 'matched-canvas-pages-resampled',
-            pages: [2],
+            pages: [requirePageNumber(2)],
         }));
     });
 
@@ -5291,8 +5296,8 @@ describe('scan cleanup pipeline', () => {
             formatScanCleanupWarningEvent({
                 code: 'matched-canvas-content-fitted-pages',
                 pages: [
-                    1,
-                    2,
+                    requirePageNumber(1),
+                    requirePageNumber(2),
                 ],
             }),
         ]);
@@ -5319,8 +5324,8 @@ describe('scan cleanup pipeline', () => {
             formatScanCleanupWarningEvent({
                 code: 'matched-canvas-content-fitted-pages',
                 pages: [
-                    1,
-                    2,
+                    requirePageNumber(1),
+                    requirePageNumber(2),
                 ],
             }),
         ]);
@@ -5491,7 +5496,7 @@ describe('scan cleanup pipeline', () => {
             .toMatchObject({scale: 0.5});
         expect(summary.warnings).toContain(formatScanCleanupWarningEvent({
             code: 'matched-canvas-pages-scaled-in-place',
-            pages: [1],
+            pages: [requirePageNumber(1)],
         }));
     });
 
@@ -5904,6 +5909,17 @@ describe('scan cleanup pipeline', () => {
     it('rejects page geometry that is not in document order at the lossless seam', async () => {
         const fixture = await setup();
         const pipelineDependencies = dependencies(vi.fn());
+        const outOfOrderPages = documentGeometry([
+            2,
+            1,
+        ]);
+        const pageSizeStore: IPdfPageSizeStore = {
+            pageCount: 2,
+            getPage: vi.fn(async pageNumber => outOfOrderPages[pageNumber - 1]!),
+            readRange: vi.fn(async () => outOfOrderPages),
+            forEachChunk: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+        };
 
         await expect(runLosslessScanCleanup(
             {
@@ -5921,10 +5937,7 @@ describe('scan cleanup pipeline', () => {
                 1,
                 2,
             ],
-            documentGeometry([
-                2,
-                1,
-            ]),
+            pageSizeStore,
             dpiDetails(300, [
                 [
                     1,
@@ -5943,7 +5956,51 @@ describe('scan cleanup pipeline', () => {
             highTierPolicy,
             pipelineDependencies,
         )).rejects.toThrow(
-            'Scan cleanup lossless assembly received page geometry out of document order: expected page 1 at index 0, received page 2',
+            'Scan cleanup page-size store returned page 2 for requested page 1',
+        );
+
+        expect(pipelineDependencies.runSidecar).not.toHaveBeenCalled();
+    });
+
+    it('rejects a lossless store page whose identity does not match the requested page', async () => {
+        const fixture = await setup();
+        const pipelineDependencies = dependencies(vi.fn());
+        const wrongPage = documentGeometry([2])[0]!;
+        const pageSizeStore: IPdfPageSizeStore = {
+            pageCount: 1,
+            getPage: vi.fn(async () => wrongPage),
+            readRange: vi.fn(async () => [wrongPage]),
+            forEachChunk: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+        };
+
+        await expect(runLosslessScanCleanup(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    preserveOriginalQuality: true,
+                },
+            },
+            pipelinePaths(fixture.dir),
+            fixture.sourcePdfPath,
+            [],
+            [1],
+            pageSizeStore,
+            dpiDetails(300, [[
+                1,
+                300,
+            ]]),
+            fixture.dir,
+            join(fixture.dir, 'staged.pdf'),
+            new AbortController().signal,
+            vi.fn(),
+            vi.fn(),
+            highTierPolicy,
+            pipelineDependencies,
+        )).rejects.toThrow(
+            'Scan cleanup page-size store returned page 2 for requested page 1',
         );
 
         expect(pipelineDependencies.runSidecar).not.toHaveBeenCalled();
@@ -6032,11 +6089,11 @@ describe('scan cleanup pipeline', () => {
                 fixture.sourcePdfPath,
                 [],
                 losslessPageNumbers,
-                documentGeometry([
+                createArrayBackedPdfPageSizeStore(documentGeometry([
                     1,
                     2,
                     3,
-                ]),
+                ])),
                 dpiDetails(300, [
                     [
                         2,

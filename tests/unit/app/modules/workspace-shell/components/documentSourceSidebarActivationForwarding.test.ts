@@ -11,6 +11,7 @@ import {
     defineComponent,
     h,
 } from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
 import {
@@ -63,7 +64,7 @@ vi.mock('@app/components/document-viewer/DocumentThumbnailList.vue', () => ({def
 function createThumbnailSource(): IDocumentPageSource {
     return {
         kind: 'djvu',
-        documentRef: 'test.djvu',
+        documentRef: requireDocumentRef('/tmp/test.djvu'),
         pageCount: 4,
         // Present only so the sidebar counts pages as an available capability;
         // the stubbed rail never asks it for a surface.

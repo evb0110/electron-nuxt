@@ -19,6 +19,7 @@ import {
     getLatestAutomationEventId,
     getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
+    readWorkspaceStateValues,
     waitForAutomationEvent,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
@@ -471,12 +472,12 @@ async function openPathInApp(
                 openBaselineEventId = await getLatestAutomationEventId(page);
                 const openResult = await runWithExecutionContextRetry(page, async () => {
                     return evaluateInPage(page, async (path: string) => {
-                        const automationGrant = (window as IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
+                        const automationGrant = (window as typeof globalThis & IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
                         if (typeof automationGrant === 'function') {
                             await automationGrant(path);
                         }
 
-                        const openFileDirect = (window as IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
+                        const openFileDirect = (window as typeof globalThis & IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
                         if (typeof openFileDirect !== 'function') {
                             return false;
                         }
@@ -550,12 +551,12 @@ export async function triggerOpenPathInApp(page: Page, path: string, timeoutMs =
             await waitForRendererBindings(page, Math.min(remainingMs, 8_000));
             const openResult = await runWithExecutionContextRetry(page, async () => {
                 return evaluateInPage(page, async (path: string) => {
-                    const automationGrant = (window as IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
+                    const automationGrant = (window as typeof globalThis & IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
                     if (typeof automationGrant === 'function') {
                         await automationGrant(path);
                     }
 
-                    const openFileDirect = (window as IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
+                    const openFileDirect = (window as typeof globalThis & IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
                     if (typeof openFileDirect !== 'function') {
                         return false;
                     }
@@ -641,25 +642,28 @@ export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_T
         ) ?? null;
         const legacyViewer = chassis ? null : host.querySelector<HTMLElement>('.pdfViewer');
         const viewport = chassisViewport ?? legacyViewer;
-        const pageTrack = chassisViewport?.querySelector<HTMLElement>('[data-pdf-page-track]')
-            ?? legacyViewer;
-        if (!viewport || !pageTrack) {
+        const pdfPageTrack = chassisViewport?.querySelector<HTMLElement>('[data-pdf-page-track]') ?? null;
+        const documentSourceViewer = chassisViewport?.querySelector<HTMLElement>(
+            '[data-testid="document-page-source-viewer"]',
+        ) ?? null;
+        const interactiveSurface = pdfPageTrack ?? documentSourceViewer ?? legacyViewer;
+        if (!viewport || !interactiveSurface) {
             return false;
         }
 
         const viewportStyle = window.getComputedStyle(viewport);
-        const pageTrackStyle = window.getComputedStyle(pageTrack);
-        const pageTrackPresented = pageTrackStyle.display !== 'none'
-            && pageTrackStyle.visibility !== 'hidden'
-            && Number(pageTrackStyle.opacity || '1') > 0;
+        const surfaceStyle = window.getComputedStyle(interactiveSurface);
+        const surfacePresented = surfaceStyle.display !== 'none'
+            && surfaceStyle.visibility !== 'hidden'
+            && Number(surfaceStyle.opacity || '1') > 0;
         const viewportPresented = viewportStyle.display !== 'none'
             && viewportStyle.visibility !== 'hidden'
             && Number(viewportStyle.opacity || '1') > 0;
         if (
-            !pageTrackPresented
+            !surfacePresented
             || !viewportPresented
-            || pageTrack.classList.contains('pdfViewer--resize-transition')
-            || pageTrack.classList.contains('pdfViewer--hidden')
+            || interactiveSurface.classList.contains('pdfViewer--resize-transition')
+            || interactiveSurface.classList.contains('pdfViewer--hidden')
         ) {
             return false;
         }
@@ -1307,6 +1311,35 @@ export async function waitForToolbarCurrentPage(
     timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
     await waitForWorkspaceToolbarSnapshot(page, {currentPage: expectedPage}, {timeoutMs});
+}
+
+interface IWorkspaceLiveAnnotationState {
+    [key: string]: unknown;
+    dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};
+}
+
+export async function waitForLivePdfJsAnnotationChange(
+    page: Page,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+    const startedAt = Date.now();
+    let dirtyState = (await readWorkspaceStateValues<IWorkspaceLiveAnnotationState>(
+        page,
+        ['dirtyState'],
+    )).dirtyState;
+
+    while (Date.now() - startedAt < timeoutMs) {
+        if (dirtyState?.hasLivePdfJsAnnotationChanges === true) {
+            return;
+        }
+        await delay(150);
+        dirtyState = (await readWorkspaceStateValues<IWorkspaceLiveAnnotationState>(
+            page,
+            ['dirtyState'],
+        )).dirtyState;
+    }
+
+    throw new Error(`FreeText editor did not enter PDF.js annotation storage: ${JSON.stringify(dirtyState)}`);
 }
 
 

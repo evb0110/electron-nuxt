@@ -1,5 +1,8 @@
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     requireDocumentInstanceId,
     type TDocumentInstanceId,
@@ -37,6 +40,8 @@ import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/re
 import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
 import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
+import { requireSessionId } from '@contracts/shared';
+import { requireTabId } from '@contracts/windowTabs';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 import {
     createWorkspaceDocumentOpenTransactions,
@@ -378,7 +383,10 @@ function getTargetDocumentInstanceId(identity: IWorkspaceDocumentIdentity) {
 }
 
 function getTargetDocumentBackend(documentRef: string | null) {
-    const documentBackend = resolveDocumentRefBackend(documentRef);
+    const parsedDocumentRef = parseDocumentRef(documentRef);
+    const documentBackend = parsedDocumentRef === null
+        ? undefined
+        : resolveDocumentRefBackend(parsedDocumentRef);
     return documentBackend === undefined ? {} : {documentBackend};
 }
 
@@ -435,7 +443,9 @@ export function createWorkspaceDocumentController(
     options: ICreateWorkspaceDocumentControllerOptions,
 ): IWorkspaceDocumentController {
     const now = options.now ?? Date.now;
-    const sessionId = options.sessionId ?? options.createSessionId?.(options.tabId) ?? createDefaultSessionId(options.tabId);
+    const sessionId = requireSessionId(
+        options.sessionId ?? options.createSessionId?.(options.tabId) ?? createDefaultSessionId(options.tabId),
+    );
     const workspaceWaitTimeoutMs = options.workspaceWaitTimeoutMs ?? DEFAULT_DOCUMENT_OPEN_STAGE_TIMEOUT_MS;
     const createDocumentInstanceId = options.createDocumentInstanceId ?? createDefaultDocumentInstanceId;
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
@@ -561,7 +571,7 @@ export function createWorkspaceDocumentController(
                     persist: transaction.persist ?? true,
                     target: {
                         kind: 'transaction',
-                        tabId: options.tabId,
+                        tabId: requireTabId(options.tabId),
                         sessionId,
                         documentRef: transaction.documentRef,
                         ...getTargetDocumentBackend(transaction.documentRef),
@@ -885,8 +895,8 @@ export function createWorkspaceDocumentController(
         if (mode === 'active-transaction' && current.activeTransaction) {
             return {
                 kind: 'transaction',
-                tabId: current.tabId,
-                sessionId: current.sessionId,
+                tabId: requireTabId(current.tabId),
+                sessionId: requireSessionId(current.sessionId),
                 documentRef: current.activeTransaction.documentRef,
                 ...getTargetDocumentBackend(current.activeTransaction.documentRef),
                 ...getTargetDocumentInstanceId(current.identity),
@@ -897,8 +907,8 @@ export function createWorkspaceDocumentController(
 
         return {
             kind: 'revision',
-            tabId: current.tabId,
-            sessionId: current.sessionId,
+            tabId: requireTabId(current.tabId),
+            sessionId: requireSessionId(current.sessionId),
             documentRef: current.identity.documentRef,
             ...getTargetDocumentBackend(current.identity.documentRef),
             ...getTargetDocumentInstanceId(current.identity),
@@ -1083,9 +1093,9 @@ export function createWorkspaceDocumentController(
             return activeClosePromise;
         }
 
-        let transactionId: string | null = null;
+        const closeTransaction: { id: string | null } = { id: null };
         const commitClose = () => {
-            if (transactionId) {
+            if (closeTransaction.id) {
                 return;
             }
             openTransactionEpoch += 1;
@@ -1094,7 +1104,7 @@ export function createWorkspaceDocumentController(
                 documentRef: snapshot.value.identity.documentRef,
                 persist: request.persist,
             });
-            transactionId = transaction.id;
+            closeTransaction.id = transaction.id;
             activeOpenAbortController?.abort(new DOMException('Document open canceled by close', 'AbortError'));
         };
         const closePromise = (async () => {
@@ -1122,8 +1132,8 @@ export function createWorkspaceDocumentController(
                 }
                 return closed;
             } finally {
-                if (transactionId) {
-                    finishTransaction(transactionId, closed ? 'committed' : 'cancelled');
+                if (closeTransaction.id) {
+                    finishTransaction(closeTransaction.id, closed ? 'committed' : 'cancelled');
                 }
             }
         })();

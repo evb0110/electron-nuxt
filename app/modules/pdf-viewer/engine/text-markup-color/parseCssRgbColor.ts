@@ -40,9 +40,17 @@ export function parseCssRgbColor(value: string | null | undefined): IRgbColor | 
         return null;
     }
 
+    const [
+        red,
+        green,
+        blue,
+    ] = channels;
+    if (red === undefined || green === undefined || blue === undefined) {
+        return null;
+    }
     return {
-        r: channels[0]!,
-        g: channels[1]!,
-        b: channels[2]!,
+        r: red,
+        g: green,
+        b: blue,
     };
 }

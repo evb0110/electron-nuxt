@@ -1,4 +1,5 @@
-import type {IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     beforeEach,
     describe,
@@ -12,6 +13,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
+import type {IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const loggerError = vi.fn();
@@ -112,24 +114,24 @@ describe('PdfDocumentSession range loading', () => {
     it('distinguishes an exact trusted target-page seed from normalized fallback pages', () => {
         const documentState = createPdfDocumentSession();
 
-        expect(documentState.hasExactPageGeometry(7)).toBe(false);
+        expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(false);
         expect(documentState.seedTrustedPageGeometry({
-            pageNumber: 7,
+            pageNumber: requirePageNumber(7),
             pageCount: 431,
             width: 478.8,
             height: 765.3,
         })).toBe(true);
-        expect(documentState.hasExactPageGeometry(7)).toBe(true);
-        expect(documentState.hasExactPageGeometry(1)).toBe(false);
+        expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(true);
+        expect(documentState.hasExactPageGeometry(requirePageNumber(1))).toBe(false);
 
         documentState.cleanup();
-        expect(documentState.hasExactPageGeometry(7)).toBe(false);
+        expect(documentState.hasExactPageGeometry(requirePageNumber(7))).toBe(false);
     });
 
     it('replaces a provisional trusted baseline with authoritative PDF.js geometry', async () => {
         const documentState = createPdfDocumentSession();
         expect(documentState.seedTrustedPageGeometry({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 1,
             width: 640,
             height: 900,
@@ -144,7 +146,7 @@ describe('PdfDocumentSession range loading', () => {
         }]);
         expect(documentState.basePageWidth.value).toBe(100);
         expect(documentState.basePageHeight.value).toBe(200);
-        expect(documentState.hasExactPageGeometry(1)).toBe(true);
+        expect(documentState.hasExactPageGeometry(requirePageNumber(1))).toBe(true);
     });
 
     it('loads a PDF through range transport and populates document state', async () => {
@@ -159,7 +161,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const source = {
             kind: 'path',
-            path: '/tmp/success.pdf',
+            path: requireDocumentRef('/tmp/success.pdf'),
             size,
         } as const;
         const result = await documentState.loadPdf(source);
@@ -222,7 +224,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/many-pages.pdf',
+            path: requireDocumentRef('/tmp/many-pages.pdf'),
             size: 2048,
         });
 
@@ -271,7 +273,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/million-pages.pdf',
+            path: requireDocumentRef('/tmp/million-pages.pdf'),
             size: 2048,
         });
 
@@ -342,7 +344,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/preloaded-tail.pdf',
+            path: requireDocumentRef('/tmp/preloaded-tail.pdf'),
             size,
         });
 
@@ -421,7 +423,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/mixed-sizes.pdf',
+            path: requireDocumentRef('/tmp/mixed-sizes.pdf'),
             size: 1024,
         });
 
@@ -478,7 +480,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/lazy-metrics.pdf',
+            path: requireDocumentRef('/tmp/lazy-metrics.pdf'),
             size: 2048,
         });
 
@@ -547,12 +549,12 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/cache-metrics-for-render.pdf',
+            path: requireDocumentRef('/tmp/cache-metrics-for-render.pdf'),
             size: 2048,
         });
 
         await expect(documentState.ensurePageMetricsInRange(2, 2)).resolves.toBe(true);
-        await expect(documentState.getPage(2)).resolves.toBe(page2);
+        await expect(documentState.getPage(requirePageNumber(2))).resolves.toBe(page2);
 
         expect(pageCleanup).not.toHaveBeenCalled();
         expect(getPage).toHaveBeenCalledTimes(2);
@@ -596,7 +598,7 @@ describe('PdfDocumentSession range loading', () => {
         try {
             await documentState.loadPdf({
                 kind: 'path',
-                path: '/tmp/page-source-metric-cache.pdf',
+                path: requireDocumentRef('/tmp/page-source-metric-cache.pdf'),
                 size: 2048,
             });
             await nextTick();
@@ -627,7 +629,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/a.pdf',
+            path: requireDocumentRef('/tmp/a.pdf'),
             size: 3,
         });
 
@@ -652,7 +654,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/b.pdf',
+            path: requireDocumentRef('/tmp/b.pdf'),
             size: 7,
         });
 
@@ -700,7 +702,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/late-failure.pdf',
+            path: requireDocumentRef('/tmp/late-failure.pdf'),
             size: (1024 * 1024) + 512,
         });
 
@@ -761,7 +763,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/range-burst.pdf',
+            path: requireDocumentRef('/tmp/range-burst.pdf'),
             size: 80 * 1024 * 1024,
         });
 
@@ -832,7 +834,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/range-burst-failure.pdf',
+            path: requireDocumentRef('/tmp/range-burst-failure.pdf'),
             size: 80 * 1024 * 1024,
         });
 
@@ -922,12 +924,12 @@ describe('PdfDocumentSession range loading', () => {
             const documentState = createPdfDocumentSession();
             const sourceA = {
                 kind: 'path',
-                path: '/tmp/range-session-a.pdf',
+                path: requireDocumentRef('/tmp/range-session-a.pdf'),
                 size: fileSize,
             } as const;
             const sourceB = {
                 kind: 'path',
-                path: '/tmp/range-session-b.pdf',
+                path: requireDocumentRef('/tmp/range-session-b.pdf'),
                 size: fileSize,
             } as const;
 
@@ -1020,7 +1022,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/short-range-read.pdf',
+            path: requireDocumentRef('/tmp/short-range-read.pdf'),
             size: 20 * 1024 * 1024,
         });
 
@@ -1087,7 +1089,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/large-range.pdf',
+            path: requireDocumentRef('/tmp/large-range.pdf'),
             size: 80 * 1024 * 1024,
         });
 
@@ -1149,7 +1151,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/native-opening-preview.pdf',
+            path: requireDocumentRef('/tmp/native-opening-preview.pdf'),
             size,
         });
 
@@ -1199,7 +1201,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const loadPromise = documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/pathological-range.pdf',
+            path: requireDocumentRef('/tmp/pathological-range.pdf'),
             size: 128 * 1024 * 1024,
         });
 
@@ -1253,7 +1255,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         await expect(documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/post-load-range-failure.pdf',
+            path: requireDocumentRef('/tmp/post-load-range-failure.pdf'),
             size: (1024 * 1024 * 2) + 512,
         })).resolves.not.toBeNull();
 
@@ -1301,7 +1303,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/metric-prime-failure.pdf',
+            path: requireDocumentRef('/tmp/metric-prime-failure.pdf'),
             size: 2048,
         });
 
@@ -1368,7 +1370,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const source = {
             kind: 'path',
-            path: '/tmp/cleanup-source.pdf',
+            path: requireDocumentRef('/tmp/cleanup-source.pdf'),
             size: 2048,
         } as const;
 
@@ -1397,7 +1399,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const result = await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/parse-failure.pdf',
+            path: requireDocumentRef('/tmp/parse-failure.pdf'),
             size: (1024 * 1024) + 512,
         });
 
@@ -1464,7 +1466,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         await expect(documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/first.pdf',
+            path: requireDocumentRef('/tmp/first.pdf'),
             size: 2048,
         })).resolves.not.toBeNull();
 
@@ -1476,7 +1478,7 @@ describe('PdfDocumentSession range loading', () => {
         electronApi.documentFiles.readFileRange.mockClear();
         const secondLoad = documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/second.pdf',
+            path: requireDocumentRef('/tmp/second.pdf'),
             size: 2048,
         });
         await Promise.resolve();
@@ -1502,7 +1504,7 @@ describe('PdfDocumentSession range loading', () => {
                 width: 100,
                 height: 200,
             })),
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
         };
         const documentDestroy = vi.fn(async () => {
             events.push('document-destroy');
@@ -1526,7 +1528,7 @@ describe('PdfDocumentSession range loading', () => {
             estimatedPixels: 100,
             lane: 'viewport-visible',
             ordinal: 1,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             renderKey: 'initial',
             retention: 'render-cache',
         } as const;
@@ -1626,7 +1628,7 @@ describe('PdfDocumentSession range loading', () => {
                 estimatedPixels: 100,
                 lane: 'viewport-visible',
                 ordinal: 1,
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 renderKey: 'preparing',
                 retention: 'render-cache',
             } as const],
@@ -1638,7 +1640,7 @@ describe('PdfDocumentSession range loading', () => {
                 id: 'viewport',
                 prepare: async (_demand, leasedPage, signal, captureSettlement) => runCoordinatedPdfPageOperation({
                     owner: 'viewport',
-                    pageNumber: leasedPage.pageNumber,
+                    pageNumber: requirePageNumber(leasedPage.pageNumber),
                     pdfPage: leasedPage,
                     priority: 100,
                     signal,
@@ -1729,23 +1731,23 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/cache-lru.pdf',
+            path: requireDocumentRef('/tmp/cache-lru.pdf'),
             size: 2048,
         });
 
         expect(getPage).toHaveBeenCalledTimes(1);
 
         for (let pageNumber = 2; pageNumber <= maxCachedPdfPages + 1; pageNumber += 1) {
-            await documentState.getPage(pageNumber);
+            await documentState.getPage(requirePageNumber(pageNumber));
         }
 
         expect(getPage).toHaveBeenCalledTimes(maxCachedPdfPages + 1);
 
-        await documentState.getPage(1);
+        await documentState.getPage(requirePageNumber(1));
 
         expect(getPage).toHaveBeenCalledTimes(maxCachedPdfPages + 2);
 
-        await documentState.getPage(maxCachedPdfPages + 1);
+        await documentState.getPage(requirePageNumber(maxCachedPdfPages + 1));
 
         expect(getPage).toHaveBeenCalledTimes(maxCachedPdfPages + 2);
         expect(loadedPages.get(2)?.[0]?.cleanup).toHaveBeenCalledTimes(1);
@@ -1790,10 +1792,10 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/deferred-lease-cleanup.pdf',
+            path: requireDocumentRef('/tmp/deferred-lease-cleanup.pdf'),
             size: 2048,
         });
-        const pageLease = await documentState.leasePage(1);
+        const pageLease = await documentState.leasePage(requirePageNumber(1));
         documentState.cleanupPageCache();
 
         expect(loadedPages.get(1)?.[0]?.cleanup).not.toHaveBeenCalled();
@@ -1802,7 +1804,7 @@ describe('PdfDocumentSession range loading', () => {
 
         expect(loadedPages.get(1)?.[0]?.cleanup).toHaveBeenCalledTimes(1);
 
-        await documentState.getPage(1);
+        await documentState.getPage(requirePageNumber(1));
 
         expect(getPage).toHaveBeenCalledTimes(2);
         expect(loadedPages.get(1)?.[1]?.cleanup).not.toHaveBeenCalled();
@@ -1843,19 +1845,19 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/background-page-inventory.pdf',
+            path: requireDocumentRef('/tmp/background-page-inventory.pdf'),
             size: 2048,
         });
 
         const backgroundLease = await leasePdfDocumentPage(
             pdfDocument as never,
-            2,
+            requirePageNumber(2),
             'transient-background',
         );
         backgroundLease.release();
 
         expect(pages.get(2)?.[0]?.cleanup).not.toHaveBeenCalled();
-        await documentState.getPage(2);
+        await documentState.getPage(requirePageNumber(2));
         expect(getPage).toHaveBeenCalledTimes(3);
         expect(pages.get(1)?.[0]?.cleanup).not.toHaveBeenCalled();
     });
@@ -1883,14 +1885,14 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         await documentState.loadPdf({
             kind: 'path',
-            path: '/tmp/stable-proxy-leases.pdf',
+            path: requireDocumentRef('/tmp/stable-proxy-leases.pdf'),
             size: 2048,
         });
 
-        const firstLease = await documentState.leasePage(1);
-        documentState.evictPage(1);
-        const secondLease = await documentState.leasePage(1);
-        documentState.evictPage(1);
+        const firstLease = await documentState.leasePage(requirePageNumber(1));
+        documentState.evictPage(requirePageNumber(1));
+        const secondLease = await documentState.leasePage(requirePageNumber(1));
+        documentState.evictPage(requirePageNumber(1));
 
         secondLease.release();
         expect(stablePage.cleanup).not.toHaveBeenCalled();
@@ -1902,9 +1904,9 @@ describe('PdfDocumentSession range loading', () => {
         secondLease.release();
         expect(stablePage.cleanup).toHaveBeenCalledOnce();
 
-        const thirdLease = await documentState.leasePage(1);
-        const fourthLease = await documentState.leasePage(1);
-        documentState.evictPage(1);
+        const thirdLease = await documentState.leasePage(requirePageNumber(1));
+        const fourthLease = await documentState.leasePage(requirePageNumber(1));
+        documentState.evictPage(requirePageNumber(1));
 
         thirdLease.release();
         expect(stablePage.cleanup).toHaveBeenCalledOnce();

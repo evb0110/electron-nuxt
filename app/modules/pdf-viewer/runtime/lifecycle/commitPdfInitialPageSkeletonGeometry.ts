@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { Ref } from 'vue';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 
@@ -6,7 +8,7 @@ export function diagnosePdfPageSkeletonGeometry(
     viewerContainer: Readonly<Ref<HTMLElement | null>>,
     currentPage: Readonly<Ref<number>>,
     scaledMargin: Readonly<Ref<number>>,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     options: {
         authoritativePageNumber?: number;
         expectedGeneration?: number;
@@ -112,7 +114,7 @@ export function commitPdfPageSkeletonGeometry(
     viewerContainer: Readonly<Ref<HTMLElement | null>>,
     currentPage: Readonly<Ref<number>>,
     scaledMargin: Readonly<Ref<number>>,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     options: {
         authoritativePageNumber?: number;
         expectedGeneration?: number;

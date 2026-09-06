@@ -28,6 +28,16 @@ on:
         required: false
         default: false
         type: boolean
+      mirror_prefix:
+        description: Optional release mirror prefix override.
+        required: false
+        default: ''
+        type: string
+      channel_key:
+        description: Optional release mirror channel key override.
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   group: release-supplemental-${{ inputs.tag }}
@@ -202,6 +212,7 @@ jobs:
       WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
       WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
@@ -224,6 +235,7 @@ jobs:
       APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
@@ -238,6 +250,7 @@ jobs:
       sentry_environment: production
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
@@ -432,6 +445,82 @@ jobs:
             node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$EXPECTED_INSTALLER" "$EXPECTED_PROVENANCE"
           fi
 
+  mirror_supplemental:
+    name: Mirror supplemental assets
+    needs:
+      - resolve
+      - attach_win_arm64
+      - attach_mac_intel
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    runs-on: ubuntu-latest
+    # The Intel ZIP and the ARM64 installer are ~170 MB each, uploaded in
+    # 8 MiB parts with the same bounded retries as the core mirror.
+    timeout-minutes: 40
+    environment: release
+    # A drill release stays a draft, and GitHub shows a draft and its assets
+    # only to a token that can write the repository's contents.
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout trusted release publisher
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ needs.resolve.outputs.workflow_sha }}
+
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          install-dependencies: 'false'
+
+      - name: Install mirror publisher dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # The mirror copies what the release actually holds, so a lane that
+      # failed or was skipped leaves the others mirrored and repairs itself on
+      # the next dispatch.
+      - name: Mirror attached supplemental assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+          MIRROR_RELEASE_PREFIX: ${{ inputs.mirror_prefix }}
+          MIRROR_CHANNEL_KEY: ${{ inputs.channel_key }}
+          DRILL: ${{ inputs.drill }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          remote_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[]?.name')"
+          files=()
+          for asset in \
+            "EVB-Viewer-${RELEASE_VERSION}-x64.zip" \
+            "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe" \
+            "EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json"; do
+            if grep -Fqx "$asset" <<< "$remote_assets"; then
+              gh release download "$RELEASE_TAG" --pattern "$asset" --dir artifacts
+              files+=("artifacts/$asset")
+            else
+              echo "::notice::$asset is not attached to $RELEASE_TAG; it gets no mirror copy."
+            fi
+          done
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::notice::$RELEASE_TAG holds no supplemental assets; the mirror is unchanged."
+            exit 0
+          fi
+          args=("$RELEASE_TAG" "${files[@]}")
+          if [ "$DRILL" = 'true' ]; then
+            args+=(--drill)
+          fi
+          node scripts/release/publish-release-mirror.mjs supplemental "${args[@]}"
+
   summary:
     name: Summarize supplemental release
     needs:
@@ -442,6 +531,7 @@ jobs:
       - publish_store
       - attach_win_arm64
       - attach_mac_intel
+      - mirror_supplemental
     if: ${{ always() }}
     runs-on: ubuntu-latest
     permissions:
@@ -460,6 +550,7 @@ jobs:
           STORE_BUILD_RESULT: ${{ needs.publish_store.result }}
           WIN_ARM_ATTACH_RESULT: ${{ needs.attach_win_arm64.result }}
           MAC_INTEL_ATTACH_RESULT: ${{ needs.attach_mac_intel.result }}
+          MIRROR_RESULT: ${{ needs.mirror_supplemental.result }}
           WIN_ARM_EXISTING: ${{ needs.resolve.outputs.existing_win_arm64 }}
           MAC_INTEL_EXISTING: ${{ needs.resolve.outputs.existing_mac_x64 }}
         shell: bash
@@ -488,6 +579,8 @@ jobs:
             echo "| Windows ARM64 | $win_arm_build | $WIN_ARM_ATTACH_RESULT |"
             echo "| macOS Intel | $mac_intel_build | $MAC_INTEL_ATTACH_RESULT |"
             echo "| Microsoft Store packages | $STORE_BUILD_RESULT | workflow artifact only; no automated submission |"
+            echo
+            echo "Release mirror copies of the attached assets: $MIRROR_RESULT"
           } >> "$GITHUB_STEP_SUMMARY"
 
           if ! release_json="$(gh release view "$TAG" --json assets 2>/dev/null)"; then

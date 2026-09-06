@@ -13,6 +13,8 @@ import {
     type ITextBoxEntity,
     type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const rect = {
     left: 0.1,
@@ -24,12 +26,12 @@ const rect = {
 function base(id: string) {
     return {
         identity: {id: asAnnotationId(id)},
-        pageIndex: 1,
+        pageIndex: requirePageIndex(1),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: 'Author',
     } as const;
 }

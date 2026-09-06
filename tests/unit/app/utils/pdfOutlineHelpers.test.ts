@@ -25,6 +25,8 @@ import {
     summarizeBookmarkStyles,
 } from '@app/utils/pdfOutlineHelpers';
 import { cast } from '@tests/helpers/cast';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {TPageIndex} from '@contracts/pageNumbers';
 
 type TOutlinePdfDocumentStub = Pick<IPdfDocument, 'numPages' | 'getDestination' | 'getPageIndex' | 'getPage'>;
 type TPdfPageView = [number, number, number, number];
@@ -59,7 +61,11 @@ function createBookmark(id: string, pageIndex: number | null): IBookmarkItem {
         id,
         title: id,
         dest: null,
-        pageIndex,
+        pageIndex: pageIndex === null
+            ? null
+            : Number.isNaN(pageIndex)
+                ? cast<TPageIndex>(pageIndex)
+                : requirePageIndex(pageIndex),
         bold: false,
         italic: false,
         color: null,
@@ -150,7 +156,7 @@ describe('pdfOutlineHelpers', () => {
     it('projects more than ten thousand pending bookmark entries without truncation', () => {
         const source = Array.from({length: 10_001}, (_, index) => ({
             title: `entry-${index}`,
-            pageIndex: index,
+            pageIndex: requirePageIndex(index),
             namedDest: null,
             bold: false,
             italic: false,
@@ -212,14 +218,14 @@ describe('pdfOutlineHelpers', () => {
 
         const resolved = buildOutlineFromBookmarkEntries([{
             title: 'Contents',
-            pageIndex: 4,
+            pageIndex: requirePageIndex(4),
             namedDest: 'page-5',
             bold: true,
             italic: false,
             color: '#ABC',
             items: [{
                 title: 'Chapter',
-                pageIndex: 10.8,
+                pageIndex: cast<TPageIndex>(10.8),
                 pageYRatio: 0.42,
                 namedDest: null,
                 bold: false,
@@ -490,7 +496,7 @@ describe('pdfOutlineHelpers', () => {
                 id: 'a',
                 title: 'A',
                 dest: null,
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 bold: true,
                 italic: false,
                 color: '#1D4ED8',
@@ -500,7 +506,7 @@ describe('pdfOutlineHelpers', () => {
                 id: 'b',
                 title: 'B',
                 dest: null,
-                pageIndex: 1,
+                pageIndex: requirePageIndex(1),
                 bold: true,
                 italic: false,
                 color: '#1d4ed8',
@@ -523,7 +529,7 @@ describe('pdfOutlineHelpers', () => {
                 id: 'a',
                 title: 'A',
                 dest: null,
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 bold: true,
                 italic: true,
                 color: null,
@@ -533,7 +539,7 @@ describe('pdfOutlineHelpers', () => {
                 id: 'b',
                 title: 'B',
                 dest: null,
-                pageIndex: 1,
+                pageIndex: requirePageIndex(1),
                 bold: false,
                 italic: true,
                 color: '#b91c1c',

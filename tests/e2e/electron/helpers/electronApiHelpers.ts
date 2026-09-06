@@ -1,4 +1,8 @@
 import type { Page } from 'puppeteer-core';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
@@ -50,7 +54,11 @@ export async function getActiveWorkspaceWorkingCopyPath(page: Page) {
         throw new Error('workingCopyPath is unavailable on the active workspace');
     }
 
-    return workingCopyPath;
+    const documentRef = parseDocumentRef(workingCopyPath);
+    if (documentRef === null) {
+        throw new Error('workingCopyPath is not a document reference');
+    }
+    return documentRef;
 }
 
 export async function runOcrSearchablePdf(
@@ -63,7 +71,7 @@ export async function runOcrSearchablePdf(
         sourcePath,
         id,
     }) => {
-        const api = (window as IE2EWindow & {electronAPI?: {ocr?: {
+        const api = (window as typeof globalThis & IE2EWindow & {electronAPI?: {ocr?: {
             onProgress?: (callback: (progress: {requestId: string;}) => void) => () => void;
             onComplete?: (callback: (result: {
                 requestId: string;
@@ -71,7 +79,7 @@ export async function runOcrSearchablePdf(
                 pdfPath?: string;
                 sourceDocumentRevisionToken?: string;
                 requiresCleanupAck?: boolean;
-                errors: string[];
+                errors: readonly string[];
             }) => void) => () => void;
             createSearchablePdf?: (
                 sourcePdfPath: string,
@@ -103,7 +111,7 @@ export async function runOcrSearchablePdf(
                 pdfPath?: string;
                 sourceDocumentRevisionToken?: string;
                 requiresCleanupAck?: boolean;
-                errors: string[];
+                errors: readonly string[];
             }>((resolve, reject) => {
                 const timeoutId = window.setTimeout(() => {
                     reject(new Error('Timed out waiting for OCR completion event'));
@@ -219,7 +227,7 @@ export async function consumeOcrResultIntoActiveWorkspace(
 
 export async function rotatePages(
     page: Page,
-    workingCopyPath: string,
+    workingCopyPath: TDocumentRef,
     pages: number[],
     totalPages: number,
     angle: 90 | 180 | 270,

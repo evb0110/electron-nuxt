@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {
     lstat,
     mkdtemp,
@@ -15,6 +14,11 @@ import type {
     IPdfAnnotationParseSession,
     TPdfAnnotationParseEntity,
 } from '@contracts/pdfAnnotationParseTypes';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {createSessionId} from '@contracts/shared';
 import {
     PDF_ANNOTATION_PARSE_MAX_ENTRIES,
     PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
@@ -85,6 +89,14 @@ interface IParseSessionState {
     released: boolean;
     unregisterSenderCleanup?: () => void;
     cleanupPromise?: Promise<void>;
+}
+
+function requireDocumentRef(value: unknown): TDocumentRef {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
 }
 
 const sessions = new Map<string, IParseSessionState>();
@@ -255,14 +267,14 @@ export async function beginPdfAnnotationParse(
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
-            documentRef: resolvedPath,
+            documentRef: requireDocumentRef(resolvedPath),
             expectedRevision: expectedRevisionToken,
             actualRevision: revision.token,
         });
     }
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
-    const sessionId = randomUUID();
+    const sessionId = createSessionId('pdf-annotation-parse');
     const sidecarDirectory = await mkdtemp(join(getAppTempDir(), PARSE_DIRECTORY_PREFIX));
     const sidecarPath = join(sidecarDirectory, PARSE_FILE_NAME);
     const abortController = new AbortController();
@@ -372,7 +384,7 @@ export async function beginPdfAnnotationParse(
     }
     return {
         sessionId,
-        documentRef: filePath,
+        documentRef: requireDocumentRef(filePath),
         documentRevisionToken: expectedRevisionToken,
         pageCount: session.index.pageCount,
         entryCount: session.index.entryCount,

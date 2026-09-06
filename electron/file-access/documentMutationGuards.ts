@@ -2,12 +2,24 @@ import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { createMissingRevisionError } from '@contracts/documentMutationErrors';
 import {
     assertWorkingCopyMutationAllowed,
     assertWorkingCopyResyncAllowed,
     assertWorkingCopyRevisionCurrent,
 } from '@electron/file-access/documentRevisionStore';
+
+function requireDocumentRef(value: string): TDocumentRef {
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        throw new TypeError('Working copy path must be an absolute document ref');
+    }
+    return parsed;
+}
 
 export function normalizeExpectedDocumentRevisionToken(
     options?: {expectedDocumentRevisionToken?: TDocumentRevisionToken | null} | null,
@@ -29,7 +41,7 @@ export async function assertQueuedWorkingCopyMutationPreconditions(
 ) {
     assertWorkingCopyMutationAllowed(workingCopyPath);
     if (expectedDocumentRevisionToken === undefined || expectedDocumentRevisionToken === null) {
-        throw createMissingRevisionError({documentRef: workingCopyPath});
+        throw createMissingRevisionError({documentRef: requireDocumentRef(workingCopyPath)});
     }
     await assertWorkingCopyRevisionCurrent(workingCopyPath, expectedDocumentRevisionToken);
 }

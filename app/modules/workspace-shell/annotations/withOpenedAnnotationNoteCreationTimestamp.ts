@@ -1,4 +1,5 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import { createEpochMs } from '@contracts/timestamps';
 
 export function withOpenedAnnotationNoteCreationTimestamp(comment: IAnnotationCommentSummary) {
     if (comment.source !== 'editor' || comment.createdAt || comment.modifiedAt) {
@@ -6,6 +7,6 @@ export function withOpenedAnnotationNoteCreationTimestamp(comment: IAnnotationCo
     }
     return {
         ...comment,
-        createdAt: Date.now(),
+        createdAt: createEpochMs(Date.now()),
     };
 }

@@ -75,7 +75,7 @@ function normalizeWordRect(
                 width: height,
                 height: width,
             };
-        default:
+        case 0:
             return {
                 left,
                 top,
@@ -94,21 +94,24 @@ export function resolveDocumentPageSourceSearchHighlights(options: {
     const highlights: IDocumentPageSourceSearchHighlight[] = [];
 
     options.results.forEach((result, resultIndex) => {
+        const pageWidth = result.pageWidth;
+        const pageHeight = result.pageHeight;
+        const words = result.words;
         if (
             result.pageIndex !== options.pageNumber - 1
-            || !Array.isArray(result.words)
-            || result.words.length === 0
-            || !isFinitePositive(result.pageWidth)
-            || !isFinitePositive(result.pageHeight)
+            || !words
+            || words.length === 0
+            || !isFinitePositive(pageWidth)
+            || !isFinitePositive(pageHeight)
         ) {
             return;
         }
 
-        result.words.forEach((word, wordIndex) => {
+        words.forEach((word, wordIndex) => {
             const rect = normalizeWordRect(
                 word,
-                result.pageWidth!,
-                result.pageHeight!,
+                pageWidth,
+                pageHeight,
                 result.rotation ?? 0,
             );
             if (!rect) {

@@ -14,6 +14,11 @@ import type {
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
+import type {TRequestId} from '@contracts/shared';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     decodeDebugLogEntry,
     type TMenuEventUnsubscribe,
@@ -264,7 +269,7 @@ export function createElectronApi(
         });
     }
 
-    const openDocumentDirect = async (path: string, password?: string) => {
+    const openDocumentDirect = async (path: TDocumentRef, password?: string) => {
         const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
         if (pendingAllow && !await pendingAllow) {
             return null;
@@ -275,8 +280,8 @@ export function createElectronApi(
             : baseDocuments.openDocumentDirect(path, password);
     };
     const openDocumentDirectBatch = async (
-        paths: string[],
-        requestId?: string,
+        paths: TDocumentRef[],
+        requestId?: TRequestId,
         options?: {forceCombine?: boolean},
     ) => {
         const allowed = await Promise.all(paths.map(async (path) => {
@@ -291,15 +296,17 @@ export function createElectronApi(
             : baseDocuments.openDocumentDirectBatch(paths, requestId, options);
     };
 
-    const extractPathsForFiles = (files: File[]) => files
+    const extractPathsForFiles = (files: File[]): TDocumentRef[] => files
         .map(file => electronWebUtils.getPathForFile(file))
-        .filter(filePath => filePath.length > 0);
+        .map(filePath => parseDocumentRef(filePath))
+        .filter((filePath): filePath is TDocumentRef => filePath !== null);
 
-    const getPathForFile = (file: File) => {
-        const filePath = electronWebUtils.getPathForFile(file);
-        if (filePath) {
-            observeRendererFileOpenGrant(allowRendererFileOpen(filePath), { filePath });
+    const getPathForFile = (file: File): TDocumentRef => {
+        const filePath = parseDocumentRef(electronWebUtils.getPathForFile(file));
+        if (filePath === null) {
+            throw new Error('Selected file does not have an absolute document path');
         }
+        observeRendererFileOpenGrant(allowRendererFileOpen(filePath), { filePath });
         return filePath;
     };
     const getPathsForFiles = (files: File[]) => {

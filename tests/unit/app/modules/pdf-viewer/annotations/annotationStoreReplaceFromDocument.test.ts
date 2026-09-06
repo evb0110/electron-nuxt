@@ -14,6 +14,8 @@ import {
     type INoteEntity,
     type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const rect = {
     left: 0.1,
@@ -28,12 +30,12 @@ function note(
 ): INoteEntity {
     return {
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: 'Author',
         kind: 'note',
         contents: 'document contents',
@@ -47,12 +49,12 @@ function note(
 function textBox(id: string, overrides: Partial<ITextBoxEntity> = {}): ITextBoxEntity {
     return {
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: 'Author',
         kind: 'text-box',
         text: 'text',
@@ -67,12 +69,12 @@ function textBox(id: string, overrides: Partial<ITextBoxEntity> = {}): ITextBoxE
 function textMarkup(id: string, overrides: Partial<ITextMarkupEntity> = {}): ITextMarkupEntity {
     return {
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: 'Author',
         kind: 'text-markup',
         subtype: 'Highlight',
@@ -87,7 +89,7 @@ function textMarkup(id: string, overrides: Partial<ITextMarkupEntity> = {}): ITe
 
 function foreign(): IPdfForeignAnnotationRecord {
     return {
-        pageIndex: 2,
+        pageIndex: requirePageIndex(2),
         subtype: 'Widget',
         name: null,
         objectNumber: 42,
@@ -208,7 +210,7 @@ describe('AnnotationStore.replaceFromDocument', () => {
             'markup-d',
         ].map(id => asAnnotationId(id));
         ids.forEach((id) => {
-            store.createTextMarkup(textMarkup(id, {pageIndex: 25}));
+            store.createTextMarkup(textMarkup(id, {pageIndex: requirePageIndex(25)}));
         });
         store.markPersisted(store.beginSave(), ids.map((id, index) => ({
             annotationId: id,
@@ -221,7 +223,7 @@ describe('AnnotationStore.replaceFromDocument', () => {
                 id: asAnnotationId(`parsed-${index}`),
                 pdfRef: `${index + 1} 0 R`,
             },
-            pageIndex: 25,
+            pageIndex: requirePageIndex(25),
         })), []);
 
         expect(store.list().map(entity => entity.identity.id)).toEqual(ids);

@@ -11,6 +11,7 @@ import {
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 function importPersistedHighlight(store: AnnotationStore) {
     const annotationId = asAnnotationId('persisted-highlight');
@@ -20,7 +21,7 @@ function importPersistedHighlight(store: AnnotationStore) {
             id: annotationId,
             pdfRef: '12R0',
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: 0,
         deleted: false,
@@ -45,7 +46,7 @@ function stickyNote(id: string, text: string, left: number): INoteEntity {
     return {
         kind: 'note',
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
@@ -83,7 +84,7 @@ describe('AnnotationStore save frontier rollback', () => {
         store.createTextMarkup({
             kind: 'text-markup',
             identity: {id},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -113,7 +114,7 @@ describe('AnnotationStore save frontier rollback', () => {
         const shape: IShapeEntity = {
             kind: 'shape',
             identity: {id: asAnnotationId('local-shape')},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -180,7 +181,7 @@ describe('AnnotationStore save frontier rollback', () => {
         store.createNote({
             kind: 'note',
             identity: {id: noteId},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -226,7 +227,7 @@ describe('AnnotationStore save frontier rollback', () => {
                     id: lateId,
                     pdfRef: '34R0',
                 },
-                pageIndex: 1,
+                pageIndex: requirePageIndex(1),
                 revision: 0,
                 persistedRevision: 0,
                 deleted: false,

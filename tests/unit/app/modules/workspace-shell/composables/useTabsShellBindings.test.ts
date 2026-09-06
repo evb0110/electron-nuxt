@@ -20,7 +20,12 @@ import {
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { cast } from '@tests/helpers/cast';
+import { requireDocumentRef } from '@contracts/documentRef';
+import {
+    createKeyboardEventFixture,
+    createWorkspaceAutomationStateSnapshot,
+    createWorkspaceExposeFixture,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 const mocks = vi.hoisted(() => ({
     lifecycleOrder: [] as string[],
@@ -77,15 +82,8 @@ vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => 
 
 function createOptions() {
     const toolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
-    const workspace = {
-        getAutomationStateSnapshot: vi.fn(() => ({
-            annotationComments: [],
-            annotationCommentsStatus: 'ready',
-            annotationDirty: false,
-            originalPath: null,
-            sortedAnnotationNoteWindows: [],
-            workingCopyPath: '/tmp/active.pdf',
-        })),
+    const workspace = createWorkspaceExposeFixture({
+        getAutomationStateSnapshot: vi.fn(() => createWorkspaceAutomationStateSnapshot({workingCopyPath: requireDocumentRef('/tmp/active.pdf')})),
         getToolbarSnapshot: vi.fn(() => toolbarSnapshot),
         handleSaveAs: vi.fn(),
         handleRepairSave: vi.fn(),
@@ -93,8 +91,8 @@ function createOptions() {
         handleUndo: vi.fn(),
         handleRedo: vi.fn(),
         waitForDocumentOpenSettled: vi.fn(async () => {}),
-    };
-    const activeWorkspace = ref(cast<IWorkspaceExpose>(workspace));
+    });
+    const activeWorkspace = ref<IWorkspaceExpose>(workspace);
 
     return {
         tabs: ref([{
@@ -136,15 +134,8 @@ function createOptions() {
 }
 
 function createWorkspaceForAutomation(snapshot: Partial<IWorkspaceToolbarSnapshot>) {
-    return cast<IWorkspaceExpose>({
-        getAutomationStateSnapshot: vi.fn(() => ({
-            annotationComments: [],
-            annotationCommentsStatus: 'ready',
-            annotationDirty: false,
-            originalPath: null,
-            sortedAnnotationNoteWindows: [],
-            workingCopyPath: `/tmp/page-${snapshot.currentPage ?? 1}.pdf`,
-        })),
+    return createWorkspaceExposeFixture({
+        getAutomationStateSnapshot: vi.fn(() => createWorkspaceAutomationStateSnapshot({workingCopyPath: requireDocumentRef(`/tmp/page-${snapshot.currentPage ?? 1}.pdf`)})),
         getToolbarSnapshot: vi.fn(() => ({
             ...createDefaultWorkspaceToolbarSnapshot(),
             ...snapshot,
@@ -260,7 +251,7 @@ describe('useTabsShellBindings', () => {
 
         expect(window.__evbTestApi).toBeUndefined();
         expect(window.__openFileDirect).not.toBe(options.openPathInAppropriateTab);
-        await expect(window.__openFileDirect?.('/tmp/sample.pdf')).resolves.toBeUndefined();
+        await expect(window.__openFileDirect?.(requireDocumentRef('/tmp/sample.pdf'))).resolves.toBeUndefined();
         unmount();
     });
 
@@ -278,7 +269,7 @@ describe('useTabsShellBindings', () => {
         const eventPromise = window.__evbTestApi?.waitForAutomationEvent('navigation-idle', event => event.detail.page === 3, 1_000);
         emitAutomationEvent('navigation-idle', {page: 3});
 
-        await expect(window.__evbTestApi?.openFile('/tmp/sample.pdf')).resolves.toBe(true);
+        await expect(window.__evbTestApi?.openFile(requireDocumentRef('/tmp/sample.pdf'))).resolves.toBe(true);
         expect(options.openPathInAppropriateTab).toHaveBeenCalledWith('/tmp/sample.pdf');
         expect(window.__evbTestApi?.getActiveTabId()).toBe('tab-1');
         expect(window.__evbTestApi?.isStartupOpenClaimPending()).toBe(false);
@@ -298,7 +289,7 @@ describe('useTabsShellBindings', () => {
 
         expect(window.__evbTestApi).toBeUndefined();
         expect(window.__openFileDirect).toBeTypeOf('function');
-        await expect(window.__openFileDirect?.('/tmp/sample.pdf')).resolves.toBe(false);
+        await expect(window.__openFileDirect?.(requireDocumentRef('/tmp/sample.pdf'))).resolves.toBe(false);
     });
 
     it('keeps direct-open dispatcher stable across shell binding remounts', async () => {
@@ -309,20 +300,20 @@ describe('useTabsShellBindings', () => {
         const dispatcher = window.__openFileDirect;
 
         expect(dispatcher).toBeTypeOf('function');
-        await expect(dispatcher?.('/tmp/first.pdf')).resolves.toBe(true);
+        await expect(dispatcher?.(requireDocumentRef('/tmp/first.pdf'))).resolves.toBe(true);
         expect(firstOptions.openPathInAppropriateTab).toHaveBeenCalledWith('/tmp/first.pdf');
 
         unmountFirst();
 
         expect(window.__openFileDirect).toBe(dispatcher);
-        await expect(window.__openFileDirect?.('/tmp/unbound.pdf')).resolves.toBe(false);
+        await expect(window.__openFileDirect?.(requireDocumentRef('/tmp/unbound.pdf'))).resolves.toBe(false);
 
         const secondOptions = createOptions();
         secondOptions.openPathInAppropriateTab = vi.fn(async () => true);
         const unmountSecond = await mountBindingsClient(secondOptions);
 
         expect(window.__openFileDirect).toBe(dispatcher);
-        await expect(window.__openFileDirect?.('/tmp/second.pdf')).resolves.toBe(true);
+        await expect(window.__openFileDirect?.(requireDocumentRef('/tmp/second.pdf'))).resolves.toBe(true);
         expect(secondOptions.openPathInAppropriateTab).toHaveBeenCalledWith('/tmp/second.pdf');
 
         unmountSecond();
@@ -590,7 +581,7 @@ describe('useTabsShellBindings', () => {
             const preventDefault = vi.fn();
             const stopPropagation = vi.fn();
             const stopImmediatePropagation = vi.fn();
-            capturedKeydown?.(cast<KeyboardEvent>({
+            capturedKeydown?.(createKeyboardEventFixture({
                 key: shortcut.key,
                 metaKey: true,
                 ctrlKey: false,
@@ -622,7 +613,7 @@ describe('useTabsShellBindings', () => {
             () => ({}) as ReturnType<typeof BrowserLogger.error>,
         );
 
-        capturedKeydown?.(cast<KeyboardEvent>({
+        capturedKeydown?.(createKeyboardEventFixture({
             key: 'o',
             metaKey: true,
             ctrlKey: false,
@@ -666,7 +657,7 @@ describe('useTabsShellBindings', () => {
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
         const preventDefault = vi.fn();
-        capturedKeydown?.(cast<KeyboardEvent>({
+        capturedKeydown?.(createKeyboardEventFixture({
             key: 'z',
             metaKey: true,
             ctrlKey: false,

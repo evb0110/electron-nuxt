@@ -7,13 +7,20 @@ import { clamp } from 'es-toolkit/math';
 import type { ComputedRef } from 'vue';
 import type { TaggedUnion } from 'type-fest';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    createNativeDocumentRefValue,
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type {
     IPdfPageMetric,
     TPdfSource,
 } from '@app/types/pdfUi';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import {
@@ -342,7 +349,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function seedTrustedPageGeometry(input: {
-        pageNumber: number;
+        pageNumber: TPageNumber;
         pageCount: number;
         width: number;
         height: number;
@@ -362,7 +369,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         return true;
     }
 
-    function hasExactPageGeometry(pageNumber: number) {
+    function hasExactPageGeometry(pageNumber: TPageNumber) {
         return isValidPageMetric(pageMetrics.value[pageNumber - 1])
             || trustedGeometrySeedPageNumber === pageNumber;
     }
@@ -386,7 +393,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     async function loadPageMetric(
         document: IPdfDocument,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         version: number,
     ): Promise<IPdfPageMetric | null> {
         if (pageNumber < 1 || pageNumber > document.numPages) {
@@ -488,7 +495,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 if (isValidPageMetric(pageMetrics.value[pageNumber - 1])) {
                     continue;
                 }
-                await loadPageMetric(document, pageNumber, version);
+                await loadPageMetric(document, requirePageNumber(pageNumber, totalPages), version);
             }
         }));
 
@@ -509,7 +516,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             return;
         }
 
-        await loadPageMetric(document, 1, version);
+        await loadPageMetric(document, requirePageNumber(1, document.numPages), version);
         if (version !== getRenderVersion() || document !== pdfDocument.value) {
             return;
         }
@@ -521,7 +528,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
 
     function leaseOwnedPage(
         document: IPdfDocument,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         retention: TPdfDocumentPageLeaseRetention = 'render-cache', signal?: AbortSignal,
     ) {
         if (pdfDocument.value !== document) {
@@ -561,14 +568,17 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             source,
         };
         const leasePage = (
-            pageNumber: number,
+            pageNumber: TPageNumber,
             retention: TPdfDocumentPageLeaseRetention = 'render-cache',
             signal?: AbortSignal,
         ) => leaseOwnedPage(document, pageNumber, retention, signal);
-        registerPdfDocumentPageLeaseOwner(document, leasePage);
+        registerPdfDocumentPageLeaseOwner(document, (pageNumber, retention) => (
+            leaseOwnedPage(document, requirePageNumber(pageNumber, document.numPages), retention)
+        ));
         activeRasterScheduler = ensurePdfPageRasterScheduler(document, {
             documentFence: captureFence(),
             leasePage,
+            maxConcurrency: Math.min(2, getPerformanceProfile().concurrentPdfRenders),
         });
         numPages.value = document.numPages;
         await primeInitialPageMetrics(document, version);
@@ -1061,15 +1071,20 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
                 }
                 return;
             }
+            const sourceIdentifier = documentRef
+                ?? (typeof source === 'string' ? source : null)
+                ?? (typeof source === 'object' && source !== null && 'path' in source ? source.path : 'memory');
             const pageSource = createPdfPageSource({
-                documentRef: documentRef ?? (typeof source === 'string' ? source : 'memory://pdf'),
+                documentRef: documentRef
+                    ?? (typeof source === 'string' ? parseDocumentRef(source) : null)
+                    ?? createNativeDocumentRefValue('/memory/pdf').path,
                 pdfDocument: document,
-                getPage: pageNumber => pageCache.getPage(pageNumber),
+                getPage: pageNumber => pageCache.getPage(requirePageNumber(pageNumber, document.numPages)),
                 renderPage: request => renderPdfDocumentPageSource({
                     document,
                     request,
                     surfaceBudget: authority.surfaceBudget,
-                    scopeId: `pdf-page-source:${String(documentRef ?? source ?? 'memory')}`,
+                    scopeId: `pdf-page-source:${sourceIdentifier}`,
                 }),
             });
             authority.bindSource(pageSource);
@@ -1164,8 +1179,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         isCurrent,
         subscribe,
         registerDisposable,
-        getPage: (pageNumber: number): Promise<IPdfPage> => pageCache.getPage(pageNumber),
-        leasePage: (pageNumber: number, retention: TPdfDocumentPageLeaseRetention = 'render-cache') => (
+        getPage: (pageNumber: TPageNumber): Promise<IPdfPage> => pageCache.getPage(pageNumber),
+        leasePage: (pageNumber: TPageNumber, retention: TPdfDocumentPageLeaseRetention = 'render-cache') => (
             retention === 'transient-background'
                 ? pageCache.leaseTransientBackgroundPage(pageNumber)
                 : pageCache.leasePage(pageNumber)

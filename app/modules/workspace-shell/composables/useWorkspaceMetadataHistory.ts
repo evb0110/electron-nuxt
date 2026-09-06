@@ -7,7 +7,7 @@ import {
     createPageLabelModel,
     materializePageLabelsForCompatibility,
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
-} from '@app/utils/pdfPageLabels';
+} from '@app/utils/document-viewer/pageLabels';
 import type { IDocumentPageLabelModel } from '@app/utils/document-viewer/pageLabels';
 import { maxWorkspaceMetadataHistoryEntries } from '@app/modules/workspace-shell/metadata/maxWorkspaceMetadataHistoryEntries';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
@@ -22,7 +22,7 @@ interface IWorkspaceMetadataSnapshot {
 const BOOKMARK_ENTRY_FIXED_BYTES = 120;
 const PAGE_LABEL_RANGE_FIXED_BYTES = 64;
 
-function estimateBookmarkBytes(entries: IPdfBookmarkEntry[]): number {
+function estimateBookmarkBytes(entries: readonly IPdfBookmarkEntry[]): number {
     let total = 0;
     for (const entry of entries) {
         total += BOOKMARK_ENTRY_FIXED_BYTES

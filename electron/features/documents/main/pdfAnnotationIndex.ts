@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {
     lstat,
     mkdtemp,
@@ -14,6 +13,11 @@ import type {
     IPdfAnnotationIndexOptions,
     IPdfAnnotationIndexSession,
 } from '@contracts/electronApiDocuments';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {createSessionId} from '@contracts/shared';
 import {createStaleRevisionError} from '@contracts/documentMutationErrors';
 import {
     parseDocumentRevisionToken,
@@ -82,6 +86,14 @@ interface IAnnotationIndexSessionState {
     canceled: boolean;
     released: boolean;
     cleanupPromise?: Promise<void>;
+}
+
+function requireDocumentRef(value: unknown): TDocumentRef {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
 }
 
 const sessions = new Map<string, IAnnotationIndexSessionState>();
@@ -328,14 +340,14 @@ export async function beginPdfAnnotationIndex(
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
-            documentRef: resolvedPath,
+            documentRef: requireDocumentRef(resolvedPath),
             expectedRevision: expectedRevisionToken,
             actualRevision: revision.token,
         });
     }
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
-    const sessionId = randomUUID();
+    const sessionId = createSessionId('pdf-annotation-index');
     const sidecarDirectory = await mkdtemp(join(getAppTempDir(), ANNOTATION_INDEX_DIRECTORY_PREFIX));
     const sidecarPath = join(sidecarDirectory, ANNOTATION_INDEX_FILE_NAME);
     const abortController = new AbortController();
@@ -439,7 +451,7 @@ export async function beginPdfAnnotationIndex(
     }
     return {
         sessionId,
-        documentRef: filePath,
+        documentRef: requireDocumentRef(filePath),
         documentRevisionToken: expectedRevisionToken,
         pageCount: session.index.pageCount,
         entryCount: session.index.entryCount,

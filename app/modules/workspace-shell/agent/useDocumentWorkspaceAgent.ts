@@ -19,7 +19,10 @@ import {
     type IAgentActionExecutionPolicy,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentActionRegistry';
 import { createDocumentWorkspaceAgentParsers } from '@app/modules/workspace-shell/agent/createDocumentWorkspaceAgentParsers';
-import { pageSelectionCount } from '@contracts/pageNumbers';
+import {
+    pageSelectionCount,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 export type { IOcrPopupAgentExpose } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 export const DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS = [
     'ui.open_sidebar_tab',
@@ -752,7 +755,10 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: getAgentPointNoteCreateOptions,
             async run(createOptions: ReturnType<typeof getAgentPointNoteCreateOptions>, _actionId, context) {
                 context?.assertCurrentDocument();
-                const result = await pdfViewerRef.value?.createPointNoteAnnotation(createOptions);
+                const result = await pdfViewerRef.value?.createPointNoteAnnotation({
+                    ...createOptions,
+                    pageNumber: requirePageNumber(createOptions.pageNumber),
+                });
                 if (!result) {
                     throw new Error('PDF viewer is not ready for annotation.create_note_at_point.');
                 }
@@ -787,7 +793,10 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: getAgentTextMarkupCreateOptions,
             async run(createOptions: ReturnType<typeof getAgentTextMarkupCreateOptions>, _actionId, context) {
                 context?.assertCurrentDocument();
-                const result = await pdfViewerRef.value?.createTextMarkupFromText(createOptions);
+                const result = await pdfViewerRef.value?.createTextMarkupFromText({
+                    ...createOptions,
+                    pageNumber: requirePageNumber(createOptions.pageNumber),
+                });
                 if (!result) {
                     throw new Error('PDF viewer is not ready for annotation.create_text_markup.');
                 }
@@ -804,7 +813,10 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
             parse: getAgentShapeCreateOptions,
             async run(createOptions: ReturnType<typeof getAgentShapeCreateOptions>, _actionId, context) {
                 context?.assertCurrentDocument();
-                const result = await pdfViewerRef.value?.createShapeAnnotation(createOptions);
+                const result = await pdfViewerRef.value?.createShapeAnnotation({
+                    ...createOptions,
+                    pageNumber: requirePageNumber(createOptions.pageNumber),
+                });
                 if (!result) {
                     throw new Error('PDF viewer is not ready for annotation.create_shape.');
                 }
@@ -837,7 +849,7 @@ export const useDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgentOpt
                 return {
                     saved: hadPendingSave,
                     canSave: canSave.value,
-                    pendingChangesAfterSave: saveSucceeded && canSave.value,
+                    pendingChangesAfterSave: canSave.value,
                     workingCopyPath: workingCopyPath.value,
                     originalPath: originalPath.value,
                 };

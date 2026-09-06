@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     stat,
     statfs,
@@ -93,10 +94,93 @@ export function createLaunchctlSessionProbe(
 }
 
 export const UTMCTL_VERSION_PATTERN = /\d+\.\d+(?:\.\d+)?/u;
+export const UTM_SCREENSHOT_PREFERENCE_DOMAIN = 'com.utmapp.UTM';
+export const UTM_SCREENSHOT_PREFERENCE_KEY = 'NoScreenshot';
+export const UTM_SCREENSHOT_PREFERENCE_COMMAND = '/usr/bin/defaults';
+export const UTM_SCREENSHOT_PREFERENCE_REMEDY = 'Before changing the preference, verify every VM is stopped and UTM has been quit normally. Then enable UTM Settings > Display > Disable VM screenshot, or run defaults write com.utmapp.UTM NoScreenshot -bool YES. Never target a personal VM.';
+const UTM_SCREENSHOT_PREFERENCE_MIN_VERSION = [
+    4,
+    7,
+    5,
+] as const;
+
+export interface IUtmScreenshotPreferenceStatus {
+    enabled: boolean;
+    detail: string;
+    remedy: string;
+}
 
 export function parseUtmctlVersion(text: string) {
     const match = UTMCTL_VERSION_PATTERN.exec(text);
     return match === null ? null : match[0];
+}
+
+export function isUtmScreenshotPreferenceRequired(version: string | null) {
+    if (version === null) {
+        return true;
+    }
+    const parts = version.split('.').map(Number);
+    if (parts.some(part => !Number.isInteger(part) || part < 0)) {
+        return true;
+    }
+    for (let index = 0; index < UTM_SCREENSHOT_PREFERENCE_MIN_VERSION.length; index += 1) {
+        const current = parts[index] ?? 0;
+        const minimum = UTM_SCREENSHOT_PREFERENCE_MIN_VERSION[index] ?? 0;
+        if (current > minimum) {
+            return true;
+        }
+        if (current < minimum) {
+            return false;
+        }
+    }
+    return true;
+}
+
+export async function readUtmScreenshotPreference(
+    runner: ICommandRunner,
+): Promise<IUtmScreenshotPreferenceStatus> {
+    let result;
+    try {
+        result = await runner.run(
+            UTM_SCREENSHOT_PREFERENCE_COMMAND,
+            [
+                'read',
+                UTM_SCREENSHOT_PREFERENCE_DOMAIN,
+                UTM_SCREENSHOT_PREFERENCE_KEY,
+            ],
+            {timeoutMs: 5_000},
+        );
+    } catch (error) {
+        return {
+            enabled: false,
+            detail: `Could not read ${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY}: ${getErrorMessage(error)}.`,
+            remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
+        };
+    }
+    if (result.exitCode !== 0 || result.timedOut) {
+        const detail = result.stderr.trim() || 'defaults read failed';
+        if (!result.timedOut && /(?:does not exist|not found)/iu.test(detail)) {
+            return {
+                enabled: false,
+                detail: `${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY} is unset; UTM periodic screenshot capture remains enabled.`,
+                remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
+            };
+        }
+        return {
+            enabled: false,
+            detail: `The ${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY} preference is unavailable: ${detail}.`,
+            remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
+        };
+    }
+    const value = result.stdout.trim().toLowerCase();
+    const enabled = value === '1' || value === 'true' || value === 'yes';
+    return {
+        enabled,
+        detail: value.length === 0
+            ? `${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY} is unset; UTM periodic screenshot capture remains enabled.`
+            : `${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY} is ${value}; ${enabled ? 'periodic screenshot capture is disabled.' : 'periodic screenshot capture remains enabled.'}`,
+        remedy: enabled ? 'No action needed.' : UTM_SCREENSHOT_PREFERENCE_REMEDY,
+    };
 }
 
 export interface IWindowsTestDoctorDependencies {
@@ -106,6 +190,7 @@ export interface IWindowsTestDoctorDependencies {
     env: NodeJS.ProcessEnv;
     launcherPath: string;
     hashFile(filePath: string): Promise<string>;
+    readUtmScreenshotPreference(): Promise<IUtmScreenshotPreferenceStatus>;
     freeBytes?(target: string): Promise<number | null>;
     loadConfig?(configFile: string): Promise<IWindowsTestHostConfig>;
 }
@@ -154,7 +239,7 @@ async function checkUtmctl(dependencies: IWindowsTestDoctorDependencies) {
     try {
         version = parseUtmctlVersion(await dependencies.utmctl.version());
     } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = getErrorMessage(error);
         const consentMissing = detectsAutomationConsentFailure(detail);
         checks.push(check(
             consentMissing ? 'automation-consent' : 'utmctl-present',
@@ -172,6 +257,15 @@ async function checkUtmctl(dependencies: IWindowsTestDoctorDependencies) {
         `utmctl reported version ${version ?? 'in an unparsable form'}.`,
         'Install a UTM build whose utmctl prints a parsable version.',
     ));
+    if (isUtmScreenshotPreferenceRequired(version)) {
+        const screenshotPreference = await dependencies.readUtmScreenshotPreference();
+        checks.push(check(
+            'utm-screenshot-preference',
+            screenshotPreference.enabled,
+            screenshotPreference.detail,
+            screenshotPreference.remedy,
+        ));
+    }
 
     try {
         const registered = await dependencies.utmctl.list();
@@ -185,7 +279,7 @@ async function checkUtmctl(dependencies: IWindowsTestDoctorDependencies) {
         checks.push(check(
             'automation-consent',
             false,
-            `utmctl list failed: ${error instanceof Error ? error.message : String(error)}.`,
+            `utmctl list failed: ${getErrorMessage(error)}.`,
             'Grant the qualified launcher Automation access to UTM in System Settings > Privacy & Security > Automation, then retry.',
         ));
     }
@@ -208,7 +302,7 @@ async function checkGoldenImage(
         return check(
             'golden-image-stopped',
             false,
-            `The golden image ${config.goldenVmId} could not be queried: ${error instanceof Error ? error.message : String(error)}.`,
+            `The golden image ${config.goldenVmId} could not be queried: ${getErrorMessage(error)}.`,
             'Register the golden image in UTM and record its UUID as goldenVmId.',
         );
     }
@@ -280,7 +374,7 @@ export async function runWindowsTestDoctor(
             false,
             error instanceof WindowsTestConfigError
                 ? `${error.kind}: ${error.message}`
-                : `The host configuration could not be loaded: ${error instanceof Error ? error.message : String(error)}.`,
+                : `The host configuration could not be loaded: ${getErrorMessage(error)}.`,
             `Create ${dependencies.layout.configFile} and record the golden image, the test VM allowlist and the retention policy.`,
         ));
     }
@@ -389,7 +483,7 @@ export async function runWindowsTestDoctor(
         'launcher-qualified',
         config.qualifiedLaunchers.includes(dependencies.launcherPath),
         `Launcher ${dependencies.launcherPath} against ${config.qualifiedLaunchers.length} qualified launchers.`,
-        'Add this launcher to qualifiedLaunchers after granting it Automation consent for UTM.',
+        'Complete the documented live launcher qualification after granting UTM Automation consent, then record this launcher in qualifiedLaunchers.',
     ));
 
     return {

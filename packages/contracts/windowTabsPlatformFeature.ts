@@ -1,5 +1,8 @@
 import type { TPaneDirection } from '@contracts/editorPanes';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type {
     IWindowTabIncomingTransfer,
     IWindowTabTargetWindow,
@@ -29,6 +32,7 @@ import {
     type TFeatureEventMap,
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
+import {requireEpochMs} from '@contracts/timestamps';
 
 type TVoidResult = ReturnType<() => void>;
 
@@ -40,12 +44,18 @@ const checkpointDiscardToken = s.fromParser<string>((value) => {
     }
     return value;
 }, () => '1');
-const documentRef = s.fromParser<TDocumentRef>((value) => {
-    if (typeof value !== 'string' || value.trim().length === 0) {
-        throw new Error('invalid document reference');
+const requireDocumentRef = (value: string): TDocumentRef => {
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        throw new TypeError('invalid document reference');
     }
-    return value;
-}, () => '/tmp/document.pdf');
+    return parsed;
+};
+const documentRef = s.branded(
+    s.string('/tmp/document.pdf'),
+    (value): value is TDocumentRef => parseDocumentRef(value) !== null,
+    'invalid document reference',
+);
 const paneDirection = s.fromParser<TPaneDirection>((value) => {
     if (value !== 'left' && value !== 'right' && value !== 'up' && value !== 'down') {
         throw new Error('invalid pane direction');
@@ -54,7 +64,7 @@ const paneDirection = s.fromParser<TPaneDirection>((value) => {
 }, () => 'right');
 const checkpointExample = (): IWorkspaceCheckpoint => ({
     version: 1,
-    capturedAt: 1,
+    capturedAt: requireEpochMs(1),
     activePaneId: null,
     activeTabId: null,
     layout: null,
@@ -83,15 +93,15 @@ const transferRequestExample = (): IWindowTabTransferRequest => ({
     },
     tab: {
         fileName: 'sample.pdf',
-        originalPath: '/tmp/sample.pdf',
+        originalPath: requireDocumentRef('/tmp/sample.pdf'),
         isDirty: false,
         isDjvu: false,
     },
     payload: {
         kind: 'pdfSnapshot',
         fileName: 'sample.pdf',
-        originalPath: '/tmp/sample.pdf',
-        snapshotPath: '/tmp/snapshot.pdf',
+        originalPath: requireDocumentRef('/tmp/sample.pdf'),
+        snapshotPath: requireDocumentRef('/tmp/snapshot.pdf'),
         isDirty: false,
     },
 });

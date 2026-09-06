@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import {
     NATIVE_ERROR_CODES,
     type TNativeErrorCode,
@@ -43,6 +46,11 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+import type {
+    TJobId,
+    TRequestId,
+} from '@contracts/shared';
+import type {TEpochMs} from '@contracts/timestamps';
 
 export interface IScanCleanupOwnerContext {
     /** Stable for one renderer tab/session; Electron combines this with the sending WebContents id. */
@@ -109,9 +117,9 @@ export function isScanCleanupErrorEnvelope(value: unknown): value is IScanCleanu
 
 export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
     /** Renderer-created token joining the raw raster to this exact request generation. */
-    requestId: string;
+    requestId: TRequestId;
     sourcePdfPath: string;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     options: IScanCleanupOptions;
     documentPrior?: IScanCleanupDocumentPrior;
     /**
@@ -162,7 +170,7 @@ export interface IScanCleanupPreviewRequest extends IScanCleanupOwnerContext {
 }
 
 export interface IScanCleanupRawPreviewResult {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     totalPages: number;
     rawImageData: Uint8Array;
     rawWidthPx: number;
@@ -171,7 +179,7 @@ export interface IScanCleanupRawPreviewResult {
 
 /** The raw raster pushed ahead of the cleaned outputs of the request that asked for it. */
 export interface IScanCleanupRawPreviewEvent
-    extends IScanCleanupRawPreviewResult, IScanCleanupOwnerContext { requestId: string; }
+    extends IScanCleanupRawPreviewResult, IScanCleanupOwnerContext { requestId: TRequestId; }
 
 export interface IScanCleanupPreviewCancelRequest extends IScanCleanupOwnerContext {
     sourcePdfPath: string;
@@ -384,8 +392,8 @@ export interface IScanCleanupPreviewOutput {
 
 export interface IScanCleanupPreviewResult {
     /** Request generation that produced this result; present on current IPC results. */
-    requestId?: string;
-    pageNumber: number;
+    requestId?: TRequestId;
+    pageNumber: TPageNumber;
     totalPages: number;
     rawImageData: Uint8Array;
     rawWidthPx: number;
@@ -424,7 +432,7 @@ export interface IScanCleanupDetectionRequest extends IScanCleanupOwnerContext {
  * resolution.
  */
 export interface IScanCleanupSourcePageMetadata {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     xPoints: number;
     yPoints: number;
     widthPoints: number;
@@ -447,7 +455,7 @@ export interface IScanCleanupSourcePageMetadata {
  * treating it as a user-authored override.
  */
 export interface IScanCleanupPagePlanEvidence {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     rotationDegrees: TScanCleanupPageRotation;
     layoutClassification: TScanCleanupLayoutClassification;
     automaticSplit?: IScanCleanupNormalizedSplit;
@@ -465,7 +473,7 @@ export interface IScanCleanupPagePlanEvidence {
  * in the renderer or across IPC.
  */
 export interface IScanCleanupPlacementAnchorSummarySample {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     half: TScanCleanupOutputHalf;
     /** The source content-box top, normalized to the document reference height. */
     yNormalized: number;
@@ -498,7 +506,7 @@ export interface IScanCleanupPlacementAnchorSummary {
 }
 
 export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationMetadata {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     /** Monotonic within one detection job for this page's provisional/reconciled verdicts. */
     revision?: number;
     classification: IScanCleanupPreviewMetadata['layoutClassification'];
@@ -522,7 +530,7 @@ export interface IScanCleanupDetectionResult extends IScanCleanupReconciliationM
 }
 
 interface IScanCleanupDetectionJobBase {
-    jobId: string;
+    jobId: TJobId;
     /**
      * Canonical matched-canvas plan identity for the classifications settled
      * so far. The pre-detection plan is represented by the empty string, so
@@ -537,7 +545,7 @@ interface IScanCleanupDetectionJobBase {
     /** Bounded document-wide calibration for xlarge `ink` placement. */
     placementAnchorSummary?: IScanCleanupPlacementAnchorSummary;
     results: IScanCleanupDetectionResult[];
-    updatedAtMs: number;
+    updatedAtMs: TEpochMs;
 }
 
 export type TScanCleanupDetectionJobState =
@@ -557,11 +565,11 @@ export type TScanCleanupDetectionJobState =
 export type TScanCleanupDetectionStartResult =
     | {
         started: true;
-        jobId: string
+        jobId: TJobId
     }
     | {
         started: false;
-        jobId: string;
+        jobId: TJobId;
         error: string;
         errorCode: TScanCleanupErrorCode
     };
@@ -597,6 +605,15 @@ export interface IScanCleanupStartRequest extends IScanCleanupOwnerContext {
 }
 
 const s = runtimeSchema;
+const summaryPageNumberValue = s.number({
+    integer: true,
+    min: 1,
+    message: 'invalid scan-cleanup summary',
+});
+const summaryPageNumber = s.fromParser<TPageNumber>(
+    value => requirePageNumber(summaryPageNumberValue.decode(value)),
+    () => requirePageNumber(1),
+);
 const summaryCount = s.number({
     integer: true,
     min: 0,
@@ -613,11 +630,7 @@ const summaryCount = s.number({
  */
 export const SCAN_CLEANUP_SUMMARY_WARNING_EVENT_SCHEMA = s.object({
     event: SCAN_CLEANUP_WARNING_EVENT_SCHEMA,
-    pageNumber: s.optional(s.number({
-        integer: true,
-        min: 1,
-        message: 'invalid scan-cleanup summary',
-    })),
+    pageNumber: s.optional(summaryPageNumber),
     half: s.optional(s.oneOf([
         'full',
         'left',
@@ -649,9 +662,9 @@ export const SCAN_CLEANUP_SUMMARY_SCHEMA = s.object({
 export type TScanCleanupSummary = TInferSchema<typeof SCAN_CLEANUP_SUMMARY_SCHEMA>;
 
 interface IScanCleanupJobBase {
-    jobId: string;
+    jobId: TJobId;
     progress: TScanCleanupProgress;
-    updatedAtMs: number;
+    updatedAtMs: TEpochMs;
 }
 
 export type TScanCleanupJobState =
@@ -673,12 +686,12 @@ export type TScanCleanupJobState =
 export type TScanCleanupStartResult =
     | {
         started: true;
-        jobId: string;
+        jobId: TJobId;
         outputPdfPath: string
     }
     | {
         started: false;
-        jobId: string;
+        jobId: TJobId;
         error: string;
         errorCode: TScanCleanupErrorCode
     };

@@ -1,3 +1,4 @@
+import { requireEpochMs } from '@contracts/timestamps';
 // @vitest-environment happy-dom
 
 import {
@@ -52,7 +53,7 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
         kindLabel: 'Highlight',
         subtype: 'Highlight',
         author: null,
-        modifiedAt: 1_700_000_000_000,
+        modifiedAt: requireEpochMs(1_700_000_000_000),
         color: null,
         uid: null,
         annotationId: 'ann-1',

@@ -18,6 +18,7 @@ import {
     mapPageNumberThroughPageIdentityDelta,
     type IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IOcrIndexV3Manifest} from '@contracts/ocrIndex';
 import {parseOcrIndexV3Manifest} from '@contracts/ocrIndex';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -557,9 +558,7 @@ function serializeIdentityState(
                 count,
                 identitySeed: segment.identitySeed,
                 identityStart: segment.identityStart + offset,
-                ...(segment.pageIds === undefined
-                    ? {}
-                    : {pageIds: segment.pageIds.slice(offset, offset + count)}),
+                pageIds: segment.pageIds.slice(offset, offset + count),
             };
             ranges.push(range);
             startPage += count;
@@ -818,7 +817,10 @@ async function remapSearchIndexes(workingCopyPath: string, delta: IPageIdentityD
         loadCompactSearchIndex(workingCopyPath, {documentRevision: previousRevision.token}),
     ]);
     const remapPages = <T extends {pageNumber: number}>(pages: readonly T[]) => pages.flatMap(page => {
-        const pageNumber = mapPageNumberThroughPageIdentityDelta(delta, page.pageNumber);
+        const pageNumber = mapPageNumberThroughPageIdentityDelta(
+            delta,
+            requirePageNumber(page.pageNumber),
+        );
         return pageNumber === null ? [] : [{
             ...page,
             pageNumber,
@@ -930,7 +932,7 @@ async function remapOcrCatalog(workingCopyPath: string, delta: IPageIdentityDelt
     }
     const replacement = `${ocrDir}.${process.pid}.${randomUUID()}.tmp`;
     await mkdir(replacement, {recursive: true});
-    const mappings: IOcrIndexV3Manifest['pages'] = {};
+    const mappings: Record<number, IOcrIndexV3Manifest['pages'][number]> = {};
     for (const [
         index,
         identity,

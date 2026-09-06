@@ -3,6 +3,9 @@ import type {
     IPdfSearchResponse,
 } from '@contracts/search';
 import type {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireRequestId} from '@contracts/shared';
 import {
     beforeEach,
     describe,
@@ -27,12 +30,12 @@ const { browserDjvuTextSearchCapability } = await import(
 
 interface ISearchWorkerOptionsForTest {
     onProgress?: (progress: IPdfSearchProgress) => void;
-    requestId: string;
+    requestId: ReturnType<typeof requireRequestId>;
     signal: AbortSignal;
 }
 
 interface IWorkerForTest {
-    source: string;
+    source: TDocumentRef;
     terminate: ReturnType<typeof vi.fn>;
 }
 
@@ -50,7 +53,7 @@ function createDeferred<T>() {
     };
 }
 
-function createSearchOptions(requestId: string) {
+function createSearchOptions(requestId: ReturnType<typeof requireRequestId>) {
     return {
         requestId,
         pageCount: 1,
@@ -70,7 +73,7 @@ describe('browserDjvuTextSearchCapability', () => {
     beforeEach(() => {
         calls.length = 0;
         vi.clearAllMocks();
-        mocks.createWorker.mockImplementation(async (source: string) => ({
+        mocks.createWorker.mockImplementation(async (source: TDocumentRef) => ({
             source,
             terminate: vi.fn(),
         }));
@@ -89,14 +92,14 @@ describe('browserDjvuTextSearchCapability', () => {
     });
 
     it('lets the same request ID run concurrently on different document sources and cancels all matches', async () => {
-        const requestId = 'shared-browser-search';
+        const requestId = requireRequestId('shared-browser-search');
         const firstRun = browserDjvuTextSearchCapability.searchText(
-            'browser://documents/first.djvu',
+            requireDocumentRef('browser://documents/first.djvu'),
             'needle',
             createSearchOptions(requestId),
         );
         const secondRun = browserDjvuTextSearchCapability.searchText(
-            'browser://documents/second.djvu',
+            requireDocumentRef('browser://documents/second.djvu'),
             'needle',
             createSearchOptions(requestId),
         );
@@ -110,7 +113,7 @@ describe('browserDjvuTextSearchCapability', () => {
         expect(calls[1]!.options.signal.aborted).toBe(true);
 
         const replacementRun = browserDjvuTextSearchCapability.searchText(
-            'browser://documents/replacement.djvu',
+            requireDocumentRef('browser://documents/replacement.djvu'),
             'needle',
             createSearchOptions(requestId),
         );
@@ -145,20 +148,20 @@ describe('browserDjvuTextSearchCapability', () => {
     });
 
     it('supersedes only the same source generation and suppresses its late progress', async () => {
-        const requestId = 'same-source-browser-search';
+        const requestId = requireRequestId('same-source-browser-search');
         const progress: IPdfSearchProgress[] = [];
         const unsubscribe = browserDjvuTextSearchCapability.onTextSearchProgress((event) => {
             progress.push(event);
         });
         try {
             const firstRun = browserDjvuTextSearchCapability.searchText(
-                'browser://documents/book.djvu',
+                requireDocumentRef('browser://documents/book.djvu'),
                 'first',
                 createSearchOptions(requestId),
             );
             await vi.waitFor(() => expect(calls).toHaveLength(1));
             const currentRun = browserDjvuTextSearchCapability.searchText(
-                'browser://documents/book.djvu',
+                requireDocumentRef('browser://documents/book.djvu'),
                 'current',
                 createSearchOptions(requestId),
             );
@@ -206,9 +209,9 @@ describe('browserDjvuTextSearchCapability', () => {
         mocks.createWorker.mockRejectedValue(new Error('browser DjVu worker must not be created'));
 
         await expect(browserDjvuTextSearchCapability.searchText(
-            '/tmp/native.djvu',
+            requireDocumentRef('/tmp/native.djvu'),
             'needle',
-            createSearchOptions('native-bridge-missing'),
+            createSearchOptions(requireRequestId('native-bridge-missing')),
         )).rejects.toMatchObject({
             code: 'native-unavailable',
             name: 'PdfCombineCapabilityError',

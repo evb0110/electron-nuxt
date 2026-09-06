@@ -10,6 +10,7 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import type { IRecentFile } from '@contracts/shared';
 import { waitUntilIdle } from '@app/utils/asyncHelpers';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
 import { didOpenDocument } from '@app/types/documentOpenOutcome';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
@@ -111,13 +112,6 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         };
     }
 
-    function stringifyError(error: unknown) {
-        if (error instanceof Error) {
-            return error.message;
-        }
-        return String(error);
-    }
-
     function hasBusyOperation() {
         return isAnySaving.value
             || isHistoryBusy.value
@@ -172,7 +166,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         try {
             await handleSave();
         } catch (saveError) {
-            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: stringifyError(saveError)}, {
+            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: getErrorMessage(saveError)}, {
                 code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
                 context: {},
             });
@@ -207,7 +201,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
             return await savePendingChangesBeforeSwitch();
         } catch (persistError) {
-            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: stringifyError(persistError)}, {
+            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: getErrorMessage(persistError)}, {
                 code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
                 context: {},
             });
@@ -355,7 +349,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return didCompletePageFileOpen(await handleOpenFileWithResultDetailed(result));
     }
 
-    async function handleOpenFileDirectBatchWithPersistDetailed(paths: string[]) {
+    async function handleOpenFileDirectBatchWithPersistDetailed(paths: TDocumentRef[]) {
         const canProceed = await ensureCurrentDocumentPersistedBeforeSwitch();
         if (!canProceed) {
             return recordOpenOutcome({
@@ -366,7 +360,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return runOpenOutcomeDetailed(() => openFileDirectBatch(paths));
     }
 
-    async function handleOpenFileDirectBatchWithPersist(paths: string[]) {
+    async function handleOpenFileDirectBatchWithPersist(paths: TDocumentRef[]) {
         return didCompletePageFileOpen(await handleOpenFileDirectBatchWithPersistDetailed(paths));
     }
 

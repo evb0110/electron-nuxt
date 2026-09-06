@@ -12,7 +12,10 @@ import {
 import type { TAnnotationTool } from '@app/types/annotations';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { TPdfSource } from '@app/types/pdfUi';
-import { cast } from '@tests/helpers/cast';
+import {
+    createKeyboardEventFixture,
+    type IKeyboardEventFixtureOptions,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 const mocks = vi.hoisted(() => ({
     useEventListener: vi.fn(),
@@ -69,6 +72,19 @@ function createDeps() {
 let capturedOnEventFired: ((e: unknown) => void) | undefined;
 let capturedPointerDown: ((e: PointerEvent) => void) | undefined;
 let capturedKeyDown: ((e: KeyboardEvent) => void) | undefined;
+
+interface IPointerDownTargetFixture {closest: (selector: string) => unknown;}
+
+function createPointerDownEvent(target: EventTarget | IPointerDownTargetFixture): PointerEvent {
+    const event = new Event('pointerdown');
+    Object.defineProperty(event, 'target', {
+        configurable: true,
+        value: target,
+    });
+
+    // happy-dom does not provide the PointerEvent shape used by this listener.
+    return event as PointerEvent;
+}
 
 describe('usePageShortcuts', () => {
     beforeEach(() => {
@@ -138,8 +154,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventZoomIn = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: '=',
             code: 'Equal',
             metaKey: true,
@@ -152,8 +167,7 @@ describe('usePageShortcuts', () => {
         expect(deps.handleZoomIn).toHaveBeenCalledOnce();
 
         const preventZoomOut = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: '-',
             code: 'Minus',
             metaKey: true,
@@ -166,8 +180,7 @@ describe('usePageShortcuts', () => {
         expect(deps.handleZoomOut).toHaveBeenCalledOnce();
 
         const preventActualSize = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: '0',
             code: 'Digit0',
             metaKey: true,
@@ -187,8 +200,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 'p',
             code: 'KeyP',
             metaKey: true,
@@ -212,8 +224,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 'p',
             code: 'KeyP',
             metaKey: true,
@@ -236,8 +247,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 'p',
             code: 'KeyP',
             metaKey: true,
@@ -259,8 +269,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -290,8 +299,7 @@ describe('usePageShortcuts', () => {
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -315,7 +323,7 @@ describe('usePageShortcuts', () => {
         const preventDefault = vi.fn();
         const stopPropagation = vi.fn();
 
-        capturedKeyDown?.(cast<KeyboardEvent>({
+        capturedKeyDown?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -341,7 +349,7 @@ describe('usePageShortcuts', () => {
         const preventDefault = vi.fn();
         const stopPropagation = vi.fn();
 
-        capturedKeyDown?.(cast<KeyboardEvent>({
+        capturedKeyDown?.(createKeyboardEventFixture({
             key: 'p',
             code: 'KeyP',
             metaKey: true,
@@ -367,7 +375,7 @@ describe('usePageShortcuts', () => {
         const preventDefault = vi.fn();
         const stopPropagation = vi.fn();
 
-        capturedKeyDown?.(cast<KeyboardEvent>({
+        capturedKeyDown?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -393,7 +401,7 @@ describe('usePageShortcuts', () => {
 
         const preventDefault = vi.fn();
         const stopPropagation = vi.fn();
-        capturedKeyDown?.(cast<KeyboardEvent>({
+        capturedKeyDown?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -417,8 +425,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 's',
             code: 'KeyS',
             metaKey: true,
@@ -439,8 +446,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 'b',
             code: 'KeyB',
             metaKey: true,
@@ -467,8 +473,7 @@ describe('usePageShortcuts', () => {
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 'b',
             code: 'KeyB',
             metaKey: true,
@@ -494,8 +499,7 @@ describe('usePageShortcuts', () => {
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(fakeInput, HTMLElement.prototype);
 
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 'f',
             code: 'KeyF',
             metaKey: true,
@@ -517,8 +521,7 @@ describe('usePageShortcuts', () => {
         const { usePageShortcuts } = await import('@app/modules/workspace-shell/composables/usePageShortcuts');
         usePageShortcuts(deps);
 
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 'Escape',
             code: 'Escape',
             metaKey: false,
@@ -537,8 +540,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 'Delete',
             code: 'Delete',
             metaKey: false,
@@ -569,8 +571,7 @@ describe('usePageShortcuts', () => {
             'Backspace',
         ]) {
             const preventDefault = vi.fn();
-            capturedOnEventFired?.(cast<KeyboardEvent>({
-                type: 'keydown',
+            capturedOnEventFired?.(createKeyboardEventFixture({
                 key,
                 code: key,
                 metaKey: false,
@@ -591,8 +592,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 'b',
             code: 'KeyB',
             metaKey: true,
@@ -613,8 +613,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: 'p',
             code: 'KeyP',
             metaKey: true,
@@ -636,8 +635,7 @@ describe('usePageShortcuts', () => {
         usePageShortcuts(deps);
 
         const preventFitWidth = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: '1',
             code: 'Digit1',
             metaKey: true,
@@ -650,8 +648,7 @@ describe('usePageShortcuts', () => {
         expect(deps.handleFitMode).toHaveBeenNthCalledWith(1, 'width');
 
         const preventFitHeight = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key: '2',
             code: 'Digit2',
             metaKey: true,
@@ -675,8 +672,7 @@ describe('usePageShortcuts', () => {
             '2',
         ]) {
             const preventDefault = vi.fn();
-            capturedOnEventFired?.(cast<KeyboardEvent>({
-                type: 'keydown',
+            capturedOnEventFired?.(createKeyboardEventFixture({
                 key,
                 code: `Digit${key}`,
                 metaKey: true,
@@ -690,10 +686,9 @@ describe('usePageShortcuts', () => {
         expect(deps.handleFitMode).not.toHaveBeenCalled();
     });
 
-    function pressPagingKey(key: string, overrides: Record<string, unknown> = {}) {
+    function pressPagingKey(key: string, overrides: Partial<IKeyboardEventFixtureOptions> = {}) {
         const preventDefault = vi.fn();
-        capturedOnEventFired?.(cast<KeyboardEvent>({
-            type: 'keydown',
+        capturedOnEventFired?.(createKeyboardEventFixture({
             key,
             code: key,
             metaKey: false,
@@ -889,7 +884,7 @@ describe('usePageShortcuts', () => {
         vi.stubGlobal('HTMLElement', class HTMLElementStub {});
         Object.setPrototypeOf(target, HTMLElement.prototype);
 
-        capturedPointerDown?.(cast<PointerEvent>({target}));
+        capturedPointerDown?.(createPointerDownEvent(target));
 
         expect(deps.closeShapeProperties).toHaveBeenCalledOnce();
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();

@@ -198,7 +198,11 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
 
         const thumbs = el.querySelectorAll('.pdf-thumbnail');
         for (let i = 0; i < thumbs.length; i++) {
-            const rect = thumbs[i]!.getBoundingClientRect();
+            const thumb = thumbs[i];
+            if (!thumb) {
+                continue;
+            }
+            const rect = thumb.getBoundingClientRect();
             if (clientY < rect.top + rect.height / 2) {
                 return i;
             }
@@ -219,12 +223,20 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         }
 
         const sortedPages = [...pages].sort((a, b) => a - b);
+        const firstSortedPage = sortedPages[0];
+        if (firstSortedPage === undefined) {
+            return null;
+        }
         if (onMove && (compactMoveRanges || sortedPages.length === 1)) {
             const ranges = compactMoveRanges ?? [{
-                startPage: sortedPages[0]!,
-                endPage: sortedPages[0]!,
+                startPage: firstSortedPage,
+                endPage: firstSortedPage,
             }];
-            const page = ranges[0]!.startPage;
+            const firstRange = ranges[0];
+            if (!firstRange) {
+                return null;
+            }
+            const page = firstRange.startPage;
             return {
                 total,
                 sortedPages,
@@ -250,10 +262,9 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             }
         }
 
-        const firstDraggedPage = sortedPages[0]!;
-        const originalRestInsertIndex = nonDraggedPrefixBySlot[firstDraggedPage - 1] ?? 0;
+        const originalRestInsertIndex = nonDraggedPrefixBySlot[firstSortedPage - 1] ?? 0;
         const canBeNoOp = sortedPages.every(
-            (page, index) => page === firstDraggedPage + index,
+            (page, index) => page === firstSortedPage + index,
         );
 
         return {
@@ -271,7 +282,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         context: IDragReorderContext,
     ) {
         if (context.compactMove) {
-            return pageMoveRangesRestInsertIndexForContext(insertAt, context);
+            return pageMoveRangesRestInsertIndexForContext(insertAt, context.total, context.compactMove);
         }
         const clamped = clamp(Math.floor(insertAt), 0, context.total);
         return context.nonDraggedPrefixBySlot[clamped] ?? 0;
@@ -279,12 +290,13 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
 
     function pageMoveRangesRestInsertIndexForContext(
         insertAt: number,
-        context: IDragReorderContext,
+        total: number,
+        compactMove: NonNullable<IDragReorderContext['compactMove']>,
     ) {
         const move = createPageMoveRanges(
-            context.total,
-            context.compactMove!.ranges,
-            clamp(Math.floor(insertAt), 0, context.total),
+            total,
+            compactMove.ranges,
+            clamp(Math.floor(insertAt), 0, total),
         );
         return pageMoveRangesRestInsertIndex(move);
     }
@@ -467,14 +479,19 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
                     insertAt,
                 );
                 if (!isPageMoveRangesNoOp(move)) {
-                    const operation: TPageMoveOperation = move.ranges.length === 1
-                        ? createPageMoveRange(
+                    let operation: TPageMoveOperation = move;
+                    if (move.ranges.length === 1) {
+                        const firstRange = move.ranges[0];
+                        if (!firstRange) {
+                            return;
+                        }
+                        operation = createPageMoveRange(
                             move.pageCount,
-                            move.ranges[0]!.startPage,
-                            move.ranges[0]!.endPage,
+                            firstRange.startPage,
+                            firstRange.endPage,
                             move.insertAt,
-                        )
-                        : move;
+                        );
+                    }
                     if (onMove) onMove(operation);
                     else onReorder(
                         'ranges' in operation

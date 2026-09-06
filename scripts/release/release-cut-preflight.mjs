@@ -1,9 +1,15 @@
 #!/usr/bin/env node
 
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {assertReleaseCutPreconditions} from './cut-release.mjs';
 
+/** @typedef {'patch' | 'minor' | 'major'} TReleaseLevel */
+/** @typedef {{currentVersion: string, nextVersion: string, upstream: {ref: string}}} IPreflightResult */
+/** @typedef {(options: {context: string, level: TReleaseLevel}) => Promise<IPreflightResult>} TAssertPreconditions */
+
+/** @param {{assertPreconditions?: TAssertPreconditions, level?: TReleaseLevel, write?: (message: string) => unknown}} [options] @returns {Promise<IPreflightResult>} */
 export async function runReleasePreflight({
     assertPreconditions = assertReleaseCutPreconditions,
     level = 'patch',
@@ -33,7 +39,7 @@ const isMain = process.argv[1]
 
 if (isMain) {
     runReleasePreflight().catch(error => {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.stderr.write(`${getCliErrorMessage(error)}\n`);
         process.exitCode = 1;
     });
 }

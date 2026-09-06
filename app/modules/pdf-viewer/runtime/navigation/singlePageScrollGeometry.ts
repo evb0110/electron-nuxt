@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import { clamp } from 'es-toolkit/math';
 import type { TPdfViewMode } from '@contracts/shared';
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
@@ -15,7 +18,7 @@ interface IPageRowGeometry {
 
 interface IPageRowGeometryOptions {
     container: HTMLElement;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     totalPages: number;
     viewMode: TPdfViewMode;
 }
@@ -88,8 +91,11 @@ export function getPageRowGeometry(options: IPageRowGeometryOptions): IPageRowGe
     let rowBottom = Number.NEGATIVE_INFINITY;
     let foundAnyPage = false;
 
-    for (let rowPage = rowBounds.start; rowPage <= rowBounds.end; rowPage += 1) {
-        const pageElement = getPageContainerByNumber(options.container, rowPage);
+    for (let rowPage = Number(rowBounds.start); rowPage <= Number(rowBounds.end); rowPage += 1) {
+        const pageElement = getPageContainerByNumber(
+            options.container,
+            requirePageNumber(rowPage, options.totalPages),
+        );
         if (!pageElement) {
             continue;
         }
@@ -132,7 +138,10 @@ function getPageScrollBoundsFromGeometry(
 }
 
 export function getPageScrollBounds(options: IPageScrollBoundsOptions) {
-    const targetPage = clamp(options.pageNumber, 1, options.totalPages);
+    const targetPage = requirePageNumber(
+        clamp(options.pageNumber, 1, options.totalPages),
+        options.totalPages,
+    );
     const rowGeometry = getPageRowGeometry({
         container: options.container,
         pageNumber: targetPage,
@@ -337,7 +346,7 @@ export function resolveMountedPageSnapTarget(options: IMountedPageSnapTargetOpti
         : 0;
     const targetGeometry = getPageRowGeometry({
         container: options.container,
-        pageNumber: options.targetPage,
+        pageNumber: requirePageNumber(options.targetPage, options.totalPages),
         totalPages: options.totalPages,
         viewMode: options.viewMode,
     }) ?? {

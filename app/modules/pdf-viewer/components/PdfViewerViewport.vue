@@ -56,6 +56,10 @@ import type {
     ComponentPublicInstance,
     StyleValue,
 } from 'vue';
+import {
+    requirePageNumber,
+    type TPageNumber,
+} from '@contracts/pageNumbers';
 import PdfViewerPage from '@app/modules/pdf-viewer/components/PdfViewerPage.vue';
 import { flattenPdfVirtualPageSegments } from '@app/modules/pdf-viewer/runtime/composables/flattenPdfVirtualPageSegments';
 import { injectDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
@@ -76,17 +80,17 @@ interface IProps {
     containerStyle: StyleValue;
     virtualPageSegments: IPdfVirtualPageSegment[];
     initialPageShell?: boolean;
-    initialPageShellPage?: number;
-    openingPageFramePage?: number | null;
+    initialPageShellPage?: TPageNumber;
+    openingPageFramePage?: TPageNumber | null;
     openingPageFrameStyle?: Record<string, string> | null;
-    shouldShowSkeleton: (page: number) => boolean;
-    isPageRenderFailed: (page: number) => boolean;
+    shouldShowSkeleton: (page: TPageNumber) => boolean;
+    isPageRenderFailed: (page: TPageNumber) => boolean;
     pageRenderErrorLabel: string;
-    isSpreadSingle: (page: number) => boolean;
-    isBufferedPage: (page: number) => boolean;
-    isRenderedPage: (page: number) => boolean;
-    getPageScale: (page: number) => IPdfPageScale | null;
-    getPagePlaceholderStyle: (page: number) => Record<string, string> | null;
+    isSpreadSingle: (page: TPageNumber) => boolean;
+    isBufferedPage: (page: TPageNumber) => boolean;
+    isRenderedPage: (page: TPageNumber) => boolean;
+    getPageScale: (page: TPageNumber) => IPdfPageScale | null;
+    getPagePlaceholderStyle: (page: TPageNumber) => Record<string, string> | null;
     bottomVirtualSpacerStyle?: Record<string, string> | null;
     pendingImagePlacement?: IPdfImagePlacementDraft | null;
     isPendingImagePlacementFinalizing?: boolean;
@@ -98,7 +102,7 @@ const {
     containerStyle,
     virtualPageSegments,
     initialPageShell = false,
-    initialPageShellPage = 1,
+    initialPageShellPage = requirePageNumber(1),
     openingPageFramePage = null,
     openingPageFrameStyle = null,
     shouldShowSkeleton,
@@ -125,8 +129,8 @@ const emit = defineEmits<{
     dblclick: [event: MouseEvent];
     contextmenu: [event: MouseEvent];
     selectstart: [event: Event];
-    'page-container-mounted': [page: number];
-    'page-container-unmounted': [page: number];
+    'page-container-mounted': [page: TPageNumber];
+    'page-container-unmounted': [page: TPageNumber];
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];
@@ -142,14 +146,14 @@ const virtualPageItems = computed(() => {
     });
 });
 
-function shouldRenderPageSkeleton(page: number) {
+function shouldRenderPageSkeleton(page: TPageNumber) {
     // The viewport-session projection is the only presentation authority.
     // An opening shell remains a frame during the debounce window; it does not
     // independently force a skeleton before the session delay elapses.
     return shouldShowSkeleton(page);
 }
 
-function getEffectivePagePlaceholderStyle(page: number) {
+function getEffectivePagePlaceholderStyle(page: TPageNumber) {
     return page === openingPageFramePage && openingPageFrameStyle
         ? openingPageFrameStyle
         : getPagePlaceholderStyle(page);

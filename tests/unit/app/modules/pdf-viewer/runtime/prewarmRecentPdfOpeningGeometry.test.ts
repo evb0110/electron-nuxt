@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
 
+import { requirePageNumber } from '@contracts/pageNumbers';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
 import {
     beforeEach,
     describe,
@@ -8,6 +11,8 @@ import {
     vi,
 } from 'vitest';
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
+import type { TDocumentRef } from '@contracts/documentRef';
+import type { IRecentFile } from '@contracts/shared';
 import { prewarmRecentPdfOpeningGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/prewarmRecentPdfOpeningGeometry';
 import {
     invalidateTrustedPdfOpenGeometry,
@@ -15,7 +20,9 @@ import {
     writeTrustedPdfOpenGeometry,
 } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 
-const pdfPaths = Array.from({length: 6}, (_, index) => `/documents/recent-${String(index + 1)}.pdf`);
+const pdfPaths = Array.from({length: 6}, (_, index) => requireDocumentRef(
+    `/documents/recent-${String(index + 1)}.pdf`,
+));
 const mocks = vi.hoisted(() => ({performanceProfile: {
     lowCpu: false,
     lowMemory: false,
@@ -23,11 +30,24 @@ const mocks = vi.hoisted(() => ({performanceProfile: {
 
 vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: () => mocks.performanceProfile}));
 
+function createRecentFile(
+    originalPath: TDocumentRef,
+    timestamp: number,
+    fileSize = 1_000,
+): IRecentFile {
+    return {
+        originalPath,
+        fileName: String(originalPath).split('/').at(-1) ?? String(originalPath),
+        timestamp: requireEpochMs(timestamp),
+        fileSize,
+    };
+}
+
 describe('Recent PDF opening geometry application warmup', () => {
     beforeEach(() => {
         localStorage.clear();
         for (const path of pdfPaths) {
-            invalidateTrustedPdfOpenGeometry(path, 1);
+            invalidateTrustedPdfOpenGeometry(path, requirePageNumber(1));
         }
         mocks.performanceProfile.lowCpu = false;
         mocks.performanceProfile.lowMemory = false;
@@ -42,28 +62,18 @@ describe('Recent PDF opening geometry application warmup', () => {
             await Promise.resolve();
             activeReads.delete(path);
             return {
-                pageNumber: 1 as const,
+                pageNumber: requirePageNumber(1),
                 pageCount: 10,
                 width: 612,
                 height: 792,
                 rotation: 0 as const,
                 size: 1_000,
-                modifiedAt: 2_000,
+                modifiedAt: requireEpochMs(2_000),
             };
         });
         const files = [
-            {
-                originalPath: '/documents/readme.txt',
-                fileName: 'readme.txt',
-                timestamp: 10,
-                fileSize: 20,
-            },
-            ...pdfPaths.map((path, index) => ({
-                originalPath: path,
-                fileName: path.split('/').at(-1)!,
-                timestamp: 9 - index,
-                fileSize: 1_000,
-            })),
+            createRecentFile(requireDocumentRef('/documents/readme.txt'), 10, 20),
+            ...pdfPaths.map((path, index) => createRecentFile(path, 9 - index)),
         ];
 
         const results = await prewarmRecentPdfOpeningGeometry(files, {
@@ -80,32 +90,27 @@ describe('Recent PDF opening geometry application warmup', () => {
         expect(readOpeningGeometry).toHaveBeenCalledTimes(4);
         expect(maxConcurrentReads).toBeLessThanOrEqual(2);
         for (const path of pdfPaths.slice(0, 4)) {
-            expect(readPrevalidatedTrustedPdfOpenGeometry(path, 1)).toMatchObject({
+            expect(readPrevalidatedTrustedPdfOpenGeometry(path, requirePageNumber(1))).toMatchObject({
                 documentId: path,
                 pageNumber: 1,
                 width: 612,
                 height: 792,
             });
         }
-        expect(readPrevalidatedTrustedPdfOpenGeometry(pdfPaths[4]!, 1)).toBeNull();
+        expect(readPrevalidatedTrustedPdfOpenGeometry(pdfPaths[4]!, requirePageNumber(1))).toBeNull();
     });
 
     it('authoritatively refreshes a validated same-path source revision before making it ready again', async () => {
-        const file = {
-            originalPath: pdfPaths[0]!,
-            fileName: 'recent-1.pdf',
-            timestamp: 1,
-            fileSize: 1_000,
-        };
+        const file = {...createRecentFile(pdfPaths[0]!, 1)};
         let sourceRevision = 2_000;
         const readOpeningGeometry = vi.fn(async () => ({
-            pageNumber: 1 as const,
+            pageNumber: requirePageNumber(1),
             pageCount: 10,
             width: 612,
             height: 792,
             rotation: 0 as const,
             size: 1_000,
-            modifiedAt: sourceRevision,
+            modifiedAt: requireEpochMs(sourceRevision),
         }));
         const port = {
             readStat: vi.fn(async () => ({
@@ -120,19 +125,14 @@ describe('Recent PDF opening geometry application warmup', () => {
         await prewarmRecentPdfOpeningGeometry([file], port);
 
         expect(readOpeningGeometry).toHaveBeenCalledTimes(2);
-        expect(readPrevalidatedTrustedPdfOpenGeometry(file.originalPath, 1)).toMatchObject({
+        expect(readPrevalidatedTrustedPdfOpenGeometry(file.originalPath, requirePageNumber(1))).toMatchObject({
             size: 1_000,
             modifiedAt: 3_000,
         });
     });
 
     it('silently settles a retired working-copy geometry miss', async () => {
-        const file = {
-            originalPath: '/tmp/pdf-work-retired/old.pdf',
-            fileName: 'old.pdf',
-            timestamp: 1,
-            fileSize: 1_000,
-        };
+        const file = {...createRecentFile(requireDocumentRef('/tmp/pdf-work-retired/old.pdf'), 1)};
         const onError = vi.fn();
         const onSettled = vi.fn();
 
@@ -155,18 +155,8 @@ describe('Recent PDF opening geometry application warmup', () => {
         const readyPath = '/documents/ready.pdf';
         const settled = new Map<string, boolean>();
         const results = await prewarmRecentPdfOpeningGeometry([
-            {
-                originalPath: stalledPath,
-                fileName: 'stalled.pdf',
-                timestamp: 2,
-                fileSize: 1_000,
-            },
-            {
-                originalPath: readyPath,
-                fileName: 'ready.pdf',
-                timestamp: 1,
-                fileSize: 1_000,
-            },
+            createRecentFile(requireDocumentRef(stalledPath), 2),
+            createRecentFile(requireDocumentRef(readyPath), 1),
         ], {
             readStat: vi.fn(async () => {
                 throw new Error('managed stat unavailable before open');
@@ -174,13 +164,13 @@ describe('Recent PDF opening geometry application warmup', () => {
             readOpeningGeometry: vi.fn((path: string): Promise<IPdfOpeningGeometry> => path === stalledPath
                 ? new Promise<IPdfOpeningGeometry>(() => undefined)
                 : Promise.resolve({
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     pageCount: 2,
                     width: 612,
                     height: 792,
                     rotation: 0,
                     size: 1_000,
-                    modifiedAt: 2_000,
+                    modifiedAt: requireEpochMs(2_000),
                 })),
         }, {
             concurrency: 2,
@@ -203,12 +193,10 @@ describe('Recent PDF opening geometry application warmup', () => {
     });
 
     it('does not stack more native probes behind timed-out worker slots', async () => {
-        const files = Array.from({length: 4}, (_, index) => ({
-            originalPath: `/documents/permanently-stalled-${String(index + 1)}.pdf`,
-            fileName: `permanently-stalled-${String(index + 1)}.pdf`,
-            timestamp: 4 - index,
-            fileSize: 1_000,
-        }));
+        const files = Array.from({length: 4}, (_, index) => ({...createRecentFile(
+            requireDocumentRef(`/documents/permanently-stalled-${String(index + 1)}.pdf`),
+            4 - index,
+        )}));
         const readOpeningGeometry = vi.fn(() => new Promise<IPdfOpeningGeometry>(() => undefined));
 
         const results = await prewarmRecentPdfOpeningGeometry(files, {readOpeningGeometry}, {
@@ -225,12 +213,7 @@ describe('Recent PDF opening geometry application warmup', () => {
 
     it('does not launch a cold geometry probe on constrained profiles', async () => {
         mocks.performanceProfile.lowMemory = true;
-        const file = {
-            originalPath: pdfPaths[0]!,
-            fileName: 'recent-1.pdf',
-            timestamp: 1,
-            fileSize: 1_000,
-        };
+        const file = {...createRecentFile(pdfPaths[0]!, 1)};
         const readOpeningGeometry = vi.fn();
 
         const results = await prewarmRecentPdfOpeningGeometry(
@@ -244,15 +227,10 @@ describe('Recent PDF opening geometry application warmup', () => {
 
     it('validates an existing constrained cache entry without geometry IPC', async () => {
         mocks.performanceProfile.lowCpu = true;
-        const file = {
-            originalPath: pdfPaths[0]!,
-            fileName: 'recent-1.pdf',
-            timestamp: 1,
-            fileSize: 1_000,
-        };
+        const file = {...createRecentFile(pdfPaths[0]!, 1)};
         writeTrustedPdfOpenGeometry({
             documentId: file.originalPath,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 10,
             width: 612,
             height: 792,
@@ -272,7 +250,7 @@ describe('Recent PDF opening geometry application warmup', () => {
         });
 
         expect(readOpeningGeometry).not.toHaveBeenCalled();
-        expect(readPrevalidatedTrustedPdfOpenGeometry(file.originalPath, 1)).toMatchObject({
+        expect(readPrevalidatedTrustedPdfOpenGeometry(file.originalPath, requirePageNumber(1))).toMatchObject({
             size: 1_000,
             modifiedAt: 2_000,
         });

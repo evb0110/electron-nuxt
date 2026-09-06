@@ -45,6 +45,7 @@
     </div>
 </template>
 <script setup lang="ts">
+import { getErrorMessage } from '@app/utils/error';
 import {
     useDevicePixelRatio,
     useResizeObserver,
@@ -189,7 +190,7 @@ onMounted(() => {
     }) ?? null;
 });
 const showInitialSurfacePlaceholder = computed(() => isActive.value && isLoading.value && !viewerError.value);
-const dragMode = computed(() => dragModeProp ?? false);
+const dragMode = computed(() => dragModeProp);
 const totalPages = computed(() => pageGeometry.value?.pageCount ?? 0);
 let activeSource: IPagePreviewSource | null = null;
 let boundPageSource: IDocumentPageSource | null = null;
@@ -693,9 +694,7 @@ function failCurrentPageTransition(pageNumber: number, error: unknown) {
     ) {
         return false;
     }
-    const message = error instanceof Error
-        ? error.message
-        : 'Failed to render the requested PDF page';
+    const message = error instanceof Error ? getErrorMessage(error) : 'Failed to render the requested PDF page';
     viewportLayoutLifecycle.cancelPendingRestore();
     return openSurface.failPageTransition(pageNumber, message);
 }
@@ -735,10 +734,10 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
             onInvalidated,
         } = await source.renderPageObjectUrl(pageNumber, { targetWidthPx });
         pendingObjectUrl = objectUrl;
-        let rasterInvalidated = false;
+        const rasterState: {invalidated: boolean} = {invalidated: false};
         if (onInvalidated) {
             pendingInvalidationCleanup = onInvalidated(() => {
-                rasterInvalidated = true;
+                rasterState.invalidated = true;
                 pendingObjectUrl = null;
                 const invalidatedState = pageStates.get(pageNumber);
                 if (
@@ -796,7 +795,7 @@ async function ensurePageLoaded(pageNumber: number, generation: number) {
             requestedRasterIdentities.set(pageNumber, canonicalRasterIdentity);
         }
         await preloadNativePdfPageObjectUrl(objectUrl);
-        if (rasterInvalidated) {
+        if (rasterState.invalidated) {
             throw new Error('Native PDF preview evicted before image decode');
         }
         const decodedState = pageStates.get(pageNumber);
@@ -1200,7 +1199,7 @@ watch(
                 return;
             }
             clearFailedLoadSource(generation);
-            viewerError.value = error instanceof Error ? error.message : t('errors.file.open');
+            viewerError.value = error instanceof Error ? getErrorMessage(error) : t('errors.file.open');
             BrowserLogger.error('native-pdf-viewer', 'Failed to initialize native PDF viewer', Object.assign({src: nextSrc}, {error}), {
                 code: 'RENDERER_NATIVE_PDF_VIEWER_FAILED',
                 context: {phase: 'initialize'},
@@ -1228,7 +1227,7 @@ watch(isActive, async (active) => {
         emitLoading(true, { force: true });
         try {
             await loadSource(src, generation);
-            if (!isCurrentLoadGeneration(generation) || !activeSource) {
+            if (!isCurrentLoadGeneration(generation)) {
                 return;
             }
             emit('update:totalPages', totalPages.value);
@@ -1245,7 +1244,7 @@ watch(isActive, async (active) => {
                 return;
             }
             clearFailedLoadSource(generation);
-            viewerError.value = error instanceof Error ? error.message : t('errors.file.open');
+            viewerError.value = error instanceof Error ? getErrorMessage(error) : t('errors.file.open');
             BrowserLogger.error('native-pdf-viewer', 'Failed to resume native PDF viewer', Object.assign({src}, {error}), {
                 code: 'RENDERER_NATIVE_PDF_VIEWER_FAILED',
                 context: {phase: 'resume'},

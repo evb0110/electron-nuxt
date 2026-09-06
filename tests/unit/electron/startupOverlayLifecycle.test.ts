@@ -24,6 +24,21 @@ function dispatchVisualReady() {
     window.dispatchEvent(new CustomEvent('evb:startup-open-visual-ready', {detail: {reason: 'first-page-painted'}}));
 }
 
+function hideDocumentNode(name: 'head' | 'body') {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(document, name);
+    Object.defineProperty(document, name, {
+        configurable: true,
+        value: null,
+    });
+    return () => {
+        if (originalDescriptor) {
+            Object.defineProperty(document, name, originalDescriptor);
+        } else {
+            Reflect.deleteProperty(document, name);
+        }
+    };
+}
+
 function install(defaultApp = false) {
     Object.defineProperty(process, 'defaultApp', {
         configurable: true,
@@ -121,6 +136,40 @@ describe('installStartupOverlayLifecycle', () => {
         expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
         vi.advanceTimersByTime(1);
         expect(document.getElementById(OVERLAY_ID)).toBeNull();
+    });
+
+    it('waits for the document head before mounting from preload', () => {
+        const restoreHead = hideDocumentNode('head');
+        const readyStateGetter = vi.spyOn(document, 'readyState', 'get').mockReturnValue('loading');
+
+        try {
+            expect(() => install()).not.toThrow();
+            expect(document.getElementById(OVERLAY_ID)).toBeNull();
+        } finally {
+            restoreHead();
+            readyStateGetter.mockRestore();
+        }
+
+        window.dispatchEvent(new Event('DOMContentLoaded'));
+
+        expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
+    });
+
+    it('waits for the document body before mounting from preload', () => {
+        const restoreBody = hideDocumentNode('body');
+        const readyStateGetter = vi.spyOn(document, 'readyState', 'get').mockReturnValue('loading');
+
+        try {
+            expect(() => install()).not.toThrow();
+            expect(document.getElementById(OVERLAY_ID)).toBeNull();
+        } finally {
+            restoreBody();
+            readyStateGetter.mockRestore();
+        }
+
+        window.dispatchEvent(new Event('DOMContentLoaded'));
+
+        expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
     });
 
     it('does not remount or remove twice after duplicate and late events', () => {

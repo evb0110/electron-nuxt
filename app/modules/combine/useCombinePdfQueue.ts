@@ -1,5 +1,4 @@
 import type {Ref} from 'vue';
-import {canMutateCombineFiles} from '@app/services/pdf/combineOperationSnapshot';
 
 export const useCombinePdfQueue = <T>(options: {
     files: Ref<T[]>;
@@ -11,7 +10,7 @@ export const useCombinePdfQueue = <T>(options: {
     const lastRejectedCount = ref(0);
 
     function addFiles(fileList: FileList | File[]) {
-        if (!canMutateCombineFiles(options.isMutationLocked.value)) {
+        if (options.isMutationLocked.value) {
             return;
         }
         const nextFiles = [...files.value];
@@ -27,7 +26,7 @@ export const useCombinePdfQueue = <T>(options: {
         lastRejectedCount.value = rejected;
     }
     function clearFiles() {
-        if (!canMutateCombineFiles(options.isMutationLocked.value)) {
+        if (options.isMutationLocked.value) {
             return false;
         }
         files.value = [];
@@ -35,20 +34,24 @@ export const useCombinePdfQueue = <T>(options: {
         return true;
     }
     function removeFile(index: number) {
-        if (!canMutateCombineFiles(options.isMutationLocked.value)) {
+        if (options.isMutationLocked.value) {
             return;
         }
         files.value = files.value.filter((_file, fileIndex) => fileIndex !== index);
     }
     function moveFile(index: number, targetIndex: number) {
-        if (!canMutateCombineFiles(options.isMutationLocked.value) || targetIndex < 0 || targetIndex >= files.value.length) {
+        if (options.isMutationLocked.value || targetIndex < 0 || targetIndex >= files.value.length) {
             return false;
         }
         if (index < 0 || index >= files.value.length) {
             files.value = [...files.value];
             return true;
         }
-        const item = files.value[index]!;
+        const item = files.value[index];
+        if (!item) {
+            files.value = [...files.value];
+            return true;
+        }
         const withoutItem = files.value.filter((_file, fileIndex) => fileIndex !== index);
         files.value = [
             ...withoutItem.slice(0, targetIndex),

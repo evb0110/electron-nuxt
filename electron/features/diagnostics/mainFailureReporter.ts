@@ -72,6 +72,7 @@ export interface IMainFailureReporter {
     isTransportReady(): boolean;
     setTransport(transport: IMainDiagnosticsTransport): void;
     setPreference(preference: unknown): void;
+    waitForTransportReady(): Promise<void>;
 }
 
 export interface IMainFailureReporterOptions {
@@ -83,7 +84,7 @@ export interface IMainFailureReporterOptions {
     preference?: unknown;
     recentIdWindowMs?: number;
     transport?: IMainDiagnosticsTransport;
-    onPreferenceGranted?: () => void;
+    onPreferenceGranted?: () => void | Promise<void>;
 }
 
 export const MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = DIAGNOSTICS_MAX_SUPPRESSED_COUNT;
@@ -223,7 +224,7 @@ function removeReporterFrames(frames: readonly CanonicalAppFrame[]) {
 
 function buildFrames(input: CaptureFailureInput, stackPolicy: DiagnosticStackPolicy) {
     const stack = stackPolicy === 'source'
-        ? readStack(input.local?.cause) ?? captureCallSiteStack()
+        ? readStack(input.local.cause) ?? captureCallSiteStack()
         : captureCallSiteStack();
 
     try {
@@ -381,6 +382,7 @@ export function createMainFailureReporter(
     let liveTransport = preference === 'granted'
         ? transport
         : DROPPED_MAIN_DIAGNOSTICS_TRANSPORT;
+    let transportReady = Promise.resolve();
     const recentIds = new Map<DiagnosticEventId, number>();
     const burstStates = new Map<string, IBurstState>();
 
@@ -676,12 +678,16 @@ export function createMainFailureReporter(
             applyPreference(value);
             if (!wasGranted && preference === 'granted') {
                 try {
-                    options.onPreferenceGranted?.();
+                    transportReady = Promise.resolve(options.onPreferenceGranted?.()).then(() => {});
                 } catch {
                     // Adapter loading is best effort and must not affect app state.
+                    transportReady = Promise.resolve();
                 }
+            } else if (preference !== 'granted') {
+                transportReady = Promise.resolve();
             }
         },
+        waitForTransportReady: () => transportReady,
     };
 
     return reporter;
@@ -707,4 +713,8 @@ export function captureMainFailure<C extends DiagnosticCode>(input: CaptureFailu
 
 export function setMainDiagnosticsPreference(preference: unknown) {
     mainFailureReporter?.setPreference(preference);
+}
+
+export function waitForMainDiagnosticsTransportReady() {
+    return mainFailureReporter?.waitForTransportReady() ?? Promise.resolve();
 }

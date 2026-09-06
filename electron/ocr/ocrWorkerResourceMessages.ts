@@ -98,7 +98,7 @@ export function handleWorkerResourceMessage(
             isCurrentWorker: Boolean(activeJob && activeJob.worker === worker),
         });
         if (!releaseDisposition.accepted) {
-            log.debug(`[${scopedJobId}] Ignoring OCR resource release: ${releaseDisposition.reason}`);
+            log.debug(`[${scopedJobId}] Ignoring OCR resource release: ${releaseDisposition.reason ?? '<unknown>'}`);
             return;
         }
         if (!ocrResourceGovernor.releaseForJob(message.token, scopedJobId)) {
@@ -118,7 +118,7 @@ export function handleWorkerResourceMessage(
         rejectAfterTerminalResult: true,
     });
     if (!disposition.accepted) {
-        log.debug(`[${scopedJobId}] Ignoring OCR resource ${message.type}: ${disposition.reason}`);
+        log.debug(`[${scopedJobId}] Ignoring OCR resource ${message.type}: ${disposition.reason ?? '<unknown>'}`);
         sendResourceDenied(`OCR resource request denied because job ${message.jobId} is no longer active`);
         return;
     }

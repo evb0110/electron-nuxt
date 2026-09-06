@@ -131,6 +131,7 @@ import type {
     IWorkingCopyBackingStatus,
     TWorkingCopyBackingStatusState,
 } from '@contracts/electronApiDocuments';
+import {parseDocumentRef} from '@contracts/documentRef';
 import {
     createManagedTempFileHandle,
     releaseManagedTempFileHandle,
@@ -172,8 +173,12 @@ function toBackingFailure(
 function toProgressStatus(
     progress: IWorkingCopyMaterializationProgress,
 ): IWorkingCopyBackingStatus {
+    const documentRef = parseDocumentRef(progress.documentRef);
+    if (documentRef === null) {
+        throw new Error('Working-copy progress has an invalid document ref');
+    }
     return {
-        documentRef: progress.documentRef,
+        documentRef,
         failure: toBackingFailure(progress.errorCode),
         progress: progress.status === 'completed'
             ? 1
@@ -184,6 +189,14 @@ function toProgressStatus(
                 ? 'materializing'
                 : 'lazy-original',
     };
+}
+
+function requireDocumentRef(value: unknown) {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
 }
 
 export function createDocumentsService(): IDocumentsService {
@@ -311,7 +324,7 @@ export function createDocumentsService(): IDocumentsService {
             const key = normalizePathForLookup(filePath) || filePath;
             const latestStatus = latestBackingStatus.get(key);
             return {
-                documentRef: filePath,
+                documentRef: requireDocumentRef(filePath),
                 failure: toBackingFailure(entry.sourceBackingErrorCode),
                 progress: state === 'materialized'
                     ? 1

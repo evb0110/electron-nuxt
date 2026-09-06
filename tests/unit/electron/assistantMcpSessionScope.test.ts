@@ -7,7 +7,9 @@ import {
 import type {
     IAgentTabSnapshot,
     IAgentWorkspaceSnapshot,
+    TAgentWorkspaceCommandTarget,
 } from '@contracts/agent';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import {
     assertAssistantMcpSnapshotMatchesScope,
@@ -22,14 +24,21 @@ import {
     requireDocumentInstanceId,
     requireDocumentRevisionToken,
 } from '@contracts';
+import {
+    requireEpochMs,
+    requireIsoTimestamp,
+} from '@contracts/timestamps';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireSessionId} from '@contracts/shared';
+import {requireTabId} from '@contracts/windowTabs';
 
 const documentIdentity = {
     version: 1,
-    documentRef: '/tmp/a.pdf',
+    documentRef: requireDocumentRef('/tmp/a.pdf'),
     authority: 'electron-working-copy',
     contentRevision: 3,
     token: requireDocumentRevisionToken('revision-token-a'),
-    mintedAt: 123,
+    mintedAt: requireEpochMs(123),
 } satisfies IDocumentRevisionInfo;
 
 const binding = {
@@ -38,29 +47,29 @@ const binding = {
     provider: 'codex',
     turnGeneration: 4,
     windowId: 42,
-    tabId: 'tab-a',
+    tabId: requireTabId('tab-a'),
     documentSessionKey: 'document:/tmp/a.pdf',
     documentInstanceId: requireDocumentInstanceId('instance-a'),
-    documentRef: '/tmp/a.pdf',
+    documentRef: requireDocumentRef('/tmp/a.pdf'),
     documentIdentity,
 } satisfies IAssistantSessionScopeBinding;
 
 const commandTarget = {
     kind: 'revision',
-    tabId: 'tab-a',
-    sessionId: 'session-a',
-    documentRef: '/tmp/a.pdf',
+    tabId: requireTabId('tab-a'),
+    sessionId: requireSessionId('session-a'),
+    documentRef: requireDocumentRef('/tmp/a.pdf'),
     documentInstanceId: requireDocumentInstanceId('instance-a'),
     sessionRevision: 7,
     documentRevisionToken: requireDocumentRevisionToken('revision-token-a'),
-} as const;
+} satisfies TAgentWorkspaceCommandTarget;
 
 function createTab(patch: Partial<IAgentTabSnapshot> = {}): IAgentTabSnapshot {
     return {
-        tabId: 'tab-a',
-        paneId: 'pane-a',
+        tabId: requireTabId('tab-a'),
+        paneId: requirePaneId('pane-a'),
         fileName: 'a.pdf',
-        originalPath: '/tmp/a.pdf',
+        originalPath: requireDocumentRef('/tmp/a.pdf'),
         kind: 'pdf',
         isDirty: false,
         workspaceAttached: true,
@@ -85,8 +94,8 @@ function createTab(patch: Partial<IAgentTabSnapshot> = {}): IAgentTabSnapshot {
 
 function createSnapshot(tab: IAgentTabSnapshot = createTab()): IAgentWorkspaceSnapshot {
     return {
-        capturedAt: '2026-01-01T00:00:00.000Z',
-        activePaneId: 'pane-a',
+        capturedAt: requireIsoTimestamp('2026-01-01T00:00:00.000Z'),
+        activePaneId: requirePaneId('pane-a'),
         activeTabId: tab.tabId,
         summary: {
             mode: 'open-document',
@@ -106,7 +115,7 @@ function createSnapshot(tab: IAgentTabSnapshot = createTab()): IAgentWorkspaceSn
             recentFilesResolved: true,
         },
         panes: [{
-            paneId: 'pane-a',
+            paneId: requirePaneId('pane-a'),
             tabIds: [tab.tabId],
             activeTabId: tab.tabId,
         }],
@@ -148,7 +157,7 @@ describe('assistantMcpSessionScope', () => {
             binding,
         )).toThrow('document changed');
         expect(() => assertAssistantMcpSnapshotMatchesScope(
-            createSnapshot(createTab({tabId: 'tab-b'})),
+            createSnapshot(createTab({tabId: requireTabId('tab-b')})),
             binding,
         )).toThrow('document tab is no longer open');
     });

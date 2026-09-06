@@ -284,7 +284,7 @@ const pdfViewerRef = ref<{ scrollToPage: (pageNumber: number) => void } | null>(
 const toolbarSurface = MOBILE_READER_COMMAND_SURFACE;
 
 definePageMeta({ preloadWorkspaceShell: false });
-useServerSeoMeta({ robots: 'noindex, nofollow' });
+if (import.meta.server) useSeoMeta({ robots: 'noindex, nofollow' });
 useHead(() => ({ title: t('app.title', undefined) }));
 onMounted(() => {
     void loadRecentFiles();

@@ -15,6 +15,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 import {
     beginPdfEmbeddedShapeIndex,
@@ -179,7 +180,7 @@ describe('PDF embedded shape index main session', () => {
 
         await expect(beginPdfEmbeddedShapeIndex(
             context,
-            '/outside/document.pdf',
+            requireDocumentRef('/outside/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         )).rejects.toThrow('not authorized');
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
@@ -190,7 +191,7 @@ describe('PDF embedded shape index main session', () => {
 
         await expect(beginPdfEmbeddedShapeIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         )).rejects.toThrow('STALE_REVISION');
         expect(mocks.assertWorkingCopyRevisionCurrent).not.toHaveBeenCalled();
@@ -200,7 +201,7 @@ describe('PDF embedded shape index main session', () => {
     it('reads typed page chunks and removes the private sidecar on release', async () => {
         const session = await beginPdfEmbeddedShapeIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         );
         expect(session).toMatchObject({
@@ -244,7 +245,7 @@ describe('PDF embedded shape index main session', () => {
     it('rejects a requested chunk size smaller than one sidecar line', async () => {
         const session = await beginPdfEmbeddedShapeIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         );
 
@@ -260,7 +261,7 @@ describe('PDF embedded shape index main session', () => {
 
         await expect(beginPdfEmbeddedShapeIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         )).rejects.toThrow('stale after indexing');
         expect(existsSync(sidecarPath)).toBe(false);
@@ -269,7 +270,7 @@ describe('PDF embedded shape index main session', () => {
     it('rejects access from a different sender and cancels a ready session', async () => {
         const session = await beginPdfEmbeddedShapeIndex(
             context,
-            '/tmp/document.pdf',
+            requireDocumentRef('/tmp/document.pdf'),
             {expectedDocumentRevisionToken: revisionToken},
         );
 

@@ -12,6 +12,7 @@ import {
 } from '@app/modules/workspace-shell/composables/useScanCleanupRunCoordinator';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const capabilities = vi.hoisted(() => ({
     cancelOpenDocumentDirectBatch: vi.fn(async (_requestId: string) => true) as
@@ -36,8 +37,8 @@ vi.mock('@app/utils/platformDocuments', () => ({
 
 const generatedResult: TOpenFileResult = {
     kind: 'pdf',
-    workingPath: '/tmp/pdf-work-1/book — cleaned.pdf',
-    originalPath: '/managed/book — cleaned.pdf',
+    workingPath: requireDocumentRef('/tmp/pdf-work-1/book — cleaned.pdf'),
+    originalPath: requireDocumentRef('/managed/book — cleaned.pdf'),
     isGenerated: true,
 };
 

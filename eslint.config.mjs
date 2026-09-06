@@ -187,6 +187,9 @@ const projectConfig = withNuxt(
         ['app/platform/browser/browserDocumentRepository.ts', 1207],
         ['app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts', 1296],
         ['app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts', 1216],
+        // The renderer-interface migration keeps branded page leases and
+        // document lifecycle cleanup in one session owner.
+        ['app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts', 1215],
         ['electron/ocr/jobManager.ts', 1067],
         ['packages/contracts/agentPlatformFeature.ts', 1813],
         ['app/modules/workspace-shell/components/AppShellRoot.vue', 900],
@@ -199,9 +202,9 @@ const projectConfig = withNuxt(
         ['packages/contracts/ocrPlatformFeature.ts', 1368],
         // The documents feature keeps its method codecs and result schemas
         // together so the Electron and browser implementations cannot drift.
-        // Print, decrypt, and annotation capabilities account for this small
-        // amount of protocol growth beyond the shared file budget.
-        ['packages/contracts/documentsPlatformFeatureSchemas.ts', 1210],
+        // Print, decrypt, and annotation capabilities account for this
+        // protocol growth beyond the shared file budget.
+        ['packages/contracts/documentsPlatformFeatureSchemas.ts', 1320],
         // The documents API contract mirrors the native frame, the electron
         // bridge, and the browser bridge in one file; the #171 decrypt and
         // annotation capabilities are the growth this budget covers.

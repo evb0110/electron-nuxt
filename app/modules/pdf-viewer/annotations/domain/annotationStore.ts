@@ -1,5 +1,9 @@
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
+import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {
@@ -124,6 +128,8 @@ export interface IAnnotationSaveFrontier {
     readonly revisions: ReadonlyMap<AnnotationId, number>;
 }
 
+interface IBulkImportState {canUseFastPath: boolean;}
+
 type TListener = (entities: readonly AnnotationEntity[]) => void;
 
 function cloneEntity<T extends AnnotationEntity>(entity: T): T {
@@ -233,6 +239,9 @@ export class AnnotationStore {
     #foreign: readonly IPdfForeignAnnotationRecord[] = [];
     #savedSemanticSnapshot = new Map<AnnotationId, ISavedSemanticEntry>();
     #mutationEpoch = 0;
+    #batchDepth = 0;
+    #batchEmissionPending = false;
+    #bulkImportState: IBulkImportState | null = null;
 
     constructor(history: IAnnotationHistoryAuthority = new LocalAnnotationHistoryAuthority()) {
         this.#history = history;
@@ -262,6 +271,80 @@ export class AnnotationStore {
         this.#listeners.add(listener);
         listener(this.list());
         return () => this.#listeners.delete(listener);
+    }
+
+    /** Defers the immutable store snapshot until a group of related mutations finishes. */
+    batch<T>(callback: () => T): T {
+        this.#batchDepth += 1;
+        try {
+            return callback();
+        } finally {
+            this.#batchDepth -= 1;
+            if (this.#batchDepth === 0 && this.#batchEmissionPending) {
+                this.#batchEmissionPending = false;
+                this.#emitNow();
+            }
+        }
+    }
+
+    /**
+     * Runs related persisted imports with one saved-baseline comparison. Each
+     * import still updates the identity index in callback order.
+     */
+    importMany<T>(callback: () => T): T {
+        if (this.#bulkImportState) {
+            return callback();
+        }
+        this.#bulkImportState = {canUseFastPath: !this.hasChangesSinceSavedBaseline()};
+        try {
+            return callback();
+        } finally {
+            this.#bulkImportState = null;
+        }
+    }
+
+    /** Imports one canonical persisted entity without registering authored history. */
+    import(entity: AnnotationEntity, options: {preserveSavedBaseline?: boolean} = {}) {
+        const bulkImportState = this.#bulkImportState;
+        const canUseFastPath = bulkImportState?.canUseFastPath === true;
+        const shouldUpdateSavedBaseline = entity.persistedRevision >= 0
+            && options.preserveSavedBaseline !== true;
+        const wasSemanticallyClean = shouldUpdateSavedBaseline
+            ? bulkImportState
+                ? canUseFastPath || !this.hasChangesSinceSavedBaseline()
+                : !this.hasChangesSinceSavedBaseline()
+            : false;
+        const current = this.#entities.get(entity.identity.id);
+        if (current && current.revision > entity.revision) {
+            return cloneEntity(current);
+        }
+        const imported = cloneCanonicalEntity(entity);
+        const currentSemanticFingerprint = canUseFastPath && !shouldUpdateSavedBaseline && current
+            ? semanticEntityFingerprint(current)
+            : null;
+        this.#replaceEntities([{
+            id: imported.identity.id,
+            before: current ?? null,
+            after: imported,
+        }]);
+        if (shouldUpdateSavedBaseline && wasSemanticallyClean) {
+            if (canUseFastPath) {
+                this.#savedSemanticSnapshot.set(imported.identity.id, {
+                    kind: imported.kind,
+                    fingerprint: semanticEntityFingerprint(imported),
+                });
+            } else {
+                this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
+            }
+        } else if (
+            canUseFastPath
+            && currentSemanticFingerprint !== semanticEntityFingerprint(imported)
+        ) {
+            this.#disableBulkImportFastPath();
+        }
+        this.#mutationEpoch += 1;
+        this.#emit(true);
+        return cloneEntity(imported);
     }
 
     get foreign(): readonly IPdfForeignAnnotationRecord[] {
@@ -306,6 +389,11 @@ export class AnnotationStore {
         return this.#create(entity, 'note');
     }
 
+    /** Compatibility name for callers that describe the canonical note UI. */
+    createStickyNote(entity: INoteEntity) {
+        return this.createNote(entity);
+    }
+
     createTextMarkup(entity: ITextMarkupEntity) {
         return this.#create(entity, 'text-markup');
     }
@@ -338,6 +426,53 @@ export class AnnotationStore {
             ...structuredClone(patch),
             ...(patch.contents === undefined ? {} : {contents: normalizeAnnotationText(patch.contents)}),
         }));
+    }
+
+    /** Updates authored note text through the canonical kind-specific mutator. */
+    setNoteText(id: AnnotationId, text: string) {
+        const entity = this.#require(id);
+        if (entity.kind === 'note') {
+            return this.updateNote(id, {contents: text});
+        }
+        if (entity.kind === 'text-box') {
+            return this.updateTextBox(id, {text});
+        }
+        if (entity.kind === 'text-markup') {
+            return this.updateTextMarkup(id, {contents: text});
+        }
+        throw new Error('setNoteText requires a note-bearing annotation');
+    }
+
+    bindIdentity(event: {
+        readonly annotationId: AnnotationId;
+        readonly expectedRevision: number;
+        readonly bindings: Pick<IAnnotationIdentity, 'pdfRef'>;
+    }) {
+        const entity = this.#require(event.annotationId);
+        if (entity.revision !== event.expectedRevision) {
+            throw new Error(`Stale identity binding for ${event.annotationId}`);
+        }
+        const pdfRef = event.bindings.pdfRef;
+        const identity = pdfRef === undefined
+            ? entity.identity
+            : {
+                ...entity.identity,
+                pdfRef,
+            };
+        const identityChanged = entity.identity.pdfRef !== identity.pdfRef;
+        if (identityChanged) {
+            this.#disableBulkImportFastPath();
+        }
+        this.#replaceEntities([{
+            id: entity.identity.id,
+            before: entity,
+            after: {
+                ...entity,
+                identity,
+            },
+        }]);
+        this.#mutationEpoch += 1;
+        this.#emit(Boolean(this.#bulkImportState) && !identityChanged);
     }
 
     updateTextMarkup(
@@ -576,8 +711,8 @@ export class AnnotationStore {
 
     remapPages(delta: IPageIdentityDelta) {
         this.#entities.forEach((entity, id) => {
-            const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, entity.pageIndex + 1);
-            const nextPageIndex = mappedPageNumber === null ? undefined : mappedPageNumber - 1;
+            const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(entity.pageIndex + 1));
+            const nextPageIndex = mappedPageNumber === null ? undefined : requirePageIndex(mappedPageNumber - 1);
             const saved = this.#savedSemanticSnapshot.get(id);
             if (saved !== undefined) {
                 this.#savedSemanticSnapshot.set(id, {
@@ -899,7 +1034,24 @@ export class AnnotationStore {
         });
     }
 
-    #emit() {
+    #disableBulkImportFastPath() {
+        if (this.#bulkImportState) {
+            this.#bulkImportState.canUseFastPath = false;
+        }
+    }
+
+    #emit(preserveBulkImportFastPath = false) {
+        if (!preserveBulkImportFastPath) {
+            this.#disableBulkImportFastPath();
+        }
+        if (this.#batchDepth > 0) {
+            this.#batchEmissionPending = true;
+            return;
+        }
+        this.#emitNow();
+    }
+
+    #emitNow() {
         const snapshot = this.list();
         this.#listeners.forEach(listener => listener(snapshot));
     }

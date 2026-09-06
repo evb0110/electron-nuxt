@@ -1,5 +1,9 @@
 import { SEARCH_RESULT_LIMIT } from '@electron/config/constants';
 import { SEARCH_WIRE_CODEC } from '@contracts/search';
+import {
+    parseRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import type {
     ISearchResponse,
     ISearchWorkerShutdownResult,
@@ -124,12 +128,16 @@ function parseSearchResponse(value: unknown, pageCount?: number) {
 
 export function parseSearchWorkerOutboundMessage(
     value: unknown,
-    resolvePageCount: (requestId: string) => number | undefined,
+    resolvePageCount: (requestId: TRequestId) => number | undefined,
 ): TSearchWorkerOutboundMessage | null {
-    if (!isWorkerMessageRecord(value) || typeof value.type !== 'string' || typeof value.requestId !== 'string') {
+    if (!isWorkerMessageRecord(value) || typeof value.type !== 'string') {
         return null;
     }
-    const pageCount = resolvePageCount(value.requestId);
+    const requestId = parseRequestId(value.requestId);
+    if (requestId === null) {
+        return null;
+    }
+    const pageCount = resolvePageCount(requestId);
     switch (value.type) {
         case 'progress': {
             if (
@@ -173,7 +181,7 @@ export function parseSearchWorkerOutboundMessage(
                 }, maxResults);
                 return {
                     type: 'progress',
-                    requestId: value.requestId,
+                    requestId,
                     processed: value.processed,
                     total: value.total,
                     results: cappedResponse.results,
@@ -184,7 +192,7 @@ export function parseSearchWorkerOutboundMessage(
             }
             return {
                 type: 'progress',
-                requestId: value.requestId,
+                requestId,
                 processed: value.processed,
                 total: value.total,
                 ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
@@ -194,20 +202,20 @@ export function parseSearchWorkerOutboundMessage(
             const response = parseSearchResponse(value.response, pageCount);
             return response ? {
                 type: 'complete',
-                requestId: value.requestId,
+                requestId,
                 response,
             } : null;
         }
         case 'cancelled':
             return {
                 type: 'cancelled',
-                requestId: value.requestId,
+                requestId,
             };
         case 'error':
             return typeof value.error === 'string'
                 ? {
                     type: 'error',
-                    requestId: value.requestId,
+                    requestId,
                     error: value.error,
                 }
                 : null;
@@ -217,9 +225,7 @@ export function parseSearchWorkerOutboundMessage(
 }
 
 export function getSearchWorkerOutboundRequestId(value: unknown) {
-    return isWorkerMessageRecord(value) && typeof value.requestId === 'string'
-        ? value.requestId
-        : null;
+    return isWorkerMessageRecord(value) ? parseRequestId(value.requestId) : null;
 }
 
 export function parseSearchWorkerShutdownResult(value: unknown): ISearchWorkerShutdownResult | null {

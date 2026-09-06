@@ -7,7 +7,12 @@ import {
 } from 'vitest';
 import type {IDebugLogEntry} from '@contracts/electronApiCommon';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import {cast} from '@tests/helpers/cast';
+import {requireDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
+import {isRecord} from '@contracts/runtimeGuards';
+import {
+    requireEpochMs,
+    requireIsoTimestamp,
+} from '@contracts/timestamps';
 
 const mocks = vi.hoisted(() => ({
     reportRuntimeError: vi.fn(),
@@ -35,11 +40,30 @@ vi.mock('@app/utils/createPluginTranslate', () => ({createPluginTranslate: () =>
 vi.mock('@i18n-core', () => ({isLocaleMessageSource: () => false}));
 
 const failure: FailureReceipt = {
-    eventId: 'd'.repeat(32) as FailureReceipt['eventId'],
+    eventId: requireDiagnosticEventId('d'.repeat(32)),
     code: 'UNCLASSIFIED_RENDERER_ERROR',
-    occurredAt: 1_757_000_000_000,
+    occurredAt: requireEpochMs(1_757_000_000_000),
     severity: 'error',
 };
+
+function isLegacyDebugLogEntry(value: unknown): value is IDebugLogEntry {
+    return isRecord(value)
+        && typeof value.source === 'string'
+        && typeof value.message === 'string'
+        && typeof value.timestamp === 'string'
+        && (value.level === undefined || value.level === 'DEBUG' || value.level === 'INFO' || value.level === 'WARN' || value.level === 'ERROR');
+}
+
+function isDebugLogCallback(value: unknown): value is (entry: IDebugLogEntry) => void {
+    return typeof value === 'function';
+}
+
+function requireDebugLogCallback(value: unknown) {
+    if (!isDebugLogCallback(value)) {
+        throw new TypeError('Expected the runtime error log subscription callback');
+    }
+    return value;
+}
 
 function installAutoImportStubs() {
     vi.stubGlobal('defineNuxtPlugin', (plugin: unknown) => plugin);
@@ -104,14 +128,14 @@ describe('runtime error log stream', () => {
         harness.hooks.get('app:mounted')?.();
         await flushPluginTasks();
 
-        const callback = mocks.onDebugLog.mock.calls[0]?.[0] as (entry: IDebugLogEntry) => void;
+        const callback = requireDebugLogCallback(mocks.onDebugLog.mock.calls[0]?.[0]);
         callback({
             source: 'main',
             message: '[ERROR] main failure',
-            timestamp: '2026-09-03T00:00:00.000Z',
+            timestamp: requireIsoTimestamp('2026-09-03T00:00:00.000Z'),
             level: 'ERROR',
             failureRef: {
-                eventId: 'a'.repeat(32) as FailureReceipt['eventId'],
+                eventId: requireDiagnosticEventId('a'.repeat(32)),
                 code: 'UNCLASSIFIED_MAIN_ERROR',
                 severity: 'fatal',
             },
@@ -141,13 +165,17 @@ describe('runtime error log stream', () => {
         harness.hooks.get('app:mounted')?.();
         await flushPluginTasks();
 
-        const callback = mocks.onDebugLog.mock.calls[0]?.[0] as (entry: IDebugLogEntry) => void;
-        callback(cast<IDebugLogEntry>({
+        const callback = requireDebugLogCallback(mocks.onDebugLog.mock.calls[0]?.[0]);
+        const legacyEntry = {
             source: 'main',
             message: '[ERROR] legacy main failure',
-            timestamp: '2026-09-03T00:00:00.000Z',
+            timestamp: requireIsoTimestamp('2026-09-03T00:00:00.000Z'),
             level: 'ERROR',
-        }));
+        };
+        if (!isLegacyDebugLogEntry(legacyEntry)) {
+            throw new TypeError('Invalid legacy debug log fixture');
+        }
+        callback(legacyEntry);
 
         expect(mocks.captureForPresentation).toHaveBeenCalledOnce();
         expect(mocks.captureForPresentation).toHaveBeenCalledWith({

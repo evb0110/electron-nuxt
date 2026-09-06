@@ -24,6 +24,7 @@ import {
     parseDocumentRevisionToken,
     requireDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     appendOptionalDocumentArg as appendOptional,
     decodeOptionalDocumentObject as decodeOptionalObject,
@@ -31,9 +32,18 @@ import {
     decodeRequiredDocumentObject as decodeRequiredObject,
 } from '@contracts/documentsPersistenceSchemas';
 import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {
+    parseSessionId,
+    type TSessionId,
+} from '@contracts/shared';
+import {parseEpochMs} from '@contracts/timestamps';
 
 function fail(message: string): never {
     throw new Error(message);
@@ -47,6 +57,22 @@ function decodeStringValue(value: unknown, fieldName: string) {
         fail(`${fieldName} must be a non-empty string`);
     }
     return value;
+}
+
+function decodeDocumentRef(value: unknown, fieldName: string): TDocumentRef {
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        fail(`${fieldName} must be an absolute document reference`);
+    }
+    return parsed;
+}
+
+function decodeSessionId(value: unknown, fieldName: string): TSessionId {
+    const parsed = parseSessionId(value);
+    if (parsed === null) {
+        fail(`${fieldName} must be a non-empty session ID`);
+    }
+    return parsed;
 }
 
 function decodeFiniteNumber(value: unknown, fieldName: string, min?: number) {
@@ -74,10 +100,11 @@ function decodeOptionalTimestamp(value: unknown, fieldName: string) {
     if (value === undefined || value === null) {
         return null;
     }
-    if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    const parsed = parseEpochMs(value);
+    if (parsed === null) {
         fail(`${fieldName} must be a safe integer timestamp or null`);
     }
-    return value;
+    return parsed;
 }
 
 function decodeEmbeddedShapeIndexOptions(value: unknown): IPdfEmbeddedShapeIndexOptions {
@@ -89,7 +116,7 @@ function decodeEmbeddedShapeIndexOptions(value: unknown): IPdfEmbeddedShapeIndex
 }
 
 function decodeChunkOptions(value: unknown): IPdfEmbeddedShapeIndexChunkOptions | undefined {
-    const decoded = decodeOptionalObject<{chunkBytes?: unknown}>(value, 'options');
+    const decoded = decodeOptionalObject(value, 'options');
     if (decoded === undefined) {
         return undefined;
     }
@@ -107,12 +134,12 @@ const beginPdfEmbeddedShapeIndexArgs = documentArgs<'beginPdfEmbeddedShapeIndex'
     value => {
         const args = decodeArgumentArray(value, 2);
         return [
-            decodeStringValue(args[0], 'path'),
+            decodeDocumentRef(args[0], 'path'),
             decodeEmbeddedShapeIndexOptions(args[1]),
         ];
     },
     () => [
-        '/tmp/document.pdf',
+        decodeDocumentRef('/tmp/document.pdf', 'path'),
         fixtureRevisionOptions,
     ],
 );
@@ -120,35 +147,32 @@ const readPdfEmbeddedShapeIndexChunkArgs = documentArgs<'readPdfEmbeddedShapeInd
     value => {
         const args = decodeArgumentArray(value, 2, 3);
         return appendOptional([
-            decodeStringValue(args[0], 'sessionId'),
+            decodeSessionId(args[0], 'sessionId'),
             decodeSafeIntegerValue(args[1], 'offset'),
         ], decodeChunkOptions(args[2])) as TDocumentMethodArgs<'readPdfEmbeddedShapeIndexChunk'>;
     },
     () => [
-        'embedded-shape-index-1',
+        decodeSessionId('embedded-shape-index-1', 'sessionId'),
         0,
     ],
 );
 const releasePdfEmbeddedShapeIndexArgs = documentArgs<'releasePdfEmbeddedShapeIndex'>(
     value => {
         const args = decodeArgumentArray(value, 1);
-        return [decodeStringValue(args[0], 'sessionId')];
+        return [decodeSessionId(args[0], 'sessionId')];
     },
-    () => ['embedded-shape-index-1'],
+    () => [decodeSessionId('embedded-shape-index-1', 'sessionId')],
 );
 const cancelPdfEmbeddedShapeIndexArgs = documentArgs<'cancelPdfEmbeddedShapeIndex'>(
     value => {
         const args = decodeArgumentArray(value, 1);
-        return [decodeStringValue(args[0], 'sessionId')];
+        return [decodeSessionId(args[0], 'sessionId')];
     },
-    () => ['embedded-shape-index-1'],
+    () => [decodeSessionId('embedded-shape-index-1', 'sessionId')],
 );
 
 function decodePoint(value: unknown, fieldName: string): IPdfEmbeddedShapeIndexPoint {
-    const decoded = decodeRequiredObject<{
-        x?: unknown;
-        y?: unknown
-    }>(value, fieldName);
+    const decoded = decodeRequiredObject(value, fieldName);
     return {
         x: decodeFiniteNumber(decoded.x, `${fieldName}.x`),
         y: decodeFiniteNumber(decoded.y, `${fieldName}.y`),
@@ -179,30 +203,7 @@ function decodeStrokes(value: unknown): IPdfEmbeddedShapeIndexPoint[][] | null {
 }
 
 function decodeEntry(value: unknown): IPdfEmbeddedShapeIndexEntry {
-    const decoded = decodeRequiredObject<{
-        pageIndex?: unknown;
-        objectNumber?: unknown;
-        generationNumber?: unknown;
-        stableKey?: unknown;
-        pdfSubtype?: unknown;
-        type?: unknown;
-        x?: unknown;
-        y?: unknown;
-        width?: unknown;
-        height?: unknown;
-        x2?: unknown;
-        y2?: unknown;
-        color?: unknown;
-        fillColor?: unknown;
-        opacity?: unknown;
-        strokeWidth?: unknown;
-        points?: unknown;
-        strokes?: unknown;
-        lineStartStyle?: unknown;
-        lineEndStyle?: unknown;
-        createdAt?: unknown;
-        modifiedAt?: unknown;
-    }>(value, 'embedded shape index entry');
+    const decoded = decodeRequiredObject(value, 'embedded shape index entry');
     if (!isOneOf(PDF_ANNOTATION_SHAPE_PDF_SUBTYPES, decoded.pdfSubtype)) {
         fail('embedded shape index entry pdfSubtype is unsupported');
     }
@@ -220,7 +221,9 @@ function decodeEntry(value: unknown): IPdfEmbeddedShapeIndexEntry {
             ? decoded.lineEndStyle
             : fail('embedded shape index entry lineEndStyle is unsupported');
     return {
-        pageIndex: decodeSafeIntegerValue(decoded.pageIndex, 'embedded shape index entry pageIndex') as IPdfEmbeddedShapeIndexEntry['pageIndex'],
+        pageIndex: requirePageIndex(
+            decodeSafeIntegerValue(decoded.pageIndex, 'embedded shape index entry pageIndex'),
+        ),
         objectNumber: decodeSafeIntegerValue(decoded.objectNumber, 'embedded shape index entry objectNumber', 1),
         generationNumber: decodeSafeIntegerValue(decoded.generationNumber, 'embedded shape index entry generationNumber'),
         stableKey: decodeOptionalString(decoded.stableKey, 'embedded shape index entry stableKey'),
@@ -247,19 +250,10 @@ function decodeEntry(value: unknown): IPdfEmbeddedShapeIndexEntry {
 
 const pdfEmbeddedShapeIndexSessionResult = documentResult<'beginPdfEmbeddedShapeIndex'>(
     value => {
-        const decoded = decodeRequiredObject<{
-            sessionId?: unknown;
-            documentRef?: unknown;
-            documentRevisionToken?: unknown;
-            pageCount?: unknown;
-            entryCount?: unknown;
-            totalBytes?: unknown;
-        }>(value, 'embedded shape index session');
+        const decoded = decodeRequiredObject(value, 'embedded shape index session');
         if (
-            typeof decoded.sessionId !== 'string'
-            || decoded.sessionId.length === 0
-            || typeof decoded.documentRef !== 'string'
-            || decoded.documentRef.length === 0
+            parseSessionId(decoded.sessionId) === null
+            || parseDocumentRef(decoded.documentRef) === null
         ) {
             fail('invalid embedded shape index session identifiers');
         }
@@ -270,8 +264,8 @@ const pdfEmbeddedShapeIndexSessionResult = documentResult<'beginPdfEmbeddedShape
             fail('embedded shape index documentRevisionToken is invalid');
         }
         return {
-            sessionId: decoded.sessionId,
-            documentRef: decoded.documentRef,
+            sessionId: parseSessionId(decoded.sessionId) ?? fail('embedded shape index session ID is invalid'),
+            documentRef: parseDocumentRef(decoded.documentRef) ?? fail('embedded shape index document reference is invalid'),
             documentRevisionToken,
             pageCount: decodeSafeIntegerValue(decoded.pageCount, 'embedded shape index pageCount'),
             entryCount: decodeSafeIntegerValue(decoded.entryCount, 'embedded shape index entryCount'),
@@ -279,8 +273,8 @@ const pdfEmbeddedShapeIndexSessionResult = documentResult<'beginPdfEmbeddedShape
         } satisfies IPdfEmbeddedShapeIndexSession;
     },
     () => ({
-        sessionId: 'embedded-shape-index-1',
-        documentRef: '/tmp/document.pdf',
+        sessionId: decodeSessionId('embedded-shape-index-1', 'sessionId'),
+        documentRef: decodeDocumentRef('/tmp/document.pdf', 'documentRef'),
         documentRevisionToken: fixtureRevisionToken,
         pageCount: 1,
         entryCount: 0,
@@ -289,13 +283,7 @@ const pdfEmbeddedShapeIndexSessionResult = documentResult<'beginPdfEmbeddedShape
 );
 const pdfEmbeddedShapeIndexChunkResult = documentResult<'readPdfEmbeddedShapeIndexChunk'>(
     value => {
-        const decoded = decodeRequiredObject<{
-            offset?: unknown;
-            nextOffset?: unknown;
-            byteLength?: unknown;
-            done?: unknown;
-            entries?: unknown;
-        }>(value, 'embedded shape index chunk');
+        const decoded = decodeRequiredObject(value, 'embedded shape index chunk');
         const nextOffset = decoded.nextOffset === null || decoded.nextOffset === undefined
             ? null
             : decodeSafeIntegerValue(decoded.nextOffset, 'embedded shape index chunk nextOffset');

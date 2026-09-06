@@ -10,6 +10,7 @@ import type {
     IWindowTabTransferRequest,
     IWindowTabTransferResult,
 } from '@contracts/windowTabs';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 vi.mock('@electron/window', () => ({
     createAppWindow: vi.fn(),
@@ -41,7 +42,7 @@ function createTransferRequest(targetWindowId: number): IWindowTabTransferReques
         },
         tab: {
             fileName: 'demo.pdf',
-            originalPath: '/tmp/demo.pdf',
+            originalPath: requireDocumentRef('/tmp/demo.pdf'),
             isDirty: true,
             isDjvu: false,
         },
@@ -292,7 +293,7 @@ describe('WindowTabTransferBroker', () => {
             target: {kind: 'new-window'},
             tab: {
                 fileName: 'new.pdf',
-                originalPath: '/tmp/new.pdf',
+                originalPath: requireDocumentRef('/tmp/new.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },

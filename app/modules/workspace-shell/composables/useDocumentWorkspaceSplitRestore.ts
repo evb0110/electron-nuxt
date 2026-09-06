@@ -258,9 +258,10 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
 
         try {
             const payload = await options.captureSplitPayload();
+            const canCacheAfterCapture = Boolean(canCacheSplitPayloadForRemount.value);
             if (
                 captureGeneration !== splitPayloadCaptureGeneration
-                || !canCacheSplitPayloadForRemount.value
+                || !canCacheAfterCapture
                 || (
                     session
                         ? options.workspaceSplitCache.has(options.tabId, {session})
@@ -382,9 +383,12 @@ export const useDocumentWorkspaceSplitRestore = (options: IUseDocumentWorkspaceS
 
         const history: IPageTransitionHistoryEntry[] = options.currentPageTransitionHistory.value;
         if (history.length >= 3) {
-            const last = history[history.length - 1]!;
-            const mid = history[history.length - 2]!;
-            const first = history[history.length - 3]!;
+            const last = history[history.length - 1];
+            const mid = history[history.length - 2];
+            const first = history[history.length - 3];
+            if (!last || !mid || !first) {
+                return;
+            }
             const isBounce = first.page === last.page && first.page !== mid.page;
             if (isBounce) {
                 BrowserLogger.diagnostic('pdf-nav', `[workspace-page-bounce] detected ${first.page}->${mid.page}->${last.page}`, {

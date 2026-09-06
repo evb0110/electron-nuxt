@@ -11,13 +11,13 @@ import {
     ref,
 } from 'vue';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     createAllPageSelection,
     createExplicitPageSelection,
     createRangePageSelection,
     type TPageMoveOperation,
 } from '@contracts/pageNumbers';
-import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 vi.mock('vue', async () => ({
@@ -28,15 +28,15 @@ vi.mock('vue', async () => ({
 const toastAddMock = vi.fn();
 
 function createDropEvent(paths: string[]) {
-    const files = paths.map((path, index) => cast<File>({
-        name: `file-${index}`,
-        path,
-    }));
-
-    return cast<DragEvent>({
-        dataTransfer: { files },
-        preventDefault: vi.fn(),
+    const files = paths.map((path, index) => {
+        const file = new File([], `file-${index}`);
+        Object.defineProperty(file, 'path', {value: path});
+        return file;
     });
+    const event = new Event('drop');
+    Object.defineProperty(event, 'dataTransfer', {value: {files}});
+    Object.defineProperty(event, 'preventDefault', {value: vi.fn()});
+    return event as DragEvent;
 }
 
 function createDragEventTarget() {
@@ -102,10 +102,10 @@ describe('usePageDragDrop', () => {
 
     it('registers external dropped paths through the split picker capability', async () => {
         const pickerRegisterFilesForOpen = vi.fn(async () => [
-            '/docs/a.pdf',
-            '/docs/b.png',
-            '/docs/a.pdf',
-            '/docs/readme.txt',
+            requireDocumentRef('/docs/a.pdf'),
+            requireDocumentRef('/docs/b.png'),
+            requireDocumentRef('/docs/a.pdf'),
+            requireDocumentRef('/docs/readme.txt'),
         ]);
         vi.stubGlobal('window', {
             ...globalThis,
@@ -139,7 +139,7 @@ describe('usePageDragDrop', () => {
             if (files[0]?.name === 'file-0') {
                 throw new Error('page ingestion failed');
             }
-            return ['/docs/b.png'];
+            return [requireDocumentRef('/docs/b.png')];
         });
         vi.stubGlobal('window', {
             ...globalThis,

@@ -15,17 +15,11 @@ interface IMetadataSessionOptions {
     pdfDocument: ShallowRef<IPdfDocument | null>;
     totalPages: Ref<number>;
     markDirty: () => void;
-    /** @deprecated Producers now publish directly through setWorkspaceCommandSink. */
     fileHistoryMutationVersion?: Readonly<Ref<number>> | undefined;
-    /** @deprecated Producers now publish directly through setWorkspaceCommandSink. */
     fileHistorySessionVersion?: Readonly<Ref<number>> | undefined;
-    /** @deprecated The annotation producer now publishes direct commands. */
     annotationHistoryMutationVersion?: Readonly<Ref<number>> | undefined;
-    /** @deprecated The annotation producer resets its ledger source directly. */
     annotationHistoryResetVersion?: Readonly<Ref<number>> | undefined;
-    /** @deprecated Commands carry their own inverse. */
     undoFile?: (() => Promise<boolean>) | undefined;
-    /** @deprecated Commands carry their own redo operation. */
     redoFile?: (() => Promise<boolean>) | undefined;
     setWorkspaceCommandSink?: ((sink: IWorkspaceCommandSink | null) => void) | undefined;
 }
@@ -97,7 +91,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         bookmarkState,
         metadataHistory,
         clearPreservedSourceReloadMetadata: () => metadataHistory?.clearPreservedSourceReloadState(),
-        consumePreservedSourceReloadMetadata: () => metadataHistory?.consumePreservedSourceReloadState() ?? false,
+        consumePreservedSourceReloadMetadata: () => metadataHistory.consumePreservedSourceReloadState(),
         preserveMetadataForNextSourceReload: () => metadataHistory?.preserveCurrentStateForNextSourceReload(),
         workspaceUndoTimeline,
         workspaceCommandSink: commandSink,

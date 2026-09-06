@@ -25,6 +25,7 @@ const DRILL_POLICY_ENV = Object.freeze({
     EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
 });
 
+/** @type {ReadonlyArray<{arch: string, artifactGroup: string, platform: 'darwin' | 'linux' | 'win32'}>} */
 const TARGETS = Object.freeze([
     {
         arch: 'arm64',
@@ -54,6 +55,10 @@ export const DRILL_ASSET_BYTES = 4 * 1024;
 export const DRILL_MULTIPART_ASSET_BYTES = MULTIPART_PART_BYTES * 2 + 1024;
 const DRILL_MULTIPART_ASSET_SUFFIX = '.dmg';
 
+/** @typedef {ReturnType<typeof getLocalReleaseTargets>[number]} IReleaseTarget */
+/** @typedef {{sha512: string, size: number}} IArtifactInfo */
+
+/** @param {string} outputDirectory @param {string} version @returns {Promise<{artifactNames: string[], outputDirectory: string, targetGroups: string[]}>} */
 export async function makeDrillReleaseAssets(outputDirectory, version) {
     validateDrillVersion(version);
     if (!outputDirectory) {
@@ -69,6 +74,9 @@ export async function makeDrillReleaseAssets(outputDirectory, version) {
             arch: targetDefinition.arch,
             platform: targetDefinition.platform,
         });
+        if (!target) {
+            throw new Error(`No release target matched ${targetDefinition.platform}-${targetDefinition.arch}`);
+        }
         const targetDirectory = join(root, targetDefinition.artifactGroup);
         await mkdir(targetDirectory, {recursive: true});
         const artifactNames = getTargetArtifactNames(target, version);
@@ -105,12 +113,14 @@ export async function makeDrillReleaseAssets(outputDirectory, version) {
     };
 }
 
+/** @param {string} version */
 function validateDrillVersion(version) {
     if (typeof version !== 'string' || !DRILL_TAG_PATTERN.test(`v${version}`)) {
         throw new Error(`Invalid drill version: ${version ?? ''}`);
     }
 }
 
+/** @param {IReleaseTarget} target @param {string} version @returns {string[]} */
 function getTargetArtifactNames(target, version) {
     const artifactPrefix = `EVB-Viewer-${version}-${target.arch}`;
     switch (target.platform) {
@@ -143,6 +153,7 @@ function getTargetArtifactNames(target, version) {
     }
 }
 
+/** @param {IReleaseTarget} target @param {NodeJS.ProcessEnv} environment @returns {string | null} */
 function getMetadataName(target, environment) {
     if (!expectsUpdaterMetadata(target, environment)) {
         return null;
@@ -156,6 +167,7 @@ function getMetadataName(target, environment) {
     return null;
 }
 
+/** @param {IReleaseTarget} target @param {string} targetDirectory @param {string} version @param {string[]} artifactNames @returns {Promise<string>} */
 async function createUpdaterMetadata(target, targetDirectory, version, artifactNames) {
     const updateArtifacts = artifactNames.filter(name => {
         if (target.platform === 'mac') {
@@ -172,6 +184,9 @@ async function createUpdaterMetadata(target, targetDirectory, version, artifactN
         };
     }));
     const primary = entries.find(entry => entry.name.endsWith('.zip')) ?? entries[0];
+    if (!primary) {
+        throw new Error('Drill updater metadata requires at least one update artifact');
+    }
     return [
         `version: ${version}`,
         'files:',
@@ -186,10 +201,12 @@ async function createUpdaterMetadata(target, targetDirectory, version, artifactN
     ].join('\n');
 }
 
+/** @param {string} name @returns {number} */
 function drillAssetBytes(name) {
     return name.endsWith(DRILL_MULTIPART_ASSET_SUFFIX) ? DRILL_MULTIPART_ASSET_BYTES : DRILL_ASSET_BYTES;
 }
 
+/** @param {string} version @param {string} name @param {number} byteLength @returns {Buffer} */
 function createDeterministicBytes(version, name, byteLength) {
     const seed = Buffer.from(`EVB Viewer publish-chain drill ${version} ${name}\n`, 'utf8');
     const bytes = Buffer.alloc(byteLength);
@@ -199,6 +216,7 @@ function createDeterministicBytes(version, name, byteLength) {
     return bytes;
 }
 
+/** @param {string} filePath @returns {Promise<IArtifactInfo>} */
 async function getArtifactInfo(filePath) {
     const contents = await readFile(filePath);
     return {
@@ -207,6 +225,7 @@ async function getArtifactInfo(filePath) {
     };
 }
 
+/** @param {string} directory @returns {Promise<string[]>} */
 async function listFiles(directory) {
     const entries = await readdir(directory, {withFileTypes: true});
     return entries

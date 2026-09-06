@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     existsSync,
     readFileSync,
@@ -78,7 +79,7 @@ function parsePositivePid(value: unknown) {
 function readLegacyPid(filePath: string) {
     try {
         const parsed = safeJsonParse(readFileSync(filePath, 'utf8'), isRecord);
-        return parsePositivePid(parsed?.pid);
+        return parsePositivePid(parsed.pid);
     } catch {
         return null;
     }
@@ -477,7 +478,7 @@ export async function runCli() {
     try {
         await CLI_COMMAND_HANDLERS[command](parsed.args, parsed);
     } catch (error) {
-        console.error('Error:', error instanceof Error ? error.message : error);
+        console.error('Error:', error instanceof Error ? getErrorMessage(error) : error);
         process.exit(1);
     }
 }

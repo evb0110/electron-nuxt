@@ -15,6 +15,8 @@ import {
     type INoteEntity,
     type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const rect = {
     left: 0.1,
@@ -40,12 +42,12 @@ function note(
     return {
         kind: 'note',
         identity: identity(id, pdfRef),
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: null,
         contents: '',
         position: rect,
@@ -59,12 +61,12 @@ function textMarkup(id: string, pdfRef: string): ITextMarkupEntity {
     return {
         kind: 'text-markup',
         identity: identity(id, pdfRef),
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: null,
         subtype: 'Highlight',
         contents: '',

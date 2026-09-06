@@ -1,4 +1,5 @@
 import {isFinitePositive} from '@contracts/runtimeGuards';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type { TPdfViewMode } from '@app/types/pdfContracts';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import { sumBy } from 'es-toolkit/math';
@@ -8,7 +9,7 @@ export function resolveCurrentSpreadBaseWidth(
     pageMetrics: IPdfPageMetric[],
     viewMode: TPdfViewMode,
     totalPages: number,
-    currentPage: number,
+    currentPage: TPageNumber,
 ) {
     if (totalPages <= 0) {
         return null;

@@ -13,10 +13,17 @@ import {
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
+/** @typedef {{path: string, sha256: string, size: number}} IProvenanceFile */
+/** @typedef {{byteLength: number, fileCount: number, files: IProvenanceFile[], sha256: string}} IProvenancePayload */
+/** @typedef {{schemaVersion?: number, commitSha?: string, version?: string, arch?: string, channel?: string, lockfileSha256?: string, appAsar?: {sha256?: string}, payload?: IProvenancePayload}} IProvenance */
+/** @typedef {{appAsarPath: string, arch: string, channel: string, outputPath: string}} IBuildProvenanceOptions */
+
+/** @param {string} filePath */
 async function sha256(filePath) {
     return createHash('sha256').update(await readFile(filePath)).digest('hex');
 }
 
+/** @param {string} left @param {string} right */
 function compareCodeUnits(left, right) {
     if (left < right) {
         return -1;
@@ -27,6 +34,7 @@ function compareCodeUnits(left, right) {
     return 0;
 }
 
+/** @param {string} rootPath @param {string} [currentPath] @returns {Promise<IProvenanceFile[]>} */
 async function collectPayloadFiles(rootPath, currentPath = rootPath) {
     const entries = await readdir(currentPath, {withFileTypes: true});
     const files = [];
@@ -57,6 +65,7 @@ async function collectPayloadFiles(rootPath, currentPath = rootPath) {
     return files.sort((left, right) => compareCodeUnits(left.path, right.path));
 }
 
+/** @param {IProvenanceFile[]} files */
 function hashPayloadManifest(files) {
     const hash = createHash('sha256');
     for (const file of files) {
@@ -65,6 +74,7 @@ function hashPayloadManifest(files) {
     return hash.digest('hex');
 }
 
+/** @param {string} appAsarPath @returns {Promise<IProvenancePayload>} */
 async function createPayloadProvenance(appAsarPath) {
     const rootPath = resolve(appAsarPath, '..', '..');
     const files = await collectPayloadFiles(rootPath);
@@ -76,6 +86,7 @@ async function createPayloadProvenance(appAsarPath) {
     };
 }
 
+/** @param {IBuildProvenanceOptions} options */
 export async function createBuildProvenance({
     appAsarPath,
     arch,
@@ -103,16 +114,17 @@ export async function createBuildProvenance({
     return provenance;
 }
 
+/** @param {string} directPath @param {string} storePath */
 export async function assertMatchingBuildProvenance(directPath, storePath) {
-    const direct = JSON.parse(await readFile(directPath, 'utf8'));
-    const store = JSON.parse(await readFile(storePath, 'utf8'));
-    for (const field of [
+    const direct = /** @type {IProvenance} */ (JSON.parse(await readFile(directPath, 'utf8')));
+    const store = /** @type {IProvenance} */ (JSON.parse(await readFile(storePath, 'utf8')));
+    for (const field of /** @type {(keyof IProvenance)[]} */ ([
         'schemaVersion',
         'commitSha',
         'version',
         'arch',
         'lockfileSha256',
-    ]) {
+    ])) {
         if (direct[field] !== store[field]) {
             throw new Error(`Build provenance mismatch for ${field}: direct=${direct[field]} store=${store[field]}`);
         }
@@ -123,11 +135,11 @@ export async function assertMatchingBuildProvenance(directPath, storePath) {
     if (!direct.payload || !store.payload) {
         throw new Error('Complete packaged payload provenance is required for direct-download and Store parity.');
     }
-    for (const field of [
+    for (const field of /** @type {(keyof IProvenancePayload)[]} */ ([
         'sha256',
         'fileCount',
         'byteLength',
-    ]) {
+    ])) {
         if (direct.payload[field] !== store.payload[field]) {
             throw new Error(`Packaged payload provenance mismatch for ${field}: direct=${direct.payload[field]} store=${store.payload[field]}`);
         }
@@ -152,6 +164,7 @@ export async function assertMatchingBuildProvenance(directPath, storePath) {
     };
 }
 
+/** @param {string[]} argv @returns {Promise<void>} */
 async function main(argv) {
     const [
         command,
@@ -164,18 +177,26 @@ async function main(argv) {
             appAsarPath,
             outputPath,
         ] = args;
-        await createBuildProvenance({
-            appAsarPath,
-            arch,
-            channel,
-            outputPath,
-        });
-        return;
+        if (channel !== undefined && arch !== undefined && appAsarPath !== undefined && outputPath !== undefined) {
+            await createBuildProvenance({
+                appAsarPath,
+                arch,
+                channel,
+                outputPath,
+            });
+            return;
+        }
     }
     if (command === 'assert-match' && args.length === 2) {
-        await assertMatchingBuildProvenance(args[0], args[1]);
-        process.stdout.write('Direct-download and Store packaged application provenance matches.\n');
-        return;
+        const [
+            directPath,
+            storePath,
+        ] = args;
+        if (directPath !== undefined && storePath !== undefined) {
+            await assertMatchingBuildProvenance(directPath, storePath);
+            process.stdout.write('Direct-download and Store packaged application provenance matches.\n');
+            return;
+        }
     }
     throw new Error('Usage: build-provenance.mjs create <channel> <arch> <app.asar> <output.json> | assert-match <direct.json> <store.json>');
 }

@@ -105,6 +105,44 @@ describe('Sentry Node diagnostics adapter', () => {
         expect((envelope[1][0] as [{type: string}, unknown])[0]).toEqual({type: 'event'});
     });
 
+    it('emits content-free attempted and accepted audit records', async () => {
+        const audit = vi.fn();
+        const send = vi.fn(() => Promise.resolve({statusCode: 200}));
+        const adapter = createSentryNodeDiagnosticsTransport({
+            dsn: 'https://publickey@o123.ingest.de.sentry.io/456',
+            identity: {
+                target: 'desktop',
+                release: 'evb-viewer-desktop@0.1.449',
+                dist: 'macos-arm64',
+                environment: 'test',
+            },
+            appVersion: '0.1.449',
+            platform: 'darwin',
+            architecture: 'arm64',
+            audit,
+            makeTransport: () => ({
+                send,
+                flush: () => Promise.resolve(true),
+            } as Transport),
+        });
+
+        await expect(adapter.send?.(RECORD)).resolves.toBe(true);
+        expect(audit).toHaveBeenCalledTimes(2);
+        expect(audit.mock.calls.map(([entry]) => entry)).toEqual([
+            expect.objectContaining({
+                eventId: RECORD.eventId,
+                itemType: 'event',
+                phase: 'attempted',
+            }),
+            expect.objectContaining({
+                eventId: RECORD.eventId,
+                itemType: 'event',
+                phase: 'accepted',
+            }),
+        ]);
+        expect(JSON.stringify(audit.mock.calls)).not.toContain('secret-document.pdf');
+    });
+
     it('attaches only validated Debug IDs for packaged application bundles', async () => {
         const packagedRecord = requireDiagnosticRecord({
             ...RECORD,

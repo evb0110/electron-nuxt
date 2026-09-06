@@ -4,26 +4,26 @@ export const PLATFORM_CONTRACT_VERSION = 1 as const;
 export type TPlatformContractVersion = typeof PLATFORM_CONTRACT_VERSION;
 
 export interface IPlatformCapabilityManifest {
-    documents: {
-        picker: boolean;
-        folderPicker: boolean;
-        nativePaths: boolean;
-        browserDocumentRefs: boolean;
-        nativePrint: boolean;
-        nativeOpenInDefaultApp: boolean;
-        recentFiles: boolean;
-        menuEvents: boolean;
-        structuredSaveResult: boolean;
+    readonly documents: {
+        readonly picker: boolean;
+        readonly folderPicker: boolean;
+        readonly nativePaths: boolean;
+        readonly browserDocumentRefs: boolean;
+        readonly nativePrint: boolean;
+        readonly nativeOpenInDefaultApp: boolean;
+        readonly recentFiles: boolean;
+        readonly menuEvents: boolean;
+        readonly structuredSaveResult: boolean;
     };
-    windowTabs: boolean;
-    agent: boolean;
-    updates: boolean;
+    readonly windowTabs: boolean;
+    readonly agent: boolean;
+    readonly updates: boolean;
 }
 
 export interface IPlatformRuntimeManifest {
-    backend: TPlatformBackend;
-    contractVersion: TPlatformContractVersion;
-    capabilities: IPlatformCapabilityManifest;
+    readonly backend: TPlatformBackend;
+    readonly contractVersion: TPlatformContractVersion;
+    readonly capabilities: IPlatformCapabilityManifest;
 }
 
 export const ELECTRON_PLATFORM_MANIFEST = {

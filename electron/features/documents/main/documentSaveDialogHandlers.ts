@@ -9,6 +9,7 @@ import {
     savePdfDialog,
 } from '@electron/features/documents/main/documentSave.service';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { showSaveDialogWithExtension } from '@electron/features/documents/main/documentDialogCommon';
 import { beginSerializedPdfSaveAs } from '@electron/features/documents/main/serializedPdfPersistence';
 import type { IBeginSerializedPdfSaveAsResult } from '@electron/features/documents/serializedPdfPersistenceContract';
@@ -44,7 +45,7 @@ export async function handleSavePdfDataAs(
     options?: unknown,
     serializedSaveOptions?: IPdfSerializedSaveOptions,
 ): Promise<{
-    path: string | null;
+    path: TDocumentRef | null;
     validation: IPdfValidationResult | null;
 }> {
     return savePdfDataAs(

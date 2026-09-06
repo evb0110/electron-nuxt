@@ -12,7 +12,11 @@ import {
     sortBy,
 } from 'es-toolkit/array';
 import { basename } from 'path';
-import type { TWindowTabsAction } from '@contracts/windowTabs';
+import { parseDocumentRef } from '@contracts/documentRef';
+import type {
+    TTabId,
+    TWindowTabsAction,
+} from '@contracts/windowTabs';
 import {
     WINDOW_TABS_PLATFORM_FEATURE,
     type IWindowTabsEventMap,
@@ -36,7 +40,6 @@ import {
     getWindowByIdFromRegistry,
 } from '@electron/window/registry';
 import { getErrorMessage } from '@electron/utils/error';
-import { shouldExposeDevToolsMenu } from '@electron/shouldExposeDevToolsMenu';
 
 const logger = createLogger('menu');
 const DOCUMENTS_EVENT_CHANNELS = DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels;
@@ -198,7 +201,7 @@ function sendWindowTabsAction(sourceWindowId: number | null, action: TWindowTabs
 
 function buildMoveToWindowSubmenu(
     sourceWindowId: number,
-    tabId: string | undefined,
+    tabId: TTabId | undefined,
 ): MenuItemConstructorOptions[] {
     return buildWindowTargetSubmenu(sourceWindowId, window => ({
         kind: 'move-tab-to-window',
@@ -342,7 +345,15 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     const fileItems: MenuItemConstructorOptions[] = recentFiles.map((filePath) => ({
         label: basename(filePath),
         click: (_, window) => {
-            sendToWindow(resolveWindowFromMenuContext(window), DOCUMENTS_EVENT_CHANNELS.onMenuOpenRecentFile, filePath);
+            const documentRef = parseDocumentRef(filePath);
+            if (documentRef === null) {
+                return;
+            }
+            sendToWindow(
+                resolveWindowFromMenuContext(window),
+                DOCUMENTS_EVENT_CHANNELS.onMenuOpenRecentFile,
+                documentRef,
+            );
         },
     }));
 
@@ -661,12 +672,8 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                 enabled: state.canCreatePane,
                 args: ['down'],
             }),
-            ...(shouldExposeDevToolsMenu()
-                ? [
-                    { type: 'separator' as const },
-                    { role: 'toggleDevTools' as const },
-                ]
-                : []),
+            { type: 'separator' },
+            { role: 'toggleDevTools' },
         ],
     };
 }

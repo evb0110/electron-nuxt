@@ -11,6 +11,13 @@ import {
     ref,
 } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {
+    requirePaneId,
+    type IEditorPaneState,
+    type TPaneDirection,
+} from '@contracts/editorPanes';
+import { requireTabId } from '@contracts/windowTabs';
 import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
 import type { ITab } from '@app/types/tabs';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -28,9 +35,33 @@ function createPayload(): TSplitPayload {
     return {
         kind: 'pdfSnapshot',
         fileName: 'sample.pdf',
-        originalPath: '/tmp/sample.pdf',
-        snapshotPath: '/tmp/snapshot.pdf',
+        originalPath: requireDocumentRef('/tmp/sample.pdf'),
+        snapshotPath: requireDocumentRef('/tmp/snapshot.pdf'),
         isDirty: true,
+    };
+}
+
+function makePane(id: string, activeTabId: string | null, tabIds: string[]): IEditorPaneState {
+    return {
+        paneId: requirePaneId(id),
+        activeTabId: activeTabId === null ? null : requireTabId(activeTabId),
+        tabIds: tabIds.map(tabId => requireTabId(tabId)),
+    };
+}
+
+function makeTab(
+    id: string,
+    originalPath: string | null,
+    fileName: string | null = 'sample.pdf',
+    isDirty = false,
+    isDjvu = false,
+): ITab {
+    return {
+        id,
+        fileName,
+        originalPath: originalPath === null ? null : requireDocumentRef(originalPath),
+        isDirty,
+        isDjvu,
     };
 }
 
@@ -39,20 +70,15 @@ function createCloseHarness(pane: {
     activeTabId: string;
     tabIds: string[];
 }, handleCloseTab: (paneId: string, tabId: string) => Promise<void>) {
+    const typedPane = makePane(pane.paneId, pane.activeTabId, pane.tabIds);
     return useAppShellDirectionalTabs({
-        activePaneId: ref(pane.paneId),
-        panes: ref([pane]),
-        tabs: ref(pane.tabIds.map(id => ({
-            id,
-            fileName: null,
-            originalPath: null,
-            isDirty: false,
-            isDjvu: false,
-        }))),
+        activePaneId: ref(typedPane.paneId),
+        panes: ref([typedPane]),
+        tabs: ref(typedPane.tabIds.map(id => makeTab(id, null, null))),
         workspaceRefs: ref(new Map()),
         getDocumentRecord: vi.fn(() => null),
         isTabTransitionBusy: computed(() => false),
-        getPaneById: vi.fn((paneId: string | null | undefined) => paneId === pane.paneId ? pane : null),
+        getPaneById: vi.fn((paneId: string | null | undefined) => paneId === typedPane.paneId ? typedPane : null),
         getTabById: vi.fn(() => null),
         findDirectionalPane: vi.fn(() => null),
         focusPane: vi.fn(),
@@ -95,18 +121,8 @@ describe('useAppShellDirectionalTabs', () => {
         'up',
         'down',
     ] as const)('creates an active empty tab when splitting %s', async (direction) => {
-        const sourcePane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        };
-        const sourceTab = {
-            id: 'tab-1',
-            fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
-            isDirty: true,
-            isDjvu: false,
-        };
+        const sourcePane = makePane('pane-1', 'tab-1', ['tab-1']);
+        const sourceTab = makeTab('tab-1', '/tmp/sample.pdf', 'sample.pdf', true);
         const splitPane = vi.fn(() => 'pane-2');
         const createTab = vi.fn(() => ({
             id: 'tab-2',
@@ -121,7 +137,7 @@ describe('useAppShellDirectionalTabs', () => {
 
         const tabs = useAppShellDirectionalTabs({
             activePaneId: ref('pane-1'),
-            panes: ref([sourcePane]),
+            panes: ref<IEditorPaneState[]>([sourcePane]),
             tabs: ref([sourceTab]),
             workspaceRefs: ref(new Map()),
             getDocumentRecord: vi.fn(() => null),
@@ -167,27 +183,19 @@ describe('useAppShellDirectionalTabs', () => {
     });
 
     it('activates copied destination tabs before restoring their workspace payload', async () => {
-        const sourcePane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        };
-        const targetPane = {
-            paneId: 'pane-2',
-            activeTabId: 'tab-2',
-            tabIds: ['tab-2'],
-        };
+        const sourcePane = makePane('pane-1', 'tab-1', ['tab-1']);
+        const targetPane = makePane('pane-2', 'tab-2', ['tab-2']);
         const sourceTab: ITab = {
             id: 'tab-1',
             fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
+            originalPath: requireDocumentRef('/tmp/sample.pdf'),
             isDirty: true,
             isDjvu: false,
         };
         const targetTab: ITab = {
             id: 'tab-2',
             fileName: 'target.pdf',
-            originalPath: '/tmp/target.pdf',
+            originalPath: requireDocumentRef('/tmp/target.pdf'),
             isDirty: false,
             isDjvu: false,
         };
@@ -213,9 +221,9 @@ describe('useAppShellDirectionalTabs', () => {
                 ...tabsState.value,
                 tab,
             ];
-            targetPane.tabIds.push(tab.id);
+            targetPane.tabIds.push(requireTabId(tab.id));
             if (options.activate !== false) {
-                targetPane.activeTabId = tab.id;
+                targetPane.activeTabId = requireTabId(tab.id);
                 destinationMounted = true;
             }
             return tab;
@@ -224,7 +232,7 @@ describe('useAppShellDirectionalTabs', () => {
 
         const directionalTabs = useAppShellDirectionalTabs({
             activePaneId: ref('pane-1'),
-            panes: ref([
+            panes: ref<IEditorPaneState[]>([
                 sourcePane,
                 targetPane,
             ]),
@@ -239,7 +247,7 @@ describe('useAppShellDirectionalTabs', () => {
                 ].find(pane => pane.paneId === paneId) ?? null;
             }),
             getTabById: vi.fn((tabId: string | null | undefined) => tabsState.value.find(tab => tab.id === tabId) ?? null),
-            findDirectionalPane: vi.fn((_paneId: string, direction: string) => direction === 'right' ? targetPane : null),
+            findDirectionalPane: vi.fn((_paneId: string, direction: TPaneDirection) => direction === 'right' ? targetPane : null),
             focusPane: vi.fn(),
             splitPane: vi.fn(),
             moveTabToPane: vi.fn(),
@@ -274,15 +282,11 @@ describe('useAppShellDirectionalTabs', () => {
     });
 
     it('does not capture a tab payload when copy has no directional destination', async () => {
-        const pane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        };
+        const pane = makePane('pane-1', 'tab-1', ['tab-1']);
         const tab: ITab = {
             id: 'tab-1',
             fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
+            originalPath: requireDocumentRef('/tmp/sample.pdf'),
             isDirty: false,
             isDjvu: false,
         };
@@ -331,15 +335,11 @@ describe('useAppShellDirectionalTabs', () => {
 
     it('gates existing-window transfer availability while tab transitions are busy', () => {
         vi.stubGlobal('window', { electronAPI: createElectronPlatformApiFixture() });
-        const pane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        };
+        const pane = makePane('pane-1', 'tab-1', ['tab-1']);
         const tab: ITab = {
             id: 'tab-1',
             fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
+            originalPath: requireDocumentRef('/tmp/sample.pdf'),
             isDirty: false,
             isDjvu: false,
         };
@@ -387,15 +387,11 @@ describe('useAppShellDirectionalTabs', () => {
     });
 
     it('queues existing-window tab transfers through the tab transition queue', async () => {
-        const pane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        };
+        const pane = makePane('pane-1', 'tab-1', ['tab-1']);
         const tab: ITab = {
             id: 'tab-1',
             fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
+            originalPath: requireDocumentRef('/tmp/sample.pdf'),
             isDirty: false,
             isDjvu: false,
         };
@@ -485,16 +481,12 @@ describe('useAppShellDirectionalTabs', () => {
     });
 
     it('keeps new-tab creation available even while a tab transition is in flight', () => {
-        const pane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: ['tab-1'],
-        };
+        const pane = makePane('pane-1', 'tab-1', ['tab-1']);
         const handleCloseTab = vi.fn(async () => {});
         const isTabTransitionBusy = ref(true);
         const directionalTabs = useAppShellDirectionalTabs({
             activePaneId: ref('pane-1'),
-            panes: ref([pane]),
+            panes: ref<IEditorPaneState[]>([pane]),
             tabs: ref([]),
             workspaceRefs: ref(new Map()),
             getDocumentRecord: vi.fn(() => null),
@@ -534,19 +526,11 @@ describe('useAppShellDirectionalTabs', () => {
     });
 
     it('moves the active tab without split payload capture or eager source activation', async () => {
-        const sourcePane = {
-            paneId: 'pane-1',
-            activeTabId: 'tab-1',
-            tabIds: [
-                'tab-1',
-                'tab-2',
-            ],
-        };
-        const targetPane = {
-            paneId: 'pane-2',
-            activeTabId: 'tab-3',
-            tabIds: ['tab-3'],
-        };
+        const sourcePane = makePane('pane-1', 'tab-1', [
+            'tab-1',
+            'tab-2',
+        ]);
+        const targetPane = makePane('pane-2', 'tab-3', ['tab-3']);
         const activateTab = vi.fn();
         const moveTabToPane = vi.fn(() => true);
         const captureWorkspacePayload = vi.fn(async () => createPayload());
@@ -554,7 +538,7 @@ describe('useAppShellDirectionalTabs', () => {
 
         const directionalTabs = useAppShellDirectionalTabs({
             activePaneId: ref('pane-1'),
-            panes: ref([
+            panes: ref<IEditorPaneState[]>([
                 sourcePane,
                 targetPane,
             ]),
@@ -567,7 +551,7 @@ describe('useAppShellDirectionalTabs', () => {
                 targetPane,
             ].find(pane => pane.paneId === paneId) ?? null),
             getTabById: vi.fn(() => null),
-            findDirectionalPane: vi.fn((_paneId: string, direction: string) => direction === 'right' ? targetPane : null),
+            findDirectionalPane: vi.fn((_paneId: string, direction: TPaneDirection) => direction === 'right' ? targetPane : null),
             focusPane: vi.fn(),
             splitPane: vi.fn(),
             moveTabToPane,

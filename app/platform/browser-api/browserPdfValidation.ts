@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -126,7 +127,7 @@ export async function validateBrowserPdfData(data: Uint8Array): Promise<IPdfVali
         return {
             isValid: false,
             tool: 'browser',
-            errors: [error instanceof Error ? error.message : 'PDF validation failed'],
+            errors: [error instanceof Error ? getErrorMessage(error) : 'PDF validation failed'],
             warnings: [],
         };
     }
@@ -187,7 +188,7 @@ export async function validateBrowserPdfPath(path: string): Promise<IPdfValidati
         return {
             isValid: false,
             tool: 'browser',
-            errors: [error instanceof Error ? error.message : 'PDF validation failed'],
+            errors: [error instanceof Error ? getErrorMessage(error) : 'PDF validation failed'],
             warnings: [],
         };
     }

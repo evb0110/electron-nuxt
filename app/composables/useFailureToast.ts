@@ -59,7 +59,7 @@ export function isFailurePresentation(value: unknown): value is FailurePresentat
 }
 
 export async function copyFailurePresentation(presentation: FailurePresentation) {
-    if (typeof navigator === 'undefined' || typeof navigator.clipboard?.writeText !== 'function') {
+    if (typeof navigator === 'undefined' || typeof navigator.clipboard.writeText !== 'function') {
         return false;
     }
 

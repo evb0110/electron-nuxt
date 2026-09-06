@@ -92,6 +92,7 @@
 
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     asAnnotationId,
     toLegacyShapeAnnotation,
@@ -310,7 +311,7 @@ const shapeDraftEntity = computed(() => {
     return {
         kind: 'shape',
         identity: {id: asAnnotationId(draft.id)},
-        pageIndex: draft.pageIndex,
+        pageIndex: requirePageIndex(draft.pageIndex),
         revision: 0,
         persistedRevision: -1,
         deleted: false,

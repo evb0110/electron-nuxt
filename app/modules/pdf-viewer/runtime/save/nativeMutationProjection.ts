@@ -343,8 +343,12 @@ function collectReplayableEmbeddedAnnotationIds(input: {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
         addEditorRuntimeAnnotationIdFromStableKey(ids, stableKey);
         const matchingComments = input.comments.filter(candidate => candidate.stableKey === stableKey);
-        if (matchingComments.length === 1) {
-            addCommentIdentityAliases(ids, matchingComments[0]!);
+        const [
+            matchingComment,
+            ...otherMatchingComments
+        ] = matchingComments;
+        if (matchingComment && otherMatchingComments.length === 0) {
+            addCommentIdentityAliases(ids, matchingComment);
         }
     });
     input.pendingDeletes.forEach((comment) => {

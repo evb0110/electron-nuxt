@@ -6,15 +6,16 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import { estimateOcrRequestBytes } from '@electron/ocr/estimateOcrRequestBytes';
-import type { IOcrPdfPageRequest } from '@electron/ocr/worker/types';
+import type { TOcrSearchablePdfPages } from '@contracts/electronApiOcr';
 
 const PAGE_BYTES_AT_300_DPI = Math.ceil(8.5 * 300) * Math.ceil(11 * 300) * 4;
 const PAGE_BYTES_AT_600_DPI = Math.ceil(8.5 * 600) * Math.ceil(11 * 600) * 4;
 
-function buildPages(count: number): IOcrPdfPageRequest[] {
+function buildPages(count: number): TOcrSearchablePdfPages {
     return Array.from({length: count}, (_, index) => ({
-        pageNumber: index + 1,
+        pageNumber: requirePageNumber(index + 1),
         languages: ['eng'],
     }));
 }

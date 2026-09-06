@@ -1,6 +1,6 @@
 {
     "schemaVersion": 1,
-    "note": "Windows native UI selector records for the UTM autotest lane. Every record is unverified until the M0b feasibility run enumerates the real control trees on a named image; verifiedOnImage records that image id.",
+    "note": "Windows native UI selector records for the UTM autotest lane. Records without named-image evidence remain unverified; verifiedOnImage records the image that proved a selector.",
     "records": [
         {
             "id": "evb-viewer.main-window",
@@ -216,6 +216,78 @@
                     "localizedFallbacks": [
                         "Отмена"
                     ]
+                }
+            },
+            "verified": false,
+            "verifiedOnImage": null
+        },
+        {
+            "id": "print-dialog.modern-window",
+            "surface": "print-dialog",
+            "kind": "window",
+            "description": "Windows modern print dialog outer ApplicationFrameWindow, titled EVB Viewer - Print.",
+            "window": {
+                "className": "ApplicationFrameWindow",
+                "titleContains": "EVB Viewer - Print"
+            },
+            "verified": true,
+            "verifiedOnImage": "evb-win11-arm64-lab-20260905"
+        },
+        {
+            "id": "print-dialog.modern-printer-list",
+            "surface": "print-dialog",
+            "kind": "control",
+            "description": "Printer ComboBox in the Windows modern print dialog.",
+            "selector": {
+                "automationId": "printerSelector",
+                "controlType": "ComboBox",
+                "name": {
+                    "exact": "Printer"
+                }
+            },
+            "verified": true,
+            "verifiedOnImage": "evb-win11-arm64-lab-20260905"
+        },
+        {
+            "id": "print-dialog.modern-microsoft-print-to-pdf",
+            "surface": "print-dialog",
+            "kind": "control",
+            "description": "Microsoft Print to PDF entry in the modern printer ComboBox.",
+            "selector": {
+                "automationId": "ContentPresenter",
+                "controlType": "ListItem",
+                "name": {
+                    "exact": "Microsoft Print to PDF"
+                }
+            },
+            "verified": false,
+            "verifiedOnImage": null
+        },
+        {
+            "id": "print-dialog.modern-print-button",
+            "surface": "print-dialog",
+            "kind": "control",
+            "description": "Print commit button in the Windows modern print dialog.",
+            "selector": {
+                "automationId": "PrintButton",
+                "controlType": "Button",
+                "name": {
+                    "exact": "Print"
+                }
+            },
+            "verified": true,
+            "verifiedOnImage": "evb-win11-arm64-lab-20260905"
+        },
+        {
+            "id": "print-dialog.modern-cancel-button",
+            "surface": "print-dialog",
+            "kind": "control",
+            "description": "Cancel button in the Windows modern print dialog.",
+            "selector": {
+                "automationId": "CloseButton",
+                "controlType": "Button",
+                "name": {
+                    "exact": "Cancel"
                 }
             },
             "verified": false,

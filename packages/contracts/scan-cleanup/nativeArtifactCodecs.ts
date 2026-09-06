@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import type {
     IScanCleanupContentDiagnostics,
     IScanCleanupPreviewMetadata,
@@ -101,10 +102,6 @@ function fail(artifact: TArtifact, detail: string): never {
     throw new InvalidScanCleanupNativeArtifactError(artifact, detail);
 }
 
-function decoded<T>(source: Record<string, unknown>): T {
-    return source as T;
-}
-
 function record(value: unknown, artifact: TArtifact, label: string): Record<string, unknown> {
     if (!isRecord(value)) fail(artifact, `${label} must be an object`);
     return value;
@@ -128,9 +125,45 @@ function unit(value: unknown, artifact: TArtifact, label: string): number {
     return result;
 }
 
+function isOneOfValue<T>(value: unknown, values: readonly T[]): value is T {
+    return values.some(candidate => candidate === value);
+}
+
 function oneOf<T>(value: unknown, values: readonly T[], artifact: TArtifact, label: string): T {
-    if (!values.includes(value as T)) fail(artifact, `${label} has an unknown discriminant`);
-    return value as T;
+    if (!isOneOfValue(value, values)) fail(artifact, `${label} has an unknown discriminant`);
+    return value;
+}
+
+function isNativeScanCleanupPageArtifactMetadata(
+    value: unknown,
+): value is INativeScanCleanupPageArtifactMetadataV3 {
+    return isRecord(value)
+        && isOneOfValue(value.layoutClassification, LAYOUTS)
+        && (value.cutterXPx === null || typeof value.cutterXPx === 'number')
+        && isOneOfValue(value.rotationDegrees, ROTATIONS)
+        && isOneOfValue(value.canvasScope, [
+            'page',
+            'document',
+        ])
+        && typeof value.excluded === 'boolean'
+        && typeof value.blankOutputsSkipped === 'number'
+        && typeof value.outputCount === 'number';
+}
+
+function isNativeScanCleanupOutputMetadata(
+    value: unknown,
+): value is INativeScanCleanupOutputMetadataV3 {
+    return isRecord(value)
+        && typeof value.outputWidthPx === 'number'
+        && typeof value.outputHeightPx === 'number'
+        && typeof value.canvasWidthPx === 'number'
+        && typeof value.canvasHeightPx === 'number'
+        && isOneOfValue(value.layoutClassification, LAYOUTS)
+        && typeof value.skewApplied === 'boolean'
+        && typeof value.placementOffsetXPx === 'number'
+        && typeof value.placementOffsetYPx === 'number'
+        && (value.forwardTransform === null || isRecord(value.forwardTransform))
+        && isOneOfValue(value.rotationDegrees, ROTATIONS);
 }
 
 function optionalBoolean(source: Record<string, unknown>, key: string, artifact: TArtifact) {
@@ -555,7 +588,7 @@ function analysisOutput(value: unknown, artifact: TArtifact, label: string) {
 
 function validateVersion(source: Record<string, unknown>, artifact: TArtifact) {
     if (source.version !== undefined && source.version !== SCAN_CLEANUP_NATIVE_PROTOCOL_VERSION) {
-        fail(artifact, `unsupported protocol version ${String(source.version)}`);
+        fail(artifact, `unsupported protocol version ${JSON.stringify(source.version)}`);
     }
 }
 
@@ -602,7 +635,11 @@ export function decodeNativeScanCleanupPageMetadata(
         if (!Array.isArray(source.outputs) || source.outputs.length > MAX_PAGE_OUTPUTS) fail(artifact, 'outputs exceeds the protocol limit');
         source.outputs.forEach((item, index) => analysisOutput(item, artifact, `outputs[${String(index)}]`));
         if (source.outputs.length !== outputCount) fail(artifact, 'outputs length does not match outputCount');
-        const halves = source.outputs.map(item => (item as Record<string, unknown>).half);
+        const halves = source.outputs.map((item, index) => record(
+            item,
+            artifact,
+            `outputs[${String(index)}]`,
+        ).half);
         if (new Set(halves).size !== halves.length) fail(artifact, 'outputs contains duplicate halves');
     }
     if (source.recommendedOutputMode !== undefined) oneOf(source.recommendedOutputMode, OUTPUT_MODES, artifact, 'recommendedOutputMode');
@@ -638,7 +675,10 @@ export function decodeNativeScanCleanupPageMetadata(
         if (typeof axis.sideways !== 'boolean') fail(artifact, 'textAxis.sideways must be boolean');
         unit(axis.confidence, artifact, 'textAxis.confidence');
     }
-    return decoded<INativeScanCleanupPageArtifactMetadataV3>(source);
+    if (!isNativeScanCleanupPageArtifactMetadata(source)) {
+        return fail(artifact, 'decoded page metadata has an invalid shape');
+    }
+    return source;
 }
 
 export function decodeNativeScanCleanupPageMetadataJson(text: string) {
@@ -657,12 +697,26 @@ export function decodeNativeScanCleanupPreviewPageMetadataJson(
         if (output.appliedMargins === undefined) fail('page metadata', `outputs[${String(index)}].appliedMargins is required for preview`);
         if (!Object.hasOwn(output, 'contentBox')) fail('page metadata', `outputs[${String(index)}].contentBox is required for preview`);
     });
-    return {
+    const previewMetadata = {
         ...metadata,
         tier1Verdict: metadata.tier1Verdict ?? metadata.layoutClassification,
         reconciled: metadata.reconciled === true,
         clusterAgreement: metadata.clusterAgreement ?? 0,
-    } as TNativeScanCleanupPreviewPageArtifactMetadataV3;
+    };
+    if (!isNativeScanCleanupPreviewPageArtifactMetadata(previewMetadata)) {
+        return fail('page metadata', 'decoded preview page metadata has an invalid shape');
+    }
+    return previewMetadata;
+}
+
+function isNativeScanCleanupPreviewPageArtifactMetadata(
+    value: unknown,
+): value is TNativeScanCleanupPreviewPageArtifactMetadataV3 {
+    return isNativeScanCleanupPageArtifactMetadata(value)
+        && (value.outputs ?? []).every(output => (
+            output.appliedMargins !== undefined
+            && Object.hasOwn(output, 'contentBox')
+        ));
 }
 
 function validateOutputOptionals(source: Record<string, unknown>, artifact: TArtifact) {
@@ -831,7 +885,7 @@ function rewrittenWarningEvents(value: unknown, artifact: TArtifact) {
         const events = SCAN_CLEANUP_WARNING_EVENTS_SCHEMA.decode(value);
         return statesLegacyWarningEventFields(value) ? events : undefined;
     } catch (error) {
-        return fail(artifact, error instanceof Error ? error.message : 'warningEvents is invalid');
+        return fail(artifact, error instanceof Error ? getErrorMessage(error) : 'warningEvents is invalid');
     }
 }
 
@@ -937,12 +991,16 @@ export function decodeNativeScanCleanupOutputMetadata(
         ))
         || effectivePlacementOffsetY + contentHeight > canvasHeightPx
     ) fail(artifact, 'intrinsic content placement exceeds its canvas');
-    return decoded<INativeScanCleanupOutputMetadataV3>(warningEvents === undefined
+    const normalizedSource = warningEvents === undefined
         ? source
         : {
             ...source,
             warningEvents,
-        });
+        };
+    if (!isNativeScanCleanupOutputMetadata(normalizedSource)) {
+        return fail(artifact, 'decoded output metadata has an invalid shape');
+    }
+    return normalizedSource;
 }
 
 export function decodeNativeScanCleanupOutputMetadataJson(text: string) {
@@ -971,5 +1029,30 @@ export function decodeNativeScanCleanupPreviewOutputMetadataJson(
         'resamplePasses',
         'warnings',
     ] as const) if (!(key in source)) fail('output metadata', `${key} is required for preview`);
-    return metadata as TNativeScanCleanupPreviewOutputArtifactMetadataV3;
+    if (!isNativeScanCleanupPreviewOutputArtifactMetadata(metadata)) {
+        return fail('output metadata', 'decoded preview output metadata has an invalid shape');
+    }
+    return metadata;
+}
+
+function isNativeScanCleanupPreviewOutputArtifactMetadata(
+    value: unknown,
+): value is TNativeScanCleanupPreviewOutputArtifactMetadataV3 {
+    if (!isNativeScanCleanupOutputMetadata(value)) {
+        return false;
+    }
+    const source = value;
+    return [
+        'half',
+        'layoutConfidence',
+        'sourceRegion',
+        'contentBox',
+        'appliedMargins',
+        'cutterXPx',
+        'inputWidthPx',
+        'inputHeightPx',
+        'canvasScope',
+        'resamplePasses',
+        'warnings',
+    ].every(key => key in source);
 }

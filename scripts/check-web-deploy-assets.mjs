@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
     readdir,
     readFile,
@@ -496,7 +497,7 @@ function formatNodeServerFailure(error, state) {
             output.trim(),
         ].filter(Boolean).join('\n'))
         .join('\n');
-    const details = error instanceof Error ? error.message : String(error);
+    const details = getCliErrorMessage(error);
     return new Error(
         `Nuxt node server failed to boot: ${details}${childOutput ? `\n${childOutput}` : ''}`,
         {cause: error},
@@ -584,7 +585,7 @@ if (isDirectCliRun) {
         const outputRoots = result.outputResults.map(entry => entry.root).join(', ');
         console.log(`Web deploy asset check passed for ${outputRoots}.`);
     } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getCliErrorMessage(error));
         process.exit(1);
     }
 }

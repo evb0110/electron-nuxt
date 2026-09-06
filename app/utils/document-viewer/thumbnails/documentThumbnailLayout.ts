@@ -451,7 +451,15 @@ export class DocumentThumbnailLayout {
             segments.length - 1,
             Math.max(0, Number.isFinite(index) ? Math.trunc(index) : 0),
         );
-        return segments[boundedIndex] ?? segments[segments.length - 1]!;
+        const segment = segments[boundedIndex];
+        if (segment) {
+            return segment;
+        }
+        const fallback = segments[segments.length - 1];
+        if (!fallback) {
+            throw new Error('Thumbnail scroll segments became empty');
+        }
+        return fallback;
     }
 
     getPageTopInScrollSegment(page: number, segmentIndex: number) {

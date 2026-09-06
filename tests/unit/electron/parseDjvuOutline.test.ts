@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {parseDjvuOutline} from '@electron/djvu/parseDjvuOutline';
+import {parseDjvuOutline} from '@electron/features/djvu/main/parseDjvuOutline';
 
 describe('parseDjvuOutline', () => {
     it('preserves nested bookmark structure and page destinations', () => {

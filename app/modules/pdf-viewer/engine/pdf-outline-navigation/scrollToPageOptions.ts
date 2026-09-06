@@ -5,6 +5,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
 
 export interface IScrollToPageOptions {
+    searchNavigationId?: number | undefined;
     navigationRequest?: IPdfNavigationRequest | undefined;
     navigationSource?: 'bookmark' | 'toolbar' | 'search' | 'annotation' | 'thumbnail' | 'activation' | 'restore' | 'wheel' | undefined;
     preferExactDom?: boolean;

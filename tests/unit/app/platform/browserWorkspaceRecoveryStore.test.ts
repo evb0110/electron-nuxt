@@ -15,31 +15,36 @@ import {
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import { FakeIndexedDbFactory } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireTabId} from '@contracts/windowTabs';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const checkpoint: IWorkspaceCheckpoint = {
     version: 1,
-    capturedAt: 1,
-    activePaneId: 'pane-1',
-    activeTabId: 'tab-1',
+    capturedAt: requireEpochMs(1),
+    activePaneId: requirePaneId('pane-1'),
+    activeTabId: requireTabId('tab-1'),
     layout: {
         type: 'leaf',
-        paneId: 'pane-1',
+        paneId: requirePaneId('pane-1'),
     },
     panes: [{
-        paneId: 'pane-1',
-        tabIds: ['tab-1'],
-        activeTabId: 'tab-1',
+        paneId: requirePaneId('pane-1'),
+        tabIds: [requireTabId('tab-1')],
+        activeTabId: requireTabId('tab-1'),
     }],
     tabs: [{
-        tabId: 'tab-1',
-        paneId: 'pane-1',
+        tabId: requireTabId('tab-1'),
+        paneId: requirePaneId('pane-1'),
         fileName: 'recovered.pdf',
-        sourceRef: 'browser://documents/source.pdf',
-        workingCopyRef: 'browser://documents/recovery.pdf',
+        sourceRef: requireDocumentRef('browser://documents/source.pdf'),
+        workingCopyRef: requireDocumentRef('browser://documents/recovery.pdf'),
         requiresSaveAsOnFirstSave: true,
         isDirty: true,
         isDjvu: false,
-        currentPage: 1,
+        currentPage: requirePageNumber(1),
         zoom: 1,
         zoomMode: 'custom',
     }],
@@ -53,8 +58,8 @@ describe('browserWorkspaceRecoveryStore', () => {
 
     it('publishes and clears only committed recovery checkpoints', async () => {
         await expect(saveBrowserWorkspaceRecovery('window:1', 0, checkpoint, [
-            'browser://documents/recovery.pdf',
-            'browser://documents/not-in-checkpoint.pdf',
+            requireDocumentRef('browser://documents/recovery.pdf'),
+            requireDocumentRef('browser://documents/not-in-checkpoint.pdf'),
         ])).resolves.toEqual({
             saved: true,
             generation: 1,
@@ -78,11 +83,11 @@ describe('browserWorkspaceRecoveryStore', () => {
 
     it('isolates concurrent window owners and rejects stale owner generations', async () => {
         await Promise.all([
-            saveBrowserWorkspaceRecovery('window:10', 0, checkpoint, ['browser://documents/recovery.pdf']),
+            saveBrowserWorkspaceRecovery('window:10', 0, checkpoint, [requireDocumentRef('browser://documents/recovery.pdf')]),
             saveBrowserWorkspaceRecovery('window:20', 0, {
                 ...checkpoint,
-                capturedAt: 2,
-            }, ['browser://documents/recovery.pdf']),
+                capturedAt: requireEpochMs(2),
+            }, [requireDocumentRef('browser://documents/recovery.pdf')]),
         ]);
 
         await expect(loadBrowserWorkspaceRecoveries()).resolves.toEqual(expect.arrayContaining([
@@ -100,9 +105,9 @@ describe('browserWorkspaceRecoveryStore', () => {
             0,
             {
                 ...checkpoint,
-                capturedAt: 3,
+                capturedAt: requireEpochMs(3),
             },
-            ['browser://documents/recovery.pdf'],
+            [requireDocumentRef('browser://documents/recovery.pdf')],
         )).resolves.toEqual({
             saved: false,
             generation: 1,
@@ -124,7 +129,7 @@ describe('browserWorkspaceRecoveryStore', () => {
             'window:heartbeat',
             0,
             checkpoint,
-            ['browser://documents/recovery.pdf'],
+            [requireDocumentRef('browser://documents/recovery.pdf')],
         );
         const before = await loadBrowserWorkspaceRecovery('window:heartbeat');
         expect(before).not.toBeNull();
@@ -148,7 +153,7 @@ describe('browserWorkspaceRecoveryStore', () => {
             'window:closed',
             0,
             checkpoint,
-            ['browser://documents/recovery.pdf'],
+            [requireDocumentRef('browser://documents/recovery.pdf')],
         );
 
         await expect(claimBrowserWorkspaceRecoveryOwner(

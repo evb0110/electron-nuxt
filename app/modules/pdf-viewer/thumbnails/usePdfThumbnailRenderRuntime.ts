@@ -2,6 +2,8 @@ import type {
     IPdfDocument,
     IPdfPage,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import { groupBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
@@ -119,16 +121,19 @@ export function expandPdfThumbnailRasterDemand(
     }
     return [...candidates]
         .filter(pageNumber => pageNumber > 0 && mountedPages.has(pageNumber))
-        .map((pageNumber) => ({
-            consumerGeneration: input.generation,
-            documentFence: input.documentFence,
-            estimatedPixels: input.estimatedPixels(pageNumber),
-            lane: resolveThumbnailDemandLane(pageNumber, currentPage, visiblePages),
-            ordinal: Math.abs(pageNumber - currentPage) * 2 + (pageNumber < currentPage ? 0 : 1),
-            pageNumber,
-            renderKey: `${String(input.generation)}:${String(pageNumber)}`,
-            retention: 'render-cache',
-        }));
+        .map((pageNumber) => {
+            const brandedPageNumber: TPageNumber = requirePageNumber(pageNumber, input.totalPages);
+            return {
+                consumerGeneration: input.generation,
+                documentFence: input.documentFence,
+                estimatedPixels: input.estimatedPixels(pageNumber),
+                lane: resolveThumbnailDemandLane(pageNumber, currentPage, visiblePages),
+                ordinal: Math.abs(pageNumber - currentPage) * 2 + (pageNumber < currentPage ? 0 : 1),
+                pageNumber: brandedPageNumber,
+                renderKey: `${String(input.generation)}:${String(pageNumber)}`,
+                retention: 'render-cache',
+            };
+        });
 }
 
 const thumbnailDemandPolicy: IPdfRasterDemandPolicy<IPdfThumbnailDemandInput> = {

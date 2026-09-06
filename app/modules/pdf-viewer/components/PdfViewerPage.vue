@@ -62,6 +62,7 @@ import type {
     IPdfImagePlacementDraft,
     IPdfImagePlacementRectUpdate,
 } from '@app/types/pdfImagePlacement';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import {
     buildPdfPageScaleStyle,
     type IPdfPageScale,
@@ -69,7 +70,7 @@ import {
 import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 
 interface IProps {
-    page: number;
+    page: TPageNumber;
     showSkeleton: boolean;
     renderFailed?: boolean;
     renderErrorLabel?: string;
@@ -97,8 +98,8 @@ const {
 } = defineProps<IProps>();
 const { t } = useTypedI18n();
 const emit = defineEmits<{
-    'page-container-mounted': [page: number];
-    'page-container-unmounted': [page: number];
+    'page-container-mounted': [page: TPageNumber];
+    'page-container-unmounted': [page: TPageNumber];
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];

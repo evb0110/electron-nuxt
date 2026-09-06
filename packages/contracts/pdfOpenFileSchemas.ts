@@ -1,4 +1,5 @@
 import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import {parseDocumentRef} from '@contracts/documentRef';
 import {
     decodeOpeningGeometry,
     fail,
@@ -19,29 +20,31 @@ export function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
         fail('invalid open-file result');
     }
     if (value.kind === 'pdf-needs-password' || value.kind === 'pdf-unsupported-encryption') {
-        if (typeof value.originalPath !== 'string' || value.originalPath.length === 0) {
+        const originalPath = parseDocumentRef(value.originalPath);
+        if (originalPath === null) {
             fail('invalid encrypted PDF open-file result');
         }
         return {
             kind: value.kind,
-            originalPath: value.originalPath,
+            originalPath,
         };
     }
     if (value.kind === 'djvu') {
-        if (value.workingPath !== '' || typeof value.originalPath !== 'string' || value.originalPath.length === 0) {
+        const originalPath = parseDocumentRef(value.originalPath);
+        if (value.workingPath !== '' || originalPath === null) {
             fail('invalid DjVu open-file result');
         }
         return {
             kind: 'djvu',
             workingPath: '',
-            originalPath: value.originalPath,
+            originalPath,
         };
     }
+    const workingPath = parseDocumentRef(value.workingPath);
+    const originalPath = parseDocumentRef(value.originalPath);
     if (
-        typeof value.workingPath !== 'string'
-        || value.workingPath.length === 0
-        || typeof value.originalPath !== 'string'
-        || value.originalPath.length === 0
+        workingPath === null
+        || originalPath === null
         || (value.isGenerated !== undefined && typeof value.isGenerated !== 'boolean')
         || (value.wasEncrypted !== undefined && value.wasEncrypted !== true)
     ) {
@@ -52,8 +55,8 @@ export function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
         : decodeOpeningGeometry(value.openingGeometry);
     return {
         kind: 'pdf',
-        workingPath: value.workingPath,
-        originalPath: value.originalPath,
+        workingPath,
+        originalPath,
         ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
         ...(value.wasEncrypted === true ? {wasEncrypted: true as const} : {}),
         ...(openingGeometry === undefined ? {} : {openingGeometry}),

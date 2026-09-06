@@ -7,6 +7,12 @@ import {
     decodeFailureReceipt,
     isExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
+import { getErrorMessage } from '@app/utils/error';
+import type {
+    TJobId,
+    TRequestId,
+} from '@contracts/shared';
+import { createEpochMs } from '@contracts/timestamps';
 
 const DEFAULT_TERMINAL_JOB_TTL_MS = 60 * 60 * 1_000;
 const DEFAULT_MAX_TERMINAL_JOBS = 64;
@@ -15,10 +21,6 @@ interface ITerminalBrowserDjvuJob {
     kind: 'open' | 'convert';
     promise: Promise<IDjvuOpenResult> | Promise<IDjvuConvertResult>;
     timer: ReturnType<typeof setTimeout>;
-}
-
-function getErrorMessage(error: unknown) {
-    return error instanceof Error ? error.message : String(error);
 }
 
 function getFailureReceipt(error: unknown) {
@@ -44,10 +46,10 @@ function getResultExpectedOutcome(result: IDjvuOpenResult | IDjvuConvertResult) 
 }
 
 export class BrowserDurableDjvuJobs {
-    readonly #openJobs = new Map<string, Promise<IDjvuOpenResult>>();
-    readonly #convertJobs = new Map<string, Promise<IDjvuConvertResult>>();
-    readonly #states = new Map<string, TDocumentOutputJobState>();
-    readonly #terminalJobs = new Map<string, ITerminalBrowserDjvuJob>();
+    readonly #openJobs = new Map<TJobId, Promise<IDjvuOpenResult>>();
+    readonly #convertJobs = new Map<TJobId, Promise<IDjvuConvertResult>>();
+    readonly #states = new Map<TJobId, TDocumentOutputJobState>();
+    readonly #terminalJobs = new Map<TJobId, ITerminalBrowserDjvuJob>();
 
     constructor(
         private readonly terminalJobTtlMs = DEFAULT_TERMINAL_JOB_TTL_MS,
@@ -55,8 +57,8 @@ export class BrowserDurableDjvuJobs {
     ) {}
 
     startOpen(
-        jobId: string,
-        requestId: string,
+        jobId: TJobId,
+        requestId: TRequestId,
         run: () => Promise<IDjvuOpenResult>,
     ) {
         if (!this.#openJobs.has(jobId)) {
@@ -66,7 +68,7 @@ export class BrowserDurableDjvuJobs {
                 error: getErrorMessage(error),
             })).then((result) => {
                 this.#states.set(jobId, this.#finishState(jobId, 'djvu-open', 'loading', result));
-                const normalizedResult = {
+                const normalizedResult: IDjvuOpenResult = {
                     ...result,
                     jobId,
                 };
@@ -81,15 +83,15 @@ export class BrowserDurableDjvuJobs {
         };
     }
 
-    awaitOpen(jobId: string) {
+    awaitOpen(jobId: TJobId) {
         const job = this.#openJobs.get(jobId);
         if (!job) throw new Error(`Unknown browser DjVu open job: ${jobId}`);
         return job;
     }
 
     startConvert(
-        jobId: string,
-        requestId: string,
+        jobId: TJobId,
+        requestId: TRequestId,
         run: () => Promise<IDjvuConvertResult>,
     ) {
         if (!this.#convertJobs.has(jobId)) {
@@ -105,7 +107,7 @@ export class BrowserDurableDjvuJobs {
                 };
             }).then((result) => {
                 this.#states.set(jobId, this.#finishState(jobId, 'djvu-convert', 'converting', result));
-                const normalizedResult = {
+                const normalizedResult: IDjvuConvertResult = {
                     ...result,
                     jobId,
                 };
@@ -120,13 +122,13 @@ export class BrowserDurableDjvuJobs {
         };
     }
 
-    awaitConvert(jobId: string) {
+    awaitConvert(jobId: TJobId) {
         const job = this.#convertJobs.get(jobId);
         if (!job) throw new Error(`Unknown browser DjVu conversion job: ${jobId}`);
         return job;
     }
 
-    getState(jobId: string) {
+    getState(jobId: TJobId) {
         return this.#states.get(jobId) ?? null;
     }
 
@@ -141,7 +143,7 @@ export class BrowserDurableDjvuJobs {
     }
 
     #retainTerminalJob(
-        jobId: string,
+        jobId: TJobId,
         kind: 'open' | 'convert',
         promise: Promise<IDjvuOpenResult> | Promise<IDjvuConvertResult>,
     ) {
@@ -151,7 +153,7 @@ export class BrowserDurableDjvuJobs {
             this.#terminalJobs.delete(jobId);
         }
         const timer = setTimeout(() => this.#deleteTerminalJob(jobId, promise), this.terminalJobTtlMs);
-        timer.unref?.();
+        timer.unref();
         this.#terminalJobs.set(jobId, {
             kind,
             promise,
@@ -166,7 +168,7 @@ export class BrowserDurableDjvuJobs {
         }
     }
 
-    #deleteTerminalJob(jobId: string, expectedPromise?: Promise<IDjvuOpenResult> | Promise<IDjvuConvertResult>) {
+    #deleteTerminalJob(jobId: TJobId, expectedPromise?: Promise<IDjvuOpenResult> | Promise<IDjvuConvertResult>) {
         const terminal = this.#terminalJobs.get(jobId);
         if (!terminal || expectedPromise && terminal.promise !== expectedPromise) {
             return;
@@ -183,7 +185,7 @@ export class BrowserDurableDjvuJobs {
     }
 
     #createState(
-        jobId: string,
+        jobId: TJobId,
         operation: 'djvu-open' | 'djvu-convert',
         phase: 'loading' | 'converting',
     ): TDocumentOutputJobState {
@@ -196,12 +198,12 @@ export class BrowserDurableDjvuJobs {
                 phase,
                 percent: 0,
             },
-            updatedAtMs: Date.now(),
+            updatedAtMs: createEpochMs(),
         };
     }
 
     #finishState(
-        jobId: string,
+        jobId: TJobId,
         operation: 'djvu-open' | 'djvu-convert',
         phase: 'loading' | 'converting',
         result: IDjvuOpenResult | IDjvuConvertResult,
@@ -213,7 +215,7 @@ export class BrowserDurableDjvuJobs {
             operation,
             status: result.success
                 ? 'completed'
-                : 'expected' in result && result.expected?.code === 'canceled'
+                : 'expected' in result && result.expected.code === 'canceled'
                     ? 'canceled'
                     : 'failed',
             progress: {
@@ -221,7 +223,7 @@ export class BrowserDurableDjvuJobs {
                 phase,
                 percent: result.success ? 100 : 0,
             },
-            updatedAtMs: Date.now(),
+            updatedAtMs: createEpochMs(),
             ...(result.success || !result.error ? {} : {error: result.error}),
             ...(failure === undefined ? {} : {failure}),
             ...(expected === undefined ? {} : {expected}),

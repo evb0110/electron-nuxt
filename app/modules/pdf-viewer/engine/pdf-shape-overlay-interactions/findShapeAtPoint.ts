@@ -76,8 +76,11 @@ function pointInPolygon(point: IShapePoint, polygon: IShapePoint[]) {
 
     let inside = false;
     for (let index = 0, previousIndex = polygon.length - 1; index < polygon.length; previousIndex = index++) {
-        const current = polygon[index]!;
-        const previous = polygon[previousIndex]!;
+        const current = polygon[index];
+        const previous = polygon[previousIndex];
+        if (!current || !previous) {
+            continue;
+        }
         const intersects = (
             ((current.y > point.y) !== (previous.y > point.y))
             && (point.x < ((previous.x - current.x) * (point.y - current.y)) / (previous.y - current.y) + current.x)
@@ -107,8 +110,11 @@ function isPointNearPolyline(
 
     const thresholdPx = segmentThresholdPx(shape, fallbackPx);
     for (let index = 1; index < points.length; index += 1) {
-        const start = points[index - 1]!;
-        const end = points[index]!;
+        const start = points[index - 1];
+        const end = points[index];
+        if (!start || !end) {
+            continue;
+        }
         if (pointToSegmentDistancePx(point, start, end, svgWidth, svgHeight) <= thresholdPx) {
             return true;
         }
@@ -168,13 +174,19 @@ function shapeContainsPoint(
             if (pointInPolygon(point, points)) {
                 return true;
             }
-            return isPointNearPolyline(point, [
-                ...points,
-                points[0]!,
-            ].filter(Boolean), shape, svgWidth, svgHeight, fallbackPx);
+            const firstPoint = points[0];
+            return isPointNearPolyline(
+                point,
+                firstPoint ? [
+                    ...points,
+                    firstPoint,
+                ] : points,
+                shape,
+                svgWidth,
+                svgHeight,
+                fallbackPx,
+            );
         }
-        default:
-            return false;
     }
 }
 

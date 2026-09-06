@@ -14,6 +14,10 @@ import {
     decodeFailureReceipt,
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
+import {
+    createRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 
 export type TCombinePdfErrorCode = 'canceled' | 'invalid-input' | 'limit' | 'unsupported' | 'open-failed';
 
@@ -165,7 +169,7 @@ async function combineElectronFiles(options: ICombinePdfFilesOptions): Promise<T
         throw new Error(options.openErrorMessage);
     }
 
-    const requestId = crypto.randomUUID();
+    const requestId: TRequestId = createRequestId('pdf-combine');
     let latestProgress: IDocumentsBatchProgress | null = null;
     const stopProgress = documentOpen.onOpenDocumentDirectBatchProgress((nextProgress) => {
         if (

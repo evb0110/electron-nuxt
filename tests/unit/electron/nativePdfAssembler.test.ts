@@ -162,7 +162,7 @@ vi.mock('@electron/features/djvu/public', () => ({
     cancelConversion: mocks.cancelConversion,
     convertDjvuToPdfFile: mocks.convertDjvuToPdfFile,
 }));
-vi.mock('@electron/djvu/metadata', () => ({getDjvuPageCount: mocks.getDjvuPageCount}));
+vi.mock('@electron/features/djvu/main/metadata', () => ({getDjvuPageCount: mocks.getDjvuPageCount}));
 
 vi.mock('@electron/image/tryCreatePdfWithNativeImageCombiner', () => ({
     isNativePdfImageCombineBitmapPath: (inputPath: string) => /\.(?:png|jpe?g|tiff?)$/iu.test(inputPath),

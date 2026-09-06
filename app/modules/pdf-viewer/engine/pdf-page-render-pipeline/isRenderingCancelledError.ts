@@ -20,7 +20,6 @@ export function isRenderingCancelledError(error: unknown) {
         ? error
         : (
             typeof error === 'object'
-            && error !== null
             && 'message' in error
             && typeof (error as { message?: unknown }).message === 'string'
         )

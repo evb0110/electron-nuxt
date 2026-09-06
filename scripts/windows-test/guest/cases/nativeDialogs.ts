@@ -1,4 +1,8 @@
 import {
+    AmbiguousSelectorError,
+    DesktopUnavailableError,
+    resolveUniqueElement,
+    SelectorNotFoundError,
     waitForUniqueControl,
     type IUiElementRef,
 } from '@scripts/windows-test/guest/native-ui/nativeUiAdapter';
@@ -26,17 +30,70 @@ export const nativeDialogRecordIds = {
     cancelPrintButton: 'print-dialog.cancel-button',
 } as const;
 
+export const modernNativeDialogRecordIds = {
+    printDialog: 'print-dialog.modern-window',
+    printerList: 'print-dialog.modern-printer-list',
+    printToPdfEntry: 'print-dialog.modern-microsoft-print-to-pdf',
+    printButton: 'print-dialog.modern-print-button',
+    cancelPrintButton: 'print-dialog.modern-cancel-button',
+} as const;
+
+const modernControlRecordByLegacyRecord: Readonly<Record<string, string>> = {
+    [nativeDialogRecordIds.printerList]: modernNativeDialogRecordIds.printerList,
+    [nativeDialogRecordIds.printToPdfEntry]: modernNativeDialogRecordIds.printToPdfEntry,
+    [nativeDialogRecordIds.printButton]: modernNativeDialogRecordIds.printButton,
+    [nativeDialogRecordIds.cancelPrintButton]: modernNativeDialogRecordIds.cancelPrintButton,
+};
+
 const WINDOW_POLL_INTERVAL_MS = 250;
 
+function modernWindowRecordId(recordId: string) {
+    return recordId === nativeDialogRecordIds.printDialog
+        ? modernNativeDialogRecordIds.printDialog
+        : undefined;
+}
+
+function windowRecordIds(recordId: string) {
+    const modernRecordId = modernWindowRecordId(recordId);
+    if (modernRecordId === undefined) {
+        return [recordId];
+    }
+    return [
+        modernRecordId,
+        recordId,
+    ];
+}
+
+function controlRecordIds(recordId: string) {
+    const modernRecordId = modernControlRecordByLegacyRecord[recordId];
+    if (modernRecordId === undefined) {
+        return [recordId];
+    }
+    return [
+        modernRecordId,
+        recordId,
+    ];
+}
+
+async function findWindowByRecordIds(context: ICaseContext, recordIds: readonly string[]) {
+    for (const recordId of recordIds) {
+        const found = await context.nativeUi.findWindow(requireWindowQuery(context.selectors, recordId));
+        if (found !== null) {
+            return found;
+        }
+    }
+    return null;
+}
+
 export async function findDialogWindow(context: ICaseContext, recordId: string) {
-    return context.nativeUi.findWindow(requireWindowQuery(context.selectors, recordId));
+    return findWindowByRecordIds(context, windowRecordIds(recordId));
 }
 
 export async function waitForDialogWindow(context: ICaseContext, recordId: string, timeoutMs: number) {
-    const query = requireWindowQuery(context.selectors, recordId);
+    const recordIds = windowRecordIds(recordId);
     const deadline = context.clock.now() + timeoutMs;
     for (;;) {
-        const found = await context.nativeUi.findWindow(query);
+        const found = await findWindowByRecordIds(context, recordIds);
         if (found !== null) {
             return found;
         }
@@ -48,14 +105,45 @@ export async function waitForDialogWindow(context: ICaseContext, recordId: strin
 }
 
 export async function waitForDialogWindowToClose(context: ICaseContext, recordId: string, timeoutMs: number) {
-    const query = requireWindowQuery(context.selectors, recordId);
     const deadline = context.clock.now() + timeoutMs;
     for (;;) {
-        if (await context.nativeUi.findWindow(query) === null) {
+        if (await findDialogWindow(context, recordId) === null) {
             return true;
         }
         if (context.clock.now() >= deadline) {
             return false;
+        }
+        await context.clock.sleep(WINDOW_POLL_INTERVAL_MS);
+    }
+}
+
+async function waitForDialogControlWithFallback(
+    context: ICaseContext,
+    windowRef: IUiElementRef,
+    recordIds: readonly string[],
+    timeoutMs: number,
+) {
+    const selectors = recordIds.map(recordId => requireControlSelector(context.selectors, recordId));
+    const deadline = context.clock.now() + timeoutMs;
+    let lastError: unknown = null;
+    for (;;) {
+        for (const selector of selectors) {
+            try {
+                return resolveUniqueElement(
+                    await context.nativeUi.findControl(windowRef, selector),
+                    selector,
+                );
+            } catch (error) {
+                if (error instanceof AmbiguousSelectorError || error instanceof DesktopUnavailableError) {
+                    throw error;
+                }
+                lastError = error;
+            }
+        }
+        if (context.clock.now() >= deadline) {
+            throw lastError instanceof Error
+                ? lastError
+                : new SelectorNotFoundError(selectors[0]!);
         }
         await context.clock.sleep(WINDOW_POLL_INTERVAL_MS);
     }
@@ -67,6 +155,10 @@ export async function waitForDialogControl(
     recordId: string,
     timeoutMs: number,
 ) {
+    const recordIds = controlRecordIds(recordId);
+    if (recordIds.length > 1) {
+        return waitForDialogControlWithFallback(context, windowRef, recordIds, timeoutMs);
+    }
     return waitForUniqueControl({
         adapter: context.nativeUi,
         windowRef,

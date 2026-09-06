@@ -179,7 +179,7 @@ export function* iterateDecodedTiffFrames(
         assertTiffPixelCount(width, height, options);
 
         const rgba = toRGBA8(frame);
-        if (!rgba || rgba.byteLength === 0) {
+        if (rgba.byteLength === 0) {
             continue;
         }
 

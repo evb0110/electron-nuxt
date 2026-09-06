@@ -25,6 +25,10 @@ import type {
     IPdfEmbeddedShapeIndexEntry,
 } from '@contracts/electronApiDocuments';
 import {
+    requireDocumentRef,
+    type TLegacyDocumentRef,
+} from '@contracts/documentRef';
+import {
     resolveLargePdfFixtureAvailability,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -170,13 +174,14 @@ async function readWorkingCopyPath(page: Page) {
     if (typeof state.workingCopyPath !== 'string') {
         throw new Error(`Native annotation matrix has no working copy: ${JSON.stringify(state)}`);
     }
-    return state.workingCopyPath;
+    return requireDocumentRef(state.workingCopyPath);
 }
 
 async function readAnnotationIndex(page: Page, documentPath: string) {
+    const documentRef = requireDocumentRef(documentPath);
     return page.evaluate(async (input: {
         chunkBytes: number;
-        documentPath: string
+        documentPath: TLegacyDocumentRef
     }) => {
         const files = window.electronAPI?.documentFiles;
         if (
@@ -222,14 +227,15 @@ async function readAnnotationIndex(page: Page, documentPath: string) {
         };
     }, {
         chunkBytes: ANNOTATION_INDEX_CHUNK_BYTES,
-        documentPath,
+        documentPath: documentRef,
     });
 }
 
 async function readShapeIndex(page: Page, documentPath: string) {
+    const documentRef = requireDocumentRef(documentPath);
     return page.evaluate(async (input: {
         chunkBytes: number;
-        documentPath: string
+        documentPath: TLegacyDocumentRef
     }) => {
         const files = window.electronAPI?.documentFiles;
         if (
@@ -272,7 +278,7 @@ async function readShapeIndex(page: Page, documentPath: string) {
         return entries;
     }, {
         chunkBytes: ANNOTATION_INDEX_CHUNK_BYTES,
-        documentPath,
+        documentPath: documentRef,
     });
 }
 
@@ -980,7 +986,8 @@ async function hardRestartAfterSave(
 }
 
 async function installManagedJpegClipboard(page: Page, imagePath: string) {
-    const probe = await page.evaluate(async (input: {imagePath: string}) => {
+    const documentPath = requireDocumentRef(imagePath);
+    const probe = await page.evaluate(async (input: {imagePath: TLegacyDocumentRef}) => {
         const files = window.electronAPI?.documentFiles;
         if (!files?.createManagedTempFileHandle) {
             throw new Error('Managed image handles are unavailable');
@@ -1014,7 +1021,7 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
             dimensions,
             hasNativeSourceHandle: 'nativeSourceHandle' in probeFile,
         };
-    }, {imagePath});
+    }, {imagePath: documentPath});
     expect(probe).toEqual({
         dimensions: {
             height: 40,

@@ -114,7 +114,7 @@ function isElectronAppPackaged() {
 
 function getElectronUserDataPath() {
     try {
-        const userDataPath = getElectronApp()?.getPath('userData')?.trim();
+        const userDataPath = getElectronApp()?.getPath('userData').trim();
         if (userDataPath) {
             return userDataPath;
         }
@@ -136,6 +136,10 @@ function getElectronUserDataPath() {
 function normalizeLanguageCodes(languageCodes: string[]): string[] {
     return uniq(compact(languageCodes
         .map(languageCode => languageCode.trim().toLowerCase())));
+}
+
+function isOcrLanguageModelCode(value: string): value is keyof typeof OCR_LANGUAGE_MODEL_SHA256 {
+    return Object.hasOwn(OCR_LANGUAGE_MODEL_SHA256, value);
 }
 
 class LanguageModelDownloadError extends Error {
@@ -214,7 +218,7 @@ function createTimedAbortSignal(
             controller.abort(new DownloadTimeoutError(timeoutMs));
         }
     }, timeoutMs);
-    timeoutHandle.unref?.();
+    timeoutHandle.unref();
 
     return {
         signal: controller.signal,
@@ -237,7 +241,7 @@ async function delayWithAbort(
             cleanup();
             resolve();
         }, delayMs);
-        timeoutHandle.unref?.();
+        timeoutHandle.unref();
 
         const onAbort = () => {
             cleanup();
@@ -703,9 +707,18 @@ async function downloadLanguageModelAttempt(
         if (!validation.valid) {
             throw new Error(validation.error ?? 'Downloaded model is not a readable traineddata file');
         }
-        const expectedSha256 = OCR_LANGUAGE_MODEL_SHA256[languageCode as keyof typeof OCR_LANGUAGE_MODEL_SHA256];
+        if (!isOcrLanguageModelCode(languageCode)) {
+            throw new LanguageModelDownloadError(
+                `OCR language model "${languageCode}" failed SHA-256 verification.`,
+                {
+                    retryable: false,
+                    code: 'CHECKSUM_MISMATCH',
+                },
+            );
+        }
+        const expectedSha256 = OCR_LANGUAGE_MODEL_SHA256[languageCode];
         const actualSha256 = await hashFileSha256(tempPath, timedSignal.signal);
-        if (!expectedSha256 || actualSha256 !== expectedSha256) {
+        if (actualSha256 !== expectedSha256) {
             throw new LanguageModelDownloadError(
                 `OCR language model "${languageCode}" failed SHA-256 verification.`,
                 {

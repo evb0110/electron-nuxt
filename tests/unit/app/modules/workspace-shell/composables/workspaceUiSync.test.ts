@@ -5,12 +5,13 @@ import {
 } from 'vitest';
 import { resolveWorkspaceTabUpdate } from '@app/modules/workspace-shell/state/resolveWorkspaceTabUpdate';
 import { resolveWorkspaceWindowTitle } from '@app/modules/workspace-shell/state/resolveWorkspaceWindowTitle';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 describe('resolveWorkspaceWindowTitle', () => {
     it('prefers DjVu source filename when in DjVu mode', () => {
         const title = resolveWorkspaceWindowTitle({
             isDjvuMode: true,
-            djvuSourcePath: '/docs/archive/my-scan.djvu',
+            djvuSourcePath: requireDocumentRef('/docs/archive/my-scan.djvu'),
             fileName: 'working-copy.pdf',
             pendingOpenDisplayName: null,
             fallbackTitle: 'EVB Viewer',
@@ -22,7 +23,7 @@ describe('resolveWorkspaceWindowTitle', () => {
     it('decodes browser-encoded DjVu source names for the window title', () => {
         const title = resolveWorkspaceWindowTitle({
             isDjvuMode: true,
-            djvuSourcePath: 'browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.djvu',
+            djvuSourcePath: requireDocumentRef('browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.djvu'),
             fileName: 'working-copy.pdf',
             pendingOpenDisplayName: null,
             fallbackTitle: 'EVB Viewer',
@@ -49,10 +50,10 @@ describe('resolveWorkspaceTabUpdate', () => {
         const update = resolveWorkspaceTabUpdate({
             fileName: 'temp.pdf',
             pendingOpenDisplayName: null,
-            originalPath: '/tmp/temp.pdf',
+            originalPath: requireDocumentRef('/tmp/temp.pdf'),
             isDirty: true,
             isDjvuMode: true,
-            djvuSourcePath: '/docs/source/book.djvu',
+            djvuSourcePath: requireDocumentRef('/docs/source/book.djvu'),
         });
 
         expect(update).toEqual({
@@ -67,10 +68,10 @@ describe('resolveWorkspaceTabUpdate', () => {
         const update = resolveWorkspaceTabUpdate({
             fileName: 'temp.pdf',
             pendingOpenDisplayName: null,
-            originalPath: 'browser://documents/working/temp.pdf',
+            originalPath: requireDocumentRef('browser://documents/working/temp.pdf'),
             isDirty: true,
             isDjvuMode: true,
-            djvuSourcePath: 'browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.djvu',
+            djvuSourcePath: requireDocumentRef('browser://documents/source/%25D0%2593%25D0%25BB%25D0%25B0%25D0%25B2%25D0%25B0.djvu'),
         });
 
         expect(update).toEqual({
@@ -85,10 +86,10 @@ describe('resolveWorkspaceTabUpdate', () => {
         const update = resolveWorkspaceTabUpdate({
             fileName: 'paper.pdf',
             pendingOpenDisplayName: null,
-            originalPath: '/docs/paper.pdf',
+            originalPath: requireDocumentRef('/docs/paper.pdf'),
             isDirty: false,
             isDjvuMode: false,
-            djvuSourcePath: '/docs/source/book.djvu',
+            djvuSourcePath: requireDocumentRef('/docs/source/book.djvu'),
         });
 
         expect(update).toEqual({

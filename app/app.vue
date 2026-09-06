@@ -53,6 +53,7 @@
                                 </p>
                                 <div class="mt-3 flex flex-wrap gap-2">
                                     <UButton
+                                        data-runtime-error-action="grant-diagnostics"
                                         color="primary"
                                         size="xs"
                                         :loading="diagnosticsConsentBusy === pendingDiagnosticConsentReport.id"
@@ -62,6 +63,7 @@
                                         {{ t('errors.runtime.diagnosticsConsentGrant') }}
                                     </UButton>
                                     <UButton
+                                        data-runtime-error-action="deny-diagnostics"
                                         color="neutral"
                                         variant="soft"
                                         size="xs"
@@ -79,6 +81,7 @@
                                 <div
                                     v-for="report in runtimeErrorReports"
                                     :key="report.id"
+                                    :data-runtime-error-report-id="report.id"
                                     class="rounded-md bg-elevated p-3"
                                 >
                                     <div class="flex items-center gap-2">
@@ -107,6 +110,10 @@
                                     <p class="mt-1 text-xs text-dimmed">
                                         {{ report.source }}
                                     </p>
+                                    <p v-if="report.failure" class="mt-1 text-xs text-dimmed">
+                                        <span class="font-medium text-default">Error ID</span>
+                                        <code class="ml-1 break-all">{{ getFailureErrorId(report.failure) }}</code>
+                                    </p>
                                     <pre class="app-scrollbar app-scroll-region--balanced mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words text-xs text-muted">{{ report.detail }}</pre>
                                 </div>
                             </div>
@@ -128,6 +135,7 @@
                             </AppTooltip>
                             <AppTooltip :text="t('errors.runtime.details')" :delay-duration="400">
                                 <UButton
+                                    data-runtime-error-action="details"
                                     color="neutral"
                                     variant="ghost"
                                     size="xs"
@@ -168,6 +176,7 @@ import {
     setRendererDiagnosticsPreference,
 } from '@app/utils/failureReporter';
 import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
+import {getFailureErrorId} from '@app/composables/useFailureToast';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
@@ -467,7 +476,7 @@ useHead(() => ({
         'data-platform': uiHostSnapshot.value.platform,
         style: `--app-ui-scale: ${uiEffectiveScale.value}; --app-toast-stack-max: ${APP_TOAST_STACK_MAX};`,
         class: [
-            localeHead.value.htmlAttrs?.class,
+            localeHead.value.htmlAttrs.class,
             settings.value.theme,
         ].filter(Boolean).join(' '),
     },
@@ -485,11 +494,12 @@ function schedulePostReadyRecentGeometryWarmup(
                 await loadRecentFiles();
                 const documentFiles = getDocumentFilesCapability();
                 const djvu = getDjvuCapability();
+                const readPdfOpeningGeometry = documentFiles.getPdfOpeningGeometry;
                 await runPostReadyRecentGeometryPrewarm({
                     files: recentFiles.value,
                     ports: {
-                        ...(documentFiles.getPdfOpeningGeometry
-                            ? {readPdfOpeningGeometry: (path: string) => documentFiles.getPdfOpeningGeometry!(path)}
+                        ...(readPdfOpeningGeometry
+                            ? {readPdfOpeningGeometry}
                             : {}),
                         readDjvuSourceInfo: path => djvu.getPageSourceInfo(path, 1),
                     },
@@ -499,7 +509,7 @@ function schedulePostReadyRecentGeometryWarmup(
                         `Application-level Recent ${kind.toUpperCase()} geometry warmup unavailable`,
                         {
                             path,
-                            error: error instanceof Error ? error.message : String(error),
+                            error: getErrorMessage(error),
                         },
                     ),
                 });

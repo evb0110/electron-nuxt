@@ -22,6 +22,7 @@ import {
     isPdfPersistencePreloadToMainPayload,
 } from '@contracts/documentPersistenceFrames';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import type { IDocumentsService } from '@electron/features/documents/documentsService';
@@ -70,8 +71,8 @@ vi.mock('@electron/features/documents/public', () => ({attachSerializedPdfPersis
 describe('in-process preload to validated IPC round trips', () => {
     it('preserves paths and binary streams through the file preload client and adapter', async () => {
         const sourcePaths = [
-            '/documents/duplicate-source-a/duplicate-recent-source.pdf',
-            '/documents/duplicate-source-b/duplicate-recent-source.pdf',
+            requireDocumentRef('/documents/duplicate-source-a/duplicate-recent-source.pdf'),
+            requireDocumentRef('/documents/duplicate-source-b/duplicate-recent-source.pdf'),
         ];
         const receivedChunks: Uint8Array[] = [];
         const openDocumentDirect = vi.fn(async (
@@ -101,6 +102,7 @@ describe('in-process preload to validated IPC round trips', () => {
         const service = cast<IDocumentsService>({
             beginSavePdfData: vi.fn(async () => ({sessionId: 'persistence-session-1'})),
             createWorkingCopyFromData: vi.fn(async () => '/tmp/working-copy.pdf'),
+            onWorkingCopyBackingStatusChanged: vi.fn(() => () => {}),
             openDocumentDirect,
             parsePdfAnnotations,
         });
@@ -135,7 +137,7 @@ describe('in-process preload to validated IPC round trips', () => {
                         receivedChunks.push(Uint8Array.from(bytes));
                         port.postMessage(createPdfPersistenceAckFrame(frame.seq!, bytes.byteLength));
                     } else if (frame.type === 'complete') {
-                        port.postMessage(createPdfPersistenceResultFrame('/tmp/working.pdf', {
+                        port.postMessage(createPdfPersistenceResultFrame(requireDocumentRef('/tmp/working.pdf'), {
                             errors: [],
                             isValid: true,
                             tool: 'browser',
@@ -160,7 +162,7 @@ describe('in-process preload to validated IPC round trips', () => {
             7,
         ]);
 
-        await expect(harness.client.createWorkingCopyFromData('round-trip.pdf', data, '/tmp/source.pdf'))
+        await expect(harness.client.createWorkingCopyFromData('round-trip.pdf', data, requireDocumentRef('/tmp/source.pdf')))
             .resolves.toBe('/tmp/working-copy.pdf');
         expect(service.createWorkingCopyFromData).toHaveBeenCalledWith(
             expect.objectContaining({senderId: 7}),
@@ -171,7 +173,7 @@ describe('in-process preload to validated IPC round trips', () => {
         );
         const parseRevision = requireDocumentRevisionToken('round-trip-parse-revision');
         await expect(harness.client.parsePdfAnnotations(
-            '/tmp/working-copy.pdf',
+            requireDocumentRef('/tmp/working-copy.pdf'),
             {expectedDocumentRevisionToken: parseRevision},
         )).resolves.toEqual({
             documentRevisionToken: parseRevision,
@@ -191,7 +193,7 @@ describe('in-process preload to validated IPC round trips', () => {
                 {expectedDocumentRevisionToken: parseRevision},
             ],
         });
-        await expect(harness.client.savePdfDataChunks('/tmp/working.pdf', 5, [
+        await expect(harness.client.savePdfDataChunks(requireDocumentRef('/tmp/working.pdf'), 5, [
             Uint8Array.from([
                 1,
                 2,
@@ -229,17 +231,17 @@ describe('in-process preload to validated IPC round trips', () => {
             channel: DOCUMENTS_CHANNELS.openDocumentDirect,
         })));
 
-        await expect(harness.client.openDocumentDirect('/documents/protected.pdf'))
+        await expect(harness.client.openDocumentDirect(requireDocumentRef('/documents/protected.pdf')))
             .resolves.toEqual({
                 kind: 'pdf-needs-password',
                 originalPath: '/documents/protected.pdf',
             });
-        await expect(harness.client.openDocumentDirect('/documents/protected.pdf', 'wrong-password'))
+        await expect(harness.client.openDocumentDirect(requireDocumentRef('/documents/protected.pdf'), 'wrong-password'))
             .resolves.toEqual({
                 kind: 'pdf-needs-password',
                 originalPath: '/documents/protected.pdf',
             });
-        await expect(harness.client.openDocumentDirect('/documents/protected.pdf', 'correct-password'))
+        await expect(harness.client.openDocumentDirect(requireDocumentRef('/documents/protected.pdf'), 'correct-password'))
             .resolves.toMatchObject({
                 kind: 'pdf',
                 originalPath: '/documents/protected.pdf',

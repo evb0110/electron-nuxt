@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import puppeteer from 'puppeteer-core';
 import { forbiddenAcceptanceLaunchFlags } from '@scripts/windows-test/contracts/windowsTestContracts';
 import type { TWindowsTestArchitecture } from '@scripts/windows-test/contracts/windowsTestContracts';
@@ -215,13 +216,16 @@ export interface IGuestProcessHandle {
     isAlive(): boolean;
 }
 
-export interface IGuestProcessSpawner {spawn(executable: string, args: readonly string[]): IGuestProcessHandle & { pid: number };}
+export interface IGuestProcessSpawnOptions {env?: NodeJS.ProcessEnv;}
+
+export interface IGuestProcessSpawner {spawn(executable: string, args: readonly string[], options?: IGuestProcessSpawnOptions): IGuestProcessHandle & { pid: number };}
 
 export function createNodeProcessSpawner(): IGuestProcessSpawner {
-    return { spawn: (executable, args) => {
+    return { spawn: (executable, args, options) => {
         const child = spawn(executable, [...args], {
             windowsHide: false,
             stdio: 'ignore',
+            ...(options?.env === undefined ? {} : {env: options.env}),
         });
         const state: {
             spawnError: Error | null;
@@ -329,6 +333,7 @@ export interface ICreateWindowsAppLauncherOptions {
     spawner: IGuestProcessSpawner;
     registry: IOwnedProcessRegistry;
     executable: IInstalledExecutableIdentity;
+    environment?: NodeJS.ProcessEnv;
 }
 
 export interface IWindowsAppLauncher {
@@ -336,11 +341,37 @@ export interface IWindowsAppLauncher {
     terminate(record: IAppLaunchRecord): ITerminationOutcome;
 }
 
+const RENDERER_FILE_OPEN_HELPER_ENV = 'EVB_ENABLE_RENDERER_FILE_OPEN_HELPER';
+
+export function buildLaunchEnvironment(
+    profile: TWindowsLaunchProfile,
+    userDataDirectory: string | undefined,
+    baseEnvironment: NodeJS.ProcessEnv = process.env,
+) {
+    const launchEnvironment = {...baseEnvironment};
+    for (const key of Object.keys(launchEnvironment)) {
+        const normalizedKey = key.toUpperCase();
+        if (normalizedKey.startsWith('EVB_AUTOMATION_') || normalizedKey === RENDERER_FILE_OPEN_HELPER_ENV) {
+            Reflect.deleteProperty(launchEnvironment, key);
+        }
+    }
+    if (profile === 'instrumentation') {
+        if (userDataDirectory === undefined) {
+            throw new Error('The instrumentation profile requires an isolated user data directory');
+        }
+        launchEnvironment.EVB_AUTOMATION_USER_DATA_DIR = userDataDirectory;
+        launchEnvironment.EVB_AUTOMATION_SESSION_NAME = `evb-windows-test-${randomUUID()}`;
+        launchEnvironment[RENDERER_FILE_OPEN_HELPER_ENV] = '1';
+    }
+    return launchEnvironment;
+}
+
 export function createWindowsAppLauncher({
     clock,
     spawner,
     registry,
     executable,
+    environment = process.env,
 }: ICreateWindowsAppLauncherOptions): IWindowsAppLauncher {
     return {
         launch: (request) => {
@@ -350,7 +381,12 @@ export function createWindowsAppLauncher({
                 ...(request.userDataDirectory === undefined ? {} : { userDataDirectory: request.userDataDirectory }),
                 ...(request.documentPath === undefined ? {} : { documentPath: request.documentPath }),
             });
-            const handle = spawner.spawn(executable.executablePath, args);
+            const launchEnvironment = buildLaunchEnvironment(
+                request.profile,
+                request.userDataDirectory,
+                environment,
+            );
+            const handle = spawner.spawn(executable.executablePath, args, {env: launchEnvironment});
             const processRecord: IOwnedProcessRecord = {
                 pid: handle.pid,
                 startTime: clock.nowIso(),

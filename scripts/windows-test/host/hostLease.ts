@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     mkdir,
     readFile,
@@ -56,13 +57,13 @@ export async function readHostLease(leaseFile: string): Promise<IWindowsTestLeas
         if (isErrnoException(error) && error.code === 'ENOENT') {
             return null;
         }
-        throw new Error(`Cannot read the host lease ${leaseFile}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Cannot read the host lease ${leaseFile}: ${getErrorMessage(error)}`);
     }
     let parsed: unknown;
     try {
         parsed = JSON.parse(raw);
     } catch (error) {
-        throw new Error(`The host lease ${leaseFile} is not valid JSON (${error instanceof Error ? error.message : String(error)}); inspect and remove it by hand.`);
+        throw new Error(`The host lease ${leaseFile} is not valid JSON (${getErrorMessage(error)}); inspect and remove it by hand.`);
     }
     if (!isWindowsTestLease(parsed)) {
         throw new Error(`The host lease ${leaseFile} does not match the lease schema; inspect and remove it by hand.`);

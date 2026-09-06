@@ -22,7 +22,7 @@ function readHighlightStorageValue(key: string) {
     }
 
     try {
-        return window.localStorage?.getItem(key) ?? null;
+        return window.localStorage.getItem(key) ?? null;
     } catch {
         return null;
     }

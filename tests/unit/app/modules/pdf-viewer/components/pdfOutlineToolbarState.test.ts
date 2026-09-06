@@ -1,5 +1,4 @@
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { cast } from '@tests/helpers/cast';
+import { requirePageIndex } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
 import {
@@ -16,6 +15,7 @@ import {
     nextTick,
     reactive,
 } from 'vue';
+import type {PDFDocumentProxy} from 'pdfjs-dist';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
@@ -47,10 +47,10 @@ afterEach(() => {
 });
 
 function createPdfDocument(getOutline: () => Promise<unknown[] | null>) {
-    return cast<IPdfDocument>({
+    return {
         _transport: {},
         getOutline,
-    });
+    } as PDFDocumentProxy;
 }
 
 async function mountOutline(getOutline: () => Promise<unknown[] | null>) {
@@ -107,28 +107,27 @@ function toolbar(host: HTMLElement) {
 function createDeepBookmarkEntries(depth: number) {
     const root: IPdfBookmarkEntry = {
         title: 'Bookmark 0',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         namedDest: null,
         bold: false,
         italic: false,
         color: null,
         items: [],
     };
-    let current = root;
-    for (let index = 1; index < depth; index += 1) {
-        const child: IPdfBookmarkEntry = {
+    let child: IPdfBookmarkEntry | undefined;
+    for (let index = depth - 1; index >= 0; index -= 1) {
+        const entry: IPdfBookmarkEntry = {
             title: `Bookmark ${index}`,
-            pageIndex: index,
+            pageIndex: requirePageIndex(index),
             namedDest: null,
             bold: false,
             italic: false,
             color: null,
-            items: [],
+            items: child ? [child] : [],
         };
-        current.items = [child];
-        current = child;
+        child = entry;
     }
-    return [root];
+    return child ? [child] : [root];
 }
 
 describe('PdfOutline bookmark toolbar state', () => {
@@ -189,7 +188,7 @@ describe('PdfOutline bookmark toolbar state', () => {
         outline.editModeUpdates.length = 0;
         outline.applyExternalBookmarks(Array.from({length: 10_001}, (_, index) => ({
             title: `Bookmark ${index}`,
-            pageIndex: index,
+            pageIndex: requirePageIndex(index),
             namedDest: null,
             bold: false,
             italic: false,
@@ -236,7 +235,7 @@ describe('PdfOutline bookmark toolbar state', () => {
         await outline.settle();
         outline.applyExternalBookmarks([{
             title: 'Recovered bookmark',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             namedDest: null,
             bold: false,
             italic: false,

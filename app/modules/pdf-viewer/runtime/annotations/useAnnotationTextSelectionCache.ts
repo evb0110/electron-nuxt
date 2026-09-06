@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { Ref } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
@@ -159,9 +160,10 @@ export const useAnnotationTextSelectionCache = ({
 
     function getPageNumberForTextLayer(textLayer: HTMLElement) {
         const pageContainer = textLayer.closest<HTMLElement>('.page_container');
-        return pageContainer?.dataset.page
+        const pageNumber = pageContainer?.dataset.page
             ? Number(pageContainer.dataset.page)
             : currentPage.value;
+        return requirePageNumber(pageNumber);
     }
 
     return {

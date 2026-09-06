@@ -7,30 +7,10 @@ on:
         description: Git ref or commit SHA to build.
         required: false
         type: string
-      sentry_environment:
-        description: Closed Sentry build environment for this artifact.
-        required: false
-        default: test
-        type: string
-      send_sentry_canaries:
-        description: Send one test source-map canary for every private bundle after upload.
-        required: false
-        default: false
-        type: boolean
     outputs:
       artifact_ready:
         description: Whether the legacy Windows 7 artifact was produced.
         value: ${{ jobs.build_win7_legacy.outputs.artifact_ready }}
-    secrets:
-      SENTRY_AUTH_TOKEN:
-        required: false
-      SENTRY_ORG:
-        required: false
-      SENTRY_DESKTOP_PROJECT:
-        required: false
-      SENTRY_DESKTOP_DSN:
-        required: false
-
 permissions:
   contents: read
 
@@ -53,9 +33,6 @@ jobs:
       EVB_RELEASE_TARGET_ARCH: x64
       EVB_RELEASE_TARGET_PLATFORM: win
       EVB_RELEASE_TARGET_DIST: win7-legacy-x64
-      EVB_SENTRY_TARGET: desktop
-      EVB_SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
-      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
     outputs:
       artifact_ready: ${{ steps.artifact_status.outputs.ready }}
 
@@ -72,10 +49,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           windows-bundle-cache-key: win7-legacy-native-tools-x64
           rust-targets: wasm32-unknown-unknown
-
-      - name: Resolve Sentry build identity
-        shell: bash
-        run: node scripts/release/resolve-sentry-build-identity.mjs --target=desktop
 
       - name: Bundle native tools (Windows)
         shell: bash
@@ -158,45 +131,6 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Windows 7 legacy artifact was not produced; main release artifacts remain unaffected."
           fi
-
-      - name: Check private Sentry upload readiness
-        id: sentry_upload
-        if: steps.artifact_status.outputs.ready == 'true'
-        shell: bash
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
-          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-        run: |
-          set -euo pipefail
-          configured=0
-          for value in "$SENTRY_AUTH_TOKEN" "$SENTRY_DESKTOP_DSN" "$SENTRY_DESKTOP_PROJECT" "$SENTRY_ORG"; do
-            if [ -n "$value" ]; then configured=$((configured + 1)); fi
-          done
-          if [ "$configured" -eq 4 ]; then
-            echo 'enabled=true' >> "$GITHUB_OUTPUT"
-          elif [ "$configured" -eq 0 ]; then
-            echo 'enabled=false' >> "$GITHUB_OUTPUT"
-            echo '::notice::Private Sentry upload is not configured; diagnostics remain disabled.'
-          else
-            echo '::error::Sentry diagnostics credentials are partially configured.'
-            exit 1
-          fi
-
-      - name: Upload private Sentry source maps
-        if: steps.sentry_upload.outputs.enabled == 'true'
-        shell: bash
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-        run: node scripts/release/upload-sentry-sourcemaps.mjs
-
-      - name: Send private Sentry source-map canaries
-        if: steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries
-        shell: bash
-        run: node scripts/release/send-sentry-sourcemap-canaries.mjs
 
       - name: Upload artifacts
         if: steps.artifact_status.outputs.ready == 'true'

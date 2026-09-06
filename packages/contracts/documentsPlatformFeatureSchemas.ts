@@ -10,6 +10,7 @@ import {
     type IPdfOptimizeOptions,
     type IPdfOptimizeResult,
     type TDocumentSaveResult,
+    type TOpenFileResult,
     type TOpenFolderDialogResult,
     type TShowItemInFolderResult,
 } from '@contracts/electronApiDocuments';
@@ -19,6 +20,11 @@ import {
     requireDocumentRevisionToken,
     type IDocumentRevisionChangedEvent,
 } from '@contracts/documentRevision';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     appendOptionalDocumentArg as appendOptional,
     decodeNullablePdfValidation,
@@ -42,12 +48,8 @@ import {
     isPdfDecryptPassword,
     PDF_DECRYPT_PASSWORD_MAX_BYTES,
 } from '@contracts/pdfDecryptSchemas';
-import {
-    decodeOpenFileResult,
-    openFileResult,
-} from '@contracts/pdfOpenFileSchemas';
+import {openFileResult} from '@contracts/pdfOpenFileSchemas';
 import type {
-    IPdfConformanceAnalysisOptions,
     IPdfConformanceProfile,
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
@@ -62,37 +64,95 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
-import type { IRecentFile } from '@contracts/shared';
+import {
+    parseLeaseId,
+    parseRequestId,
+    type IRecentFile,
+    type TLeaseId,
+    type TRequestId,
+} from '@contracts/shared';
+import {
+    parseEpochMs,
+    requireEpochMs,
+} from '@contracts/timestamps';
 import {decodeTypedStagedArtifact} from '@contracts/stagedArtifacts';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {isNativeErrorEnvelope} from '@contracts/nativeErrors';
 import {
     normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeModifiedAt,
+    normalizePdfNativeNoteTextUpdates,
+    normalizePdfNativeNoteChanges,
     normalizePdfNativeMutationSet,
 } from '@contracts/nativePdfMutations';
 const fixtureNativeMutation = {pageLabels: {
     totalPages: 1,
     ranges: [],
 }};
-function decodeRecentFile(value: unknown): IRecentFile {
+function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
+    if (value === null) {
+        return null;
+    }
+    if (!isRecord(value) || (value.kind !== 'pdf' && value.kind !== 'djvu')) {
+        fail('invalid open-file result');
+    }
+    if (value.kind === 'djvu') {
+        const originalPath = parseDocumentRef(value.originalPath);
+        if (value.workingPath !== '' || originalPath === null) {
+            fail('invalid DjVu open-file result');
+        }
+        return {
+            kind: 'djvu',
+            workingPath: '',
+            originalPath,
+        };
+    }
     if (
-        !isRecord(value)
-        || typeof value.originalPath !== 'string'
+        typeof value.workingPath !== 'string'
+        || (value.isGenerated !== undefined && typeof value.isGenerated !== 'boolean')
+    ) {
+        fail('invalid PDF open-file result');
+    }
+    const workingPath = parseDocumentRef(value.workingPath);
+    const originalPath = parseDocumentRef(value.originalPath);
+    if (workingPath === null || originalPath === null) {
+        fail('invalid PDF open-file paths');
+    }
+    const openingGeometry = value.openingGeometry === undefined
+        ? undefined
+        : decodeOpeningGeometry(value.openingGeometry);
+    return {
+        kind: 'pdf',
+        workingPath,
+        originalPath,
+        ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
+        ...(openingGeometry === undefined ? {} : {openingGeometry}),
+    };
+}
+function decodeRecentFile(value: unknown): IRecentFile {
+    if (!isRecord(value)) {
+        fail('invalid recent file');
+    }
+    const originalPath = parseDocumentRef(value.originalPath);
+    const timestamp = parseEpochMs(value.timestamp);
+    const modifiedAt = value.modifiedAt === undefined ? undefined : parseEpochMs(value.modifiedAt);
+    if (
+        originalPath === null
         || typeof value.fileName !== 'string'
-        || !isFiniteNumber(value.timestamp)
+        || timestamp === null
+        || modifiedAt === null
         || (value.backend !== undefined && value.backend !== 'electron' && value.backend !== 'browser')
         || (value.fileSize !== undefined && (!isFiniteNumber(value.fileSize) || value.fileSize < 0))
-        || (value.modifiedAt !== undefined && (!Number.isSafeInteger(value.modifiedAt) || Number(value.modifiedAt) < 0))
     ) {
         fail('invalid recent file');
     }
     return {
-        originalPath: value.originalPath,
+        originalPath,
         fileName: value.fileName,
-        timestamp: value.timestamp,
+        timestamp,
         ...(value.backend === undefined ? {} : {backend: value.backend}),
         ...(value.fileSize === undefined ? {} : {fileSize: value.fileSize}),
-        ...(value.modifiedAt === undefined ? {} : {modifiedAt: Number(value.modifiedAt)}),
+        ...(modifiedAt === undefined ? {} : {modifiedAt}),
     };
 }
 const applicationMenuOptionalBooleanFields = [
@@ -217,36 +277,76 @@ function decodeStringValue(value: unknown, fieldName: string) {
     }
     return value;
 }
+
+function decodeDocumentRefValue(value: unknown, fieldName: string): TDocumentRef {
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        fail(`${fieldName} must be an absolute document reference`);
+    }
+    return parsed;
+}
+
+function decodeOptionalDocumentRefValue(value: unknown, fieldName: string): TDocumentRef | undefined {
+    return value === undefined || value === null
+        ? undefined
+        : decodeDocumentRefValue(value, fieldName);
+}
+
+function decodeRequestIdValue(value: unknown, fieldName: string): TRequestId {
+    const parsed = parseRequestId(value);
+    if (parsed === null) {
+        fail(`${fieldName} must be a non-empty request ID`);
+    }
+    return parsed;
+}
+
+function decodeOptionalRequestIdValue(value: unknown, fieldName: string): TRequestId | undefined {
+    return value === undefined || value === null
+        ? undefined
+        : decodeRequestIdValue(value, fieldName);
+}
+
+function decodeLeaseIdValue(value: unknown, fieldName: string): TLeaseId {
+    const parsed = parseLeaseId(value);
+    if (parsed === null) {
+        fail(`${fieldName} must be a non-empty lease ID`);
+    }
+    return parsed;
+}
 function decodeOptionalStringValue(value: unknown, fieldName: string) {
     return value === undefined || value === null
         ? undefined
         : decodeStringValue(value, fieldName);
 }
-function decodeStringArrayValue(value: unknown, fieldName: string) {
-    if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
-        fail(`${fieldName} must be an array of strings`);
+function decodeDocumentRefArrayValue(value: unknown, fieldName: string): TDocumentRef[] {
+    if (!Array.isArray(value)) {
+        fail(`${fieldName} must be an array of document references`);
     }
-    return value as string[];
+    return value.map((item, index) => decodeDocumentRefValue(item, `${fieldName}[${index}]`));
 }
 function decodeOptimizeOptions(value: unknown): IPdfOptimizeOptions {
-    const decoded = decodeRequiredObject<IPdfOptimizeOptions>(value, 'optimizeOptions');
+    const decoded = decodeRequiredObject(value, 'optimizeOptions');
     if (!isPdfOptimizePreset(decoded.preset)) {
         fail('invalid PDF optimize preset');
     }
     return {preset: decoded.preset};
 }
 function decodePreviewOptions(value: unknown): IPdfNativePagePreviewOptions | undefined {
-    const decoded = decodeOptionalObject<IPdfNativePagePreviewOptions>(value, 'options');
+    const decoded = decodeOptionalObject(value, 'options');
     if (decoded === undefined) {
         return undefined;
     }
-    if (
-        decoded.previewRequestId !== undefined && typeof decoded.previewRequestId !== 'string'
-        || decoded.targetWidthPx !== undefined && (!Number.isSafeInteger(decoded.targetWidthPx) || decoded.targetWidthPx < 1)
-    ) {
+    const previewRequestId = decoded.previewRequestId === undefined
+        ? undefined
+        : decodeRequestIdValue(decoded.previewRequestId, 'previewRequestId');
+    const targetWidthPx = decoded.targetWidthPx;
+    if (targetWidthPx !== undefined && (typeof targetWidthPx !== 'number' || !Number.isSafeInteger(targetWidthPx) || targetWidthPx < 1)) {
         fail('invalid native page preview options');
     }
-    return {...decoded};
+    return {
+        ...(previewRequestId === undefined ? {} : {previewRequestId}),
+        ...(targetWidthPx === undefined ? {} : {targetWidthPx}),
+    };
 }
 function decodePlatformOperationResult(value: unknown) {
     if (
@@ -356,8 +456,11 @@ function decodeOptimizeResult(value: unknown): IPdfOptimizeResult {
         }
         return candidate;
     };
+    const path = value.path === null
+        ? null
+        : decodeDocumentRefValue(value.path, 'path');
     return {
-        path: value.path,
+        path,
         validation: decodeNullablePdfValidation(value.validation),
         preset: value.preset,
         originalBytes: decodeNullableCount(value.originalBytes, 'originalBytes'),
@@ -437,9 +540,9 @@ const nullableStringResult = s.fromParser<string | null>(
 );
 const recentFilesResult = s.array(
     s.fromParser(decodeRecentFile, () => ({
-        originalPath: '/tmp/document.pdf',
+        originalPath: decodeDocumentRefValue('/tmp/document.pdf', 'originalPath'),
         fileName: 'document.pdf',
-        timestamp: 0,
+        timestamp: requireEpochMs(0),
     })),
 );
 const menuStateArgs = s.tuple([s.fromParser(decodeApplicationMenuDocumentState, () => false)]);
@@ -449,7 +552,7 @@ const nonNegativeInteger = s.fromParser(
 );
 const noPayload = s.undefined();
 const optimizeProgress = s.fromParser(decodeOptimizeProgress, () => ({
-    requestId: 'optimize-1',
+    requestId: decodeRequestIdValue('optimize-1', 'requestId'),
     preset: 'lossless' as const,
     phase: 'preparing' as const,
     processed: 0,
@@ -458,7 +561,7 @@ const optimizeProgress = s.fromParser(decodeOptimizeProgress, () => ({
 }));
 const openBatchProgress = s.fromParser(decodeOpenBatchProgress, () => ({
     operation: 'document-open' as const,
-    requestId: 'open-1',
+    requestId: decodeRequestIdValue('open-1', 'requestId'),
     processed: 0,
     total: 1,
     percent: 0,
@@ -492,17 +595,26 @@ function documentResult<TName extends TDocumentMethodName>(
 ) {
     return s.declared<TDocumentMethodResult<TName>>()(s.fromParser(decode, example));
 }
-function decodeSingleStringArgs<TName extends TDocumentMethodName>(
-    value: unknown,
-    fieldName: string,
-) {
+function decodeSingleStringArgs(value: unknown, fieldName: string): [string] {
     const args = decodeArgumentArray(value, 1);
-    return [decodeStringValue(args[0], fieldName)] as TDocumentMethodArgs<TName>;
+    return [decodeStringValue(args[0], fieldName)];
+}
+function decodeSingleDocumentRefArgs(value: unknown, fieldName: string): [TDocumentRef] {
+    const args = decodeArgumentArray(value, 1);
+    return [decodeDocumentRefValue(args[0], fieldName)];
+}
+function decodeSingleRequestIdArgs(value: unknown, fieldName: string): [TRequestId] {
+    const args = decodeArgumentArray(value, 1);
+    return [decodeRequestIdValue(args[0], fieldName)];
+}
+function decodeSingleLeaseIdArgs(value: unknown, fieldName: string): [TLeaseId] {
+    const args = decodeArgumentArray(value, 1);
+    return [decodeLeaseIdValue(args[0], fieldName)];
 }
 const openDocumentDirectArgs = documentArgs<'openDocumentDirect'>(
     (value) => {
         const args = decodeArgumentArray(value, 1, 2);
-        const path = decodeStringValue(args[0], 'path');
+        const path = decodeDocumentRefValue(args[0], 'path');
         return args.length === 1 || args[1] === undefined
             ? [path]
             : (() => {
@@ -516,17 +628,17 @@ const openDocumentDirectArgs = documentArgs<'openDocumentDirect'>(
                 ];
             })();
     },
-    () => ['/tmp/document.pdf'],
+    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const openDocumentDirectBatchArgs = documentArgs<'openDocumentDirectBatch'>(
     (value) => {
         const args = decodeArgumentArray(value, 1, 3);
-        const paths = decodeStringArrayValue(args[0], 'paths');
-        const requestId = decodeOptionalStringValue(args[1], 'requestId');
+        const paths = decodeDocumentRefArrayValue(args[0], 'paths');
+        const requestId = decodeOptionalRequestIdValue(args[1], 'requestId');
         const rawOptions = args[2];
         let options: {forceCombine?: boolean} | undefined;
         if (rawOptions !== undefined) {
-            const decoded = decodeRequiredObject<{forceCombine?: unknown}>(rawOptions, 'options');
+            const decoded = decodeRequiredObject(rawOptions, 'options');
             if (decoded.forceCombine !== undefined && typeof decoded.forceCombine !== 'boolean') {
                 fail('invalid force-combine option');
             }
@@ -535,7 +647,7 @@ const openDocumentDirectBatchArgs = documentArgs<'openDocumentDirectBatch'>(
         if (options !== undefined) {
             return [
                 paths,
-                requestId ?? '',
+                requestId,
                 options,
             ];
         }
@@ -545,33 +657,32 @@ const openDocumentDirectBatchArgs = documentArgs<'openDocumentDirectBatch'>(
         ];
     },
     () => [
-        ['/tmp/document.pdf'],
-        'open-1',
+        [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
+        decodeRequestIdValue('open-1', 'requestId'),
     ],
 );
 const cancelOpenBatchArgs = documentArgs<'cancelOpenDocumentDirectBatch'>(
-    value => decodeSingleStringArgs<'cancelOpenDocumentDirectBatch'>(value, 'requestId'),
-    () => ['open-1'],
+    value => decodeSingleRequestIdArgs(value, 'requestId'),
+    () => [decodeRequestIdValue('open-1', 'requestId')],
 );
 const createWorkingCopyFromDataArgs = documentArgs<'createWorkingCopyFromData'>(
     (value) => {
         const args = decodeArgumentArray(value, 2, 4);
-        const fileName = decodeStringValue(args[0], 'fileName');
-        const data = decodeUint8ArrayValue(args[1], 'data');
-        const originalPath = decodeOptionalStringValue(args[2], 'originalPath');
+        const base: [string, Uint8Array] = [
+            decodeStringValue(args[0], 'fileName'),
+            decodeUint8ArrayValue(args[1], 'data'),
+        ];
+        const originalPath = decodeOptionalDocumentRefValue(args[2], 'originalPath');
         if (args.length < 4) {
-            return appendOptional([
-                fileName,
-                data,
-            ], originalPath);
+            return appendOptional(base, originalPath);
         }
         const password = decodeOptionalStringValue(args[3], 'password');
         if (password !== undefined && !isPdfDecryptPassword(password)) {
             fail(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
         }
         return [
-            fileName,
-            data,
+            base[0],
+            base[1],
             originalPath,
             password,
         ];
@@ -584,8 +695,8 @@ const createWorkingCopyFromDataArgs = documentArgs<'createWorkingCopyFromData'>(
 const createWorkingCopyFromPathArgs = documentArgs<'createWorkingCopyFromPath'>(
     (value) => {
         const args = decodeArgumentArray(value, 1, 3);
-        const sourcePath = decodeStringValue(args[0], 'sourcePath');
-        const originalPath = decodeOptionalStringValue(args[1], 'originalPath');
+        const sourcePath = decodeDocumentRefValue(args[0], 'sourcePath');
+        const originalPath = decodeOptionalDocumentRefValue(args[1], 'originalPath');
         if (args.length < 3) {
             return appendOptional([sourcePath], originalPath);
         }
@@ -599,32 +710,32 @@ const createWorkingCopyFromPathArgs = documentArgs<'createWorkingCopyFromPath'>(
             password,
         ];
     },
-    () => ['/tmp/source.pdf'],
+    () => [decodeDocumentRefValue('/tmp/source.pdf', 'sourcePath')],
 );
 const savePdfAsArgs = documentArgs<'savePdfAs'>(
     (value) => {
         const args = decodeArgumentArray(value, 2, 3);
         return appendOptional([
-            decodeStringValue(args[0], 'workingPath'),
+            decodeDocumentRefValue(args[0], 'workingPath'),
             decodeSaveAsOptions(args[1]),
         ], decodeRevisionOptions(args[2])) as TDocumentMethodArgs<'savePdfAs'>;
     },
     () => [
-        '/tmp/working.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'workingPath'),
         undefined,
         fixtureRevisionOptions,
     ],
 );
 const savePdfDialogArgs = documentArgs<'savePdfDialog'>(
-    value => decodeSingleStringArgs<'savePdfDialog'>(value, 'suggestedName'),
+    value => decodeSingleStringArgs(value, 'suggestedName'),
     () => ['document.pdf'],
 );
-const pathArgs = (fieldName: string) => s.fromParser<[string]>(
+const pathArgs = (fieldName: string) => s.fromParser<[TDocumentRef]>(
     (value) => {
         const args = decodeArgumentArray(value, 1);
-        return [decodeStringValue(args[0], fieldName)];
+        return [decodeDocumentRefValue(args[0], fieldName)];
     },
-    () => ['/tmp/document.pdf'],
+    () => [decodeDocumentRefValue('/tmp/document.pdf', fieldName)],
 );
 const readFileArgs = s.declared<TDocumentMethodArgs<'readFile'>>()(
     pathArgs('path'),
@@ -636,72 +747,72 @@ const readFileRangeArgs = documentArgs<'readFileRange'>(
     (value) => {
         const args = decodeArgumentArray(value, 3);
         return [
-            decodeStringValue(args[0], 'path'),
+            decodeDocumentRefValue(args[0], 'path'),
             decodeSafeIntegerValue(args[1], 'offset'),
             decodeSafeIntegerValue(args[2], 'length'),
         ];
     },
     () => [
-        '/tmp/document.pdf',
+        decodeDocumentRefValue('/tmp/document.pdf', 'path'),
         0,
         1,
     ],
 );
 const managedHandleArgs = documentArgs<'createManagedTempFileHandle'>(
-    value => decodeSingleStringArgs<'createManagedTempFileHandle'>(value, 'path'),
-    () => ['/tmp/document.pdf'],
+    value => decodeSingleDocumentRefArgs(value, 'path'),
+    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const releaseManagedHandleArgs = documentArgs<'releaseManagedTempFileHandle'>(
-    value => decodeSingleStringArgs<'releaseManagedTempFileHandle'>(value, 'leaseId'),
-    () => ['lease-1'],
+    value => decodeSingleLeaseIdArgs(value, 'leaseId'),
+    () => [decodeLeaseIdValue('lease-1', 'leaseId')],
 );
 const openingGeometryArgs = documentArgs<'getPdfOpeningGeometry'>(
-    value => decodeSingleStringArgs<'getPdfOpeningGeometry'>(value, 'path'),
-    () => ['/tmp/document.pdf'],
+    value => decodeSingleDocumentRefArgs(value, 'path'),
+    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const pageSizesArgs = documentArgs<'getPdfNativePageSizes'>(
-    value => decodeSingleStringArgs<'getPdfNativePageSizes'>(value, 'path'),
-    () => ['/tmp/document.pdf'],
+    value => decodeSingleDocumentRefArgs(value, 'path'),
+    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const cancelRequestArgs = documentArgs<'cancelPdfNativePagePreview'>(
-    value => decodeSingleStringArgs<'cancelPdfNativePagePreview'>(value, 'requestId'),
-    () => ['preview-1'],
+    value => decodeSingleRequestIdArgs(value, 'requestId'),
+    () => [decodeRequestIdValue('preview-1', 'requestId')],
 );
 const pagePreviewArgs = documentArgs<'renderPdfNativePagePreview'>(
     (value) => {
         const args = decodeArgumentArray(value, 2, 3);
         return appendOptional([
-            decodeStringValue(args[0], 'path'),
-            decodeSafeIntegerValue(args[1], 'pageNumber', 1),
+            decodeDocumentRefValue(args[0], 'path'),
+            requirePageNumber(decodeSafeIntegerValue(args[1], 'pageNumber', 1)),
         ], decodePreviewOptions(args[2])) as TDocumentMethodArgs<'renderPdfNativePagePreview'>;
     },
     () => [
-        '/tmp/document.pdf',
-        1,
+        decodeDocumentRefValue('/tmp/document.pdf', 'path'),
+        requirePageNumber(1),
     ],
 );
 const readTextFileArgs = documentArgs<'readTextFile'>(
-    value => decodeSingleStringArgs<'readTextFile'>(value, 'path'),
-    () => ['/tmp/document.txt'],
+    value => decodeSingleDocumentRefArgs(value, 'path'),
+    () => [decodeDocumentRefValue('/tmp/document.txt', 'path')],
 );
 const fileExistsArgs = documentArgs<'fileExists'>(
-    value => decodeSingleStringArgs<'fileExists'>(value, 'path'),
-    () => ['/tmp/document.pdf'],
+    value => decodeSingleDocumentRefArgs(value, 'path'),
+    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const documentRevisionArgs = documentArgs<'getDocumentRevision'>(
-    value => decodeSingleStringArgs<'getDocumentRevision'>(value, 'path'),
-    () => ['/tmp/document.pdf'],
+    value => decodeSingleDocumentRefArgs(value, 'path'),
+    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const writeFileArgs = documentArgs<'writeFile'>(
     (value) => {
         const args = decodeArgumentArray(value, 2, 3);
         return appendOptional([
-            decodeStringValue(args[0], 'path'),
+            decodeDocumentRefValue(args[0], 'path'),
             decodeUint8ArrayValue(args[1], 'data'),
         ], decodeRevisionOptions(args[2])) as TDocumentMethodArgs<'writeFile'>;
     },
     () => [
-        '/tmp/document.pdf',
+        decodeDocumentRefValue('/tmp/document.pdf', 'path'),
         Uint8Array.of(1),
         fixtureRevisionOptions,
     ],
@@ -710,13 +821,13 @@ const replaceWorkingCopyArgs = documentArgs<'replaceWorkingCopyFromPath'>(
     (value) => {
         const args = decodeArgumentArray(value, 2, 3);
         return appendOptional([
-            decodeStringValue(args[0], 'workingCopyPath'),
-            decodeStringValue(args[1], 'sourcePath'),
+            decodeDocumentRefValue(args[0], 'workingCopyPath'),
+            decodeDocumentRefValue(args[1], 'sourcePath'),
         ], decodeRevisionOptions(args[2])) as TDocumentMethodArgs<'replaceWorkingCopyFromPath'>;
     },
     () => [
-        '/tmp/working.pdf',
-        '/tmp/source.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'workingCopyPath'),
+        decodeDocumentRefValue('/tmp/source.pdf', 'sourcePath'),
         fixtureRevisionOptions,
     ],
 );
@@ -724,12 +835,12 @@ const writeDocxArgs = documentArgs<'writeDocxFile'>(
     (value) => {
         const args = decodeArgumentArray(value, 2);
         return [
-            decodeStringValue(args[0], 'path'),
+            decodeDocumentRefValue(args[0], 'path'),
             decodeUint8ArrayValue(args[1], 'data'),
         ];
     },
     () => [
-        '/tmp/document.docx',
+        decodeDocumentRefValue('/tmp/document.docx', 'path'),
         Uint8Array.of(1),
     ],
 );
@@ -737,49 +848,50 @@ const saveFileStructuredArgs = documentArgs<'saveFileStructured'>(
     (value) => {
         const args = decodeArgumentArray(value, 1, 2);
         return appendOptional(
-            [decodeStringValue(args[0], 'path')],
+            [decodeDocumentRefValue(args[0], 'path')],
             decodeRevisionOptions(args[1]),
         ) as TDocumentMethodArgs<'saveFileStructured'>;
     },
     () => [
-        '/tmp/working.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
         fixtureRevisionOptions,
     ],
 );
 const repairPdfArgs = documentArgs<'repairPdf'>(
     value => saveFileStructuredArgs.decode(value),
     () => [
-        '/tmp/working.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
         fixtureRevisionOptions,
     ],
 );
 const optimizeInteractionArgs = documentArgs<'optimizePdfForInteraction'>(
     value => saveFileStructuredArgs.decode(value),
     () => [
-        '/tmp/working.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
         fixtureRevisionOptions,
     ],
 );
 const optimizeAsCopyArgs = documentArgs<'optimizePdfAsCopy'>(
     (value) => {
         const args = decodeArgumentArray(value, 2, 4);
-        const base: [string, IPdfOptimizeOptions] = [
-            decodeStringValue(args[0], 'path'),
+        const base: [TDocumentRef, IPdfOptimizeOptions] = [
+            decodeDocumentRefValue(args[0], 'path'),
             decodeOptimizeOptions(args[1]),
         ];
-        const requestId = decodeOptionalStringValue(args[2], 'requestId');
-        if (requestId === undefined) {
+        const requestId = decodeOptionalRequestIdValue(args[2], 'requestId');
+        const revisionOptions = decodeRevisionOptions(args[3]);
+        if (requestId === undefined && revisionOptions === undefined) {
             return base;
         }
         return appendOptional([
             ...base,
             requestId,
-        ], decodeRevisionOptions(args[3])) as TDocumentMethodArgs<'optimizePdfAsCopy'>;
+        ], revisionOptions) as TDocumentMethodArgs<'optimizePdfAsCopy'>;
     },
     () => [
-        '/tmp/working.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
         {preset: 'lossless'},
-        'optimize-1',
+        decodeRequestIdValue('optimize-1', 'requestId'),
         fixtureRevisionOptions,
     ],
 );
@@ -790,15 +902,15 @@ const nativeNoteTextArgs = documentArgs<'savePdfNoteTextUpdates'>(
             fail('updates must be an array');
         }
         return appendOptional([
-            decodeStringValue(args[0], 'path'),
-            args[1] as TDocumentMethodArgs<'savePdfNoteTextUpdates'>[1],
-            decodeStringValue(args[2], 'modifiedAt'),
+            decodeDocumentRefValue(args[0], 'path'),
+            normalizePdfNativeNoteTextUpdates(args[1], 'updates', {allowEmpty: true}),
+            normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
         ], decodeRevisionOptions(args[3])) as TDocumentMethodArgs<'savePdfNoteTextUpdates'>;
     },
     () => [
-        '/tmp/working.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
         [],
-        '2026-01-01T00:00:00.000Z',
+        normalizePdfNativeModifiedAt('D:20260101000000Z', 'modifiedAt'),
         fixtureRevisionOptions,
     ],
 );
@@ -806,15 +918,19 @@ const nativeNoteChangesArgs = documentArgs<'savePdfNoteChanges'>(
     (value) => {
         const args = decodeArgumentArray(value, 3, 4);
         return appendOptional([
-            decodeStringValue(args[0], 'path'),
-            decodeRequiredObject<TDocumentMethodArgs<'savePdfNoteChanges'>[1]>(args[1], 'changes'),
-            decodeStringValue(args[2], 'modifiedAt'),
+            decodeDocumentRefValue(args[0], 'path'),
+            normalizePdfNativeNoteChanges(args[1], 'changes'),
+            normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
         ], decodeRevisionOptions(args[3])) as TDocumentMethodArgs<'savePdfNoteChanges'>;
     },
     () => [
-        '/tmp/working.pdf',
-        {},
-        '2026-01-01T00:00:00.000Z',
+        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
+        {updates: [{
+            objectNumber: 12,
+            generationNumber: 0,
+            text: 'Updated note',
+        }]},
+        normalizePdfNativeModifiedAt('D:20260101000000Z', 'modifiedAt'),
         fixtureRevisionOptions,
     ],
 );
@@ -822,15 +938,15 @@ const nativeMutationsArgs = documentArgs<'savePdfNativeMutations'>(
     (value) => {
         const args = decodeArgumentArray(value, 3, 4);
         return appendOptional([
-            decodeStringValue(args[0], 'path'),
+            decodeDocumentRefValue(args[0], 'path'),
             normalizePdfNativeMutationSet(args[1], 'mutations'),
             normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
         ], decodeRevisionOptions(args[3])) as TDocumentMethodArgs<'savePdfNativeMutations'>;
     },
     () => [
-        '/tmp/working.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
         fixtureNativeMutation,
-        'D:20260101000000Z',
+        normalizePdfNativeModifiedAt('D:20260101000000Z', 'modifiedAt'),
         fixtureRevisionOptions,
     ],
 );
@@ -842,16 +958,16 @@ const applyNativeMutationsArgs = documentArgs<'applyPdfNativeMutationsToWorkingC
             fail('applyPdfNativeMutationsToWorkingCopy requires revisionOptions');
         }
         return [
-            decodeStringValue(args[0], 'path'),
+            decodeDocumentRefValue(args[0], 'path'),
             normalizePdfNativeMutationSet(args[1], 'mutations'),
             normalizePdfNativeModifiedAt(args[2], 'modifiedAt'),
             revisionOptions,
         ] as TDocumentMethodArgs<'applyPdfNativeMutationsToWorkingCopy'>;
     },
     () => [
-        '/tmp/working.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
         fixtureNativeMutation,
-        'D:20260101000000Z',
+        normalizePdfNativeModifiedAt('D:20260101000000Z', 'modifiedAt'),
         fixtureRevisionOptions,
     ],
 );
@@ -862,18 +978,18 @@ const commitNativeMutationsArgs = documentArgs<'commitStagedPdfNativeMutations'>
         if (!stagedOutput) {
             fail('stagedOutput must be a typed staged artifact');
         }
-        const decoded = appendOptional([
-            decodeStringValue(args[0], 'path'),
+        const base: [TDocumentRef, ITypedStagedArtifact] = [
+            decodeDocumentRefValue(args[0], 'path'),
             stagedOutput,
-        ], decodePdfNativeStagedCommitOptions(args[2]));
-        return decoded as TDocumentMethodArgs<'commitStagedPdfNativeMutations'>;
+        ];
+        return appendOptional(base, decodePdfNativeStagedCommitOptions(args[2]));
     },
     () => [
-        '/tmp/working.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'path'),
         {
             receiptVersion: 1,
             artifactKind: 'pdf',
-            path: '/tmp/staged.pdf',
+            path: decodeDocumentRefValue('/tmp/staged.pdf', 'path'),
             size: 1,
             sha256: '0'.repeat(64),
             fileIdentity: {
@@ -887,7 +1003,7 @@ const commitNativeMutationsArgs = documentArgs<'commitStagedPdfNativeMutations'>
                 semanticCheck: false,
                 fsynced: false,
             },
-            leaseId: 'lease-1',
+            leaseId: decodeLeaseIdValue('lease-1', 'leaseId'),
             revision: null,
         },
         fixtureRevisionOptions,
@@ -902,13 +1018,13 @@ const cloneStagedNativeMutationArgs = documentArgs<'cloneStagedPdfNativeMutation
         }
         return appendOptional(
             [stagedOutput],
-            decodeOptionalStringValue(args[1], 'originalPath'),
-        ) as TDocumentMethodArgs<'cloneStagedPdfNativeMutationToWorkingCopy'>;
+            decodeOptionalDocumentRefValue(args[1], 'originalPath'),
+        );
     },
     () => [
         commitNativeMutationsArgs.example()[1],
-        '/tmp/original.pdf',
-    ] as TDocumentMethodArgs<'cloneStagedPdfNativeMutationToWorkingCopy'>,
+        decodeDocumentRefValue('/tmp/original.pdf', 'originalPath'),
+    ],
 );
 const replaceWorkingCopyFromStagedNativeMutationArgs = documentArgs<'replaceWorkingCopyFromStagedPdfNativeMutation'>(
     (value) => {
@@ -917,17 +1033,18 @@ const replaceWorkingCopyFromStagedNativeMutationArgs = documentArgs<'replaceWork
         if (!stagedOutput) {
             fail('stagedOutput must be a typed staged artifact');
         }
+        const options = decodeRevisionOptions(args[2]) ?? fail('replaceWorkingCopyFromStagedPdfNativeMutation requires revisionOptions');
         return [
-            decodeStringValue(args[0], 'workingCopyPath'),
+            decodeDocumentRefValue(args[0], 'workingCopyPath'),
             stagedOutput,
-            decodeRevisionOptions(args[2]),
-        ] as TDocumentMethodArgs<'replaceWorkingCopyFromStagedPdfNativeMutation'>;
+            options,
+        ];
     },
     () => [
-        '/tmp/working.pdf',
+        decodeDocumentRefValue('/tmp/working.pdf', 'workingCopyPath'),
         commitNativeMutationsArgs.example()[1],
         fixtureRevisionOptions,
-    ] as TDocumentMethodArgs<'replaceWorkingCopyFromStagedPdfNativeMutation'>,
+    ],
 );
 const pdfDataArgs = documentArgs<'validatePdfData'>(
     (value) => {
@@ -959,32 +1076,27 @@ const printPdfDataArgs = documentArgs<'printPdfData'>(
 const pdfPathArgs = documentArgs<'analyzePdfConformance'>(
     value => {
         const args = decodeArgumentArray(value, 1, 2);
-        const rawOptions = decodeOptionalObject<IPdfConformanceAnalysisOptions>(args[1], 'options');
-        if (
-            rawOptions?.purpose !== undefined
-            && rawOptions.purpose !== 'full'
-            && rawOptions.purpose !== 'save-restrictions'
-        ) {
-            fail('invalid PDF conformance analysis purpose');
-        }
-        return appendOptional([decodeStringValue(args[0], 'path')], rawOptions) as TDocumentMethodArgs<'analyzePdfConformance'>;
+        const rawOptions = decodeOptionalObject(args[1], 'options');
+        const purpose = rawOptions?.purpose;
+        if (purpose !== undefined && purpose !== 'full' && purpose !== 'save-restrictions') fail('invalid PDF conformance analysis purpose');
+        return appendOptional([decodeDocumentRefValue(args[0], 'path')], purpose === undefined ? undefined : {purpose});
     },
-    () => ['/tmp/document.pdf'],
+    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const openPdfPathArgs = documentArgs<'openPdfInDefaultAppPath'>(
     (value) => {
         const args = decodeArgumentArray(value, 1, 2);
         return appendOptional(
-            [decodeStringValue(args[0], 'path')],
+            [decodeDocumentRefValue(args[0], 'path')],
             decodeOptionalStringValue(args[1], 'fileName'),
         );
     },
-    () => ['/tmp/document.pdf'],
+    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const printPdfPathArgs = documentArgs<'printPdfPath'>(
     (value) => {
         const args = decodeArgumentArray(value, 1, 3);
-        const path = decodeStringValue(args[0], 'path');
+        const path = decodeDocumentRefValue(args[0], 'path');
         const fileName = decodeOptionalStringValue(args[1], 'fileName');
         if (args[2] === undefined) {
             return fileName === undefined
@@ -1000,9 +1112,8 @@ const printPdfPathArgs = documentArgs<'printPdfPath'>(
             decodePdfPathPrintOptions(args[2], 'options'),
         ];
     },
-    () => ['/tmp/document.pdf'],
+    () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
-
 const booleanResult = s.boolean();
 const bytesResult = s.fromParser(
     value => decodeUint8ArrayValue(value, 'result'),
@@ -1013,19 +1124,13 @@ const fileStatResult = s.fromParser(
         if (!isRecord(value) || typeof value.size !== 'number' || !Number.isSafeInteger(value.size) || value.size < 0) {
             fail('invalid file stat');
         }
-        if (
-            value.modifiedAt !== undefined
-            && (
-                typeof value.modifiedAt !== 'number'
-                || !Number.isSafeInteger(value.modifiedAt)
-                || value.modifiedAt < 0
-            )
-        ) {
+        const modifiedAt = value.modifiedAt === undefined ? undefined : parseEpochMs(value.modifiedAt);
+        if (modifiedAt === null) {
             fail('invalid file modification time');
         }
         return {
             size: value.size,
-            ...(value.modifiedAt === undefined ? {} : {modifiedAt: value.modifiedAt}),
+            ...(modifiedAt === undefined ? {} : {modifiedAt}),
         };
     },
     () => ({size: 1}),
@@ -1033,23 +1138,23 @@ const fileStatResult = s.fromParser(
 const managedHandleResult = documentResult<'createManagedTempFileHandle'>(
     value => decodeManagedTempFileHandle(value) ?? fail('invalid managed temporary file handle'),
     () => ({
-        path: '/tmp/document.pdf',
+        path: decodeDocumentRefValue('/tmp/document.pdf', 'path'),
         size: 1,
         sha256: '0'.repeat(64),
-        leaseId: 'lease-1',
+        leaseId: decodeLeaseIdValue('lease-1', 'leaseId'),
         revision: null,
     }),
 );
 const openingGeometryResult = documentResult<'getPdfOpeningGeometry'>(
     value => value === null ? null : decodeOpeningGeometry(value),
     () => ({
-        pageNumber: 1,
+        pageNumber: requirePageNumber(1),
         pageCount: 1,
         width: 612,
         height: 792,
         rotation: 0,
         size: 1,
-        modifiedAt: 0,
+        modifiedAt: requireEpochMs(0),
     }),
 );
 const pageSizesResult = documentResult<'getPdfNativePageSizes'>(
@@ -1081,10 +1186,10 @@ const revisionResult = documentResult<'getDocumentRevision'>(
     () => ({
         version: 1,
         token: fixtureRevisionToken,
-        documentRef: '/tmp/document.pdf',
+        documentRef: decodeDocumentRefValue('/tmp/document.pdf', 'documentRef'),
         authority: 'electron-working-copy',
         contentRevision: 1,
-        mintedAt: 1,
+        mintedAt: requireEpochMs(1),
     }),
 );
 const validationResult = s.fromParser<IPdfValidationResult>(decodePdfValidation, () => ({
@@ -1123,8 +1228,6 @@ const documentRevisionEvent = s.fromParser<IDocumentRevisionChangedEvent>(
         reason: 'write',
     }),
 );
-
-
 export {
     applyNativeMutationsArgs,
     booleanResult,

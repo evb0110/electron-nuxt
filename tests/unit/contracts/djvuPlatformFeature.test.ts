@@ -6,16 +6,25 @@ import {
 } from 'vitest';
 import type { IpcRenderer } from 'electron';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import { requireEpochMs } from '@contracts/timestamps';
+import {
+    requireJobId,
+    requireRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
-import { cast } from '@tests/helpers/cast';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+
+type TIpcRendererFixture = Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
 
 const channels = DJVU_PLATFORM_FEATURE.invokeChannels;
 const eventChannels = DJVU_PLATFORM_FEATURE.eventChannels;
 const conversionFailure: FailureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
     code: 'UNCLASSIFIED_MAIN_ERROR',
-    occurredAt: 1,
+    occurredAt: requireEpochMs(1),
     severity: 'error',
 };
 
@@ -61,12 +70,12 @@ describe('DjVu platform feature', () => {
             terminalRetentionMs: 30_000,
         });
         expect(replay.key({
-            jobId: 'job-1',
+            jobId: requireJobId('job-1'),
             phase: 'printing',
             percent: 50,
         })).toBe('job-1:printing');
         expect(replay.terminal({
-            jobId: 'job-1',
+            jobId: requireJobId('job-1'),
             phase: 'printing',
             percent: 100,
             status: 'success',
@@ -78,36 +87,41 @@ describe('DjVu platform feature', () => {
     });
 
     it('rejects oversized preview request ids before invoking main', async () => {
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke: vi.fn(),
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             DJVU_PLATFORM_FEATURE,
         );
         const oversizedRequestId = 'x'.repeat(129);
 
-        expect(() => client.renderPagePreview('/tmp/book.djvu', 1, {previewRequestId: oversizedRequestId}))
+        // This deliberately invalid branded value reaches the client validator.
+        const invalidRequestId = oversizedRequestId as TRequestId;
+        expect(() => client.renderPagePreview(requireDocumentRef('/tmp/book.djvu'), requirePageNumber(1), {previewRequestId: invalidRequestId}))
             .toThrow('renderPagePreview.options.previewRequestId exceeds maximum length (128)');
-        expect(() => client.cancelPagePreview(oversizedRequestId))
+        expect(() => DJVU_PLATFORM_FEATURE.methods.cancelPagePreview.ipc.args.decode([oversizedRequestId]))
             .toThrow('cancelPagePreview.requestId exceeds maximum length (128)');
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
     it('drops malformed DjVu events before callbacks', async () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const on = vi.fn();
+        on.mockImplementation((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
+            listeners.set(channel, handler);
+        });
+        const ipcRenderer = {
             invoke: vi.fn(),
-            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
-                listeners.set(channel, handler);
-                return cast<IpcRenderer>(ipcRenderer);
-            }),
+            on,
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             DJVU_PLATFORM_FEATURE,
         );
         const progressCallback = vi.fn();
@@ -167,18 +181,19 @@ describe('DjVu platform feature', () => {
             results: [],
             truncated: false,
         });
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke,
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             DJVU_PLATFORM_FEATURE,
         );
 
-        await expect(client.searchText('/tmp/book.djvu', 'needle', {
-            requestId: 'djvu-search-1',
+        await expect(client.searchText(requireDocumentRef('/tmp/book.djvu'), 'needle', {
+            requestId: requireRequestId('djvu-search-1'),
             pageCount: 431,
             wholeWord: true,
         })).resolves.toEqual({
@@ -198,12 +213,14 @@ describe('DjVu platform feature', () => {
                 useRegex: false,
             },
         );
-        expect(() => client.searchText('/tmp/book.djvu', 'needle', {
-            requestId: 'x'.repeat(129),
+        // This deliberately invalid branded value reaches the client validator.
+        const invalidRequestId = 'x'.repeat(129) as TRequestId;
+        expect(() => client.searchText(requireDocumentRef('/tmp/book.djvu'), 'needle', {
+            requestId: invalidRequestId,
             pageCount: 431,
         })).toThrow('searchText.options.requestId exceeds maximum length (128)');
-        expect(() => client.searchText('/tmp/book.djvu', 'needle', {
-            requestId: 'djvu-search-2',
+        expect(() => client.searchText(requireDocumentRef('/tmp/book.djvu'), 'needle', {
+            requestId: requireRequestId('djvu-search-2'),
             pageCount: 0,
         })).toThrow('searchText.options.pageCount must be a positive safe integer');
     });
@@ -215,17 +232,18 @@ describe('DjVu platform feature', () => {
             error: 'native conversion failed',
             failure: conversionFailure,
         });
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke,
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             DJVU_PLATFORM_FEATURE,
         );
 
-        await expect(client.awaitConvertJob('djvu-convert-1')).resolves.toEqual({
+        await expect(client.awaitConvertJob(requireJobId('djvu-convert-1'))).resolves.toEqual({
             success: false,
             jobId: 'djvu-convert-1',
             error: 'native conversion failed',
@@ -241,7 +259,7 @@ describe('DjVu platform feature', () => {
                 eventId: 'not-an-event-id',
             },
         });
-        await expect(client.awaitConvertJob('djvu-convert-1'))
+        await expect(client.awaitConvertJob(requireJobId('djvu-convert-1')))
             .rejects.toThrow('DjVu conversion result has an invalid failure receipt');
     });
 
@@ -260,17 +278,18 @@ describe('DjVu platform feature', () => {
             },
             updatedAtMs: 1,
         });
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke,
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             DJVU_PLATFORM_FEATURE,
         );
 
-        await expect(client.getJobState('djvu-convert-2')).resolves.toMatchObject({
+        await expect(client.getJobState(requireJobId('djvu-convert-2'))).resolves.toMatchObject({
             status: 'failed',
             failure: conversionFailure,
         });
@@ -292,7 +311,7 @@ describe('DjVu platform feature', () => {
             },
             updatedAtMs: 1,
         });
-        await expect(client.getJobState('djvu-convert-3')).resolves.toMatchObject({
+        await expect(client.getJobState(requireJobId('djvu-convert-3'))).resolves.toMatchObject({
             status: 'canceled',
             expected: {
                 kind: 'expected',

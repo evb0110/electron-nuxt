@@ -1,7 +1,14 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import type { IDjvuOpenResult } from '@contracts/electronApiDjvu';
 import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    createJobId,
+    createRequestId,
+    type TJobId,
+} from '@contracts/shared';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     browserDocumentStore,
     isBrowserDocumentRef,
@@ -59,14 +66,14 @@ async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuO
         releaseBrowserDjvuViewingWorker(djvuPath);
         return {
             success: false,
-            error: error instanceof Error ? error.message : 'DjVu viewing failed',
+            error: error instanceof Error ? getErrorMessage(error) : 'DjVu viewing failed',
         };
     }
 }
 
 export const browserDjvuCapability = {
     startOpenForViewing(djvuPath, requestId) {
-        const jobId = `djvu-open-${requestId}`;
+        const jobId = createJobId('djvu-open');
         return Promise.resolve(browserDurableDjvuJobs.startOpen(
             jobId,
             requestId,
@@ -85,8 +92,8 @@ export const browserDjvuCapability = {
     },
     ...browserDjvuTextSearchCapability,
     startConvertToPdf(djvuPath, outputPath, options) {
-        const requestId = options.requestId ?? crypto.randomUUID();
-        const jobId = options.jobId ?? `djvu-convert-${requestId}`;
+        const requestId = options.requestId ?? createRequestId('djvu-convert');
+        const jobId: TJobId = options.jobId ?? createJobId('djvu-convert');
         return Promise.resolve(browserDurableDjvuJobs.startConvert(
             jobId,
             requestId,
@@ -119,7 +126,10 @@ export const browserDjvuCapability = {
     getPageSourceInfo(djvuPath, pageNumber) {
         return withBrowserDjvuWorker(djvuPath, async (worker) => {
             const pageSizes = await getDjvuWorkerPageSizes(worker);
-            const effectivePageNumber = Math.min(pageNumber, pageSizes.length);
+            const effectivePageNumber = requirePageNumber(
+                Math.min(pageNumber, pageSizes.length),
+                pageSizes.length,
+            );
             const pageSize = pageSizes[effectivePageNumber - 1];
             if (!pageSize) {
                 throw new RangeError(`DjVu page ${pageNumber} is outside 1..${pageSizes.length}`);
@@ -136,10 +146,12 @@ export const browserDjvuCapability = {
     },
     renderPagePreview(djvuPath, pageNumber, _options) {
         return withBrowserDjvuWorker(djvuPath, async (worker) => {
-            const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
+            const pageSizes = await getDjvuWorkerPageSizes(worker);
+            const requestedPageNumber = requirePageNumber(pageNumber, pageSizes.length);
+            const pageSize = pageSizes[requestedPageNumber - 1];
             if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
             assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
-            const pageObject = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
+            const pageObject = await worker.doc.getPage(requestedPageNumber).createPngObjectUrl().run();
             try {
                 const response = await fetch(pageObject.url);
                 if (!response.ok) {

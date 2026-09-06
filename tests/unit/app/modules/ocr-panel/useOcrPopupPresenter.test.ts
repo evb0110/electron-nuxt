@@ -1,6 +1,9 @@
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type { IOcrLanguage } from '@contracts/shared';
+import {requireRequestId} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import {
     afterEach,
     beforeEach,
@@ -150,15 +153,15 @@ type TOcrMock = ReturnType<typeof createOcrMock>;
 function setSearchableResult(
     ocr: TOcrMock,
     requestId: string,
-    pdfPath: TDocumentRef,
+    pdfPath: string,
 ) {
     ocr.results.value = {
         pages: new Map(),
         languages: [...ocr.settings.value.selectedLanguages],
-        completedAt: 1,
+        completedAt: requireEpochMs(1),
         searchablePdfResult: {
-            requestId,
-            pdfPath,
+            requestId: requireRequestId(requestId),
+            pdfPath: requireDocumentRef(pdfPath),
             sourceDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token'),
             requiresCleanupAck: true,
         },
@@ -171,8 +174,8 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     const isOpen = ref(false);
     const currentPage = ref(3);
     const totalPages = ref(12);
-    const workingCopyPath = ref<TDocumentRef | null>('/tmp/source.pdf');
-    const pdfDocument = shallowRef<IPdfDocument | null>({} as IPdfDocument);
+    const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.pdf'));
+    const pdfDocument = shallowRef<PDFDocumentProxy | null>({} as PDFDocumentProxy);
     const disabled = ref(false);
     const externalError = ref<string | null | undefined>(null);
     const onRunningChange = vi.fn();
@@ -317,7 +320,7 @@ describe('useOcrPopupPresenter', () => {
             });
             expect(harness.presenter.showSuccessState.value).toBe(false);
             expect(harness.presenter.viewState.value).toBe('applying');
-            harness.pdfDocument.value = {} as IPdfDocument;
+            harness.pdfDocument.value = {} as PDFDocumentProxy;
             await nextTick();
             expect(harness.presenter.showSuccessState.value).toBe(true);
             expect(harness.presenter.viewState.value).toBe('results');
@@ -370,7 +373,7 @@ describe('useOcrPopupPresenter', () => {
             };
             await nextTick();
 
-            harness.workingCopyPath.value = '/tmp/other.pdf';
+            harness.workingCopyPath.value = requireDocumentRef('/tmp/other.pdf');
             await nextTick();
             setSearchableResult(harness.ocr, 'req-stale', '/tmp/stale.pdf');
             await nextTick();
@@ -389,7 +392,7 @@ describe('useOcrPopupPresenter', () => {
             await nextTick();
             expect(harness.events.onOcrComplete).toHaveBeenCalledTimes(1);
 
-            harness.pdfDocument.value = {} as IPdfDocument;
+            harness.pdfDocument.value = {} as PDFDocumentProxy;
             await nextTick();
 
             expect(harness.presenter.viewState.value).toBe('results');

@@ -9,6 +9,7 @@ import type {
 } from '@i18n-app';
 import EN_MESSAGE_SCHEMA from '@i18n-app/messages/en';
 import { flattenObject } from 'es-toolkit/object';
+import { ref } from 'vue';
 
 const EN_TRANSLATION_KEYS = new Set(
     Object.entries(flattenObject(EN_MESSAGE_SCHEMA))
@@ -31,6 +32,7 @@ const translate: TTranslateFn = (key, ...args) => {
 };
 
 const i18nComposer = {
+    locale: ref<TLocale>('en'),
     t: translate,
     setLocale: async (_locale: TLocale) => {},
     loadLocaleMessages: async (_locale: TLocale) => {},

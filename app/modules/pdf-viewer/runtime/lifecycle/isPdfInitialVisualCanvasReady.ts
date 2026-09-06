@@ -1,6 +1,8 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 export const isPdfInitialVisualCanvasReady = (
     container: HTMLElement | null,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     currentPage: number,
 ): boolean => {
     if (!container || pageNumber !== currentPage) {

@@ -12,6 +12,8 @@ import {
 } from 'vue';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireRequestId } from '@contracts/shared';
 import {requireDocumentRevisionToken} from '@contracts';
 import { cast } from '@tests/helpers/cast';
 
@@ -21,6 +23,7 @@ const mocks = vi.hoisted(() => ({
     acknowledgeResultFile: vi.fn(),
     warmIndex: vi.fn(),
     toastAdd: vi.fn(),
+    onDocumentRevisionChanged: vi.fn(() => () => {}),
 }));
 
 vi.mock(
@@ -30,6 +33,7 @@ vi.mock(
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({
     replaceWorkingCopyFromPath: mocks.replaceWorkingCopyFromPath,
     getDocumentRevision: mocks.getDocumentRevision,
+    onDocumentRevisionChanged: mocks.onDocumentRevisionChanged,
 })}));
 vi.mock('@app/utils/getOcrCapability', () => ({getOcrCapability: () => ({acknowledgeResultFile: mocks.acknowledgeResultFile})}));
 vi.mock('@app/utils/getSearchCapability', () => ({getSearchCapability: () => ({warmIndex: mocks.warmIndex})}));
@@ -89,11 +93,11 @@ function createLifecycle(overrides: Record<string, unknown> = {}) {
 
 function ocrPayload(requiresCleanupAck = true) {
     return {
-        requestId: 'ocr-1',
-        pdfPath: '/tmp/ocr-1-merged.pdf',
+        requestId: requireRequestId('ocr-1'),
+        pdfPath: requireDocumentRef('/tmp/ocr-1-merged.pdf'),
         sourceDocumentRevisionToken: requireDocumentRevisionToken('source-revision-token'),
         requiresCleanupAck,
-        sourceWorkingCopyPath: '/tmp/work.pdf',
+        sourceWorkingCopyPath: requireDocumentRef('/tmp/work.pdf'),
     };
 }
 
@@ -213,7 +217,7 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
     it('acknowledges and rejects OCR apply after the document revision advances', async () => {
         mocks.replaceWorkingCopyFromPath.mockRejectedValueOnce(
             createStaleRevisionError({
-                documentRef: '/tmp/work.pdf',
+                documentRef: requireDocumentRef('/tmp/work.pdf'),
                 expectedRevision: requireDocumentRevisionToken('source-revision-token'),
                 actualRevision: requireDocumentRevisionToken('revision-after-edit'),
             }),

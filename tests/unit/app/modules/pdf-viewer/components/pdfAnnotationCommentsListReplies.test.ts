@@ -9,6 +9,7 @@ import {
 } from 'vitest';
 import { nextTick } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import {requireEpochMs} from '@contracts/timestamps';
 import {
     mountAnnotationCommentsList,
     unmountAnnotationCommentsLists,
@@ -25,7 +26,7 @@ function createForeignNote(): IAnnotationCommentSummary {
         annotationId: '12 0 R',
         author: 'Document author',
         color: '#f59e0b',
-        createdAt: 1_700_000_000_000,
+        createdAt: requireEpochMs(1_700_000_000_000),
         hasNote: true,
         id: '12R0',
         markerRect: {
@@ -34,16 +35,16 @@ function createForeignNote(): IAnnotationCommentSummary {
             width: 0.04,
             height: 0.04,
         },
-        modifiedAt: 1_700_000_000_001,
+        modifiedAt: requireEpochMs(1_700_000_000_001),
         pageIndex: 0,
         pageNumber: 1,
         replies: [
             {
                 author: 'Reviewer',
                 contents: 'Please check the cited paragraph.',
-                createdAt: 1_700_000_000_002,
+                createdAt: requireEpochMs(1_700_000_000_002),
                 generationNumber: 0,
-                modifiedAt: 1_700_000_000_002,
+                modifiedAt: requireEpochMs(1_700_000_000_002),
                 objectNumber: 13,
             },
             {

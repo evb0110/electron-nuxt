@@ -45,6 +45,7 @@ import {
     createMissingRevisionError,
     createStaleRevisionError,
 } from '@contracts/documentMutationErrors';
+import { parseDocumentRef } from '@contracts/documentRef';
 
 async function ensureFileHandleReadPermission(handle: FileSystemFileHandle) {
     interface IFileSystemHandlePermissionDescriptor {mode: 'read';}
@@ -172,7 +173,7 @@ export class BrowserDocumentRecordStore {
 
             const entry = await this.ensureEntry(record.ref);
             if (entry) {
-                return record.ref;
+                return entry.ref;
             }
         }
         return null;
@@ -343,12 +344,16 @@ export class BrowserDocumentRecordStore {
 
     public async getDocumentRevision(ref: string): Promise<IDocumentRevisionInfo> {
         const entry = await this.requireEntry(ref);
+        const documentRef = parseDocumentRef(ref);
+        if (documentRef === null) {
+            throw new TypeError('Browser document reference is invalid');
+        }
         if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
             const sourceEntry = await this.requireEntry(entry.sourceRef);
             if (sourceEntry.saveHandle && (sourceEntry.sourceWitness || sourceEntry.storageMode === 'handle')) {
                 await this.refreshHandleBackedEntry(sourceEntry);
             }
-            return createBrowserDocumentRevisionInfo(sourceEntry, ref);
+            return createBrowserDocumentRevisionInfo(sourceEntry, documentRef);
         }
 
         if (entry.saveHandle && (entry.sourceWitness || entry.storageMode === 'handle')) {
@@ -363,16 +368,20 @@ export class BrowserDocumentRecordStore {
         expectedRevision: TDocumentRevisionToken | null | undefined,
     ) {
         const entry = await this.requireEntry(ref);
+        const documentRef = parseDocumentRef(ref);
+        if (documentRef === null) {
+            throw new TypeError('Browser document reference is invalid');
+        }
         if (!expectedRevision) {
             if (entry.kind === 'working') {
-                throw createMissingRevisionError({documentRef: ref});
+                throw createMissingRevisionError({documentRef});
             }
             return;
         }
         const actualRevision = await this.getDocumentRevision(ref);
         if (actualRevision.token !== expectedRevision) {
             throw createStaleRevisionError({
-                documentRef: ref,
+                documentRef,
                 expectedRevision,
                 actualRevision: actualRevision.token,
             });
@@ -583,7 +592,6 @@ export class BrowserDocumentRecordStore {
                 return readBrowserDocumentChunkedEntryBytes(entry);
             }
             case 'inline':
-            default:
                 return cloneBytes(entry.data);
         }
     }
@@ -629,7 +637,6 @@ export class BrowserDocumentRecordStore {
                 return readBrowserDocumentChunkedEntryRange(entry, start, rangeLength, end);
             }
             case 'inline':
-            default:
                 return entry.data.slice(start, end);
         }
     }

@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {IPdfNativePlacedImageGeometryUpdate} from '@contracts/electronApiDocuments';
 import {
@@ -25,8 +26,8 @@ type TSaveTransactionResult = Awaited<ReturnType<NonNullable<TSaveFixtureDeps['r
 
 /** The user opened a different file while a save was still running. */
 function replaceOpenDocument(deps: TSaveFixtureDeps) {
-    deps.originalPath.value = '/tmp/other-source.pdf';
-    deps.workingCopyPath.value = '/tmp/other-work.pdf';
+    deps.originalPath.value = requireDocumentRef('/tmp/other-source.pdf');
+    deps.workingCopyPath.value = requireDocumentRef('/tmp/other-work.pdf');
     deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-other');
 }
 
@@ -55,15 +56,18 @@ describe('workspace save failure surfacing', () => {
             height: 0.4,
             rotationDegrees: 0,
         }];
-        const trySavePdfNativeMutations: TPdfNativeMutationSave = vi.fn(async () => ({
+        const trySavePdfNativeMutations: TPdfNativeMutationSave = vi.fn(async (
+            _mutations: Parameters<TPdfNativeMutationSave>[0],
+            _options: Parameters<TPdfNativeMutationSave>[1],
+        ) => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
         const { deps } = createDeps({
-            originalPath: ref('/tmp/source.pdf'),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             annotationDirty: ref(true),
             hasAnnotationChanges: vi.fn(() => true),
             trySavePdfNativeMutations,
@@ -331,7 +335,7 @@ describe('workspace save failure surfacing', () => {
         await service.handleSave();
         expect(service.hasSaveFailure.value).toBe(true);
 
-        deps.originalPath.value = '/tmp/another.pdf';
+        deps.originalPath.value = requireDocumentRef('/tmp/another.pdf');
 
         // The next document must not inherit a red dot it never earned.
         expect(service.hasSaveFailure.value).toBe(false);

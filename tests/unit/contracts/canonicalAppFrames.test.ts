@@ -80,6 +80,18 @@ describe('canonical application frame normalization', () => {
         ]);
     });
 
+    it('normalizes packaged renderer frames only from the application origin', () => {
+        const result = normalizeCanonicalApplicationFrames(`at canary (evb-viewer://app/_nuxt/viewer-abc.js:17:9)
+    at injected (evb-viewer://extension/_nuxt/injected.js:2:3)`);
+
+        expect(result.frames).toEqual([{
+            module: '_nuxt/viewer-abc.js',
+            function: 'canary',
+            line: 17,
+            column: 9,
+        }]);
+    });
+
     it('normalizes the production web host, the current preview host, and Nitro task bundles', () => {
         vi.stubGlobal('location', {hostname: 'evb-viewer-preview-abc.vercel.app'});
         const result = normalizeCanonicalApplicationFrames(`Error: hosted failure
@@ -168,6 +180,14 @@ describe('canonical application frame normalization', () => {
 
         expect(result.frames).toEqual([]);
         expect(result.debugMeta.images).toEqual([]);
+    });
+
+    it('drops development-only Vitest runner frames', () => {
+        const result = normalizeCanonicalApplicationFrames(
+            'at runWithCancel (node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)',
+        );
+
+        expect(result.frames).toEqual([]);
     });
 
     it('rejects non-canonical frames, wrappers, and extra fields at the record boundary', () => {

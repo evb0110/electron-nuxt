@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import { spawn } from 'node:child_process';
 import {
     mkdirSync,
@@ -16,6 +17,10 @@ const buildLogPath = path.join(projectRoot, '.tmp', 'build.log');
 const STRICT_BUILD_NODE_OPTIONS = '--max-old-space-size=6144';
 const strictBuildNuxtArtifactsDir = path.join(projectRoot, '.devkit', 'cache', 'strict-build');
 
+/** @typedef {import('node:child_process').SpawnOptions & {preserveExistingBuildLog?: boolean}} IBuildSpawnOptions */
+/** @typedef {Error & {output: string, preserveExistingBuildLog?: boolean}} IBuildError */
+
+/** @param {string[]} args @param {NodeJS.Platform} [platform] */
 export function getPnpmInvocation(args, platform = process.platform) {
     if (platform === 'win32') {
         return {
@@ -36,6 +41,7 @@ export function getPnpmInvocation(args, platform = process.platform) {
     };
 }
 
+/** @param {NodeJS.ProcessEnv} [env] @returns {NodeJS.ProcessEnv} */
 export function getStrictBuildEnv(env = process.env) {
     const nodeOptions = env.NODE_OPTIONS?.trim();
     const hasHeapLimit = nodeOptions
@@ -57,6 +63,7 @@ export function getStrictBuildEnv(env = process.env) {
     };
 }
 
+/** @param {string[]} [argv] @param {NodeJS.ProcessEnv} [env] @returns {string} */
 export function getStrictBuildScriptName(argv = process.argv.slice(2), env = process.env) {
     return argv.includes('--skip-wasm-check') || env.EVB_STRICT_BUILD_SKIP_WASM_CHECK === '1'
         ? 'build:desktop:no-wasm-check'
@@ -65,16 +72,19 @@ export function getStrictBuildScriptName(argv = process.argv.slice(2), env = pro
 
 const COLLAPSED_WARNING_PATTERNS = [/\b(?:WARN|\[warn\])\s+\[plugin @tailwindcss\/vite:generate:build\] Sourcemap is likely to be incorrect: a plugin \(@tailwindcss\/vite:generate:build\) was used to transform files, but didn't generate a sourcemap for the transformation\. Consult the plugin documentation for help(?: \(x\d+\))?$/u];
 
+/** @param {string} line @returns {boolean} */
 function isCollapsedWarning(line) {
     return COLLAPSED_WARNING_PATTERNS.some(pattern => pattern.test(line.trim()));
 }
 
+/** @param {(chunk: string) => void} write */
 function createLineFilter(write) {
     let buffered = '';
     let collapsedWarningCount = 0;
     let lastCollapsedWarning = false;
     let pendingBlankLines = '';
 
+    /** @param {string} line */
     const flushLine = (line) => {
         if (line.trim().length === 0) {
             pendingBlankLines += line;
@@ -97,6 +107,7 @@ function createLineFilter(write) {
     };
 
     return {
+        /** @param {string} chunk */
         push(chunk) {
             buffered += chunk;
             const lines = buffered.split(/\r?\n/u);
@@ -121,6 +132,7 @@ function createLineFilter(write) {
     };
 }
 
+/** @param {string} command @param {string[]} args @param {IBuildSpawnOptions} options @returns {Promise<string>} */
 function run(command, args, options = {}) {
     const {
         preserveExistingBuildLog = false,
@@ -143,17 +155,21 @@ function run(command, args, options = {}) {
         const stdoutFilter = createLineFilter(line => process.stdout.write(line));
         const stderrFilter = createLineFilter(line => process.stderr.write(line));
 
-        child.stdout.setEncoding('utf8');
-        child.stderr.setEncoding('utf8');
+        child.stdout?.setEncoding('utf8');
+        child.stderr?.setEncoding('utf8');
 
-        child.stdout.on('data', (chunk) => {
+        /** @param {string} chunk */
+        const handleStdout = chunk => {
             output += chunk;
             stdoutFilter.push(chunk);
-        });
-        child.stderr.on('data', (chunk) => {
+        };
+        /** @param {string} chunk */
+        const handleStderr = chunk => {
             output += chunk;
             stderrFilter.push(chunk);
-        });
+        };
+        child.stdout?.on('data', handleStdout);
+        child.stderr?.on('data', handleStderr);
 
         child.on('error', reject);
         child.on('close', (code, signal) => {
@@ -169,11 +185,11 @@ function run(command, args, options = {}) {
                 return;
             }
 
-            const error = new Error(
+            const error = /** @type {IBuildError} */ (new Error(
                 signal
                     ? `${command} ${args.join(' ')} exited after signal ${signal}`
                     : `${command} ${args.join(' ')} exited with status ${code ?? 1}`,
-            );
+            ));
             error.output = output;
             error.preserveExistingBuildLog = preserveExistingBuildLog;
             reject(error);
@@ -181,17 +197,22 @@ function run(command, args, options = {}) {
     });
 }
 
-export function shouldWriteErrorOutputToBuildLog(error) {
-    return Boolean(
-        error
-        && typeof error === 'object'
+/** @param {unknown} error @returns {error is IBuildError} */
+function isBuildError(error) {
+    return typeof error === 'object'
+        && error !== null
         && 'output' in error
-        && typeof error.output === 'string'
-        && error.output.length > 0
-        && !error.preserveExistingBuildLog,
-    );
+        && typeof error.output === 'string';
 }
 
+/** @param {unknown} error @returns {boolean} */
+export function shouldWriteErrorOutputToBuildLog(error) {
+    return isBuildError(error)
+        && error.output.length > 0
+        && !error.preserveExistingBuildLog;
+}
+
+/** @returns {Promise<void>} */
 async function main() {
     mkdirSync(path.dirname(buildLogPath), { recursive: true });
     const buildInvocation = getPnpmInvocation([
@@ -211,13 +232,14 @@ async function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    /** @param {unknown} error */
     main().catch((error) => {
         if (shouldWriteErrorOutputToBuildLog(error)) {
             mkdirSync(path.dirname(buildLogPath), { recursive: true });
             writeFileSync(buildLogPath, error.output);
         }
 
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getCliErrorMessage(error));
         process.exit(1);
     });
 }

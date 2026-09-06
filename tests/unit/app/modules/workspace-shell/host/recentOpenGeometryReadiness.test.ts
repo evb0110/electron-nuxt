@@ -11,25 +11,27 @@ import {
     settleRecentOpenGeometryPrewarm,
     readRecentOpenExactGeometry,
 } from '@app/modules/workspace-shell/host/recentOpenGeometryReadiness';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { rememberValidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 
 describe('recentOpenGeometryReadiness', () => {
     it('keeps cold or missing optional geometry command-actionable', () => {
-        beginRecentOpenGeometryPrewarm(['/documents/pending.pdf']);
+        beginRecentOpenGeometryPrewarm([requireDocumentRef('/documents/pending.pdf')]);
 
-        expect(readRecentOpenGeometryState('/documents/pending.pdf')).toBe('pending');
-        expect(isRecentOpenGeometryActionable('/documents/pending.pdf')).toBe(false);
-        expect(isRecentOpenGeometryExactFrameReady('/documents/pending.pdf')).toBe(false);
-        expect(readRecentOpenGeometryState('/documents/untracked.pdf')).toBe('cold-fallback');
-        expect(isRecentOpenGeometryActionable('/documents/untracked.pdf')).toBe(true);
-        expect(isRecentOpenGeometryExactFrameReady('/documents/untracked.pdf')).toBe(false);
+        expect(readRecentOpenGeometryState(requireDocumentRef('/documents/pending.pdf'))).toBe('pending');
+        expect(isRecentOpenGeometryActionable(requireDocumentRef('/documents/pending.pdf'))).toBe(false);
+        expect(isRecentOpenGeometryExactFrameReady(requireDocumentRef('/documents/pending.pdf'))).toBe(false);
+        expect(readRecentOpenGeometryState(requireDocumentRef('/documents/untracked.pdf'))).toBe('cold-fallback');
+        expect(isRecentOpenGeometryActionable(requireDocumentRef('/documents/untracked.pdf'))).toBe(true);
+        expect(isRecentOpenGeometryExactFrameReady(requireDocumentRef('/documents/untracked.pdf'))).toBe(false);
     });
 
     it.each([
         'ready',
         'cold-fallback',
     ] as const)('only makes exact geometry actionable after settling as %s', (state) => {
-        const path = `/documents/${state}.pdf`;
+        const path = requireDocumentRef(`/documents/${state}.pdf`);
         beginRecentOpenGeometryPrewarm([path]);
 
         if (state === 'ready') {
@@ -37,7 +39,7 @@ describe('recentOpenGeometryReadiness', () => {
                 documentId: path,
                 size: 10,
                 modifiedAt: 20,
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 pageCount: 2,
                 width: 600,
                 height: 800,
@@ -67,7 +69,7 @@ describe('recentOpenGeometryReadiness', () => {
     });
 
     it('refuses ready state when the exact geometry cache has no matching entry', () => {
-        const path = '/documents/drifted.pdf';
+        const path = requireDocumentRef('/documents/drifted.pdf');
         beginRecentOpenGeometryPrewarm([path]);
 
         settleRecentOpenGeometryPrewarm(path, 'ready');
@@ -77,12 +79,12 @@ describe('recentOpenGeometryReadiness', () => {
     });
 
     it('discards a prepared frame when its authoritative fingerprint is replaced', () => {
-        const path = '/documents/replaced.pdf';
+        const path = requireDocumentRef('/documents/replaced.pdf');
         rememberValidatedTrustedPdfOpenGeometry({
             documentId: path,
             size: 10,
             modifiedAt: 20,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 2,
             width: 600,
             height: 800,
@@ -96,7 +98,7 @@ describe('recentOpenGeometryReadiness', () => {
             documentId: path,
             size: 11,
             modifiedAt: 21,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 2,
             width: 700,
             height: 900,

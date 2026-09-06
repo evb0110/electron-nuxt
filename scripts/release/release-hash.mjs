@@ -1,6 +1,7 @@
 import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 
+/** @param {string} filePath @returns {Promise<string>} */
 export async function hashFile(filePath) {
     const hash = createHash('sha256');
     for await (const chunk of createReadStream(filePath)) {

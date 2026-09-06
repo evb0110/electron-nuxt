@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { createServer } from 'node:http';
 import type { ChildProcess } from 'node:child_process';
 import {
@@ -317,7 +318,7 @@ function installStartupSignalCleanup() {
         console.log(`\n[Session] Received ${signal} during startup, cleaning up...`);
         cleanupPromise = cleanupSessionStartingAttempt()
             .catch((error) => {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = getErrorMessage(error);
                 console.error(`[Session] Startup cleanup failed: ${message}`);
             })
             .then(() => {
@@ -391,7 +392,7 @@ function createSessionCommandServer(onShutdownRequest: () => void) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
                     success: false,
-                    error: error instanceof Error ? error.message : String(error),
+                    error: getErrorMessage(error),
                 }));
             }
         });
@@ -529,7 +530,7 @@ export async function startControlledSession(forceClean = false, options: IStart
             if (isShuttingDown) {
                 return;
             }
-            console.log(`\n[Electron] Process exited (code: ${code}, signal: ${signal})`);
+            console.log(`\n[Electron] Process exited (code: ${code ?? '<unknown>'}, signal: ${signal ?? '<unknown>'})`);
             console.log('[Session] Electron died - shutting down session...');
             void cleanupAndExit(1);
         });

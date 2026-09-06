@@ -3,11 +3,11 @@ import {
     stat,
     unlink,
 } from 'fs/promises';
-import { limitAsync } from 'es-toolkit/array';
+import { limitAsync } from 'es-toolkit/promise';
 import { clamp } from 'es-toolkit/math';
 import { dirname } from 'node:path';
-import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
-import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
+import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
+import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -86,6 +86,10 @@ const canceledProcessIds = new Set<string>();
 const logger = createLogger('djvu-convert');
 const DJVU_CONVERSION_CANCELED_MESSAGE = 'DjVu conversion canceled';
 
+function getDjvuQuotaFailureMessage(quotaMonitor: {failure: {message: string} | null}) {
+    return quotaMonitor.failure?.message;
+}
+
 interface IDjvuPageRangeChunk {
     index: number;
     startPage: number;
@@ -137,7 +141,7 @@ async function _convertDjvuToPdfWithRanges(
     }));
     const chunkPaths = chunks.map(chunk => chunk.outputPath);
     let completedPageCount = 0;
-    let firstError: string | null = null;
+    let firstError = null as string | null;
     const quotaMonitor = await createDjvuDiskQuotaMonitor({
         paths: [
             artifactJob.directory,
@@ -155,11 +159,10 @@ async function _convertDjvuToPdfWithRanges(
             success: false,
             outputPath,
             fileSize: 0,
-            error: quotaMonitor.message,
+            error: getErrorMessage(quotaMonitor),
         };
     }
     const conversionSignal = quotaMonitor.signal;
-
     try {
         const convertChunkWithLimit = limitAsync(async (chunk: IDjvuPageRangeChunk) => {
             throwIfAborted(conversionSignal);
@@ -206,7 +209,7 @@ async function _convertDjvuToPdfWithRanges(
             ).finally(() => brokerLease.release());
 
             if (!pageResult.success) {
-                const pageError = quotaMonitor.failure?.message
+                const pageError = getDjvuQuotaFailureMessage(quotaMonitor)
                     ?? pageResult.error
                     ?? `Failed to convert pages ${chunk.startPage}-${chunk.endPage}`;
                 await cleanupPartialOutput(chunk.outputPath);
@@ -298,9 +301,8 @@ async function _convertDjvuToPdfWithRanges(
                 success: false,
                 outputPath,
                 fileSize: 0,
-                error: quotaMonitor.failure?.message
-                    ?? mergeResult.error
-                    ?? 'Failed to merge converted DjVu PDF chunks',
+                error: getDjvuQuotaFailureMessage(quotaMonitor)
+                    ?? mergeResult.error,
             };
         }
 
@@ -323,7 +325,7 @@ async function _convertDjvuToPdfWithRanges(
                 success: false,
                 outputPath,
                 fileSize: 0,
-                error: quotaMonitor.failure?.message
+                error: getDjvuQuotaFailureMessage(quotaMonitor)
                     ?? `Output file not found after parallel conversion: ${getErrorMessage(err)}`,
             };
         }
@@ -351,7 +353,7 @@ async function _convertDjvuToPdfSingleProcess(
             success: false,
             outputPath,
             fileSize: 0,
-            error: quotaMonitor.message,
+            error: getErrorMessage(quotaMonitor),
         };
     }
 
@@ -413,7 +415,7 @@ async function _convertDjvuToPdfSingleProcess(
                 success: false,
                 outputPath,
                 fileSize: 0,
-                error: quotaMonitor.failure?.message ?? result.error,
+                error: getDjvuQuotaFailureMessage(quotaMonitor) ?? result.error,
             };
         }
 
@@ -430,7 +432,7 @@ async function _convertDjvuToPdfSingleProcess(
             success: false,
             outputPath,
             fileSize: 0,
-            error: quotaMonitor.failure?.message
+            error: getDjvuQuotaFailureMessage(quotaMonitor)
                 ?? `DjVu conversion failed: ${getErrorMessage(err)}`,
         };
     } finally {
@@ -457,7 +459,7 @@ export async function convertDjvuToPdfFile(
         }
 
         logger.warn(
-            `[${jobId}] Parallel DjVu range conversion failed, falling back to single process: ${parallelResult.error}`,
+            `[${jobId}] Parallel DjVu range conversion failed, falling back to single process: ${parallelResult.error ?? 'unknown error'}`,
         );
         await cleanupPartialOutput(outputPath);
     }
@@ -502,7 +504,7 @@ async function convertPageRangeToPdf(
     if (!result.success) {
         return {
             success: false,
-            error: result.error ?? `Failed to convert pages ${pages}`,
+            error: result.error,
         };
     }
 
@@ -548,7 +550,7 @@ async function mergePdfChunks(
 
     throw createDjvuNativeCapabilityError(
         'native-failure',
-        `DjVu PDF chunk merge failed: ${qpdfResult.error ?? 'qpdf failed without a diagnostic'}`,
+        `DjVu PDF chunk merge failed: ${qpdfResult.error}`,
         qpdfResult.cause,
     );
 }

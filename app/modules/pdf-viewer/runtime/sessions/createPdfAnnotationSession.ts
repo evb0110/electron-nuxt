@@ -25,6 +25,12 @@ import type {
 import type {TPdfSource} from '@app/types/pdfUi';
 import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    pageNumberToPageIndex,
+    requirePageNumber,
+    type TPageNumber,
+} from '@contracts/pageNumbers';
+import { parseDocumentRef } from '@contracts/documentRef';
 import type {
     IPdfDocumentTransition,
     TPdfDocumentSession,
@@ -66,6 +72,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationSessionHelpers';
 import { createPdfAnnotationStampImageResolver } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver';
 import { createPdfAnnotationOwnershipRefreshWatch } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationOwnershipRefreshWatch';
+import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 import { resolvePdfAnnotationSelectionGeometry } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry';
 import { deriveSelectedTextForParsedHighlights } from '@app/modules/pdf-viewer/runtime/sessions/deriveSelectedTextForParsedHighlights';
 import { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
@@ -120,91 +127,6 @@ interface IAnnotationSnapshotDocumentIdentityInput {
     originalPath: string | null;
     workingCopyPath: string | null;
     source: TPdfSource | null;
-}
-
-function buildRangeFromPageText(
-    pageContainer: HTMLElement,
-    options: {
-        text: string;
-        occurrence?: number;
-        caseSensitive?: boolean;
-        wholeWord?: boolean
-    },
-) {
-    const spans = Array.from(pageContainer.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span'))
-        .filter(span => !span.parentElement?.closest('span'));
-    const positions: Array<{
-        node: Text;
-        offset: number
-    }> = [];
-    let text = '';
-    spans.forEach((span, spanIndex) => {
-        if (spanIndex > 0 && text && !text.endsWith(' ')) {
-            text += ' ';
-            positions.push({
-                node: span.firstChild as Text,
-                offset: 0,
-            });
-        }
-        const node = span.firstChild;
-        if (!(node instanceof Text)) {
-            return;
-        }
-        Array.from(node.data).forEach((character, offset) => {
-            if (/\s/u.test(character)) {
-                if (!text.endsWith(' ')) {
-                    text += ' ';
-                    positions.push({
-                        node,
-                        offset,
-                    });
-                }
-                return;
-            }
-            text += character;
-            positions.push({
-                node,
-                offset,
-            });
-        });
-    });
-    while (text.endsWith(' ')) {
-        text = text.slice(0, -1);
-        positions.pop();
-    }
-    const query = options.text.trim().replace(/\s+/gu, ' ');
-    const haystack = options.caseSensitive === true ? text : text.toLocaleLowerCase();
-    const needle = options.caseSensitive === true ? query : query.toLocaleLowerCase();
-    let cursor = 0;
-    let found = 0;
-    while (cursor <= haystack.length) {
-        const startOffset = haystack.indexOf(needle, cursor);
-        if (startOffset < 0) {
-            return null;
-        }
-        const endOffset = startOffset + needle.length;
-        const before = haystack[startOffset - 1] ?? '';
-        const after = haystack[endOffset] ?? '';
-        if (!options.wholeWord || (!/[\p{L}\p{N}_]/u.test(before) && !/[\p{L}\p{N}_]/u.test(after))) {
-            found += 1;
-            if (found === Math.max(1, Math.trunc(options.occurrence ?? 1))) {
-                const start = positions[startOffset];
-                const end = positions[endOffset - 1];
-                if (!start || !end) {
-                    return null;
-                }
-                const range = document.createRange();
-                range.setStart(start.node, start.offset);
-                range.setEnd(end.node, end.offset + 1);
-                return {
-                    range,
-                    matchedText: text.slice(startOffset, endOffset),
-                };
-            }
-        }
-        cursor = startOffset + Math.max(1, needle.length);
-    }
-    return null;
 }
 
 // Pathless sources are keyed by Blob instance because their metadata can collide.
@@ -523,7 +445,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     }
     const failCommentAtPoint = createAnnotationCreationFailureReporter(options.reportAnnotationFailure);
     async function commentAtPoint(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         pageX: number,
         pageY: number,
         _pointOptions: {preferTextAnchor?: boolean} = {},
@@ -540,7 +462,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             return failCommentAtPoint('viewer-not-ready', pageNumber);
         }
         const created = annotationEditorSurface.createNoteAt(
-            Math.max(0, Math.trunc(pageNumber) - 1),
+            pageNumberToPageIndex(pageNumber),
             position,
             {open: true},
         );
@@ -580,9 +502,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         target: ICreateTextMarkupFromTextOptions,
     ): Promise<ICreateTextMarkupFromTextResult> {
         await Promise.resolve();
-        const pageNumber = Number.isFinite(target.pageNumber)
+        const requestedPageNumber = Number.isFinite(target.pageNumber)
             ? Math.max(1, Math.trunc(target.pageNumber))
             : viewport.currentPage.value;
+        const pageNumber = requirePageNumber(
+            requestedPageNumber,
+            documentSession.numPages.value > 0 ? documentSession.numPages.value : undefined,
+        );
         const requestedText = target.text.trim();
         const occurrence = typeof target.occurrence === 'number' && Number.isFinite(target.occurrence)
             ? Math.max(1, Math.trunc(target.occurrence))
@@ -659,7 +585,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             clientY,
             hasSelection: Boolean(selectionRange),
             selectionText: selectionRange?.toString() ?? '',
-            pageNumber: target?.pageNumber ?? null,
+            pageNumber: target?.pageNumber === undefined
+                ? null
+                : requirePageNumber(target.pageNumber),
             pageX: target?.pageX ?? null,
             pageY: target?.pageY ?? null,
         };
@@ -737,7 +665,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 annotationEditorSurface.select([id]);
             }
             setActiveSummary(comment);
-            viewport.singlePageScroll.scrollToPage(comment.pageNumber, {markerRect: comment.markerRect});
+            viewport.singlePageScroll.scrollToPage(
+                requirePageNumber(comment.pageNumber),
+                {markerRect: comment.markerRect},
+            );
             await nextTick();
         },
         updateAnnotationComment: (comment: IAnnotationCommentSummary, text: string) => {
@@ -951,7 +882,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     async function feedStoreFromWriterParse(
         transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
     ) {
-        const parsePath = options.workingCopyPath.value ?? options.originalPath.value ?? (options.src.value instanceof Blob ? null : options.src.value?.path ?? null);
+        const parsePath = parseDocumentRef(options.workingCopyPath.value)
+            ?? parseDocumentRef(options.originalPath.value)
+            ?? (options.src.value instanceof Blob ? null : parseDocumentRef(options.src.value?.path ?? null));
         const expectedRevisionToken = options.documentRevisionToken.value
             ?? (parsePath
                 ? await getDocumentFilesCapability().getDocumentRevision(parsePath)

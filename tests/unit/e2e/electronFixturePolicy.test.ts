@@ -23,7 +23,7 @@ import { join } from 'node:path';
 import { statSync } from 'node:fs';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
-import { resolveE2EGlobalSetupSessionName } from '@tests/e2e/electron/resolveE2EGlobalSetupSessionName';
+import { getE2ESharedRendererSessionName } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import {
     electronUserDataPath,
     sessionDir,
@@ -591,7 +591,7 @@ describe('Electron E2E deterministic isolation policy', () => {
 
     it('keeps shared renderer and requested default sessions run-scoped with separate profiles', () => {
         const env = {[E2E_RUN_ID_ENV]: 'coexistence'};
-        const sharedRendererSession = resolveE2EGlobalSetupSessionName(env);
+        const sharedRendererSession = getE2ESharedRendererSessionName(env);
         const testSession = createE2ERunScopedSessionName('default', env);
 
         expect(sharedRendererSession).toBe('e2e-coexistence-shared-renderer');

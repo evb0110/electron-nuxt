@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     ComputedRef,
     Ref,
@@ -9,6 +10,7 @@ import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocu
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import type { IEditorPaneState } from '@contracts/editorPanes';
+import { parseTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type {
@@ -58,7 +60,7 @@ function serializeTransitionError(error: unknown) {
     if (error instanceof Error) {
         return {
             name: error.name,
-            message: error.message,
+            message: getErrorMessage(error),
             stack: error.stack,
         };
     }
@@ -209,7 +211,7 @@ export const useAppShellTabLifecycle = (
     }
 
     function getDocumentSession(tabId: string | null | undefined) {
-        return tabId ? documentSessionsByTabId?.value[tabId] ?? null : null;
+        return tabId ? documentSessionsByTabId.value[tabId] ?? null : null;
     }
 
     function recordHasCloseableDocument(tabId: string | null | undefined) {
@@ -228,7 +230,8 @@ export const useAppShellTabLifecycle = (
         }
 
         const pane = getPaneById(paneId);
-        if (!pane || pane.tabIds.length !== 1 || !pane.tabIds.includes(tabId)) {
+        const parsedTabId = parseTabId(tabId);
+        if (!pane || parsedTabId === null || pane.tabIds.length !== 1 || !pane.tabIds.includes(parsedTabId)) {
             return false;
         }
 
@@ -299,7 +302,11 @@ export const useAppShellTabLifecycle = (
     }
 
     function pickSamePaneCloseReplacement(sourcePane: IEditorPaneState, tabId: string) {
-        const closingTabIndex = sourcePane.tabIds.indexOf(tabId);
+        const parsedTabId = parseTabId(tabId);
+        if (parsedTabId === null) {
+            return null;
+        }
+        const closingTabIndex = sourcePane.tabIds.indexOf(parsedTabId);
         if (closingTabIndex === -1) {
             return null;
         }
@@ -307,7 +314,7 @@ export const useAppShellTabLifecycle = (
         return pickBestTabCandidate([
             sourcePane.tabIds[closingTabIndex + 1],
             sourcePane.tabIds[closingTabIndex - 1],
-            ...sourcePane.tabIds.filter(candidate => candidate !== tabId),
+            ...sourcePane.tabIds.filter(candidate => candidate !== parsedTabId),
         ]);
     }
 
@@ -412,7 +419,8 @@ export const useAppShellTabLifecycle = (
         const targetTab = getTabById(closeHandoffTarget.tabId);
         const targetPane = getPaneById(closeHandoffTarget.paneId)
             ?? getPaneByTabId(closeHandoffTarget.tabId);
-        if (!targetTab || !targetPane || !targetPane.tabIds.includes(targetTab.id)) {
+        const targetTabId = parseTabId(targetTab?.id);
+        if (!targetTab || targetTabId === null || !targetPane || !targetPane.tabIds.includes(targetTabId)) {
             return;
         }
 
@@ -474,7 +482,9 @@ export const useAppShellTabLifecycle = (
         try {
             closed = controller
                 ? await controller.close({persist: shouldPersistBeforeClose})
-                : await workspace!.handleCloseFileFromUi({persist: shouldPersistBeforeClose});
+                : workspace
+                    ? await workspace.handleCloseFileFromUi({persist: shouldPersistBeforeClose})
+                    : false;
         } finally {
             workspaceRestoreTracker.finish(tabId);
         }

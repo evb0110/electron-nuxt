@@ -6,6 +6,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 const mocks = vi.hoisted(() => {
     const copyFile = vi.fn(async () => undefined);
@@ -81,11 +83,11 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: vi.fn(),
 })}));
 
-const { embedBookmarksIntoPdfFile } = await import('@electron/djvu/embedBookmarksIntoPdfFile');
+const { embedBookmarksIntoPdfFile } = await import('@electron/features/djvu/main/embedBookmarksIntoPdfFile');
 
-const bookmarks = [{
+const bookmarks: IPdfBookmarkEntry[] = [{
     title: 'Chapter 1',
-    pageIndex: 0,
+    pageIndex: requirePageIndex(0),
     namedDest: null,
     bold: false,
     italic: false,

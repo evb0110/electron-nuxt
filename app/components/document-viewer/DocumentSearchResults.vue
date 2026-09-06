@@ -164,7 +164,7 @@ const emit = defineEmits<{goToResult: [index: number];}>();
 
 const trimmedQuery = computed(() => searchQuery.trim());
 const minQueryLength = computed(() => minQueryLengthProp ?? 0);
-const isTruncated = computed(() => isTruncatedProp ?? false);
+const isTruncated = computed(() => isTruncatedProp);
 const expandedPages = ref<Set<number>>(new Set());
 const knownGroupPages = ref<Set<number>>(new Set());
 const previousSearchQuery = ref('');

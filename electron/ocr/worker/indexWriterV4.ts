@@ -26,6 +26,7 @@ import type {
 } from '@contracts/documentRevision';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {isOcrWord} from '@contracts/shared';
+import {createIsoTimestamp} from '@contracts/timestamps';
 import type {
     IPageIdentityDelta,
     IPageIdentityRangeInsert,
@@ -362,7 +363,6 @@ function validateIndexRecord(record: IOcrShardIndexRecord, shard: number, pageCo
         || !Number.isSafeInteger(record.mappedCount)
         || record.mappedCount < 0
         || record.mappedCount > shardPageCount
-        || record.reserved !== 0
         || (record.generation === 0 && record.mappedCount !== 0)
     ) {
         throw new OcrCatalogCorruptError(`invalid shard-index record ${shard}`);
@@ -862,7 +862,7 @@ async function writePage(
     return {
         path: relativePath,
         generation,
-        createdAt: new Date().toISOString(),
+        createdAt: createIsoTimestamp(),
     };
 }
 async function writeShard(
@@ -1282,7 +1282,7 @@ function validatePageIdentityRanges(
             checkedRangeEnd(range.toPageNumber, range.count, nextPageCount, 'destination');
         } else if (range.kind === 'delete') {
             checkedRangeEnd(range.fromPageNumber, range.count, previousPageCount, 'deleted source');
-        } else if (range.kind === 'insert' || range.kind === 'touch') {
+        } else {
             checkedRangeEnd(range.toPageNumber, range.count, nextPageCount, 'destination');
         }
     }
@@ -1571,7 +1571,7 @@ async function remapOcrCatalogV4Unlocked(
             pageCount,
             shardSize: OCR_SHARD_SIZE,
             generation,
-            publishedAt: new Date().toISOString(),
+            publishedAt: createIsoTimestamp(),
         };
         const generationManifest: IOcrGenerationV4 = {
             version: OCR_CATALOG_VERSION,
@@ -1584,7 +1584,7 @@ async function remapOcrCatalogV4Unlocked(
             shardSize: OCR_SHARD_SIZE,
             shardCount,
             mappedPageCount,
-            createdAt: new Date().toISOString(),
+            createdAt: createIsoTimestamp(),
             dirtyShards: [...dirtyShards].sort((left, right) => left - right),
             liveRefs: asLiveRefs(liveRefs),
             releasedGenerations: [...releasedGenerations].sort((left, right) => left - right),
@@ -1989,7 +1989,7 @@ function generationManifestFromState(state: IGenerationBuildState): IOcrGenerati
         shardSize: OCR_SHARD_SIZE,
         shardCount: expectedShardCount(state.pageCount),
         mappedPageCount: state.mappedPageCount,
-        createdAt: new Date().toISOString(),
+        createdAt: createIsoTimestamp(),
         dirtyShards: [...state.dirtyShards].sort((left, right) => left - right),
         liveRefs: asLiveRefs(state.liveRefs),
         releasedGenerations: [...state.releasedGenerations].sort((left, right) => left - right),
@@ -2005,7 +2005,7 @@ function rootManifestFromState(state: IGenerationBuildState, catalogId: string):
         pageCount: state.pageCount,
         shardSize: OCR_SHARD_SIZE,
         generation: state.generation,
-        publishedAt: new Date().toISOString(),
+        publishedAt: createIsoTimestamp(),
     };
 }
 async function publishBuildState(
@@ -2100,7 +2100,7 @@ async function migrateOcrIndexV3ToV4Unlocked(
             shardSize: OCR_SHARD_SIZE,
             shardCount,
             mappedPageCount,
-            createdAt: new Date().toISOString(),
+            createdAt: createIsoTimestamp(),
             dirtyShards: [...dirtyRecords.keys()].sort((left, right) => left - right),
             liveRefs: {
                 [String(generation)]: dirtyRecords.size,
@@ -2117,7 +2117,7 @@ async function migrateOcrIndexV3ToV4Unlocked(
             pageCount,
             shardSize: OCR_SHARD_SIZE,
             generation,
-            publishedAt: new Date().toISOString(),
+            publishedAt: createIsoTimestamp(),
         };
         const revisionFence = revisionContext(
             revision,
@@ -2141,7 +2141,7 @@ async function migrateOcrIndexV3ToV4Unlocked(
             parent: null,
             pageCount,
             mappedPageCount: generationManifest.mappedPageCount,
-            dirtyShards: generationManifest.dirtyShards,
+            dirtyShards: [...generationManifest.dirtyShards],
             published: true,
             migrated: true,
         };
@@ -2377,7 +2377,7 @@ export async function prepareOcrCatalogV4Generation(
         pageCount: writeResult.pageCount,
         resultPath: resolve(options.resultPath),
         resultIdentity: options.resultIdentity ?? resolve(options.resultPath),
-        createdAt: new Date().toISOString(),
+        createdAt: createIsoTimestamp(),
     };
     try {
         await writeAtomic(descriptorPath, JSON.stringify(descriptor));
@@ -2461,7 +2461,7 @@ async function publishPreparedOcrCatalogV4Unlocked(
         pageCount: descriptor.pageCount,
         shardSize: OCR_SHARD_SIZE,
         generation,
-        publishedAt: new Date().toISOString(),
+        publishedAt: createIsoTimestamp(),
     };
     const generationManifest: IOcrGenerationV4 = {
         ...staged.generation,
@@ -2469,7 +2469,7 @@ async function publishPreparedOcrCatalogV4Unlocked(
         parent: actualSourceGeneration,
         source,
         documentRevision: {token: nextRevision},
-        createdAt: new Date().toISOString(),
+        createdAt: createIsoTimestamp(),
         dirtyShards: [],
         liveRefs: {
             ...staged.generation.liveRefs,

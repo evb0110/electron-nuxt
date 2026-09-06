@@ -48,6 +48,13 @@ const BUNDLE_SOURCE_ROOTS = new Set([
     'vendor',
 ]);
 
+const NON_APPLICATION_BUNDLE_PREFIXES = [
+    'node_modules/.pnpm/@vitest+',
+    'node_modules/.pnpm/vitest@',
+    'node_modules/@vitest/',
+    'node_modules/vitest/',
+] as const;
+
 const TRUSTED_ORIGIN_HOSTS = new Set([
     '127.0.0.1',
     '0.0.0.0',
@@ -138,7 +145,7 @@ function isTrustedOriginHost(hostname: string) {
         return true;
     }
     try {
-        return globalThis.location?.hostname?.toLowerCase() === normalized;
+        return globalThis.location.hostname.toLowerCase() === normalized;
     } catch {
         return false;
     }
@@ -157,12 +164,13 @@ function extractPath(value: string): ExtractedPath | null {
         return null;
     }
 
-    if (/^(?:https?|file|webpack|vite):/iu.test(raw)) {
+    if (/^(?:evb-viewer|https?|file|webpack|vite):/iu.test(raw)) {
         try {
             const url = new URL(raw);
             const protocol = url.protocol.toLowerCase();
             const trustedOrigin = protocol === 'file:'
                 || (protocol === 'http:' || protocol === 'https:') && isTrustedOriginHost(url.hostname)
+                || protocol === 'evb-viewer:' && url.hostname === 'app'
                 || (protocol === 'webpack:' || protocol === 'vite:')
                     && (url.hostname.length === 0 || url.hostname === '.' || url.hostname === 'evb-viewer');
             if (!trustedOrigin) {
@@ -281,6 +289,9 @@ function canonicalizePath(value: unknown): string | null {
     }
 
     const normalized = canonicalSegments.join('/');
+    if (NON_APPLICATION_BUNDLE_PREFIXES.some(prefix => normalized.startsWith(prefix))) {
+        return null;
+    }
     return normalized.length > 0 && normalized.length <= MAX_CANONICAL_FRAME_MODULE_LENGTH
         ? normalized
         : null;
@@ -412,7 +423,8 @@ function parseObjectFrame(value: Record<string, unknown>): ParsedStackFrame | nu
             'url',
         ]
             .filter(key => Object.hasOwn(value, key));
-        if (sourceKeys.length !== 1) {
+        const [sourceKey] = sourceKeys;
+        if (sourceKey === undefined || sourceKeys.length > 1) {
             return null;
         }
         const functionKeys = [
@@ -430,11 +442,14 @@ function parseObjectFrame(value: Record<string, unknown>): ParsedStackFrame | nu
         if (functionKeys.length > 1 || lineKeys.length > 1 || columnKeys.length > 1) {
             return null;
         }
+        const [functionKey] = functionKeys;
+        const [lineKey] = lineKeys;
+        const [columnKey] = columnKeys;
         return {
-            source: value[sourceKeys[0]!],
-            ...(functionKeys.length === 0 ? {} : {functionName: value[functionKeys[0]!] }),
-            ...(lineKeys.length === 0 ? {} : {line: value[lineKeys[0]!] }),
-            ...(columnKeys.length === 0 ? {} : {column: value[columnKeys[0]!] }),
+            source: value[sourceKey],
+            ...(functionKey === undefined ? {} : {functionName: value[functionKey]}),
+            ...(lineKey === undefined ? {} : {line: value[lineKey]}),
+            ...(columnKey === undefined ? {} : {column: value[columnKey]}),
         };
     } catch {
         return null;

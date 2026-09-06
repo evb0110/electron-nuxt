@@ -11,17 +11,19 @@ import {
     asAnnotationId,
     type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 function note(): INoteEntity {
     return {
         kind: 'note',
         identity: {id: asAnnotationId('note-1')},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: 'Tester',
         contents: 'hello',
         position: {
@@ -62,7 +64,7 @@ describe('AnnotationApplication', () => {
         const entity = toCanonicalShapeEntity({
             id: 'shape-1',
             annotationId: null,
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             type: 'line',
             x: 0.1,
             y: 0.2,

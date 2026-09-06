@@ -97,7 +97,8 @@ export class LocalAnnotationHistoryAuthority implements IAnnotationHistoryAuthor
             return false;
         }
         this.#replay(command.undo);
-        this.#redo.push(this.#undo.pop()!);
+        this.#undo.pop();
+        this.#redo.push(command);
         return true;
     }
     redo() {
@@ -106,7 +107,8 @@ export class LocalAnnotationHistoryAuthority implements IAnnotationHistoryAuthor
             return false;
         }
         this.#replay(command.cmd);
-        this.#undo.push(this.#redo.pop()!);
+        this.#redo.pop();
+        this.#undo.push(command);
         return true;
     }
     #replay(apply: IPdfAppAnnotationHistoryCommand['cmd']) {

@@ -36,6 +36,15 @@ import {
     requireDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import {
+    parseDocumentRef,
+    requireDocumentRef,
+} from '@contracts/documentRef';
+import {
+    parseSessionId,
+    requireSessionId,
+} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
+import {
     appendOptionalDocumentArg as appendOptional,
     decodeOptionalDocumentObject as decodeOptionalObject,
     decodePdfRevisionOptions as decodeRevisionOptions,
@@ -97,16 +106,27 @@ function decodeTimestamp(value: unknown, fieldName: string) {
     if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
         fail(`${fieldName} must be a safe integer timestamp or null`);
     }
-    return value;
+    return requireEpochMs(value);
+}
+
+function decodeDocumentRef(value: unknown, fieldName: string) {
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        fail(`${fieldName} must be an absolute document reference`);
+    }
+    return parsed;
+}
+
+function decodeSessionId(value: unknown, fieldName: string) {
+    const parsed = parseSessionId(value);
+    if (parsed === null) {
+        fail(`${fieldName} must be a non-empty session ID`);
+    }
+    return parsed;
 }
 
 function decodeMarkerRect(value: unknown, fieldName: string) {
-    const decoded = decodeRequiredObject<{
-        left?: unknown;
-        top?: unknown;
-        width?: unknown;
-        height?: unknown;
-    }>(value, fieldName);
+    const decoded = decodeRequiredObject(value, fieldName);
     rejectUnknownFields(decoded, fieldName, [
         'left',
         'top',
@@ -194,14 +214,7 @@ function decodeTextBox(value: Record<string, unknown>): IPdfAnnotationTextBoxEnt
 }
 
 function decodeReply(value: unknown, index: number): IPdfAnnotationNoteReply {
-    const decoded = decodeRequiredObject<{
-        objectNumber?: unknown;
-        generationNumber?: unknown;
-        contents?: unknown;
-        author?: unknown;
-        createdAt?: unknown;
-        modifiedAt?: unknown;
-    }>(value, `annotation parse note.replies[${index}]`);
+    const decoded = decodeRequiredObject(value, `annotation parse note.replies[${index}]`);
     rejectUnknownFields(decoded, `annotation parse note.replies[${index}]`, [
         'objectNumber',
         'generationNumber',
@@ -305,12 +318,7 @@ function decodeStamp(value: Record<string, unknown>): IPdfAnnotationStampEntry {
         'image',
     ]);
     const identity = decodeIdentity(value, 'annotation parse stamp');
-    const image = decodeRequiredObject<{
-        objectNumber?: unknown;
-        generationNumber?: unknown;
-        byteLength?: unknown;
-        sha256?: unknown;
-    }>(value.image, 'annotation parse stamp.image');
+    const image = decodeRequiredObject(value.image, 'annotation parse stamp.image');
     rejectUnknownFields(image, 'annotation parse stamp.image', [
         'objectNumber',
         'generationNumber',
@@ -416,10 +424,7 @@ function decodePointsFromValue(value: unknown, fieldName: string): IPdfAnnotatio
         fail(`${fieldName} is too large`);
     }
     return value.map((point, index) => {
-        const decoded = decodeRequiredObject<{
-            x?: unknown;
-            y?: unknown
-        }>(point, `${fieldName}[${index}]`);
+        const decoded = decodeRequiredObject(point, `${fieldName}[${index}]`);
         rejectUnknownFields(decoded, `${fieldName}[${index}]`, [
             'x',
             'y',
@@ -461,7 +466,7 @@ function decodeForeign(value: Record<string, unknown>): IPdfAnnotationForeignEnt
 }
 
 export function decodePdfAnnotationParseEntry(value: unknown): IPdfAnnotationParseEntry {
-    const decoded = decodeRequiredObject<Record<string, unknown>>(value, 'annotation parse entry');
+    const decoded = decodeRequiredObject(value, 'annotation parse entry');
     switch (decoded.kind) {
         case 'text-box': return decodeTextBox(decoded);
         case 'note': return decodeNote(decoded);
@@ -483,14 +488,7 @@ export interface IPdfAnnotationParseProtocolFixture {
 }
 
 export function decodePdfAnnotationParseProtocolFixture(value: unknown): IPdfAnnotationParseProtocolFixture {
-    const decoded = decodeRequiredObject<{
-        format?: unknown;
-        schemaVersion?: unknown;
-        pageCount?: unknown;
-        chunkBytes?: unknown;
-        chunkIndex?: unknown;
-        entries?: unknown;
-    }>(value, 'annotation parse protocol fixture');
+    const decoded = decodeRequiredObject(value, 'annotation parse protocol fixture');
     rejectUnknownFields(decoded, 'annotation parse protocol fixture', [
         'format',
         'schemaVersion',
@@ -520,12 +518,7 @@ export function decodePdfAnnotationParseProtocolFixture(value: unknown): IPdfAnn
 }
 
 export function decodePdfAnnotationParseResult(value: unknown): IPdfAnnotationParseResult {
-    const decoded = decodeRequiredObject<{
-        documentRevisionToken?: unknown;
-        pageCount?: unknown;
-        entities?: unknown;
-        foreign?: unknown;
-    }>(value, 'annotation parse result');
+    const decoded = decodeRequiredObject(value, 'annotation parse result');
     rejectUnknownFields(decoded, 'annotation parse result', [
         'documentRevisionToken',
         'pageCount',
@@ -575,7 +568,7 @@ function decodeParseOptions(value: unknown): IPdfAnnotationParseOptions {
 }
 
 function decodeChunkOptions(value: unknown): IPdfAnnotationParseChunkOptions | undefined {
-    const decoded = decodeOptionalObject<{chunkBytes?: unknown}>(value, 'options');
+    const decoded = decodeOptionalObject(value, 'options');
     if (decoded === undefined) {
         return undefined;
     }
@@ -593,12 +586,12 @@ const beginPdfAnnotationParseArgs = documentArgs<'beginPdfAnnotationParse'>(
     value => {
         const args = decodeArgumentArray(value, 2);
         return [
-            decodeStringValue(args[0], 'path'),
+            decodeDocumentRef(args[0], 'path'),
             decodeParseOptions(args[1]),
         ];
     },
     () => [
-        '/tmp/document.pdf',
+        requireDocumentRef('/tmp/document.pdf'),
         fixtureRevisionOptions,
     ],
 );
@@ -606,34 +599,34 @@ const readPdfAnnotationParseChunkArgs = documentArgs<'readPdfAnnotationParseChun
     value => {
         const args = decodeArgumentArray(value, 2, 3);
         return appendOptional([
-            decodeStringValue(args[0], 'sessionId'),
+            decodeSessionId(args[0], 'sessionId'),
             decodeSafeIntegerValue(args[1], 'offset'),
         ], decodeChunkOptions(args[2])) as TDocumentMethodArgs<'readPdfAnnotationParseChunk'>;
     },
     () => [
-        'annotation-parse-1',
+        requireSessionId('annotation-parse-1'),
         0,
     ],
 );
 const releasePdfAnnotationParseArgs = documentArgs<'releasePdfAnnotationParse'>(
-    value => [decodeStringValue(decodeArgumentArray(value, 1)[0], 'sessionId')],
-    () => ['annotation-parse-1'],
+    value => [decodeSessionId(decodeArgumentArray(value, 1)[0], 'sessionId')],
+    () => [requireSessionId('annotation-parse-1')],
 );
 const cancelPdfAnnotationParseArgs = documentArgs<'cancelPdfAnnotationParse'>(
-    value => [decodeStringValue(decodeArgumentArray(value, 1)[0], 'sessionId')],
-    () => ['annotation-parse-1'],
+    value => [decodeSessionId(decodeArgumentArray(value, 1)[0], 'sessionId')],
+    () => [requireSessionId('annotation-parse-1')],
 );
 
 const parsePdfAnnotationsArgs = documentArgs<'parsePdfAnnotations'>(
     value => {
         const args = decodeArgumentArray(value, 2);
         return [
-            decodeStringValue(args[0], 'path'),
+            decodeDocumentRef(args[0], 'path'),
             decodeParseOptions(args[1]),
         ];
     },
     () => [
-        '/tmp/document.pdf',
+        requireDocumentRef('/tmp/document.pdf'),
         fixtureRevisionOptions,
     ],
 );
@@ -650,29 +643,16 @@ const pdfAnnotationParseResult = documentResult<'parsePdfAnnotations'>(
 
 const pdfAnnotationParseSessionResult = documentResult<'beginPdfAnnotationParse'>(
     value => {
-        const decoded = decodeRequiredObject<{
-            sessionId?: unknown;
-            documentRef?: unknown;
-            documentRevisionToken?: unknown;
-            pageCount?: unknown;
-            entryCount?: unknown;
-            totalBytes?: unknown;
-        }>(value, 'annotation parse session');
-        if (
-            typeof decoded.sessionId !== 'string'
-            || decoded.sessionId.length === 0
-            || typeof decoded.documentRef !== 'string'
-            || decoded.documentRef.length === 0
-        ) {
-            fail('invalid annotation parse session identifiers');
-        }
+        const decoded = decodeRequiredObject(value, 'annotation parse session');
+        const sessionId = decodeSessionId(decoded.sessionId, 'annotation parse session.sessionId');
+        const documentRef = decodeDocumentRef(decoded.documentRef, 'annotation parse session.documentRef');
         const documentRevisionToken = typeof decoded.documentRevisionToken === 'string'
             ? parseDocumentRevisionToken(decoded.documentRevisionToken)
             : null;
         if (documentRevisionToken === null) fail('annotation parse documentRevisionToken is invalid');
         return {
-            sessionId: decoded.sessionId,
-            documentRef: decoded.documentRef,
+            sessionId,
+            documentRef,
             documentRevisionToken,
             pageCount: decodeSafeIntegerValue(decoded.pageCount, 'annotation parse pageCount'),
             entryCount: decodeSafeIntegerValue(decoded.entryCount, 'annotation parse entryCount'),
@@ -680,8 +660,8 @@ const pdfAnnotationParseSessionResult = documentResult<'beginPdfAnnotationParse'
         } satisfies IPdfAnnotationParseSession;
     },
     () => ({
-        sessionId: 'annotation-parse-1',
-        documentRef: '/tmp/document.pdf',
+        sessionId: requireSessionId('annotation-parse-1'),
+        documentRef: requireDocumentRef('/tmp/document.pdf'),
         documentRevisionToken: fixtureRevisionToken,
         pageCount: 1,
         entryCount: 1,
@@ -690,13 +670,7 @@ const pdfAnnotationParseSessionResult = documentResult<'beginPdfAnnotationParse'
 );
 const pdfAnnotationParseChunkResult = documentResult<'readPdfAnnotationParseChunk'>(
     value => {
-        const decoded = decodeRequiredObject<{
-            offset?: unknown;
-            nextOffset?: unknown;
-            byteLength?: unknown;
-            done?: unknown;
-            entries?: unknown;
-        }>(value, 'annotation parse chunk');
+        const decoded = decodeRequiredObject(value, 'annotation parse chunk');
         const nextOffset = decoded.nextOffset === undefined || decoded.nextOffset === null
             ? null
             : decodeSafeIntegerValue(decoded.nextOffset, 'annotation parse chunk nextOffset');

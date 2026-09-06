@@ -14,6 +14,7 @@ import {
     nextTick,
     ref,
 } from 'vue';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {useScanCleanupSourceSha256} from '@app/modules/scan-cleanup/composables/useScanCleanupSourceSha256';
 
 const files = vi.hoisted(() => ({
@@ -39,7 +40,7 @@ describe('scan cleanup source SHA-256 bridge', () => {
 
     it('uses the main-owned managed-file hash and releases its lease', async () => {
         const enabled = ref(true);
-        const sourcePath = ref('/working/book.pdf');
+        const sourcePath = ref(requireDocumentRef('/working/book.pdf'));
         const documentRevision = ref('revision-1');
         let sourceSha256: ReturnType<typeof useScanCleanupSourceSha256> | null = null;
         const host = document.createElement('div');
@@ -63,7 +64,7 @@ describe('scan cleanup source SHA-256 bridge', () => {
 
     it('retains the acquired hash while the source surface is disabled and re-enabled', async () => {
         const enabled = ref(true);
-        const sourcePath = ref('/working/book.pdf');
+        const sourcePath = ref(requireDocumentRef('/working/book.pdf'));
         const documentRevision = ref('revision-1');
         let sourceSha256: ReturnType<typeof useScanCleanupSourceSha256> | null = null;
         const host = document.createElement('div');

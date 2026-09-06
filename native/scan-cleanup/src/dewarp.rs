@@ -346,17 +346,6 @@ where
     rasterize_inverse_area_impl(source, width, height, output_to_source)
 }
 
-pub fn rasterize_inverse_area_rgb(
-    source: &RgbImage,
-    model: &DewarpModel,
-    width: usize,
-    height: usize,
-) -> RgbImage {
-    rasterize_inverse_area_rgb_with(source, width, height, |point| {
-        model.map_unit_to_source(point.x / width as f64, point.y / height as f64)
-    })
-}
-
 pub fn rasterize_inverse_area_rgb_with<F>(
     source: &RgbImage,
     width: usize,

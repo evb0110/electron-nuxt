@@ -10,11 +10,14 @@ import {
     shallowRef,
 } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requireSessionId } from '@contracts/shared';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import type { ITab } from '@app/types/tabs';
 import {
     requireDocumentInstanceId,
@@ -40,8 +43,8 @@ function createPayload(): TSplitPayload {
     return {
         kind: 'pdfSnapshot',
         fileName: 'sample.pdf',
-        originalPath: '/tmp/sample.pdf',
-        snapshotPath: '/tmp/snapshot.pdf',
+        originalPath: requireDocumentRef('/tmp/sample.pdf'),
+        snapshotPath: requireDocumentRef('/tmp/snapshot.pdf'),
         isDirty: true,
     };
 }
@@ -55,10 +58,10 @@ describe('useWindowTabTransfers', () => {
     it('cleans prepared payloads when platform transfer throws', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const payload = createPayload();
-        const tab = {
+        const tab: ITab = {
             id: 'tab-1',
             fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
+            originalPath: requireDocumentRef('/tmp/sample.pdf'),
             isDirty: true,
             isDjvu: false,
         };
@@ -67,7 +70,7 @@ describe('useWindowTabTransfers', () => {
             activeTabId: 'tab-1',
             tabIds: ['tab-1'],
         };
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: true,
             captureSplitPayload: vi.fn(async () => payload),
             handleCloseFileFromUi: vi.fn(async () => true),
@@ -119,10 +122,10 @@ describe('useWindowTabTransfers', () => {
         vi.useFakeTimers();
         try {
             const payload = createPayload();
-            const tab = {
+            const tab: ITab = {
                 id: 'tab-1',
                 fileName: 'sample.pdf',
-                originalPath: '/tmp/sample.pdf',
+                originalPath: requireDocumentRef('/tmp/sample.pdf'),
                 isDirty: true,
                 isDjvu: false,
             };
@@ -132,7 +135,7 @@ describe('useWindowTabTransfers', () => {
                 tabIds: ['tab-1'],
             };
             const captureDeferred: {resolve?: (payload: TSplitPayload) => void} = {};
-            const workspace = cast<IWorkspaceExpose>({
+            const workspace = createWorkspaceExposeFixture({
                 hasPdf: true,
                 captureSplitPayload: vi.fn(() => new Promise<TSplitPayload>((resolve) => {
                     captureDeferred.resolve = resolve;
@@ -188,10 +191,10 @@ describe('useWindowTabTransfers', () => {
 
     it('includes source session metadata in outgoing transfers', async () => {
         const payload = createPayload();
-        const tab = {
+        const tab: ITab = {
             id: 'tab-1',
             fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
+            originalPath: requireDocumentRef('/tmp/sample.pdf'),
             isDirty: true,
             isDjvu: false,
         };
@@ -200,14 +203,14 @@ describe('useWindowTabTransfers', () => {
             activeTabId: 'tab-1',
             tabIds: ['tab-1'],
         };
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: true,
             captureSplitPayload: vi.fn(async () => payload),
             handleCloseFileFromUi: vi.fn(async () => true),
         });
         const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
-            sessionId: 'session-1',
+            sessionId: requireSessionId('session-1'),
             createDocumentInstanceId: () => requireDocumentInstanceId('instance-1'),
             initialRecord: createWorkspaceDocumentRecord({
                 tab,
@@ -215,8 +218,8 @@ describe('useWindowTabTransfers', () => {
                     version: 1,
                     authority: 'browser-document-store',
                     contentRevision: 4,
-                    documentRef: '/tmp/sample.pdf',
-                    mintedAt: 123,
+                    documentRef: requireDocumentRef('/tmp/sample.pdf'),
+                    mintedAt: requireEpochMs(123),
                     token: requireDocumentRevisionToken('revision-token-1'),
                 },
             }),
@@ -275,10 +278,10 @@ describe('useWindowTabTransfers', () => {
 
     it('does not close the source tab when its document instance changes before transfer acknowledgement', async () => {
         const payload = createPayload();
-        const tab = {
+        const tab: ITab = {
             id: 'tab-1',
             fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
+            originalPath: requireDocumentRef('/tmp/sample.pdf'),
             isDirty: true,
             isDjvu: false,
         };
@@ -287,7 +290,7 @@ describe('useWindowTabTransfers', () => {
             activeTabId: 'tab-1',
             tabIds: ['tab-1'],
         };
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: true,
             captureSplitPayload: vi.fn(async () => payload),
             handleCloseFileFromUi: vi.fn(async () => true),
@@ -297,13 +300,13 @@ describe('useWindowTabTransfers', () => {
             version: 1,
             authority: 'browser-document-store',
             contentRevision: 4,
-            documentRef: '/tmp/sample.pdf',
-            mintedAt: 123,
+            documentRef: requireDocumentRef('/tmp/sample.pdf'),
+            mintedAt: requireEpochMs(123),
             token: requireDocumentRevisionToken('revision-token-1'),
         } as const;
         const session = createWorkspaceDocumentController({
             tabId: 'tab-1',
-            sessionId: 'session-1',
+            sessionId: requireSessionId('session-1'),
             createDocumentInstanceId: () => {
                 nextInstanceId += 1;
                 return requireDocumentInstanceId(`instance-${nextInstanceId}`);
@@ -318,7 +321,7 @@ describe('useWindowTabTransfers', () => {
         mocks.transfer.mockImplementationOnce(async () => {
             const reopen = session.beginTransaction({
                 kind: 'open',
-                documentRef: '/tmp/sample.pdf',
+                documentRef: requireDocumentRef('/tmp/sample.pdf'),
             });
             session.applyWorkspaceRecord(createWorkspaceDocumentRecord({
                 tab,
@@ -377,7 +380,7 @@ describe('useWindowTabTransfers', () => {
         const existingTab: ITab = {
             id: 'tab-existing',
             fileName: 'existing.pdf',
-            originalPath: '/tmp/existing.pdf',
+            originalPath: requireDocumentRef('/tmp/existing.pdf'),
             isDirty: false,
             isDjvu: false,
         };
@@ -388,11 +391,11 @@ describe('useWindowTabTransfers', () => {
         };
         const tabsState = ref<ITab[]>([existingTab]);
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
-        const restoredWorkspace = cast<IWorkspaceExpose>({
+        const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: true,
             restoreSplitPayload: vi.fn(async () => undefined),
         });
-        const existingWorkspace = cast<IWorkspaceExpose>({ hasPdf: true });
+        const existingWorkspace = createWorkspaceExposeFixture({ hasPdf: true });
         workspaceRefs.value.set('tab-existing', existingWorkspace);
         let destinationMounted = false;
         const createTab = vi.fn((options: {
@@ -400,7 +403,7 @@ describe('useWindowTabTransfers', () => {
             activate?: boolean;
         }) => {
             expect(options.activate).toBe(true);
-            const tab = {
+            const tab: ITab = {
                 id: 'tab-created',
                 fileName: null,
                 originalPath: null,
@@ -460,7 +463,7 @@ describe('useWindowTabTransfers', () => {
             targetWindowId: 2,
             tab: {
                 fileName: 'sample.pdf',
-                originalPath: '/tmp/sample.pdf',
+                originalPath: requireDocumentRef('/tmp/sample.pdf'),
                 isDirty: true,
                 isDjvu: false,
             },
@@ -483,7 +486,7 @@ describe('useWindowTabTransfers', () => {
         const existingTab: ITab = {
             id: 'tab-existing',
             fileName: 'existing.pdf',
-            originalPath: '/tmp/existing.pdf',
+            originalPath: requireDocumentRef('/tmp/existing.pdf'),
             isDirty: false,
             isDjvu: false,
         };
@@ -495,11 +498,11 @@ describe('useWindowTabTransfers', () => {
         const tabsState = ref<ITab[]>([existingTab]);
         const workspaceRefs = ref(new Map<string, IWorkspaceExpose>());
         const documentSessionsByTabId = shallowRef<Record<string, ReturnType<typeof createWorkspaceDocumentController>>>({});
-        const restoredWorkspace = cast<IWorkspaceExpose>({
+        const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: true,
             restoreSplitPayload: vi.fn(async () => undefined),
         });
-        workspaceRefs.value.set('tab-existing', cast<IWorkspaceExpose>({ hasPdf: true }));
+        workspaceRefs.value.set('tab-existing', createWorkspaceExposeFixture({ hasPdf: true }));
         let destinationMounted = false;
         const removeTabFromState = vi.fn();
         const createTab = vi.fn(() => {
@@ -520,20 +523,20 @@ describe('useWindowTabTransfers', () => {
             workspaceRefs.value.set(tab.id, restoredWorkspace);
             const targetSession = createWorkspaceDocumentController({
                 tabId: tab.id,
-                sessionId: 'session-target',
+                sessionId: requireSessionId('session-target'),
                 createDocumentInstanceId: () => requireDocumentInstanceId('instance-b'),
                 initialRecord: createWorkspaceDocumentRecord({
                     tab: {
                         ...tab,
                         fileName: 'sample.pdf',
-                        originalPath: '/tmp/sample.pdf',
+                        originalPath: requireDocumentRef('/tmp/sample.pdf'),
                     },
                     documentIdentity: {
                         version: 1,
                         authority: 'browser-document-store',
                         contentRevision: 4,
-                        documentRef: '/tmp/sample.pdf',
-                        mintedAt: 123,
+                        documentRef: requireDocumentRef('/tmp/sample.pdf'),
+                        mintedAt: requireEpochMs(123),
                         token: requireDocumentRevisionToken('revision-token-1'),
                     },
                 }),
@@ -582,16 +585,16 @@ describe('useWindowTabTransfers', () => {
             targetWindowId: 2,
             tab: {
                 fileName: 'sample.pdf',
-                originalPath: '/tmp/sample.pdf',
+                originalPath: requireDocumentRef('/tmp/sample.pdf'),
                 documentInstanceId: requireDocumentInstanceId('instance-a'),
                 isDirty: true,
                 isDjvu: false,
             },
             payload,
             session: {
-                sessionId: 'session-source',
+                sessionId: requireSessionId('session-source'),
                 sessionRevision: 0,
-                documentRef: '/tmp/sample.pdf',
+                documentRef: requireDocumentRef('/tmp/sample.pdf'),
                 documentInstanceId: requireDocumentInstanceId('instance-a'),
                 documentRevisionToken: requireDocumentRevisionToken('revision-token-1'),
             },
@@ -620,7 +623,7 @@ describe('useWindowTabTransfers', () => {
             activeTabId: 'tab-placeholder',
             tabIds: ['tab-placeholder'],
         };
-        const restoredWorkspace = cast<IWorkspaceExpose>({
+        const restoredWorkspace = createWorkspaceExposeFixture({
             hasPdf: true,
             restoreSplitPayload: vi.fn(async () => undefined),
         });
@@ -672,7 +675,7 @@ describe('useWindowTabTransfers', () => {
             targetWindowId: 2,
             tab: {
                 fileName: 'sample.pdf',
-                originalPath: '/tmp/sample.pdf',
+                originalPath: requireDocumentRef('/tmp/sample.pdf'),
                 isDirty: true,
                 isDjvu: false,
             },

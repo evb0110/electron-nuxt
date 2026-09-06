@@ -8,12 +8,13 @@ import {
     asAnnotationId,
     type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 function note(): INoteEntity {
     return {
         kind: 'note',
         identity: {id: asAnnotationId('baseline-note')},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,

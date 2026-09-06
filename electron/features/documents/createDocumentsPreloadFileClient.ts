@@ -16,8 +16,15 @@ import type {
     IPdfOptimizeOptions,
     IPdfPathPrintOptions,
     IPdfSaveAsOptions,
+    IPdfSerializedSaveOptions,
     IPdfSerializedCommitCallbacks,
 } from '@contracts/electronApiDocuments';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    requireLeaseId,
+    requireRequestId,
+    requireSessionId,
+} from '@contracts/shared';
 import {
     decodeOptionalPdfDataPrintOptions,
     decodeOptionalPdfPathPrintOptions,
@@ -286,7 +293,7 @@ function assertPdfNativePagePreviewOptions(
         : undefined;
     const normalized = {
         ...(value.targetWidthPx === undefined ? {} : {targetWidthPx: Math.trunc(value.targetWidthPx)}),
-        ...(previewRequestId === undefined ? {} : {previewRequestId}),
+        ...(previewRequestId === undefined ? {} : {previewRequestId: requireRequestId(previewRequestId)}),
     } satisfies IPdfNativePagePreviewOptions;
 
     return Object.keys(normalized).length > 0 ? normalized : undefined;
@@ -671,16 +678,25 @@ export function createDocumentsPreloadFileClient(
         invokeFiles,
         invokeWorkingCopy,
     });
-    const openDocumentDirect = (path: string, password?: string) => password === undefined
-        ? invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect, path)
-        : invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect, path, password);
+    const openDocumentDirect = (path: string, password?: string) => {
+        const checkedPath = assertAbsolutePath(path, 'openDocumentDirect.path');
+        return password === undefined
+            ? invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect, checkedPath)
+            : invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect, checkedPath, password);
+    };
     const openDocumentDirectBatch = (
         paths: string[],
         requestId?: string,
         options?: {forceCombine?: boolean},
-    ) => options === undefined
-        ? invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirectBatch, paths, requestId)
-        : invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirectBatch, paths, requestId, options);
+    ) => {
+        const checkedPaths = paths.map((path, index) => assertAbsolutePath(path, `openDocumentDirectBatch.paths[${index}]`));
+        const checkedRequestId = requestId === undefined
+            ? undefined
+            : requireRequestId(assertNonEmptyString(requestId, 'openDocumentDirectBatch.requestId', 128));
+        return options === undefined
+            ? invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirectBatch, checkedPaths, checkedRequestId)
+            : invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirectBatch, checkedPaths, checkedRequestId, options);
+    };
     const commitStagedPersistence = async (
         result: ISerializedPdfPersistencePortResult,
         callbacks: IPdfSerializedCommitCallbacks | undefined,
@@ -697,13 +713,13 @@ export function createDocumentsPreloadFileClient(
             await callbacks?.assertBeforeCommit?.();
             return await invoke(
                 DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf,
-                staged.sessionId,
+                requireSessionId(staged.sessionId),
                 staged.stagedOutput,
             );
         } catch (error) {
             await invoke(
                 DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf,
-                staged.sessionId,
+                requireSessionId(staged.sessionId),
                 staged.stagedOutput,
             ).catch(() => false);
             throw error;
@@ -716,15 +732,24 @@ export function createDocumentsPreloadFileClient(
         openDocumentDirect,
         openDocumentDirectBatch,
         cancelOpenDocumentDirectBatch: (requestId: string) =>
-            invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.cancelOpenDocumentDirectBatch, requestId),
+            invokeOpen(
+                DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.cancelOpenDocumentDirectBatch,
+                requireRequestId(assertNonEmptyString(requestId, 'cancelOpenDocumentDirectBatch.requestId', 128)),
+            ),
         savePdfAs: (workingPath, options, revisionOptions) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfAs,
                 assertAbsolutePath(workingPath, 'savePdfAs.workingPath'),
                 assertPdfSaveAsOptions(options, 'savePdfAs.options'),
                 assertPdfSerializedSaveOptions(revisionOptions, 'savePdfAs.revisionOptions'),
-            ),
-        savePdfDataAs: async (workingPath, data, options, serializedSaveOptions, commitCallbacks) => {
+            ).then(result => result === null ? null : assertAbsolutePath(result, 'savePdfAs.result')),
+        savePdfDataAs: async (
+            workingPath,
+            data,
+            options?: IPdfSaveAsOptions,
+            serializedSaveOptions?: IPdfSerializedSaveOptions,
+            commitCallbacks?: IPdfSerializedCommitCallbacks,
+        ) => {
             const checkedWorkingPath = assertAbsolutePath(workingPath, 'savePdfDataAs.workingPath');
             const checkedData = assertPersistenceData(data, 'savePdfDataAs.data');
             const checkedOptions = assertPdfSaveAsOptions(options, 'savePdfDataAs.options');
@@ -760,7 +785,11 @@ export function createDocumentsPreloadFileClient(
                 iterateUint8ArrayChunks(checkedData),
                 checkedData.byteLength,
             );
-            return commitStagedPersistence(stagedResult, checkedCommitCallbacks);
+            const result = await commitStagedPersistence(stagedResult, checkedCommitCallbacks);
+            return {
+                ...result,
+                path: result.path === null ? null : assertAbsolutePath(result.path, 'savePdfDataAs.result.path'),
+            };
         },
         savePdfDialog: (suggestedName) => invokeFiles(
             DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfDialog,
@@ -768,8 +797,8 @@ export function createDocumentsPreloadFileClient(
         ),
         saveDocxAs: (workingPath) => invokeFiles(
             DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveDocxAs,
-            workingPath,
-        ),
+            assertAbsolutePath(workingPath, 'saveDocxAs.workingPath'),
+        ).then(result => result === null ? null : assertAbsolutePath(result, 'saveDocxAs.result')),
         readFile: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFile, path),
         statFile: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile, path),
         readFileRange: (path, offset, length) =>
@@ -782,7 +811,7 @@ export function createDocumentsPreloadFileClient(
         releaseManagedTempFileHandle: (leaseId) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releaseManagedTempFileHandle,
-                assertNonEmptyString(leaseId, 'releaseManagedTempFileHandle.leaseId'),
+                requireLeaseId(assertNonEmptyString(leaseId, 'releaseManagedTempFileHandle.leaseId')),
             ),
         getPdfOpeningGeometry: (path) =>
             invokeFiles(
@@ -797,13 +826,13 @@ export function createDocumentsPreloadFileClient(
         cancelPdfNativePagePreview: (requestId) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfNativePagePreview,
-                assertNonEmptyString(requestId, 'cancelPdfNativePagePreview.requestId'),
+                requireRequestId(assertNonEmptyString(requestId, 'cancelPdfNativePagePreview.requestId')),
             ),
         renderPdfNativePagePreview: (path, pageNumber, options) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.renderPdfNativePagePreview,
                 assertAbsolutePath(path, 'renderPdfNativePagePreview.path'),
-                assertPositiveInteger(pageNumber, 'renderPdfNativePagePreview.pageNumber'),
+                requirePageNumber(assertPositiveInteger(pageNumber, 'renderPdfNativePagePreview.pageNumber')),
                 assertPdfNativePagePreviewOptions(options, 'renderPdfNativePagePreview.options'),
             ),
         beginPdfAnnotationIndex: (path, options) =>
@@ -815,19 +844,19 @@ export function createDocumentsPreloadFileClient(
         readPdfAnnotationIndexChunk: (sessionId, offset, options) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfAnnotationIndexChunk,
-                assertNonEmptyString(sessionId, 'readPdfAnnotationIndexChunk.sessionId'),
+                requireSessionId(assertNonEmptyString(sessionId, 'readPdfAnnotationIndexChunk.sessionId')),
                 assertPdfSidecarChunkOffset(offset, 'readPdfAnnotationIndexChunk.offset'),
                 assertPdfIndexChunkOptions(options, 'readPdfAnnotationIndexChunk.options', PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES),
             ),
         releasePdfAnnotationIndex: (sessionId) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfAnnotationIndex,
-                assertNonEmptyString(sessionId, 'releasePdfAnnotationIndex.sessionId'),
+                requireSessionId(assertNonEmptyString(sessionId, 'releasePdfAnnotationIndex.sessionId')),
             ),
         cancelPdfAnnotationIndex: (sessionId) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfAnnotationIndex,
-                assertNonEmptyString(sessionId, 'cancelPdfAnnotationIndex.sessionId'),
+                requireSessionId(assertNonEmptyString(sessionId, 'cancelPdfAnnotationIndex.sessionId')),
             ),
         beginPdfEmbeddedShapeIndex: (path, options) =>
             invokeFiles(
@@ -838,19 +867,19 @@ export function createDocumentsPreloadFileClient(
         readPdfEmbeddedShapeIndexChunk: (sessionId, offset, options) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfEmbeddedShapeIndexChunk,
-                assertNonEmptyString(sessionId, 'readPdfEmbeddedShapeIndexChunk.sessionId'),
+                requireSessionId(assertNonEmptyString(sessionId, 'readPdfEmbeddedShapeIndexChunk.sessionId')),
                 assertPdfSidecarChunkOffset(offset, 'readPdfEmbeddedShapeIndexChunk.offset'),
                 assertPdfIndexChunkOptions(options, 'readPdfEmbeddedShapeIndexChunk.options', PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES),
             ),
         releasePdfEmbeddedShapeIndex: (sessionId) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.releasePdfEmbeddedShapeIndex,
-                assertNonEmptyString(sessionId, 'releasePdfEmbeddedShapeIndex.sessionId'),
+                requireSessionId(assertNonEmptyString(sessionId, 'releasePdfEmbeddedShapeIndex.sessionId')),
             ),
         cancelPdfEmbeddedShapeIndex: (sessionId) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cancelPdfEmbeddedShapeIndex,
-                assertNonEmptyString(sessionId, 'cancelPdfEmbeddedShapeIndex.sessionId'),
+                requireSessionId(assertNonEmptyString(sessionId, 'cancelPdfEmbeddedShapeIndex.sessionId')),
             ),
         readFileChunks: async (path, options, onChunk) => {
             const checkedPath = assertAbsolutePath(path, 'readFileChunks.path');
@@ -949,7 +978,7 @@ export function createDocumentsPreloadFileClient(
             ),
         cancelPdfPrint: requestId => invokePdf(
             DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.cancelPdfPrint,
-            assertNonEmptyString(requestId, 'cancelPdfPrint.requestId', 128),
+            requireRequestId(assertNonEmptyString(requestId, 'cancelPdfPrint.requestId', 128)),
         ),
         printPdfPath: (path, fileName?: string, options?: IPdfPathPrintOptions) =>
             invokePdf(
@@ -978,19 +1007,41 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'writeDocxFile.path'),
                 assertWriteData(data, 'writeDocxFile.data'),
             ),
-        createWorkingCopyFromData: (fileName, data, originalPath?: string, password?: string) =>
-            invokeWorkingCopy(
-                DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
-                assertWorkingCopyFileName(fileName, 'createWorkingCopyFromData.fileName'),
-                assertWriteData(data, 'createWorkingCopyFromData.data'),
-                ...workingCopyPassword.appendWorkingCopyPassword(assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath'), workingCopyPassword.assertOptionalPdfDecryptPassword(password)),
-            ),
-        createWorkingCopyFromPath: (sourcePath, originalPath?: string, password?: string) =>
-            invokeWorkingCopy(
-                DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
-                assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath'),
-                ...workingCopyPassword.appendWorkingCopyPassword(assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'), workingCopyPassword.assertOptionalPdfDecryptPassword(password)),
-            ),
+        createWorkingCopyFromData: (fileName, data, originalPath?: string, password?: string) => {
+            const checkedFileName = assertWorkingCopyFileName(fileName, 'createWorkingCopyFromData.fileName');
+            const checkedData = assertWriteData(data, 'createWorkingCopyFromData.data');
+            const checkedOriginalPath = assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath');
+            const checkedPassword = workingCopyPassword.assertOptionalPdfDecryptPassword(password);
+            return checkedOriginalPath === undefined && checkedPassword === undefined
+                ? invokeWorkingCopy(
+                    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
+                    checkedFileName,
+                    checkedData,
+                )
+                : invokeWorkingCopy(
+                    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
+                    checkedFileName,
+                    checkedData,
+                    checkedOriginalPath,
+                    checkedPassword,
+                );
+        },
+        createWorkingCopyFromPath: (sourcePath, originalPath?: string, password?: string) => {
+            const checkedSourcePath = assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath');
+            const checkedOriginalPath = assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath');
+            const checkedPassword = workingCopyPassword.assertOptionalPdfDecryptPassword(password);
+            return checkedOriginalPath === undefined && checkedPassword === undefined
+                ? invokeWorkingCopy(
+                    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
+                    checkedSourcePath,
+                )
+                : invokeWorkingCopy(
+                    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
+                    checkedSourcePath,
+                    checkedOriginalPath,
+                    checkedPassword,
+                );
+        },
         saveFileStructured: (path, options) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveFileStructured,
@@ -1020,7 +1071,7 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'optimizePdfAsCopy.path'),
                 assertPdfOptimizeOptions(options, 'optimizePdfAsCopy.options'),
                 typeof requestId === 'string'
-                    ? assertNonEmptyString(requestId, 'optimizePdfAsCopy.requestId', 128)
+                    ? requireRequestId(assertNonEmptyString(requestId, 'optimizePdfAsCopy.requestId', 128))
                     : undefined,
                 revisionOptions === undefined
                     ? undefined

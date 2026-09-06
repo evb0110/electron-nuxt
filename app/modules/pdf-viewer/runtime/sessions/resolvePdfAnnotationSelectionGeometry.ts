@@ -9,6 +9,7 @@ import {
     type IHighlightPageGeometry,
 } from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildHighlightQuadsFromSelection';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import { requirePageNumber } from '@contracts/pageNumbers';
 
 export type TSelectionGeometryResolution =
     | {
@@ -84,7 +85,7 @@ export async function resolvePdfAnnotationSelectionGeometry(
 
         let lease: Awaited<ReturnType<TPdfDocumentSession['leasePage']>> | null = null;
         try {
-            lease = await documentSession.leasePage(candidate.pageNumber);
+            lease = await documentSession.leasePage(requirePageNumber(candidate.pageNumber));
             if (!documentSession.isCurrent(fence)) {
                 return {status: 'stale'};
             }

@@ -2,7 +2,10 @@ import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-sou
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type { TOcrProgressPhase } from '@contracts/electronApiOcr';
-import type { TOcrLanguageCode } from '@contracts/ocrLanguages';
+import {
+    isAvailableOcrLanguageCode,
+    type TOcrLanguageCode,
+} from '@contracts/ocrLanguages';
 import type { IOcrLanguage } from '@contracts/shared';
 import type {
     TLocale,
@@ -35,7 +38,7 @@ import {
 type TOcrViewState = 'configure' | 'running' | 'applying' | 'results' | 'error';
 type TOcrLanguagePickerGroup = 'selected' | 'installed' | 'missing';
 
-const OCR_LANGUAGE_BCP47_OVERRIDES = {
+const OCR_LANGUAGE_BCP47_OVERRIDES: Partial<Record<TOcrLanguageCode, string>> = {
     grc: 'grc',
     kmr: 'kmr',
     nor: 'no',
@@ -92,9 +95,9 @@ export function resolveOcrLanguageDisplayName(
     const fallbackName = code in OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES
         ? OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES[code as TOcrLanguageCode]
         : code;
-    const languageTag = OCR_LANGUAGE_BCP47_OVERRIDES[
-        code as keyof typeof OCR_LANGUAGE_BCP47_OVERRIDES
-    ] ?? code;
+    const languageTag = isAvailableOcrLanguageCode(code)
+        ? OCR_LANGUAGE_BCP47_OVERRIDES[code] ?? code
+        : code;
     try {
         const localizedName = displayNames?.of(languageTag)?.trim();
         if (
@@ -188,7 +191,7 @@ export function buildOcrLanguagePickerItems(
                     item.shortCode,
                     item.label,
                     item.value in OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES
-                        ? OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES[item.value as TOcrLanguageCode]
+                        ? OCR_LANGUAGE_ENGLISH_FALLBACK_NAMES[item.value]
                         : null,
                 ],
                 normalizedQuery,
@@ -352,7 +355,8 @@ export const useOcrPopupPresenter = ({
     ));
     const hasLanguageDownloadFailure = computed(() => failedLanguageCodes.value.size > 0);
     const hasSelectedAvailableLanguage = computed(() =>
-        settings.value.selectedLanguages.some(code => availableLanguageCodes.value.has(code)),
+        settings.value.selectedLanguages.some(code => isAvailableOcrLanguageCode(code)
+            && availableLanguageCodes.value.has(code)),
     );
     const canRunOcr = computed(() =>
         !disabled.value
@@ -406,9 +410,9 @@ export const useOcrPopupPresenter = ({
     const resultStatusText = computed(() => (
         hasResultWarning.value ? t('ocr.partialComplete') : t('ocr.complete')
     ));
-    const selectedLanguagesModel = computed({
-        get: () => settings.value.selectedLanguages,
-        set: (selectedLanguages: string[]) => {
+    const selectedLanguagesModel = computed<TOcrLanguageCode[]>({
+        get: () => settings.value.selectedLanguages.filter(isAvailableOcrLanguageCode),
+        set: (selectedLanguages) => {
             settings.value = {
                 ...settings.value,
                 selectedLanguages: normalizeSelectedOcrLanguages(selectedLanguages),
@@ -510,7 +514,7 @@ export const useOcrPopupPresenter = ({
             `draftReplaceAllAcknowledged=${settings.value.replaceAllAcknowledged}`,
             `activeSupersessionPolicy=${activeRunSettings.value?.supersessionPolicy ?? '-'}`,
             `completedSupersessionPolicy=${lastCompletedRunSettings.value?.supersessionPolicy ?? '-'}`,
-            `uiError=${effectiveError.value}`,
+            `uiError=${effectiveError.value ?? ''}`,
             '',
             '--- debug:log stream ---',
             ...(debugLogs.length > 0
@@ -546,6 +550,9 @@ export const useOcrPopupPresenter = ({
             language.modelState,
         ]));
         return settings.value.selectedLanguages.some((code) => {
+            if (!isAvailableOcrLanguageCode(code)) {
+                return false;
+            }
             const state = stateByCode.get(code);
             return state === 'missing' || state === 'downloading';
         });
@@ -682,14 +689,12 @@ export const useOcrPopupPresenter = ({
             return;
         }
 
-        if (!progress.value.isRunning) {
-            resetCompletedOcrState();
-            if (settings.value.replaceAllAcknowledged) {
-                settings.value = {
-                    ...settings.value,
-                    replaceAllAcknowledged: false,
-                };
-            }
+        resetCompletedOcrState();
+        if (settings.value.replaceAllAcknowledged) {
+            settings.value = {
+                ...settings.value,
+                replaceAllAcknowledged: false,
+            };
         }
     });
 

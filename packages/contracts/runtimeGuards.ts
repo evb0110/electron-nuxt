@@ -15,7 +15,7 @@ export function isStringArray(value: unknown): value is string[] {
 }
 
 export function isOneOf<T extends string>(values: readonly T[], value: unknown): value is T {
-    return typeof value === 'string' && values.includes(value as T);
+    return typeof value === 'string' && values.some(candidate => candidate === value);
 }
 
 export function isSafeWorkerRequestId(value: unknown): value is number {

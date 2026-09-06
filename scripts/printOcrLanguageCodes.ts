@@ -17,9 +17,6 @@ if (codes.length === 0) {
 process.stdout.write(process.argv.includes('--sha256')
     ? codes.map((code) => {
         const sha256 = OCR_LANGUAGE_MODEL_SHA256[code];
-        if (!sha256) {
-            throw new Error(`No SHA-256 digest is registered for OCR language ${code}.`);
-        }
         return `${code} ${sha256}`;
     }).join('\n')
     : codes.join(separator));

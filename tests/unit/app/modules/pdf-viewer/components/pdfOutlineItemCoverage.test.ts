@@ -19,6 +19,7 @@ import type {IPdfOutlineTreeContext} from '@app/modules/pdf-viewer/engine/pdf-ou
 import { pdfOutlineTreeKey } from '@app/modules/pdf-viewer/engine/pdf-outline-tree-context/pdfOutlineTreeKey';
 import PdfOutlineItem from '@app/modules/pdf-viewer/components/PdfOutlineItem.vue';
 import { cast } from '@tests/helpers/cast';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 
@@ -68,7 +69,7 @@ function createBookmark(): IBookmarkItem {
     return {
         id: 'bookmark-1',
         title: 'First bookmark',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         pageYRatio: null,
         dest: null,
         bold: false,

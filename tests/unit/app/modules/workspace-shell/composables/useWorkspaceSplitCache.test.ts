@@ -6,6 +6,8 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireSessionId } from '@contracts/shared';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
 
@@ -41,8 +43,8 @@ describe('useWorkspaceSplitCache', {timeout: 20_000}, () => {
         splitCache.set('tab-1', {
             kind: 'pdfSnapshot',
             fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
-            snapshotPath: '/tmp/pdf-work-test/sample.pdf',
+            originalPath: requireDocumentRef('/tmp/sample.pdf'),
+            snapshotPath: requireDocumentRef('/tmp/pdf-work-test/sample.pdf'),
             isDirty: false,
             currentPage: 7,
         });
@@ -61,7 +63,7 @@ describe('useWorkspaceSplitCache', {timeout: 20_000}, () => {
 
         splitCache.set('tab-expired', {
             kind: 'djvu',
-            sourcePath: '/tmp/doc.djvu',
+            sourcePath: requireDocumentRef('/tmp/doc.djvu'),
         });
 
         vi.advanceTimersByTime(2 * 60 * 1000 + 1);
@@ -75,14 +77,14 @@ describe('useWorkspaceSplitCache', {timeout: 20_000}, () => {
 
         splitCache.set('tab-djvu', {
             kind: 'djvu',
-            sourcePath: '/tmp/doc.djvu',
+            sourcePath: requireDocumentRef('/tmp/doc.djvu'),
             currentPage: 12,
             totalPages: 40,
         });
 
         expect(splitCache.consume('tab-djvu')).toEqual({
             kind: 'djvu',
-            sourcePath: '/tmp/doc.djvu',
+            sourcePath: requireDocumentRef('/tmp/doc.djvu'),
             currentPage: 12,
             totalPages: 40,
         });
@@ -91,16 +93,16 @@ describe('useWorkspaceSplitCache', {timeout: 20_000}, () => {
     it('refuses entries when an expected session revision does not match', async () => {
         const splitCache = await createSplitCache();
         const session = {
-            sessionId: 'session-1',
+            sessionId: requireSessionId('session-1'),
             sessionRevision: 2,
-            documentRef: '/tmp/sample.pdf',
+            documentRef: requireDocumentRef('/tmp/sample.pdf'),
         };
 
         splitCache.set('tab-session', {
             kind: 'pdfSnapshot',
             fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
-            snapshotPath: '/tmp/pdf-work-test/sample.pdf',
+            originalPath: requireDocumentRef('/tmp/sample.pdf'),
+            snapshotPath: requireDocumentRef('/tmp/pdf-work-test/sample.pdf'),
             isDirty: false,
         }, {session});
 

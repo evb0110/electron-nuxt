@@ -12,11 +12,12 @@ import {
 } from 'vue';
 import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { useTextBoxInlineEdit } from '@app/modules/pdf-viewer/annotations/editor/useTextBoxInlineEdit';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 const entity = ref<ITextBoxEntity>({
     kind: 'text-box',
     identity: {id: 'text-box' as ITextBoxEntity['identity']['id']},
-    pageIndex: 0,
+    pageIndex: requirePageIndex(0),
     revision: 1,
     persistedRevision: 1,
     deleted: false,

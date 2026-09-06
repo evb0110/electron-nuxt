@@ -27,8 +27,8 @@ function collectPaneRects(
             paneId: node.paneId,
             x,
             y,
-            width,
-            height,
+            widthPx: width,
+            heightPx: height,
         });
         return;
     }
@@ -97,42 +97,42 @@ export function findDirectionalPaneId({
         let overlap = 0;
 
         if (direction === 'right') {
-            if (rect.x >= sourceRect.x + sourceRect.width - 1e-6) {
-                distance = rect.x - (sourceRect.x + sourceRect.width);
+            if (rect.x >= sourceRect.x + sourceRect.widthPx - 1e-6) {
+                distance = rect.x - (sourceRect.x + sourceRect.widthPx);
                 overlap = overlapAmount(
                     sourceRect.y,
-                    sourceRect.y + sourceRect.height,
+                    sourceRect.y + sourceRect.heightPx,
                     rect.y,
-                    rect.y + rect.height,
+                    rect.y + rect.heightPx,
                 );
             }
         } else if (direction === 'left') {
-            if (rect.x + rect.width <= sourceRect.x + 1e-6) {
-                distance = sourceRect.x - (rect.x + rect.width);
+            if (rect.x + rect.widthPx <= sourceRect.x + 1e-6) {
+                distance = sourceRect.x - (rect.x + rect.widthPx);
                 overlap = overlapAmount(
                     sourceRect.y,
-                    sourceRect.y + sourceRect.height,
+                    sourceRect.y + sourceRect.heightPx,
                     rect.y,
-                    rect.y + rect.height,
+                    rect.y + rect.heightPx,
                 );
             }
         } else if (direction === 'down') {
-            if (rect.y >= sourceRect.y + sourceRect.height - 1e-6) {
-                distance = rect.y - (sourceRect.y + sourceRect.height);
+            if (rect.y >= sourceRect.y + sourceRect.heightPx - 1e-6) {
+                distance = rect.y - (sourceRect.y + sourceRect.heightPx);
                 overlap = overlapAmount(
                     sourceRect.x,
-                    sourceRect.x + sourceRect.width,
+                    sourceRect.x + sourceRect.widthPx,
                     rect.x,
-                    rect.x + rect.width,
+                    rect.x + rect.widthPx,
                 );
             }
-        } else if (rect.y + rect.height <= sourceRect.y + 1e-6) {
-            distance = sourceRect.y - (rect.y + rect.height);
+        } else if (rect.y + rect.heightPx <= sourceRect.y + 1e-6) {
+            distance = sourceRect.y - (rect.y + rect.heightPx);
             overlap = overlapAmount(
                 sourceRect.x,
-                sourceRect.x + sourceRect.width,
+                sourceRect.x + sourceRect.widthPx,
                 rect.x,
-                rect.x + rect.width,
+                rect.x + rect.widthPx,
             );
         }
 
@@ -173,33 +173,33 @@ export function findDirectionalPaneId({
                 anchor = rect.x;
                 overlap = overlapAmount(
                     sourceRect.y,
-                    sourceRect.y + sourceRect.height,
+                    sourceRect.y + sourceRect.heightPx,
                     rect.y,
-                    rect.y + rect.height,
+                    rect.y + rect.heightPx,
                 );
             } else if (direction === 'left') {
-                anchor = rect.x + rect.width;
+                anchor = rect.x + rect.widthPx;
                 overlap = overlapAmount(
                     sourceRect.y,
-                    sourceRect.y + sourceRect.height,
+                    sourceRect.y + sourceRect.heightPx,
                     rect.y,
-                    rect.y + rect.height,
+                    rect.y + rect.heightPx,
                 );
             } else if (direction === 'down') {
                 anchor = rect.y;
                 overlap = overlapAmount(
                     sourceRect.x,
-                    sourceRect.x + sourceRect.width,
+                    sourceRect.x + sourceRect.widthPx,
                     rect.x,
-                    rect.x + rect.width,
+                    rect.x + rect.widthPx,
                 );
             } else {
-                anchor = rect.y + rect.height;
+                anchor = rect.y + rect.heightPx;
                 overlap = overlapAmount(
                     sourceRect.x,
-                    sourceRect.x + sourceRect.width,
+                    sourceRect.x + sourceRect.widthPx,
                     rect.x,
-                    rect.x + rect.width,
+                    rect.x + rect.widthPx,
                 );
             }
 

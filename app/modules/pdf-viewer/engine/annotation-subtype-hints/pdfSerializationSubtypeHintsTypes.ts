@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
@@ -8,7 +10,7 @@ export type TMarkupSubtypeHintSource = 'editor-live' | IAnnotationCommentSummary
 
 export interface IMarkupSubtypeHint {
     subtype: TMarkupSubtype;
-    pageIndex: number;
+    pageIndex: TPageIndex;
     markerRect: IAnnotationMarkerRect;
     /** One marker rectangle per source PDF text-markup quad. */
     markupGeometry?: readonly IAnnotationMarkerRect[] | null;

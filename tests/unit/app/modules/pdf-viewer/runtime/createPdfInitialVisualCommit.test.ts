@@ -1,17 +1,46 @@
 // @vitest-environment happy-dom
 
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    type Ref,
+} from 'vue';
 import { createPdfInitialVisualCommit } from '@app/modules/pdf-viewer/runtime/lifecycle/createPdfInitialVisualCommit';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import { cast } from '@tests/helpers/cast';
+
+function createDomRect(shape: object): DOMRect {
+    // The visual handshake reads only measured rectangle fields from these
+    // browser geometry results.
+    return shape as DOMRect;
+}
+
+function createViewportFixture(
+    currentPage: Ref<number>,
+    commitCurrentViewportIfSettled: (pageNumber: number) => boolean,
+): TPdfViewportSession {
+    // The handshake uses only the scale, opening extent, and page commit slice.
+    return Object.assign(Object.create(null), {
+        currentPage,
+        scale: {scaledMargin: ref(20)},
+        openVirtualSurfaceGeometry: {openingVirtualExtentMinimumScrollHeight: ref<number | null>(null)},
+        singlePageScroll: {commitCurrentViewportIfSettled},
+    });
+}
+
+function createChassisAuthority(
+    openSurface: ReturnType<typeof createDocumentOpenSurfaceSession>,
+): IDocumentViewerChassisAuthority {
+    // The lifecycle reads the open-surface session from the full authority.
+    return {openSurface} as IDocumentViewerChassisAuthority;
+}
 
 function createResidentCanvasFixture(
     connectCanvas = true,
@@ -25,7 +54,7 @@ function createResidentCanvasFixture(
     surface.metadataReady(315);
 
     const viewerContainer = document.createElement('div');
-    viewerContainer.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+    viewerContainer.getBoundingClientRect = vi.fn(() => createDomRect({
         top: 0,
         right: 1200,
         bottom: 900,
@@ -36,7 +65,7 @@ function createResidentCanvasFixture(
     const pageContainer = document.createElement('div');
     pageContainer.className = 'page_container';
     pageContainer.dataset.page = '2';
-    pageContainer.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+    pageContainer.getBoundingClientRect = vi.fn(() => createDomRect({
         width: 511.459,
         height: 755,
     }));
@@ -45,7 +74,7 @@ function createResidentCanvasFixture(
     const canvas = document.createElement('canvas');
     canvas.width = 1023;
     canvas.height = 1510;
-    canvas.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+    canvas.getBoundingClientRect = vi.fn(() => createDomRect({
         top: 0,
         right: connectCanvas ? 511.459 : 0,
         bottom: connectCanvas ? 755 : 0,
@@ -76,13 +105,8 @@ function createResidentCanvasFixture(
             top: 0,
         });
     });
-    const viewport = cast<TPdfViewportSession>({
-        currentPage,
-        scale: {scaledMargin: ref(20)},
-        openVirtualSurfaceGeometry: {openingVirtualExtentMinimumScrollHeight: ref<number | null>(null)},
-        singlePageScroll: {commitCurrentViewportIfSettled},
-    });
-    const chassisAuthority = cast<IDocumentViewerChassisAuthority>({openSurface: surface});
+    const viewport = createViewportFixture(currentPage, commitCurrentViewportIfSettled);
+    const chassisAuthority = createChassisAuthority(surface);
     const renderOwner = surface.claimRenderOwner();
     const emitInitialVisualReady = vi.fn();
     const initialVisual = createPdfInitialVisualCommit({
@@ -100,7 +124,7 @@ function createResidentCanvasFixture(
         const nextPageContainer = document.createElement('div');
         nextPageContainer.className = 'page_container';
         nextPageContainer.dataset.page = String(pageNumber);
-        nextPageContainer.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+        nextPageContainer.getBoundingClientRect = vi.fn(() => createDomRect({
             width: 511.459,
             height: 755,
         }));
@@ -109,7 +133,7 @@ function createResidentCanvasFixture(
         const nextCanvas = document.createElement('canvas');
         nextCanvas.width = 1023;
         nextCanvas.height = 1510;
-        nextCanvas.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+        nextCanvas.getBoundingClientRect = vi.fn(() => createDomRect({
             top: 0,
             right: 511.459,
             bottom: 755,
@@ -127,7 +151,7 @@ function createResidentCanvasFixture(
             documentRevision: snapshot.identity!.documentRevision,
             renderVersion: 1,
             requestId: pageNumber,
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber),
         });
     }
 
@@ -145,7 +169,7 @@ describe('createPdfInitialVisualCommit', () => {
     it('adopts a ready resident canvas into a newly opened surface with no committed geometry', () => {
         const fixture = createResidentCanvasFixture();
 
-        fixture.initialVisual.adoptResidentCanvas(2);
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
 
         expect(fixture.surface.snapshot.value).toMatchObject({
             generation: 1,
@@ -173,7 +197,7 @@ describe('createPdfInitialVisualCommit', () => {
         expect(fixture.commitCurrentViewportIfSettled).toHaveBeenCalledExactlyOnceWith(2);
         expect(fixture.emitInitialVisualReady).toHaveBeenCalledExactlyOnceWith({pageNumber: 2});
 
-        fixture.initialVisual.adoptResidentCanvas(2);
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
         expect(fixture.emitInitialVisualReady).toHaveBeenCalledOnce();
 
         fixture.viewerContainer.remove();
@@ -182,7 +206,7 @@ describe('createPdfInitialVisualCommit', () => {
     it('does not start a render fence until resident canvas geometry is measurable', () => {
         const fixture = createResidentCanvasFixture(false);
 
-        fixture.initialVisual.adoptResidentCanvas(2);
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
 
         expect(fixture.surface.snapshot.value).toMatchObject({
             phase: 'pending',
@@ -198,7 +222,7 @@ describe('createPdfInitialVisualCommit', () => {
 
     it('returns the viewport to ready after an in-document navigation repaints the new page', () => {
         const fixture = createResidentCanvasFixture();
-        fixture.initialVisual.adoptResidentCanvas(2);
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
         expect(fixture.surface.viewportSession.value.lifecycle).toBe('ready');
 
         fixture.surface.requestNavigation(3, 0);
@@ -231,7 +255,7 @@ describe('createPdfInitialVisualCommit', () => {
             bottom: 1_440_755,
         });
 
-        fixture.initialVisual.adoptResidentCanvas(2);
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
 
         expect(fixture.surface.snapshot.value.phase).toBe('viewport-committed');
         expect(fixture.surface.viewportSession.value).toMatchObject({

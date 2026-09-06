@@ -17,6 +17,8 @@ import {
     vi,
 } from 'vitest';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
 import type { IOcrPdfPageRequest } from '@electron/ocr/worker/types';
 
 const probe = vi.hoisted(() => {
@@ -148,11 +150,11 @@ async function writeCatalogWithOcrWorker(
         sourcePdfPath,
         {
             version: 1,
-            documentRef: sourcePdfPath,
+            documentRef: requireDocumentRef(sourcePdfPath),
             authority: 'electron-working-copy',
             token: CURRENT_REVISION,
             contentRevision: 1,
-            mintedAt: 1,
+            mintedAt: requireEpochMs(1),
         },
         pageNumbers.map(pageNumber => ({
             pageNumber,

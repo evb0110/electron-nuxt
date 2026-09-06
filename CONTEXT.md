@@ -78,3 +78,25 @@ _Avoid_: imported annotation, external annotation, legacy annotation
 The fast first paint of a document produced outside the renderer while the
 renderer is still loading.
 _Avoid_: native preview, skeleton
+
+## Assistant
+
+**Assistant session**:
+A conversation bound to one document scope and one assistant provider. Its
+durable transcript is the source of truth for the renderer's displayed chat.
+_Avoid_: panel state, chat component state, provider thread
+
+**Assistant provider**:
+A supported local execution backend that translates one assistant session to
+and from a vendor protocol while preserving the shared chat lifecycle.
+_Avoid_: plugin, model, assistant mode
+
+**Assistant state projection**:
+The renderer's disposable view of assistant sessions, provider status, and
+turn progress. It can be rebuilt from main-process state and durable records.
+_Avoid_: assistant store, chat source of truth
+
+**Local MCP boundary**:
+The loopback-only tool boundary through which a supported assistant reads and
+acts on the current EVB Viewer workspace under its existing access controls.
+_Avoid_: public API, plugin API, remote MCP service

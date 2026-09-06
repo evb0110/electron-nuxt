@@ -12,6 +12,10 @@ import type {
     IAgentWorkspaceSnapshot,
     TAgentCommand,
 } from '@contracts/agent';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireIsoTimestamp} from '@contracts/timestamps';
+import {requireTabId} from '@contracts/windowTabs';
 import { ASSISTANT_MCP_TOKEN_ENV } from '@electron/features/agent/codexAssistantConfig';
 import {
     createLocalMcpServerIdentity,
@@ -69,16 +73,16 @@ interface IListToolsResultTool {
 }
 
 const workspaceSnapshot: IAgentWorkspaceSnapshot = {
-    capturedAt: '2026-06-01T00:00:00.000Z',
-    activePaneId: 'pane-1',
-    activeTabId: 'tab-1',
+    capturedAt: requireIsoTimestamp('2026-06-01T00:00:00.000Z'),
+    activePaneId: requirePaneId('pane-1'),
+    activeTabId: requireTabId('tab-1'),
     summary: {
         mode: 'open-document',
         activeDocument: {
-            tabId: 'tab-1',
-            paneId: 'pane-1',
+            tabId: requireTabId('tab-1'),
+            paneId: requirePaneId('pane-1'),
             fileName: 'Grammar.pdf',
-            originalPath: '/tmp/Grammar.pdf',
+            originalPath: requireDocumentRef('/tmp/Grammar.pdf'),
             kind: 'pdf',
         },
         documentCount: 1,
@@ -86,19 +90,19 @@ const workspaceSnapshot: IAgentWorkspaceSnapshot = {
         recentFilesResolved: true,
     },
     panes: [{
-        paneId: 'pane-1',
+        paneId: requirePaneId('pane-1'),
         tabIds: [
-            'tab-1',
-            'tab-empty',
+            requireTabId('tab-1'),
+            requireTabId('tab-empty'),
         ],
-        activeTabId: 'tab-1',
+        activeTabId: requireTabId('tab-1'),
     }],
     tabs: [
         {
-            tabId: 'tab-1',
-            paneId: 'pane-1',
+            tabId: requireTabId('tab-1'),
+            paneId: requirePaneId('pane-1'),
             fileName: 'Grammar.pdf',
-            originalPath: '/tmp/Grammar.pdf',
+            originalPath: requireDocumentRef('/tmp/Grammar.pdf'),
             isDirty: false,
             kind: 'pdf',
             workspaceAttached: true,
@@ -124,8 +128,8 @@ const workspaceSnapshot: IAgentWorkspaceSnapshot = {
             },
         },
         {
-            tabId: 'tab-empty',
-            paneId: 'pane-1',
+            tabId: requireTabId('tab-empty'),
+            paneId: requirePaneId('pane-1'),
             fileName: null,
             originalPath: null,
             isDirty: false,
@@ -146,13 +150,13 @@ const workspaceSnapshot: IAgentWorkspaceSnapshot = {
     ],
     recentFiles: [{
         fileName: 'Recent Grammar.pdf',
-        originalPath: '/tmp/Recent Grammar.pdf',
+        originalPath: requireDocumentRef('/tmp/Recent Grammar.pdf'),
         kind: 'pdf',
-        openedAt: '2026-05-31T00:00:00.000Z',
+        openedAt: requireIsoTimestamp('2026-05-31T00:00:00.000Z'),
     }],
     layout: {
         type: 'leaf',
-        paneId: 'pane-1',
+        paneId: requirePaneId('pane-1'),
     },
 };
 

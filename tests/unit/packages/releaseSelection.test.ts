@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { IReleaseInstaller } from '@contracts';
+import { requireIsoTimestamp } from '@contracts/timestamps';
 import type {
     SetRequired,
     Simplify,
@@ -36,7 +37,7 @@ function createInstaller(partial: TInstallerFixture): IReleaseInstaller {
         isLegacy: false,
         platform: 'macos',
         size: 1,
-        updatedAt: '2026-01-01T00:00:00Z',
+        updatedAt: requireIsoTimestamp('2026-01-01T00:00:00.000Z'),
         ...partial,
     };
 }
@@ -340,6 +341,7 @@ describe('release selection', () => {
         expect(formatFileSize(10 * 1024)).toBe('10 KB');
         expect(formatFileSize(1024 ** 2)).toBe('1.0 MB');
         expect(formatFileSize(1024 ** 3)).toBe('1.0 GB');
+        expect(formatFileSize(1024 ** 4)).toBe('1.0 TB');
     });
 
     it('selects one preferred installer per effective architecture', () => {

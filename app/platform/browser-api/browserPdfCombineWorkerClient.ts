@@ -65,12 +65,10 @@ function reportWorkerFailure(error: Error) {
             cause: error,
         },
     }, {runtime: 'browser-worker-parent'});
-    if (receipt) {
-        Object.defineProperty(error, 'failure', {
-            configurable: true,
-            value: receipt,
-        });
-    }
+    Object.defineProperty(error, 'failure', {
+        configurable: true,
+        value: receipt,
+    });
     return error;
 }
 
@@ -155,7 +153,7 @@ const browserPdfCombineWorkerClient = new BrowserWorkerClient<IPendingBrowserWor
         }
     },
     createError: event => reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
-        event.error instanceof Error ? event.error.message : event.message,
+        event.error instanceof Error ? getErrorMessage(event.error) : event.message,
     )),
     handleMessage: (pendingRequests, response, onSettled) => settleBrowserWorkerResult(
         pendingRequests,

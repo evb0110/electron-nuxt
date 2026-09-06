@@ -131,7 +131,8 @@ export const useTabDragReorder = (
         if (deltaX > 0) {
             let target = dragIndex.value;
             for (let i = dragIndex.value + 1; i < slots.length; i++) {
-                if (visualRight > slots[i]!.centerX) {
+                const slot = slots[i];
+                if (slot && visualRight > slot.centerX) {
                     target = i;
                 }
             }
@@ -141,7 +142,8 @@ export const useTabDragReorder = (
         if (deltaX < 0) {
             let target = dragIndex.value;
             for (let i = dragIndex.value - 1; i >= 0; i--) {
-                if (visualLeft < slots[i]!.centerX) {
+                const slot = slots[i];
+                if (slot && visualLeft < slot.centerX) {
                     target = i;
                 }
             }
@@ -160,7 +162,8 @@ export const useTabDragReorder = (
         for (let i = 0; i < tabElements.length; i++) {
             if (i === dragIndex.value) continue;
 
-            const el = tabElements[i]!;
+            const el = tabElements[i];
+            if (!el) continue;
             if (isBetween(i, dragIndex.value, targetIndex)) {
                 const direction = targetIndex > dragIndex.value ? -1 : 1;
                 el.style.transform = `translateX(${direction * dragSlot.width}px)`;
@@ -187,7 +190,8 @@ export const useTabDragReorder = (
 
     function resolveInsertionIndex(snapshot: ITabListSnapshot, pointerX: number) {
         for (let i = 0; i < snapshot.tabs.length; i++) {
-            if (pointerX < snapshot.tabs[i]!.centerX) {
+            const tab = snapshot.tabs[i];
+            if (tab && pointerX < tab.centerX) {
                 return i;
             }
         }

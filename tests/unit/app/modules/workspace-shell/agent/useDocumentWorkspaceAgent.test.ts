@@ -5,11 +5,18 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type { TPdfViewMode } from '@contracts/shared';
-import { createRangePageSelection } from '@contracts/pageNumbers';
+import {
+    createRangePageSelection,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
+import { requireEpochMs } from '@contracts/timestamps';
 import { AGENT_CAPABILITY_TEMPLATES } from '@electron/features/agent/mcp/agentCapabilityTemplates';
 import { validateJsonObjectAgainstSchema } from '@electron/features/agent/mcp/mcpToolDefinitions';
 import type {
@@ -33,11 +40,45 @@ import type {
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { createPageLabelModel } from '@app/utils/document-viewer/pageLabels';
-import { cast } from '@tests/helpers/cast';
 import {
     requireDocumentInstanceId,
     requireDocumentRevisionToken,
 } from '@contracts';
+
+interface IAgentViewerPortFixture extends IWorkspacePdfViewerAgentPort {updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;}
+
+function createAgentViewerPort(overrides: Partial<IAgentViewerPortFixture> = {}): IAgentViewerPortFixture {
+    const port = {
+        getViewerContainer: () => null,
+        scrollToPage: vi.fn(),
+        ensurePageMetricsInRange: vi.fn(async () => true),
+        moveAnnotationMarker: vi.fn(() => true),
+        updateAnnotationComment: vi.fn(() => true),
+        registerAnnotationHistoryCommand: vi.fn(),
+        createTextMarkupFromText: vi.fn(async (options: Parameters<IWorkspacePdfViewerAgentPort['createTextMarkupFromText']>[0]) => ({
+            created: false,
+            pageNumber: options.pageNumber,
+            requestedText: options.text,
+            matchedText: null,
+            occurrence: options.occurrence ?? 1,
+            subtype: 'Highlight' as const,
+        })),
+        createPointNoteAnnotation: vi.fn(async (options: Parameters<IWorkspacePdfViewerAgentPort['createPointNoteAnnotation']>[0]) => ({
+            created: false,
+            pageNumber: options.pageNumber,
+            pageX: options.pageX,
+            pageY: options.pageY,
+        })),
+        createShapeAnnotation: vi.fn(async (options: Parameters<IWorkspacePdfViewerAgentPort['createShapeAnnotation']>[0]) => ({
+            created: false,
+            pageNumber: options.pageNumber,
+            shape: null,
+        })),
+        ...overrides,
+    } satisfies IAgentViewerPortFixture;
+
+    return port;
+}
 
 const COMMAND_ONLY_CAPABILITY_IDS = new Set([
     'workspace.snapshot',
@@ -97,10 +138,10 @@ function createDocumentIdentity(
     return {
         version: 1,
         token: requireDocumentRevisionToken(token),
-        documentRef: '/tmp/document.pdf',
+        documentRef: requireDocumentRef('/tmp/document.pdf'),
         authority: 'browser-document-store',
         contentRevision,
-        mintedAt: contentRevision,
+        mintedAt: requireEpochMs(contentRevision),
     };
 }
 
@@ -600,7 +641,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('adds child bookmarks on the parent page when pageYRatio anchors distinguish them', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
             ...createBookmark('Lesson 5'),
-            pageIndex: 9,
+            pageIndex: requirePageIndex(9),
         }]);
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
@@ -647,7 +688,7 @@ describe('useDocumentWorkspaceAgent', () => {
     it('refuses newly unsafe child bookmarks that all reuse the parent destination', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
             ...createBookmark('Lesson 5'),
-            pageIndex: 9,
+            pageIndex: requirePageIndex(9),
         }]);
         const handleBookmarksChange = vi.fn(({bookmarks}) => {
             bookmarkItems.value = bookmarks;
@@ -1104,8 +1145,8 @@ describe('useDocumentWorkspaceAgent', () => {
         const agent = useDocumentWorkspaceAgent(createAgentOptions({
             canSave: ref(false),
             handleSave,
-            workingCopyPath: ref('/tmp/working.pdf'),
-            originalPath: ref('/tmp/original.pdf'),
+            workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
+            originalPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/original.pdf')),
         }));
 
         await expect(agent.runAgentAction('file.save')).resolves.toMatchObject({
@@ -1143,8 +1184,8 @@ describe('useDocumentWorkspaceAgent', () => {
         const agent = useDocumentWorkspaceAgent(createAgentOptions({
             handleRepairSave,
             handleOptimizePdfForInteraction,
-            workingCopyPath: ref('/tmp/working.pdf'),
-            originalPath: ref('/tmp/original.pdf'),
+            workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
+            originalPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/original.pdf')),
         }));
 
         await expect(agent.runAgentAction('file.repair_save')).resolves.toMatchObject({
@@ -1250,7 +1291,7 @@ describe('useDocumentWorkspaceAgent', () => {
         const agent = useDocumentWorkspaceAgent(createAgentOptions({
             annotationComments: ref([comment]),
             updateTextMarkupColorWithHistory,
-            pdfViewerRef: ref(cast<IWorkspacePdfViewerAgentPort>({updateTextMarkupAnnotationColor: rawViewerColorUpdate})),
+            pdfViewerRef: ref(createAgentViewerPort({updateTextMarkupAnnotationColor: rawViewerColorUpdate})),
         }));
 
         await expect(agent.runAgentAction('annotation.update_text_markup_color', {
@@ -1272,10 +1313,10 @@ describe('useDocumentWorkspaceAgent', () => {
     });
 
     it('propagates a failed text-markup creation with its typed reason', async () => {
-        const createTextMarkupFromText = vi.fn(async () => ({
+        const createTextMarkupFromText = vi.fn<IWorkspacePdfViewerAgentPort['createTextMarkupFromText']>(async (options) => ({
             created: false,
-            pageNumber: 2,
-            requestedText: 'chapter one',
+            pageNumber: options.pageNumber,
+            requestedText: options.text,
             matchedText: 'chapter one',
             occurrence: 1,
             subtype: 'Highlight' as const,
@@ -1286,9 +1327,7 @@ describe('useDocumentWorkspaceAgent', () => {
             // retrying on `created: false` mints a duplicate.
             pendingEditor: true,
         }));
-        const agent = useDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(
-            cast<IWorkspacePdfViewerAgentPort>({createTextMarkupFromText}),
-        )}));
+        const agent = useDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createTextMarkupFromText}))}));
 
         await expect(agent.runAgentAction('annotation.create_text_markup', {
             pageNumber: 2,
@@ -1322,7 +1361,7 @@ describe('useDocumentWorkspaceAgent', () => {
         });
         const agent = useDocumentWorkspaceAgent(createAgentOptions({
             annotationComments: ref([comment]),
-            pdfViewerRef: ref(cast<IWorkspacePdfViewerAgentPort>({
+            pdfViewerRef: ref(createAgentViewerPort({
                 updateAnnotationComment,
                 registerAnnotationHistoryCommand,
             })),

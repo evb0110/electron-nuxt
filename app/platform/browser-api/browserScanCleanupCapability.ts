@@ -1,5 +1,6 @@
 import type { IScanCleanupCapability } from '@contracts/electronApiScanCleanup';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
+import { createJobId } from '@contracts/shared';
 import {
     cloneScanCleanupPreferenceValue,
     createDefaultScanCleanupSettingsFile,
@@ -17,7 +18,7 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     detectAll() {
         return Promise.resolve({
             started: false,
-            jobId: 'browser:unavailable',
+            jobId: createJobId('browser-scan-cleanup-unavailable'),
             error: BROWSER_SCAN_CLEANUP_UNAVAILABLE,
             errorCode: 'tools-unavailable',
         });
@@ -34,7 +35,7 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     start() {
         return Promise.resolve({
             started: false,
-            jobId: 'browser:unavailable',
+            jobId: createJobId('browser-scan-cleanup-unavailable'),
             error: BROWSER_SCAN_CLEANUP_UNAVAILABLE,
             errorCode: 'tools-unavailable',
         });

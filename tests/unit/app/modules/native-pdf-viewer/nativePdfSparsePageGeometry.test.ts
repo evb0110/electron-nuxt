@@ -8,6 +8,7 @@ import {
     createNativePdfSparsePageLayout,
     NATIVE_PDF_SPARSE_PAGE_WINDOW_LIMIT,
 } from '@app/modules/native-pdf-viewer/runtime/nativePdfSparsePageGeometry';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 describe('native PDF sparse page geometry', () => {
     it('keeps first and last page windows bounded for a million-page document', () => {
@@ -20,12 +21,12 @@ describe('native PDF sparse page geometry', () => {
             },
             overrides: [
                 {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     width: 500,
                     height: 700,
                 },
                 {
-                    pageNumber: pageCount,
+                    pageNumber: requirePageNumber(pageCount),
                     width: 1_000,
                     height: 1_400,
                 },

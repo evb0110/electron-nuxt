@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { execFile } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import type { WriteStream } from 'node:fs';
@@ -345,12 +346,12 @@ export async function startStressMetricsSampler(options: IStressMetricsSamplerOp
     const onPageError = (error: unknown) => {
         pageErrorCount += 1;
         if (pageErrors.length < MAX_ERROR_MESSAGES) {
-            pageErrors.push(error instanceof Error ? error.message : String(error));
+            pageErrors.push(getErrorMessage(error));
         }
     };
     const onCrash = (error: unknown) => {
         rendererCrashed = true;
-        crashReason = error instanceof Error ? error.message : String(error);
+        crashReason = getErrorMessage(error);
     };
     page.on('console', onConsole);
     page.on('pageerror', onPageError);

@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
     cpSync,
     existsSync,
@@ -939,9 +940,9 @@ export async function runPrivateVercelDeploy({
             } catch (rollbackFailure) {
                 rollbackError = rollbackFailure;
             }
-            const acceptanceMessage = error instanceof Error ? error.message : String(error);
+            const acceptanceMessage = getCliErrorMessage(error);
             const rollbackMessage = rollbackError
-                ? ` Rollback also failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
+                ? ` Rollback also failed: ${getCliErrorMessage(rollbackError)}`
                 : ' The failed deployment was rolled back.';
             throw new Error(`Production deploy acceptance failed: ${acceptanceMessage}.${rollbackMessage}`, {cause: error});
         }

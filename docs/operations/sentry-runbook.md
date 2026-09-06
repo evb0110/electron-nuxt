@@ -1,5 +1,9 @@
 # Sentry operations runbook
 
+Agents handling a bare `check Sentry` or `verify Sentry` request must start with
+[sentry-agent-check.md](./sentry-agent-check.md). This runbook is the policy and
+evidence reference that the agent-check procedure points to.
+
 This runbook applies to the `evb-viewer-desktop` and `evb-viewer-web`
 projects. It never authorizes a broader event payload than the closed
 `DiagnosticRecord` contract. Sentry is an error lead, not proof of a defect.
@@ -35,7 +39,7 @@ Automatic GitHub issue creation and automatic Sentry resolution stay off.
 | New or regressed fatal | Both projects, `environment:production`, level `fatal`, high-priority issue | First new or regressed issue | Preview, development, test, expected teardown, recovery already in progress |
 | New diagnostic code | Both projects, `environment:production`, `diagnostic_code` present | New issue or resolved issue regression | Expected outcomes, cancellation, validation, unsupported input, ordinary offline behavior |
 | Code rate | Both projects, `environment:production`, `diagnostic_code` present | More than 20 events in one issue within five minutes | Preview, development, test, and client-suppressed repeats |
-| Quota | Organization usage | 50, 70, and 90 percent of the included event quota | No pay-as-you-go continuation |
+| Quota | Organization usage | Personal error-quota notification at the platform-supported 80 and 100 percent points | No pay-as-you-go continuation; Sentry exposes no custom 50, 70, 75, or 90 percent points for this account |
 
 Record completion without private links:
 
@@ -44,7 +48,7 @@ Record completion without private links:
 | Fatal alert | Repository owner | 2026-09-04 | Enabled |
 | New-code alert | Repository owner | 2026-09-04 | Enabled |
 | Rate alert | Repository owner | 2026-09-04 | Enabled |
-| Quota alert | Repository owner | Pending | Pending |
+| Quota alert | Repository owner | 2026-09-05 | Enabled at the stricter available `100% and 80%` setting |
 
 ## Weekly and post-release triage
 
@@ -78,7 +82,7 @@ Weekly evidence template:
 
 | Review date | Releases checked | Open issues reviewed | GitHub issues created | Resolved issues deleted | Forbidden fields | Symbolication | Quota | Reviewer |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Pending | Pending | Pending | Pending | Pending | None expected | Pending | Pending | Repository owner |
+| 2026-09-06 | `v0.1.453` production web and eight shipping desktop identities | Historical `v0.1.452` canary issues remain separate triage data; the new exact-release receipts are clean | 0 | 0; the historical queue was not changed by this deployment | None in the verified closed-schema canaries | Pass; 230/230 per desktop dist and 259/259 for production web | Account quota controls unchanged and pay-as-you-go remains disabled | Repository owner account |
 
 ## Privacy incident response
 
@@ -125,8 +129,10 @@ unsafe account state.
 
 ## Credential rotation
 
-The runtime keys are separate for desktop, hosted browser, and Nitro. The upload
-token is a fourth credential with only release and source-map upload scope.
+The runtime keys are separate for desktop, hosted browser, and Nitro. The
+restricted upload token has only release and source-map upload scope. The
+read-only verification token is a separate credential and is never used for
+uploads.
 
 1. Create one replacement credential at a time with the same origin and scope
    restrictions recorded in `sentry-account-controls.md`.
@@ -137,7 +143,10 @@ token is a fourth credential with only release and source-map upload scope.
    checks.
 4. Promote the replacement to production only after preview passes.
 5. Revoke the old credential and verify that it no longer accepts events or
-   uploads.
+   uploads. For the read-only verification credential, repeat the exact
+   read-only API request with the old credential still held only in the
+   operator process and require an HTTP 401 or 403 denial. Keep the old value
+   out of the command text, logs, receipt, and report.
 6. Record the credential role, rotation date, verifier, and outcome. Do not
    record the value, key identifier, DSN, or private URL.
 
@@ -145,6 +154,43 @@ token is a fourth credential with only release and source-map upload scope.
 
 Canary events use synthetic faults and contain only the closed record. Record
 counts and outcomes, not payloads or private account links.
+
+### CLI source-map proof
+
+Run the source-map canary and its verifier from the exact build stage after the
+private upload has completed:
+
+```text
+node scripts/release/send-sentry-sourcemap-canaries.mjs
+node scripts/release/verify-sentry-sourcemap-canaries.mjs
+```
+
+The upload command uses `SENTRY_AUTH_TOKEN`. The verification command uses a
+separate `SENTRY_VERIFICATION_TOKEN` with read-only project and event access.
+Do not give the verifier the upload-only token.
+
+For a deliberate production proof, add `EVB_SENTRY_CANARY_ALLOW_PRODUCTION=1`
+for that one process only. The sender refuses production by default. The
+verifier reads the separate read-only token from Keychain and makes the Sentry
+API checks; it never needs the upload credential.
+
+On the operator Mac, load the verification token from Keychain for a local
+run, then remove it from the shell:
+
+```sh
+export SENTRY_VERIFICATION_TOKEN="$(security find-generic-password -a "$USER" -s evb-viewer-sentry-verification-token -w)"
+node scripts/release/verify-sentry-sourcemap-canaries.mjs
+unset SENTRY_VERIFICATION_TOKEN
+```
+
+The first command records one deterministic event per project-source bundle in
+`canary-receipt.json`. The second command queries Sentry's source-map-debug and
+processed-event APIs for every event in that receipt. It requires the exact
+release, dist, uploaded Debug ID artifacts, source-file and map lookup, the
+expected EVB file, function, line, canary tags, and source context. It also
+checks that the receipt covers the complete staged manifest. It writes only a
+credential-free `canary-verification-receipt.json`. A submission without a
+passing verification receipt is not symbolication evidence.
 
 ### Desktop matrix
 
@@ -154,32 +200,49 @@ artifact-scan checks for every dist below.
 
 | Dist | Release | Unknown requests | Denied requests | Granted event count | Revocation requests | Error ID matched | Symbolicated | Artifact scan | Behavior deadlines | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `macos-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `macos-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `windows-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `windows-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `linux-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `linux-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `store-appx-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `store-appx-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `macos-arm64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
+| `macos-x64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
+| `windows-x64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
+| `windows-arm64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
+| `linux-x64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
+| `linux-arm64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and package lifecycle checks passed | 2026-09-06 |
+| `store-appx-x64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and Store installed smoke passed | 2026-09-06 |
+| `store-appx-arm64` | `evb-viewer-desktop@0.1.453` | 0 | 0 | 6 one-item envelopes; 230 source-map canaries | 0, including close-time | Pass | 230/230 verified | Pass | Consent, startup-marker crash/relaunch, and Store installed smoke passed | 2026-09-06 |
 | `win7-legacy-x64` | Not shipped; tracked by #335 | N/A | N/A | N/A | N/A | N/A | N/A | No public artifact | N/A | 2026-09-05 |
 
 Every request count under unknown and denied must be zero. A granted canary must
 produce one envelope with one event item. Revocation must produce no queued,
 close-time, or client-report envelope.
 
-The exact-tag artifact run uploaded 280 private bundles for each of the eight
-shipping identities. Every identity sent 228 deterministic canaries for
-bundles with an EVB source mapping and recorded 52 generated or vendor-only
-chunks as ineligible for original-source proof. Live Sentry inspection sampled
-macOS arm64, Windows arm64, and Store arm64 events and resolved them to original
-EVB source lines with source context, the expected release, and the expected
-dist. This is source-map evidence only. It does not replace the packaged
-consent and behavior matrix still marked pending in the same rows.
+The exact final-SHA matrix
+[34006005475](https://github.com/evb0110/evb-viewer/actions/runs/34006005475)
+uploaded private maps and ran the packaged consent and crash matrix for every
+shipping identity. Each matrix job asserted zero delivery in unknown and
+denied states, six one-item event deliveries after grant, Error ID rendering
+and correlation, no revocation or close-time delivery, and the one-shot
+startup-crash marker replay and cleanup. Its eight small verification artifacts
+contain 230 submitted and 230 verified source-map events per identity. The two
+Store installed-smoke jobs also passed.
+
+The local packaged macOS arm64 matrix runs through
+`pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts`. It uses isolated user data and a
+deliberately non-existent EU test project, so the audit records six attempted
+one-event envelopes and six terminal rejections without adding account data.
+The six owners are UI-only, renderer, worker-parent, direct-console, main, and
+fatal UI. The same run proves the first still-live occurrence is resent only
+after durable grant, Error IDs match both UI surfaces, revocation and close add
+no envelopes, and a real uncaught main failure writes and replays the startup
+marker. Hosted release jobs require accepted delivery and cover every shipping
+identity.
 
 Artifact workflow
 [33928531296](https://github.com/evb0110/evb-viewer/actions/runs/33928531296)
 completed successfully. Its two Microsoft Store installed-smoke jobs passed.
+The replacement exact-SHA workflow
+[34006005475](https://github.com/evb0110/evb-viewer/actions/runs/34006005475)
+is the acceptance record for `0.1.453`; it passed overall, with only the
+credential-free Windows 7 advisory PDF journey failing before application
+startup.
 The core and supplemental release workflows also completed successfully, and
 the public `v0.1.452` release has every required core and supplemental asset.
 `SHA256SUMS` verifies the immutable core set; supplemental assets attach later
@@ -195,26 +258,24 @@ map proof is represented as production evidence here.
 
 | Deployment | Served-byte parity | Unknown requests | Denied requests | Granted event count | Revocation requests | CSP origin count | Error ID matched | Symbolicated | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Preview | Pass, protected exact-byte deployment | Pending | Pending | 256 private source-map canaries | Pending | One EU ingest origin in built CSP | Pending | Pass, sampled browser frame | 2026-09-05 |
-| Production | Pass, exact prebuilt v0.1.452 deployment | 0 | 0 | 1 | 0 | One EU ingest origin in served CSP | Pass | Pass, original EVB browser frames | 2026-09-05 |
+| Preview | Pass, protected exact-byte deployment | Pending | Pending | 259 source-map canaries | Pending | One EU ingest origin in built CSP | Pass in the verifier | 259/259 verified | 2026-09-05 |
+| Production | Pass, exact prebuilt `evb-viewer-web@0.1.453` deployment | 0 | 0 | 1 runtime event plus 259 deterministic source-map canaries | 0 | One EU ingest origin in served CSP | Pass | 259/259 verified | 2026-09-06 |
 
 The CSP origin count must be one for the exact EU ingest origin. Electron CSP
 must remain unchanged.
 
-The Preview source-map run uploaded 473 bundles from separate visible Vercel
-`static` and `functions` roots. It sent 256 canaries for bundles with a usable
-EVB mapping and recorded 217 generated or vendor-only bundles as ineligible.
-The sampled browser canary resolved by Debug ID to
-`app/composables/useRuntimeErrorReports.ts:16`, including source context, with
-`symbolicated_in_app` true. This proves private-map symbolication only. The
-unknown, denied, grant, revocation, and Error ID rows still require the hosted
-browser behavior canary.
+The historical `v0.1.452` feed contained deterministic canary issues with
+`missing_source_content`. The replacement uploader now handles the hidden
+Vercel output and canonical source-root paths. The final production receipt was
+checked against every event through the source-map-debug and processed-event
+APIs, so the current table records symbolication rather than inference from a
+successful upload.
 
-Production completed that behavior canary against `web.evb-viewer.com`.
+Production completed the consent behavior canary against `web.evb-viewer.com`.
 Unknown and first-time denied states made no ingest request, granting the live
 fault emitted one event, and immediate revocation emitted nothing later. The
-served bundles matched the private manifest, and a real runtime event resolved
-to its original EVB frames.
+served bundles matched the private manifest, and the current 259-event receipt
+resolved to its expected EVB sources and functions.
 
 ### Viewer Nitro
 
@@ -225,13 +286,28 @@ to its original EVB frames.
 
 Run Nitro in preview first. Production remains disabled until the preview gate
 and legal approval pass. Review preview and production canary data for one full
-week before completing the Nitro canary.
+week before completing the Nitro canary. This work remains outside the closed
+desktop/browser delivery scope and is tracked by
+[#222](https://github.com/evb0110/evb-viewer/issues/222) and
+[#261](https://github.com/evb0110/evb-viewer/issues/261).
 
 ## Four-week production proof
 
-After every enabled runtime passes its canary, record four consecutive weekly
-reviews. A failed measure opens a remediation issue and leaves the Sentry parent
-issue open.
+The operating record has two scopes. The enabled-client baseline covers the
+eight shipping desktop identities and the served production browser. The
+Nitro record starts only after its legal and preview gates. A baseline or a
+synthetic canary is not an elapsed week. This record continues after the
+desktop/browser delivery closure. A failed measure opens a remediation issue;
+it does not reopen the closed delivery project.
+
+The first valid enabled-client production baseline is 2026-09-06 for
+`v0.1.453`: eight desktop identities and production web passed the consent,
+closed-event, source-map, and artifact checks recorded above. The next weekly
+review is due 2026-09-13 UTC. The earliest four-week client record is
+2026-10-04 UTC if each weekly review passes. Nitro has no observation start
+date because its processing remains disabled. The client baseline is not a
+four-week completion claim. Continue it under
+[#267](https://github.com/evb0110/evb-viewer/issues/267), which remains open.
 
 | Week | Enabled runtimes and releases | Volume within thresholds | Suppression correct | Quota healthy | Forbidden fields | Symbolication | Actionable outcomes | Remediation issue |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -239,6 +315,12 @@ issue open.
 | 2 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
 | 3 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
 | 4 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
+
+The repository has no dedicated Sentry scheduler or durable wake-up job. The
+existing scheduled GitHub Actions workflows are unrelated maintenance and do
+not perform this review. Until a named operator or an explicitly created
+durable schedule records the next review, the due date above is a procedure,
+not a claim that an idle agent will wake itself.
 
 ## Package-removal rehearsal
 
@@ -260,3 +342,4 @@ Run this rehearsal in a disposable worktree. Do not publish the rehearsal.
 | Tested commit | Date | Gates | Platforms | Local behavior | Sentry requests | Result |
 | --- | --- | --- | --- | --- | --- | --- |
 | `f39a0e2d6fcb3610f96fcde81496a9dc5108483d` | 2026-09-04 | Typecheck, 10,876 unit tests, architecture, desktop build, package, packaged core PDF smoke | macOS arm64 | Startup, PDF open, annotation save, metadata-preserving rotation, source isolation, search, and shutdown passed; print, export, updater download, recovery relaunch, and fatal dialog were not exercised | Zero structurally possible; packages, adapters, ingest endpoint, upload commands, and credentials were absent, but no packet-capture proxy was used | Partial pass; repeat the omitted behaviors before calling the full rehearsal complete |
+| `ac525d5653625f1c47c40cbb1860d8190df3e762`, disposable child of `7b9ce3e379a6b66a7ad07011707dbf3617d90af3` | 2026-09-05 | Typecheck, 11,479 unit tests, architecture, strict desktop build, macOS package, packaged diagnostics removal matrix, source and ASAR scans, and differential packaged PDF and visible-window checks | macOS arm64 | Runtime and fatal Error IDs remained; direct console and main errors stayed local; startup crash marker, recovery relaunch, and shutdown passed. The full unit suite covered local logging, save, export, print, update, recovery, and shutdown behavior after package removal. The independent packaged PDF and visible-window suites reached the document but hit the same visual-settle failure on the untouched parent build, so that existing failure is not attributed to removal. | Zero delivery attempts in the packaged audit for UI, console, main, and startup-marker cases. No Sentry dependency, adapter, DSN, ingest endpoint, or Sentry module path remained in source or the packaged ASAR. | Pass. Removing Sentry leaves the local failure pipeline and covered application behavior intact. The unrelated renderer-settle test failure remains outside this rehearsal. |

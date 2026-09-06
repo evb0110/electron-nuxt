@@ -4,6 +4,7 @@ import type {
     IPageGeometry,
 } from '@app/types/crop';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { screenRectToMargins } from '@app/utils/pdfCropCoordinates';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IWorkspacePdfViewerCropPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
@@ -76,7 +77,7 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
         try {
             geometry = await getPageOpsCapability().getPageGeometry(
                 workingCopyPath,
-                result.pageNumber,
+                requirePageNumber(result.pageNumber),
             );
         } catch (error) {
             BrowserLogger.warn('crop', 'Failed to initialize crop dialog geometry', {
@@ -90,7 +91,7 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
             return;
         }
 
-        if (!geometry || !isCurrentCropRequest(requestToken, viewer, workingCopyPath)) {
+        if (!isCurrentCropRequest(requestToken, viewer, workingCopyPath)) {
             if (requestToken === cropRequestToken) {
                 cropDialogLoading.value = false;
             }

@@ -68,7 +68,7 @@ function buildTabSignature(
         toolbar?.continuousScroll ?? null,
         toolbar?.viewMode ?? null,
         toolbar?.viewRotation ?? null,
-        record?.viewState?.surfaceMode ?? null,
+        record?.viewState.surfaceMode ?? null,
     ]);
 }
 

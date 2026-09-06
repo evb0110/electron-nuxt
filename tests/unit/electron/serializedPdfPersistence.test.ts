@@ -27,6 +27,11 @@ import { tmpdir } from 'os';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { createPdfPersistenceErrorFrame } from '@contracts/documentPersistenceFrames';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {
+    isTypedStagedArtifact,
+    type ITypedStagedArtifact,
+} from '@contracts/stagedArtifacts';
 import type * as SerializedPdfPersistenceModule from '@electron/features/documents/main/serializedPdfPersistence';
 import {requireDocumentRevisionToken} from '@contracts';
 
@@ -185,7 +190,7 @@ describe('serializedPdfPersistence', () => {
         mocks.refreshWorkingCopyOriginalFileExpectation.mockResolvedValue(true);
         mocks.getWorkingCopyRevision.mockImplementation(async (workingPath: string) => ({
             version: 1,
-            documentRef: workingPath,
+            documentRef: requireDocumentRef(workingPath),
             authority: 'electron-working-copy',
             token: requireDocumentRevisionToken('drt1:test:main-base'),
             contentRevision: 1,
@@ -594,7 +599,7 @@ describe('serializedPdfPersistence', () => {
         writeFileSync(originalPath, 'old-original');
         mocks.getWorkingCopyOriginalPath.mockReturnValue({originalPath});
         mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
-            documentRef: workingPath,
+            documentRef: requireDocumentRef(workingPath),
             expectedRevision: requireDocumentRevisionToken('drt1:test:base'),
             actualRevision: requireDocumentRevisionToken('drt1:test:newer'),
         }));
@@ -625,7 +630,7 @@ describe('serializedPdfPersistence', () => {
         writeFileSync(workingPath, 'newer-working-copy');
         writeFileSync(targetPath, 'old-target');
         mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(createStaleRevisionError({
-            documentRef: workingPath,
+            documentRef: requireDocumentRef(workingPath),
             expectedRevision: requireDocumentRevisionToken('drt1:test:save-as-base'),
             actualRevision: requireDocumentRevisionToken('drt1:test:newer-save-as'),
         }));
@@ -1495,32 +1500,14 @@ function isTerminalPortMessage(message: unknown) {
 function isStagedPortMessage(message: unknown): message is {
     type: 'staged';
     sessionId: string;
-    stagedOutput: {
-        receiptVersion: 1;
-        artifactKind: 'pdf';
-        path: string;
-        size: number;
-        sha256: string;
-        fileIdentity: {
-            platform: 'posix';
-            deviceId: string;
-            inode: string;
-        };
-        validations: {
-            qpdfCheck: boolean;
-            tailCheck: boolean;
-            semanticCheck: boolean;
-            fsynced: boolean;
-        };
-        leaseId: string;
-        revision: null;
-    };
+    stagedOutput: ITypedStagedArtifact;
 } {
     return isPortMessage(message, 'staged')
         && typeof message === 'object'
         && message !== null
         && 'sessionId' in message
-        && 'stagedOutput' in message;
+        && 'stagedOutput' in message
+        && isTypedStagedArtifact(message.stagedOutput);
 }
 
 function wrapMessageEventPayload(payload: unknown, depth: number) {

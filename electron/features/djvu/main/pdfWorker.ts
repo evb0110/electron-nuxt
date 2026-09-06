@@ -2,8 +2,8 @@ import {
     parentPort,
     workerData,
 } from 'worker_threads';
-import { buildOptimizedPdf } from '@electron/djvu/buildOptimizedPdf';
-import { embedBookmarksIntoPdfFile } from '@electron/djvu/embedBookmarksIntoPdfFile';
+import { buildOptimizedPdf } from '@electron/features/djvu/main/buildOptimizedPdf';
+import { embedBookmarksIntoPdfFile } from '@electron/features/djvu/main/embedBookmarksIntoPdfFile';
 import type {
     TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,
@@ -18,7 +18,6 @@ import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface IDjvuPdfWorkerCancelMessage {type: 'cancel';}
-
 
 
 function isPdfBookmarkEntry(value: unknown): value is IPdfBookmarkEntry {
@@ -100,7 +99,10 @@ function toTransferableBuffer(data: Uint8Array) {
     return clone.buffer;
 }
 
-async function runTask(task: TDjvuPdfWorkerTask, signal: AbortSignal) {
+async function runTask(
+    task: Exclude<TDjvuPdfWorkerTask, {type: 'embedBookmarksInFile';}>,
+    signal: AbortSignal,
+) {
     switch (task.type) {
         case 'buildPdf':
             return buildOptimizedPdf(task.imagePaths, task.dpi, (page, total) => {
@@ -115,8 +117,6 @@ async function runTask(task: TDjvuPdfWorkerTask, signal: AbortSignal) {
             const pdfBytes = await buildOptimizedPdf([task.imagePath], task.dpi, undefined, {signal});
             return pdfBytes.length;
         }
-        default:
-            throw new Error(`Unsupported DjVu PDF worker task: ${(task as { type: string }).type}`);
     }
 }
 

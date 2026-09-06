@@ -10,8 +10,12 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { cast } from '@tests/helpers/cast';
-import { requirePageIndex } from '@contracts/pageNumbers';
+import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 type THighlightPageMock = (
@@ -193,7 +197,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/ocr.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/ocr.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -243,7 +247,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/scanned.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/scanned.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -276,7 +280,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/book.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/book.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -314,7 +318,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/book.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/book.pdf')),
             documentRevisionToken,
             effectiveScale: ref(1),
         });
@@ -349,7 +353,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/book.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/book.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -420,7 +424,7 @@ describe('usePdfTextLayerRenderer', () => {
         renderer.applyPageSearchHighlights(
             {} as HTMLElement,
             cast<HTMLElement>({dataset: {pdfTextLayerReady: 'true'}}),
-            1,
+            requirePageNumber(1),
             {} as HTMLCanvasElement,
         );
 
@@ -774,7 +778,7 @@ describe('usePdfTextLayerRenderer', () => {
         renderer.applyPageSearchHighlights(
             page,
             textLayer,
-            1,
+            requirePageNumber(1),
             {} as HTMLCanvasElement,
         );
         currentSearchMatch.value = {
@@ -1005,7 +1009,7 @@ describe('usePdfTextLayerRenderer', () => {
         renderer.applyPageSearchHighlights(
             container,
             textLayerDiv,
-            1,
+            requirePageNumber(1),
             null,
         );
 

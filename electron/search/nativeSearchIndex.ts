@@ -13,6 +13,7 @@ import {
     persistCompactSearchIndex,
 } from '@electron/search/searchIndexSidecar';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import { requirePageNumber } from '@contracts/pageNumbers';
 
 export const NATIVE_SEARCH_INDEX_SCHEMA_VERSION = COMPACT_SEARCH_INDEX_SCHEMA_VERSION;
 export const NATIVE_SEARCH_INDEX_MAGIC = COMPACT_SEARCH_INDEX_MAGIC;
@@ -80,7 +81,10 @@ export async function persistNativeSearchIndex(
     await persistCompactSearchIndex(pdfPath, {
         documentRevision,
         pageCount: index.pageCount ?? index.pages.length,
-        pages: index.pages,
+        pages: index.pages.map(page => ({
+            ...page,
+            pageNumber: requirePageNumber(page.pageNumber),
+        })),
     }, signal);
     log.debug(`Native search index saved successfully: ${getNativeSearchIndexPath(pdfPath)}`);
 }

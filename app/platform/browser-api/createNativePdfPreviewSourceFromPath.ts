@@ -1,4 +1,10 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    createRequestId,
+    parseRequestId,
+    type TRequestId,
+} from '@contracts/shared';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type {
     IDocumentsFileIoCapability,
     IPdfNativePagePreviewOptions,
@@ -38,21 +44,22 @@ export function createNativePdfPreviewSourceFromPath(
     let nextPreviewRequestId = 0;
     nextNativePreviewSourceInstanceId += 1;
     const sourceInstanceId = nextNativePreviewSourceInstanceId;
-    const activePreviewRequestIds = new Set<string>();
-    const activePreviewRequestIdsByPage = new Map<number, Set<string>>();
-    const canceledPreviewRequestIds = new Set<string>();
+    const activePreviewRequestIds = new Set<TRequestId>();
+    const activePreviewRequestIdsByPage = new Map<number, Set<TRequestId>>();
+    const canceledPreviewRequestIds = new Set<TRequestId>();
     const objectUrlLeases = new Map<string, {
         lease: IWorkspaceSurfaceBudgetLeasePort | null;
         invalidationListeners: Set<() => void>;
     }>();
     const surfaceScopeId = `native-preview:${sourceInstanceId}:${pdfPath}`;
     const surfaceBudget = requireWorkspaceSurfaceBudgetPort();
-    const cancelPreviewRequest = (requestId: string) => {
+    const cancelPreviewRequest = (requestId: TRequestId) => {
         void cancelPdfNativePagePreview(requestId).catch(() => undefined);
     };
     const cancelPagePreview = (pageNumber: number, requestId?: string) => {
         const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber);
-        const requestIds = requestId ? [requestId] : [...pageRequestIds ?? []];
+        const parsedRequestId = requestId === undefined ? null : parseRequestId(requestId);
+        const requestIds = parsedRequestId ? [parsedRequestId] : [...pageRequestIds ?? []];
         for (const activeRequestId of requestIds) {
             if (!activePreviewRequestIds.has(activeRequestId)) continue;
             canceledPreviewRequestIds.add(activeRequestId);
@@ -60,12 +67,12 @@ export function createNativePdfPreviewSourceFromPath(
         }
     };
     const createPreviewRequestId = (pageNumber: number, options?: IPdfNativePagePreviewOptions) => {
-        const requestId = options?.previewRequestId?.trim();
+        const requestId = options?.previewRequestId;
         if (requestId) {
             return requestId;
         }
         nextPreviewRequestId += 1;
-        return `pdf-native-preview:${sourceInstanceId}:${pageNumber}:${nextPreviewRequestId}`;
+        return createRequestId(`pdf-native-preview-${sourceInstanceId}-${pageNumber}-${nextPreviewRequestId}`);
     };
 
     return {
@@ -80,16 +87,16 @@ export function createNativePdfPreviewSourceFromPath(
             }
             const previewRequestId = createPreviewRequestId(pageNumber, options);
             activePreviewRequestIds.add(previewRequestId);
-            const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber) ?? new Set<string>();
+            const pageRequestIds = activePreviewRequestIdsByPage.get(pageNumber) ?? new Set<TRequestId>();
             pageRequestIds.add(previewRequestId);
             activePreviewRequestIdsByPage.set(pageNumber, pageRequestIds);
             let preview;
             try {
-                preview = await renderPdfNativePagePreview(pdfPath, pageNumber, {
+                preview = await renderPdfNativePagePreview(pdfPath, requirePageNumber(pageNumber), {
                     ...options,
                     previewRequestId,
                 });
-                if (terminated || canceledPreviewRequestIds.has(previewRequestId)) {
+                if (terminated.valueOf() || canceledPreviewRequestIds.has(previewRequestId)) {
                     throw new Error('Native PDF preview canceled');
                 }
             } finally {

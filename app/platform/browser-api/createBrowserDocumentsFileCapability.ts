@@ -68,6 +68,11 @@ import {
 } from '@app/platform/browser/browserStagedArtifact';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import { createEpochMs } from '@contracts/timestamps';
 
 const BROWSER_DEFAULT_PDF_APP_UNSUPPORTED = 'Opening via the default desktop PDF app is unavailable in the browser capability';
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
@@ -126,7 +131,7 @@ export function createBrowserDocumentsFileCapability(
     }
 
     async function savePdfAsWithOptionalData(
-        workingCopyPath: string,
+        workingCopyPath: TDocumentRef,
         data?: Uint8Array,
         revisionOptions?: IDocumentMutationRevisionOptions,
         commitCallbacks?: Parameters<IDocumentsFileCapability['savePdfDataAs']>[4],
@@ -154,16 +159,16 @@ export function createBrowserDocumentsFileCapability(
         await commitCallbacks?.assertBeforeCommit?.();
 
         let externalWriteCommitted: boolean | null = false;
-        let savedSourceRef: string | null;
+        let savedSourceRef: TDocumentRef | null;
         try {
-            savedSourceRef = await browserDocumentStore.runDocumentMutationWithSource(
+            const savedSourceRefResult = await browserDocumentStore.runDocumentMutationWithSource(
                 workingCopyPath,
                 previousSourceRef,
                 revisionOptions?.expectedDocumentRevisionToken,
                 async (mutation) => {
                     let normalizedFileName = ensurePdfExtension(saveResult.fileName);
                     let savedHandle = saveResult.handle;
-                    let sourceRef: string;
+                    let sourceRef: TDocumentRef;
 
                     if (saveResult.handle) {
                         if (data) {
@@ -251,6 +256,7 @@ export function createBrowserDocumentsFileCapability(
                     return sourceRef;
                 },
             );
+            savedSourceRef = parseDocumentRef(savedSourceRefResult);
         } catch (error) {
             if (error instanceof BrowserFileWriteOutcomeError) {
                 externalWriteCommitted = error.externalWriteCommitted;
@@ -414,10 +420,10 @@ export function createBrowserDocumentsFileCapability(
                 throw error;
             }
         },
-        async savePdfAs(workingCopyPath, _options, revisionOptions) {
+        async savePdfAs(workingCopyPath, _options, revisionOptions?) {
             return savePdfAsWithOptionalData(workingCopyPath, undefined, revisionOptions);
         },
-        async savePdfDataAs(workingCopyPath, data, _options, serializedSaveOptions, commitCallbacks) {
+        async savePdfDataAs(workingCopyPath, data, _options, serializedSaveOptions?, commitCallbacks?) {
             const validation = await validateBrowserPdfData(data);
             if (!validation.isValid) {
                 return {
@@ -650,8 +656,16 @@ export function createBrowserDocumentsFileCapability(
                 ...parsed,
             };
         },
-        statFile(path) {
-            return browserDocumentStore.stat(path);
+        async statFile(path) {
+            const stat = await browserDocumentStore.stat(path);
+            const {
+                modifiedAt,
+                ...rest
+            } = stat;
+            return {
+                ...rest,
+                ...(modifiedAt === undefined ? {} : {modifiedAt: createEpochMs(modifiedAt)}),
+            };
         },
         readFileRange(path, offset, length) {
             return browserDocumentStore.readRange(path, offset, length);
@@ -1102,9 +1116,13 @@ export function createBrowserDocumentsFileCapability(
             return files.map(file => browserDocumentStore.getRefForFile(file));
         },
         async registerFilesForOpen(files) {
-            const refs: string[] = [];
+            const refs: TDocumentRef[] = [];
             for (const file of files) {
-                refs.push(await browserDocumentStore.registerFile(file));
+                const ref = parseDocumentRef(await browserDocumentStore.registerFile(file));
+                if (!ref) {
+                    throw new Error('Browser file registration returned an invalid document reference');
+                }
+                refs.push(ref);
             }
             return refs;
         },

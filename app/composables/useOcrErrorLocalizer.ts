@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 import {
     ocrErrorCodeMessageKeys,
@@ -60,7 +61,7 @@ export const useOcrErrorLocalizer = () => {
             ? envelope.message
             : typeof errorValue === 'string'
                 ? errorValue
-                : (errorValue instanceof Error ? errorValue.message : '');
+                : (errorValue instanceof Error ? getErrorMessage(errorValue) : '');
         if (!rawMessage) {
             return t(fallbackKey);
         }
@@ -89,13 +90,11 @@ export const useOcrErrorLocalizer = () => {
 
         if (envelope !== null) {
             const codeMessageKey = ocrErrorCodeMessageKeys[envelope.code];
-            if (codeMessageKey !== undefined) {
-                const codeMessage = t(codeMessageKey);
-                if (!normalized || normalized === envelope.code || normalized === codeMessage) {
-                    return codeMessage;
-                }
-                return `${codeMessage}: ${truncateOcrErrorDetails(normalized)}`;
+            const codeMessage = t(codeMessageKey);
+            if (!normalized || normalized === envelope.code || normalized === codeMessage) {
+                return codeMessage;
             }
+            return `${codeMessage}: ${truncateOcrErrorDetails(normalized)}`;
         }
 
         return `${t(fallbackKey)}: ${truncateOcrErrorDetails(normalized)}`;

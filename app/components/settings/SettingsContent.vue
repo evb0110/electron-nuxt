@@ -172,6 +172,7 @@ import type { FailurePresentation } from '@app/composables/useFailureToast';
 import { useFailureToast } from '@app/composables/useFailureToast';
 import { LOCALE_DEFINITIONS } from '@i18n-core';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { createDisposalFlag } from '@app/utils/createDisposalFlag';
 import { getErrorMessage } from '@app/utils/error';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
 import { getShellCapability } from '@app/utils/getShellCapability';
@@ -316,7 +317,7 @@ const {
     isUpdateSupported,
 } = useAppUpdates();
 
-const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale] ?? LOCALE_FLAGS.en);
+const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale]);
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;
 const agentMcpStatus = ref<IAgentMcpIntegrationStatus | null>(null);
 const isAgentMcpBusy = ref(false);
@@ -359,7 +360,7 @@ watch(isLoaded, (loaded) => {
     }
 });
 let unsubscribeAssistantEvent: (() => void) | null = null;
-let disposed = false;
+const lifecycle = createDisposalFlag();
 const shortcutsDescription = computed(() => isDesktopRuntime.value
     ? t('settings.shortcutsDescription')
     : t('settings.browserShortcutsDescription'));
@@ -372,7 +373,7 @@ const localeItems = computed(() => LOCALE_OPTION_DEFINITIONS.map(option => ({
 
 const zoomPresetItems = computed(() => ZOOM_PRESET_OPTION_DEFINITIONS.map(option => ({
     value: option.value,
-    label: option.labelKey ? t(option.labelKey) : option.label ?? '',
+    label: option.labelKey ? t(option.labelKey) : option.label,
 })));
 
 const viewModeItems = computed(() => VIEW_MODE_OPTION_DEFINITIONS.map(option => ({
@@ -537,7 +538,7 @@ async function applyClientDiagnosticsPreference(
         diagnosticsPreferenceSave = null;
     });
     const saved = await diagnosticsPreferenceSave;
-    if (disposed) {
+    if (lifecycle.isDisposed()) {
         return;
     }
     if (!saved) {
@@ -645,7 +646,7 @@ function handleCheckForUpdates() {
 }
 
 function applyAssistantState(nextState: IAgentAssistantState) {
-    if (disposed) {
+    if (lifecycle.isDisposed()) {
         return;
     }
     assistantState.value = nextState;
@@ -655,7 +656,7 @@ function applyAssistantState(nextState: IAgentAssistantState) {
 }
 
 function handleAssistantEvent(event: IAgentAssistantEvent) {
-    if (disposed || !settings.value.assistantPanelEnabled) {
+    if (lifecycle.isDisposed() || !settings.value.assistantPanelEnabled) {
         return;
     }
     if (event.state) {
@@ -671,7 +672,7 @@ async function runAssistantAction(
         action,
         activeAction: assistantAction,
         isDesktopRuntime: isDesktopRuntime.value,
-        isActive: () => !disposed,
+        isActive: () => !lifecycle.isDisposed(),
         run: callback,
         t,
         toast,
@@ -717,7 +718,7 @@ async function updateAssistantPanelEnabled(enabled: boolean) {
     });
     const saved = await assistantPanelPreferenceSave;
 
-    if (disposed) {
+    if (lifecycle.isDisposed()) {
         return;
     }
 
@@ -782,12 +783,12 @@ async function refreshAgentMcpStatus() {
     isAgentMcpBusy.value = true;
     try {
         const status = await getAgentCapability().getMcpIntegrationStatus();
-        if (disposed) {
+        if (lifecycle.isDisposed()) {
             return;
         }
         agentMcpStatus.value = status;
     } catch (error) {
-        if (disposed) {
+        if (lifecycle.isDisposed()) {
             return;
         }
         presentAssistantFailure(
@@ -796,7 +797,7 @@ async function refreshAgentMcpStatus() {
             'Failed to refresh agent MCP integration status',
         );
     } finally {
-        if (!disposed) {
+        if (!lifecycle.isDisposed()) {
             isAgentMcpBusy.value = false;
         }
     }
@@ -810,12 +811,12 @@ async function setAgentMcpEnabled(enabled: boolean) {
     isAgentMcpBusy.value = true;
     try {
         const result = await getAgentCapability().setMcpIntegrationEnabled(enabled);
-        if (disposed) {
+        if (lifecycle.isDisposed()) {
             return;
         }
         agentMcpStatus.value = result.status;
         await load();
-        if (disposed) {
+        if (lifecycle.isDisposed()) {
             return;
         }
         if (!result.ok) {
@@ -829,7 +830,7 @@ async function setAgentMcpEnabled(enabled: boolean) {
             );
         }
     } catch (error) {
-        if (disposed) {
+        if (lifecycle.isDisposed()) {
             return;
         }
         presentAssistantFailure(
@@ -839,14 +840,14 @@ async function setAgentMcpEnabled(enabled: boolean) {
         );
         try {
             const status = await getAgentCapability().getMcpIntegrationStatus();
-            if (!disposed) {
+            if (!lifecycle.isDisposed()) {
                 agentMcpStatus.value = status;
             }
         } catch (statusError) {
             BrowserLogger.warn('settings', 'Failed to refresh agent MCP status after update failure', { statusError });
         }
     } finally {
-        if (!disposed) {
+        if (!lifecycle.isDisposed()) {
             isAgentMcpBusy.value = false;
         }
     }
@@ -855,7 +856,7 @@ async function setAgentMcpEnabled(enabled: boolean) {
 function openAgentMcpInstall() {
     const installUrl = agentMcpStatus.value?.installUrl ?? 'https://developers.openai.com/codex/app';
     void getShellCapability().openExternal(installUrl).catch((error: unknown) => {
-        if (disposed) {
+        if (lifecycle.isDisposed()) {
             return;
         }
         presentAssistantFailure(error, 'mcp-install', 'Failed to open agent MCP install URL');
@@ -891,7 +892,7 @@ watch(() => settings.value.assistantPanelEnabled, (enabled) => {
 });
 
 onBeforeUnmount(() => {
-    disposed = true;
+    lifecycle.dispose();
     unsubscribeAssistantEvent?.();
     unsubscribeAssistantEvent = null;
 });

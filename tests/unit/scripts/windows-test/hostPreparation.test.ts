@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import {
+    chmod,
     mkdtemp,
     mkdir,
     readFile,
@@ -35,9 +36,14 @@ afterEach(async () => {
 async function preparation() {
     const root = await mkdtemp(path.join(tmpdir(), 'evb-windows-prepare-'));
     roots.push(root);
+    const standaloneUtmctlSourcePath = path.join(root, 'installed-utmctl');
+    await writeFile(standaloneUtmctlSourcePath, '#!/bin/sh\nprintf utmctl\n', 'utf8');
+    await chmod(standaloneUtmctlSourcePath, 0o755);
     return {
         layout: windowsTestHostLayout(root),
         repositoryRoot: process.cwd(),
+        standaloneUtmctlSourcePath,
+        verifyStandaloneUtmctlSignature: async () => undefined,
         lock: {
             hostId: 'preparation-test',
             pid: process.pid,
@@ -102,8 +108,12 @@ it('rejects a declared generated fixture that the generator did not produce', as
 
 it('preparation CLI writes verified inputs into the requested host root', async () => {
     const { layout } = await preparation();
+    const standaloneUtmctlSourcePath = path.join(layout.root, 'installed-utmctl');
     const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    expect(await runWindowsTestPrepareCli([], { EVB_WINDOWS_TESTS_ROOT: layout.root })).toBe(0);
+    expect(await runWindowsTestPrepareCli([], { EVB_WINDOWS_TESTS_ROOT: layout.root }, {
+        standaloneUtmctlSourcePath,
+        verifyStandaloneUtmctlSignature: async () => undefined,
+    })).toBe(0);
     const manifest = await loadFixtureManifest(path.join(layout.fixturesCacheDir, 'manifest.json'));
     expect(manifest.packs.flatMap(pack => pack.files)).toHaveLength(11);
     expect((await verifyFixturePack(layout.fixturesCacheDir, manifest)).problems).toEqual([]);
@@ -129,7 +139,10 @@ it('preparation CLI returns infrastructure failure and preserves an active lease
     const { layout } = await preparation();
     await writeFile(layout.leaseFile, 'existing-run');
     const error = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    expect(await runWindowsTestPrepareCli([], { EVB_WINDOWS_TESTS_ROOT: layout.root })).toBe(3);
+    expect(await runWindowsTestPrepareCli([], { EVB_WINDOWS_TESTS_ROOT: layout.root }, {
+        standaloneUtmctlSourcePath: path.join(layout.root, 'missing-utmctl'),
+        verifyStandaloneUtmctlSignature: async () => undefined,
+    })).toBe(3);
     expect(await readFile(layout.leaseFile, 'utf8')).toBe('existing-run');
     expect(error).toHaveBeenCalledWith(expect.stringContaining('lease exists'));
 });

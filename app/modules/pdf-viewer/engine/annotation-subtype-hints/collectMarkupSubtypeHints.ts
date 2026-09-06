@@ -4,6 +4,7 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import { isRecord } from '@contracts/runtimeGuards';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 
 const REWRITABLE_SUBTYPE_HINTS = new Set<TMarkupSubtype>([
@@ -93,7 +94,7 @@ export function collectMarkupSubtypeHints(
             ...(options.includeContents ? {contents: comment.text} : {}),
             id: comment.id,
             subtype,
-            pageIndex: comment.pageIndex,
+            pageIndex: requirePageIndex(comment.pageIndex),
             markerRect: comment.markerRect,
             ...(comment.markupGeometry?.length
                 && comment.markupGeometry.every(isValidMarkerRect)

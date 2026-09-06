@@ -8,7 +8,7 @@ import {
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
-import { cast } from '@tests/helpers/cast';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 type TCapturedListener = (event: DragEvent) => void;
@@ -42,22 +42,40 @@ function createDragEvent(
     types: string[] = ['Files'],
     options: { defaultPrevented?: boolean } = {},
 ) {
-    const files = paths.map((path, index) => cast<File>({
-        name: `file-${index}`,
-        path,
-    }));
-    const event = {
-        defaultPrevented: options.defaultPrevented ?? false,
-        target: null,
+    const files = paths.map((path, index) => {
+        const file = new File([], `file-${index}`);
+        Object.defineProperty(file, 'path', {
+            configurable: true,
+            value: path,
+        });
+        return file;
+    });
+    const event = new Event('drop', {cancelable: true});
+    Object.defineProperties(event, {
         dataTransfer: {
-            types,
-            files,
-            dropEffect: 'none',
+            configurable: true,
+            value: {
+                types,
+                files,
+                dropEffect: 'none',
+            },
         },
-        preventDefault: vi.fn(),
-        stopPropagation: vi.fn(),
-    };
-    return cast<DragEvent>(event);
+        defaultPrevented: {
+            configurable: true,
+            value: options.defaultPrevented ?? false,
+        },
+        preventDefault: {
+            configurable: true,
+            value: vi.fn(),
+        },
+        stopPropagation: {
+            configurable: true,
+            value: vi.fn(),
+        },
+    });
+
+    // The drop handler only consumes this small Electron DataTransfer shim.
+    return event as DragEvent;
 }
 
 async function flushDropQueue() {
@@ -81,7 +99,9 @@ describe('useExternalFileDrop', () => {
     it('opens supported dropped files', async () => {
         const openPathsInAppropriateTab = vi.fn(async (_paths: string[]) => {});
         const pickerRegisterFilesForOpen = vi.fn(async (files: Array<{ name: string }>) => files.map((file) =>
-            file.name === 'file-0' ? '/docs/a.pdf' : '/docs/b.djvu',
+            file.name === 'file-0'
+                ? requireDocumentRef('/docs/a.pdf')
+                : requireDocumentRef('/docs/b.djvu'),
         ));
 
         vi.stubGlobal('window', {
@@ -109,7 +129,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documentPicker: { registerFilesForOpen: vi.fn(async () => ['/docs/readme.txt']) } }),
+            electronAPI: createElectronPlatformApiFixture({ documentPicker: {registerFilesForOpen: vi.fn(async () => [requireDocumentRef('/docs/readme.txt')])} }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -131,7 +151,7 @@ describe('useExternalFileDrop', () => {
 
         vi.stubGlobal('window', {
             ...globalThis,
-            electronAPI: createElectronPlatformApiFixture({ documentPicker: { registerFilesForOpen: vi.fn(async () => ['/docs/a.pdf']) } }),
+            electronAPI: createElectronPlatformApiFixture({ documentPicker: {registerFilesForOpen: vi.fn(async () => [requireDocumentRef('/docs/a.pdf')])} }),
         });
 
         useExternalFileDrop({ openPathsInAppropriateTab });
@@ -160,7 +180,9 @@ describe('useExternalFileDrop', () => {
         });
 
         const documentPicker = { registerFilesForOpen: vi.fn(async (files: Array<{ name: string }>) => files.map((file) =>
-            file.name === 'file-0' ? '/docs/a.pdf' : '/docs/b.png',
+            file.name === 'file-0'
+                ? requireDocumentRef('/docs/a.pdf')
+                : requireDocumentRef('/docs/b.png'),
         )) };
 
         vi.stubGlobal('window', {
@@ -194,7 +216,7 @@ describe('useExternalFileDrop', () => {
             if (files[0]?.name === 'file-0') {
                 throw new Error('ingestion failed');
             }
-            return ['/docs/b.pdf'];
+            return [requireDocumentRef('/docs/b.pdf')];
         });
 
         vi.stubGlobal('window', {

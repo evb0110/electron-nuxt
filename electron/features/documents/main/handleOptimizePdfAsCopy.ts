@@ -22,6 +22,11 @@ import { te } from '@electron/te';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { getErrorMessage } from '@electron/utils/error';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
+import {
+    createRequestId,
+    parseRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import { createLogger } from '@electron/utils/createLogger';
 import { showSaveDialogWithExtension } from '@electron/features/documents/main/documentDialogCommon';
 import {
@@ -42,7 +47,7 @@ function getSuggestedOptimizeName(workingPath: string, senderWebContentsId: numb
 
 function createOptimizeProgressReporter(
     context: IDocumentsDialogContext,
-    requestId: string,
+    requestId: TRequestId,
 ) {
     const pump = createIpcProgressPump<IPdfOptimizeProgress>({
         channel: DOCUMENT_MENU_PLATFORM_FEATURE.eventChannels.onPdfOptimizeProgress,
@@ -73,7 +78,8 @@ export async function handleOptimizePdfAsCopy(
         throw new Error('Invalid file path');
     }
     const options = normalizePdfOptimizeOptions(rawOptions);
-    const requestId = normalizeOptionalIpcRequestId(rawRequestId) ?? `pdf-optimize-${Date.now()}`;
+    const requestId = parseRequestId(normalizeOptionalIpcRequestId(rawRequestId))
+        ?? createRequestId('pdf-optimize');
     const expectedDocumentRevisionToken = normalizeExpectedDocumentRevisionToken(revisionOptions);
 
     if (!await ensureWorkingCopyDirectory(normalizedWorkingPath, context.senderId)) {
@@ -124,7 +130,7 @@ export async function handleOptimizePdfAsCopy(
         await addRecentFile(result.path);
         updateRecentFilesMenu();
 
-        context.parentWindow?.setRepresentedFilename?.(result.path);
+        context.parentWindow?.setRepresentedFilename(result.path);
     }
 
     return result;
