@@ -1,9 +1,5 @@
 export interface ICombineSnapshotItem {id: string;}
 
-export function canMutateCombineFiles(isCombining: boolean) {
-    return !isCombining;
-}
-
 export function removeCompletedCombineSnapshot<T extends ICombineSnapshotItem>(
     currentItems: readonly T[],
     snapshotItems: readonly ICombineSnapshotItem[],
