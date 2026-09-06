@@ -29,6 +29,7 @@ interface ILineBudgetModule {
         productionLines: number[];
         testCodeLines: number[]
     };
+    validateScanCleanupBaseline: (value: unknown, label?: string) => unknown;
     compareScanCleanupBaselines: (current: {
         homes: Record<string, {lines: number}>;
         productionTotal: number;
@@ -53,6 +54,31 @@ interface ILineBudgetModule {
 
 const module = await import(pathToFileURL(join(process.cwd(), 'scripts/scan-cleanup-line-budget.mjs')).href) as ILineBudgetModule;
 const temporaryDirectories: string[] = [];
+const homePaths = {
+    app: 'app/modules/scan-cleanup',
+    electron: 'electron/features/scan-cleanup',
+    contracts: 'packages/contracts/scan-cleanup',
+    core: 'scan-cleanup-core',
+    adapters: 'scan-cleanup-adapters',
+    native: 'native/scan-cleanup',
+};
+
+function baseline(lines: Partial<Record<keyof typeof homePaths, number>> = {}, productionTotal = 20) {
+    return {
+        version: 1,
+        productionTotal,
+        homes: Object.fromEntries(Object.entries(homePaths).map(([
+            name,
+            path,
+        ]) => [
+            name,
+            {
+                lines: lines[name as keyof typeof homePaths] ?? 0,
+                path,
+            },
+        ])),
+    };
+}
 
 afterEach(async () => {
     await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
@@ -129,7 +155,6 @@ describe('scan-cleanup line budget', () => {
         expect(split.testCodeLines).toEqual([
             2,
             3,
-            4,
             5,
             6,
             7,
@@ -139,37 +164,80 @@ describe('scan-cleanup line budget', () => {
         ]);
     });
 
+    it('counts Rust code lines without comment-only lines and preserves literals', () => {
+        const source = [
+            'fn f<\'a>() {',
+            '    // comment-only production line',
+            '    let x = 1; /* trailing comment */',
+            '    /* outer /* nested */ comment-only */',
+            '    let character = \'{\';',
+            '    let normal = "// not a comment { }";',
+            '    let raw = br#"/* not a comment { } */"#;',
+            '}',
+            '#[cfg(test)] mod tests {',
+            '    // comment-only test line',
+            '    let test_value = 2; // trailing comment',
+            '}',
+        ].join('\n');
+        const split = module.splitRustTestCodeLines(source);
+        expect(split.productionLines).toEqual([
+            0,
+            2,
+            4,
+            5,
+            6,
+            7,
+        ]);
+        expect(split.testCodeLines).toEqual([
+            8,
+            10,
+            11,
+        ]);
+    });
+
+    it('validates the complete baseline shape before comparison', () => {
+        expect(() => module.validateScanCleanupBaseline(baseline())).not.toThrow();
+        const missingHome = baseline();
+        delete missingHome.homes.native;
+        expect(() => module.validateScanCleanupBaseline(missingHome)).toThrow('exactly the six named');
+        const missingTotal = baseline() as {productionTotal?: number};
+        delete missingTotal.productionTotal;
+        expect(() => module.validateScanCleanupBaseline(missingTotal)).toThrow('productionTotal');
+        expect(() => module.validateScanCleanupBaseline(baseline({app: -1}))).toThrow('nonnegative');
+        expect(() => module.validateScanCleanupBaseline({
+            ...baseline(),
+            version: 2,
+        })).toThrow('unsupported');
+    });
+
     it('rejects raised home and total baselines, allows only an offsetting consolidation, and bootstraps', () => {
-        const previous = {
-            homes: {
-                app: {lines: 10},
-                native: {lines: 10},
-            },
-            productionTotal: 20,
-        };
+        const previous = baseline({
+            app: 10,
+            native: 10,
+        });
         expect(module.compareScanCleanupBaselines({
-            homes: {
-                app: {lines: 11},
-                native: {lines: 9},
-            },
+            ...baseline({
+                app: 11,
+                native: 9,
+            }),
             productionTotal: 20,
         }, previous).failures.join(' ')).toContain('app baseline increased by 1');
         expect(module.compareScanCleanupBaselines({
-            homes: {
-                app: {lines: 11},
-                native: {lines: 9},
-            },
+            ...baseline({
+                app: 11,
+                native: 9,
+            }),
             productionTotal: 20,
         }, previous, {allowHomeIncrease: true}).failures).toEqual([]);
         expect(module.compareScanCleanupBaselines({
-            homes: {
-                app: {lines: 11},
-                native: {lines: 10},
-            },
+            ...baseline({
+                app: 11,
+                native: 10,
+            }, 21),
             productionTotal: 21,
         }, previous, {allowHomeIncrease: true}).failures.join(' ')).toContain('production total baseline increased');
         expect(module.compareScanCleanupBaselines({
-            homes: {app: {lines: 10}},
+            ...baseline({app: 10}),
             productionTotal: 10,
         }, null)).toEqual({
             bootstrap: true,

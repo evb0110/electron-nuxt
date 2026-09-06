@@ -7,6 +7,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import {fileURLToPath} from 'node:url';
 
 const SOURCE_EXTENSIONS = new Set([
     '.rs',
@@ -16,7 +17,7 @@ const SOURCE_EXTENSIONS = new Set([
 ]);
 const SCAN_CLEANUP_TEST_PATH = /scan[-_]?cleanup/iu;
 /** @typedef {{byFile: Record<string, number>, path: string, total: number}} ILineHome */
-/** @typedef {{homes: Record<string, ILineHome>, productionTotal: number, tests: {byFile: Record<string, number>, total: number}, total: number}} ILineCounts */
+/** @typedef {{homes: Record<string, ILineHome>, productionTotal: number, tests: {byFile: Record<string, number>, total: number}}} ILineCounts */
 /** @typedef {{homes: Record<string, {lines: number, path: string}>, productionTotal: number, version: number}} ILineBudgetBaseline */
 
 /** @type {ReadonlyArray<[string, string]>} */
@@ -52,6 +53,11 @@ export const SCAN_CLEANUP_LINE_BUDGET_BASELINE = 'scan-cleanup-line-budget-basel
 /** @param {string} value @returns {string} */
 function preserveNewlines(value) {
     return value.replace(/[^\n]/gu, ' ');
+}
+
+/** @param {string} source @param {number} index @returns {boolean} */
+function startsRustCharLiteral(source, index) {
+    return /^'(?:\\[^\n]|[^'\\\n])'/u.test(source.slice(index));
 }
 
 /** @param {string} source @returns {string} */
@@ -123,7 +129,7 @@ function maskRustNonCode(source) {
             index += 1;
             blockDepth = 1;
             state = 'block-comment';
-        } else if (character === '"' || character === '\'') {
+        } else if (character === '"' || (character === '\'' && startsRustCharLiteral(source, index))) {
             output += ' ';
             quote = character;
             state = character === '"' ? 'string' : 'char';
@@ -132,6 +138,86 @@ function maskRustNonCode(source) {
         }
     }
     return output;
+}
+
+/** @param {string} source @returns {string} */
+function stripRustComments(source) {
+    let output = '';
+    let state = 'code';
+    let quote = '';
+    let rawTerminator = '';
+    let blockDepth = 0;
+    for (let index = 0; index < source.length; index += 1) {
+        const character = source[index];
+        const next = source[index + 1];
+        if (state === 'line-comment') {
+            if (character === '\n') {
+                output += character;
+                state = 'code';
+            }
+            continue;
+        }
+        if (state === 'block-comment') {
+            if (character === '/' && next === '*') {
+                blockDepth += 1;
+                index += 1;
+            } else if (character === '*' && next === '/') {
+                blockDepth -= 1;
+                index += 1;
+                if (blockDepth === 0) state = 'code';
+            } else if (character === '\n') {
+                output += character;
+            }
+            continue;
+        }
+        if (state === 'raw-string') {
+            output += character;
+            if (source.slice(index, index + rawTerminator.length) === rawTerminator) {
+                index += rawTerminator.length - 1;
+                state = 'code';
+            }
+            continue;
+        }
+        if (state === 'string' || state === 'char') {
+            output += character;
+            if (character === '\\' && next !== undefined) {
+                output += next;
+                index += 1;
+            } else if (character === quote) {
+                state = 'code';
+            }
+            continue;
+        }
+        const rawStart = source.slice(index).match(/^(?:br|r)(#*)"/u);
+        if (rawStart) {
+            const hashes = rawStart[1]?.length ?? 0;
+            const prefixLength = rawStart[0]?.length ?? 0;
+            rawTerminator = `"${'#'.repeat(hashes)}`;
+            output += source.slice(index, index + prefixLength);
+            index += prefixLength - 1;
+            state = 'raw-string';
+        } else if (character === '/' && next === '/') {
+            index += 1;
+            state = 'line-comment';
+        } else if (character === '/' && next === '*') {
+            index += 1;
+            blockDepth = 1;
+            state = 'block-comment';
+        } else if (character === '"' || (character === '\'' && startsRustCharLiteral(source, index))) {
+            output += character;
+            quote = character;
+            state = character === '"' ? 'string' : 'char';
+        } else {
+            output += character;
+        }
+    }
+    return output;
+}
+
+/** @param {string} source @returns {number} */
+function countRustCodeLines(source) {
+    const split = splitRustTestCodeLines(source);
+    return split.productionLines.length + split.testCodeLines.length;
 }
 
 /** @param {string} source @returns {{productionLines: number[], testCodeLines: number[]}} */
@@ -163,7 +249,9 @@ export function splitRustTestCodeLines(source) {
     const productionLines = [];
     /** @type {number[]} */
     const testCodeLines = [];
-    const codeLines = source.split(/\r?\n/u).map(/** @param {string} line */ line => line.trim().length > 0);
+    const codeLines = stripRustComments(source)
+        .split(/\r?\n/u)
+        .map(/** @param {string} line */ line => line.trim().length > 0);
     for (const [
         line,
         hasCode,
@@ -282,7 +370,9 @@ function countFiles(root, files, {allAsTests = false} = {}) {
     const byFile = /** @type {Record<string, number>} */ (Object.fromEntries(files.map(filePath => [
         path.relative(root, filePath).split(path.sep).join('/'),
         allAsTests
-            ? countCodeLines(readFileSync(filePath, 'utf8'))
+            ? path.extname(filePath) === '.rs'
+                ? countRustCodeLines(readFileSync(filePath, 'utf8'))
+                : countCodeLines(readFileSync(filePath, 'utf8'))
             : path.extname(filePath) === '.rs'
                 ? splitRustTestCodeLines(readFileSync(filePath, 'utf8')).productionLines.length
                 : countCodeLines(readFileSync(filePath, 'utf8')),
@@ -331,7 +421,6 @@ export function collectScanCleanupLineCounts(root) {
         homes,
         productionTotal: Object.values(homes).reduce((total, home) => total + home.total, 0),
         tests: testCounts,
-        total: Object.values(homes).reduce((total, home) => total + home.total, 0),
     };
 }
 
@@ -364,12 +453,14 @@ export function evaluateScanCleanupLineBudget(counts, baseline, {allowBaselineIn
 
 /** @param {{homes: Record<string, {lines: number}>, productionTotal: number}} current @param {{homes: Record<string, {lines: number}>, productionTotal: number} | null} previous @param {{allowHomeIncrease?: boolean}} [options] */
 export function compareScanCleanupBaselines(current, previous, {allowHomeIncrease = false} = {}) {
+    validateScanCleanupBaseline(current, 'current baseline');
     if (previous === null) {
         return {
             bootstrap: true,
             failures: [],
         };
     }
+    validateScanCleanupBaseline(previous, 'base baseline');
     const failures = [];
     for (const [
         name,
@@ -389,6 +480,43 @@ export function compareScanCleanupBaselines(current, previous, {allowHomeIncreas
         bootstrap: false,
         failures,
     };
+}
+
+/** @param {unknown} value @param {string} label @returns {ILineBudgetBaseline} */
+export function validateScanCleanupBaseline(value, label = 'baseline') {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${label} must be an object.`);
+    }
+    const candidate = /** @type {Record<string, unknown>} */ (value);
+    if (candidate.version !== 1) throw new Error(`${label} has unsupported version.`);
+    const productionTotal = candidate.productionTotal;
+    if (typeof productionTotal !== 'number' || !Number.isInteger(productionTotal) || productionTotal < 0) {
+        throw new Error(`${label} productionTotal must be a nonnegative integer.`);
+    }
+    if (candidate.homes === null || typeof candidate.homes !== 'object' || Array.isArray(candidate.homes)) {
+        throw new Error(`${label} homes must be an object.`);
+    }
+    const homes = /** @type {Record<string, unknown>} */ (candidate.homes);
+    const expectedNames = SCAN_CLEANUP_HOMES.map(([name]) => name).sort();
+    if (JSON.stringify(Object.keys(homes).sort()) !== JSON.stringify(expectedNames)) {
+        throw new Error(`${label} must contain exactly the six named scan-cleanup homes.`);
+    }
+    for (const [
+        name,
+        expectedPath,
+    ] of SCAN_CLEANUP_HOMES) {
+        const home = homes[name];
+        if (home === null || typeof home !== 'object' || Array.isArray(home)) {
+            throw new Error(`${label} home ${name} must be an object.`);
+        }
+        const entry = /** @type {Record<string, unknown>} */ (home);
+        if (entry.path !== expectedPath) throw new Error(`${label} home ${name} has an unexpected path.`);
+        const lines = entry.lines;
+        if (typeof lines !== 'number' || !Number.isInteger(lines) || lines < 0) {
+            throw new Error(`${label} home ${name} lines must be a nonnegative integer.`);
+        }
+    }
+    return /** @type {ILineBudgetBaseline} */ (value);
 }
 
 /** @param {ILineCounts} counts @returns {ILineBudgetBaseline} */
@@ -411,7 +539,9 @@ function baselineFromCounts(counts) {
 
 /** @param {string} root @returns {ILineBudgetBaseline} */
 function readBaseline(root) {
-    return JSON.parse(readFileSync(path.join(root, SCAN_CLEANUP_LINE_BUDGET_BASELINE), 'utf8'));
+    return validateScanCleanupBaseline(
+        JSON.parse(readFileSync(path.join(root, SCAN_CLEANUP_LINE_BUDGET_BASELINE), 'utf8')),
+    );
 }
 
 /** @param {string[]} argv @returns {string} */
@@ -462,7 +592,7 @@ function readBaselineAtRef(root, baseRef) {
     } catch {
         return null;
     }
-    return JSON.parse(baselineText);
+    return validateScanCleanupBaseline(JSON.parse(baselineText), 'base baseline');
 }
 
 /** @param {string} root @param {ILineCounts} counts */
@@ -548,7 +678,7 @@ export function runScanCleanupLineBudget({
     };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
     try {
         runScanCleanupLineBudget();
     } catch (error) {
