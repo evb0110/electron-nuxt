@@ -1,0 +1,42 @@
+electron/features/agent/assistantProviderStatus.ts
+  s_4bc3578643284e::t_0b5951e4c6644c 46
+  s_4bc3578643284e::t_0332f0ab91faac 45
+electron/features/agent/claudeAgentSdkAssistant.ts
+  s_4bc3578643284e::t_0332f0ab91faac 61
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_4bc3578643284e::t_f974a40a6c363b 70-74,356,358-370,372-373,500-501
+  s_4bc3578643284e::t_3dea753cc37355 595,617-621
+  s_4bc3578643284e::t_6ff643ff52ce8b 23,357
+  s_4bc3578643284e::t_e5b33ba3ac14f8 701-725
+  s_4bc3578643284e::t_27884665940833 371
+tests/unit/electron/assistantProviderInitialization.test.ts
+  s_4bc3578643284e::t_27884665940833 33,63-66
+  s_4bc3578643284e::t_db9e0ea3dcfcfa 99
+  s_4bc3578643284e::t_51e191f91d7011 102
+  s_4bc3578643284e::t_bbd74af0c61969 17-27
+  s_4bc3578643284e::t_62e35f62c830d5 71,79-91,93-98,100-101
+  s_4bc3578643284e::t_a3f26d0de4b31e 34,36-46
+  s_4bc3578643284e::t_6ff643ff52ce8b 7-8,35,48
+  s_4bc3578643284e::t_45794a8e3b1edf 92
+  s_4bc3578643284e::t_7b603db36b66cf 47,49-62,67-70
+electron/features/agent/codexAssistant.ts
+  s_4bc3578643284e::t_0332f0ab91faac 40,746,781
+electron/features/agent/claudeProviderMetadata.ts
+  s_4bc3578643284e::t_0332f0ab91faac 385-391
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "214fc236ef62e37731047c8208a63a23d3d76733",
+  "prompts": {},
+  "sessions": {
+    "s_4bc3578643284e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077e6-eb15-77a0-a18d-00dc2fd0c65a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
