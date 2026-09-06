@@ -1,7 +1,11 @@
 #!/usr/bin/env node
-import {execFileSync} from 'node:child_process';
+import {
+    execFileSync,
+    spawnSync,
+} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
+    lstatSync,
     readFileSync,
     readdirSync,
     writeFileSync,
@@ -17,6 +21,15 @@ const SOURCE_EXTENSIONS = new Set([
     '.vue',
 ]);
 const SCAN_CLEANUP_TEST_PATH = /scan[-_]?cleanup/iu;
+const NOT_A_REPOSITORY_DIAGNOSTIC = /^fatal: not a git repository \(or any of the parent directories\): \.git\n?$/u;
+const GENERATED_DIRECTORY_NAMES = new Set([
+    '.nuxt',
+    '.output',
+    'coverage',
+    'dist',
+    'node_modules',
+    'target',
+]);
 /** @typedef {{byFile: Record<string, number>, path: string, total: number}} ILineHome */
 /** @typedef {{homes: Record<string, ILineHome>, productionTotal: number, tests: {byFile: Record<string, number>, total: number}}} ILineCounts */
 /** @typedef {{version: 1, productionTotal: number, homes: Record<string, {lines: number, path: string}>, consolidationApproval?: {version: 1, reason: string, baseCommit: string, previousIdentity: string, currentIdentity: string}}} ILineBudgetBaseline */
@@ -290,8 +303,160 @@ export function splitRustTestCodeLines(source) {
     };
 }
 
+/** @param {string} relativePath @returns {boolean} */
+function isGeneratedFallbackArtifact(relativePath) {
+    const segments = relativePath.split('/');
+    return segments.some(segment => GENERATED_DIRECTORY_NAMES.has(segment))
+        || /(?:^|\/)(?:auto-imports|generated|env)\.d\.ts$/iu.test(relativePath)
+        || /\.(?:generated|gen)\.(?:d\.)?ts$/iu.test(relativePath);
+}
+
+/** @param {Uint8Array} output @returns {string[]} */
+export function parseNulDelimitedGitPaths(output) {
+    const relativePaths = [];
+    let start = 0;
+    for (let end = 0; end < output.length; end += 1) {
+        if (output[end] !== 0) continue;
+        const relativePath = Buffer.from(output.subarray(start, end)).toString('utf8');
+        if (relativePath.length > 0) relativePaths.push(relativePath);
+        start = end + 1;
+    }
+    if (start !== output.length) throw new Error('Git path enumeration ended with an unterminated NUL record.');
+    return relativePaths;
+}
+
+/** @param {Uint8Array} output @returns {'absent' | 'present'} */
+export function classifyBaselineTreeEntry(output) {
+    const paths = parseNulDelimitedGitPaths(output);
+    if (paths.length === 0) {
+        return 'absent';
+    }
+    if (paths.length === 1 && paths[0] === SCAN_CLEANUP_LINE_BUDGET_BASELINE) {
+        return 'present';
+    }
+    throw new Error('Git baseline tree query returned an unexpected path.');
+}
+
+/** @param {string} root @returns {boolean} */
+function hasGitAdministrativeMarker(root) {
+    let current = path.resolve(root);
+    while (true) {
+        try {
+            lstatSync(path.join(current, '.git'));
+            return true;
+        } catch (error) {
+            if ((/** @type {{code?: string}} */ (error)).code !== 'ENOENT') {
+                throw new Error(`Cannot inspect Git metadata marker for scan-cleanup root: ${current}`, {cause: error});
+            }
+        }
+        const parent = path.dirname(current);
+        if (parent === current) {
+            return false;
+        }
+        current = parent;
+    }
+}
+
+/** @param {{status: number | null, stdout: string, stderr: string}} result @returns {boolean} */
+export function isExplicitNonRepositoryResult(result) {
+    return result.status === 128
+        && result.stdout === ''
+        && NOT_A_REPOSITORY_DIAGNOSTIC.test(result.stderr.replace(/\r\n/gu, '\n'));
+}
+
+/** @param {string} root @returns {boolean} */
+function isGitWorktree(root) {
+    const result = spawnSync('git', [
+        'rev-parse',
+        '--is-inside-work-tree',
+    ], {
+        cwd: root,
+        encoding: 'utf8',
+        env: {
+            ...process.env,
+            LANG: 'C',
+            LC_ALL: 'C',
+        },
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
+    });
+    if (result.error) throw new Error(`Cannot run Git to inspect scan-cleanup root: ${root}`, {cause: result.error});
+    const stdout = result.stdout;
+    const stderr = result.stderr;
+    if (result.status === 0 && stdout.trim() === 'true') {
+        return true;
+    }
+    if (result.status === 0 && stdout.trim() === 'false') {
+        return false;
+    }
+    if (isExplicitNonRepositoryResult({
+        status: result.status,
+        stdout,
+        stderr,
+    })) {
+        if (hasGitAdministrativeMarker(root)) {
+            throw new Error(`Git metadata marker exists but cannot be validated for scan-cleanup root: ${root}`);
+        }
+        return false;
+    }
+    throw new Error(`Cannot determine whether scan-cleanup root is a Git worktree: ${root} (status ${result.status}, stderr ${stderr || '<empty>'})`);
+}
+
+/** @param {string} root @param {string} relativeDirectory @returns {string[] | null} */
+function trackedSourceFiles(root, relativeDirectory) {
+    if (!isGitWorktree(root)) {
+        return null;
+    }
+    let output;
+    try {
+        output = execFileSync('git', [
+            'ls-files',
+            '--cached',
+            '-z',
+            '--',
+            relativeDirectory,
+        ], {
+            cwd: root,
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+    } catch (error) {
+        throw new Error(`Cannot enumerate tracked scan-cleanup sources in Git worktree: ${root}`, {cause: error});
+    }
+    return parseNulDelimitedGitPaths(output)
+        .filter(relativePath => SOURCE_EXTENSIONS.has(path.extname(relativePath)))
+        .map(relativePath => path.join(root, relativePath))
+        .map(filePath => {
+            let stat;
+            try {
+                stat = lstatSync(filePath);
+            } catch (error) {
+                if ((/** @type {{code?: string}} */ (error)).code === 'ENOENT') {
+                    throw new Error(`Tracked scan-cleanup source disappeared before it could be counted: ${path.relative(root, filePath)}`, {cause: error});
+                }
+                throw error;
+            }
+            if (stat.isSymbolicLink()) {
+                throw new Error(`Refusing to count tracked source symlink outside the repository: ${path.relative(root, filePath)}`);
+            }
+            return stat.isFile() ? filePath : null;
+        })
+        .filter((filePath) => filePath !== null)
+        .sort();
+}
+
 /** @param {string} root @param {string} relativeDirectory @returns {string[]} */
 function sourceFiles(root, relativeDirectory) {
+    const trackedFiles = trackedSourceFiles(root, relativeDirectory);
+    if (trackedFiles !== null) {
+        return trackedFiles;
+    }
     const directory = path.join(root, relativeDirectory);
     /** @type {string[]} */
     const files = [];
@@ -302,7 +467,8 @@ function sourceFiles(root, relativeDirectory) {
             if (entry.isDirectory()) {
                 visit(entryPath);
             } else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
-                files.push(entryPath);
+                const relativePath = path.relative(root, entryPath).split(path.sep).join('/');
+                if (!isGeneratedFallbackArtifact(relativePath)) files.push(entryPath);
             }
         }
     };
@@ -674,11 +840,37 @@ function resolveBaseCommit(root, baseRef) {
 /** @param {string} root @param {string} baseRef @returns {{baseline: ILineBudgetBaseline | null, baseCommit: string}} */
 function readBaselineAtRef(root, baseRef) {
     const baseCommit = resolveBaseCommit(root, baseRef);
+    let treeOutput;
+    try {
+        treeOutput = execFileSync('git', [
+            'ls-tree',
+            '-z',
+            '--name-only',
+            baseCommit,
+            '--',
+            SCAN_CLEANUP_LINE_BUDGET_BASELINE,
+        ], {
+            cwd: root,
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+    } catch (error) {
+        throw new Error(`Cannot inspect the scan-cleanup baseline tree at base ref "${baseRef}".`, {cause: error});
+    }
+    if (classifyBaselineTreeEntry(treeOutput) === 'absent') {
+        return {
+            baseline: null,
+            baseCommit,
+        };
+    }
     let baselineText;
     try {
         baselineText = execFileSync('git', [
             'show',
-            `${baseRef}:${SCAN_CLEANUP_LINE_BUDGET_BASELINE}`,
+            `${baseCommit}:${SCAN_CLEANUP_LINE_BUDGET_BASELINE}`,
         ], {
             cwd: root,
             encoding: 'utf8',
@@ -688,11 +880,8 @@ function readBaselineAtRef(root, baseRef) {
                 'ignore',
             ],
         });
-    } catch {
-        return {
-            baseline: null,
-            baseCommit,
-        };
+    } catch (error) {
+        throw new Error(`Cannot read the scan-cleanup baseline blob at base ref "${baseRef}".`, {cause: error});
     }
     return {
         baseline: validateScanCleanupBaseline(JSON.parse(baselineText), 'base baseline'),
