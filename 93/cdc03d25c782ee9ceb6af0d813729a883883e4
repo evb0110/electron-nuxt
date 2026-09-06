@@ -1,0 +1,38 @@
+tests/unit/electron/lazyAgentAssistant.test.ts
+  s_4bc3578643284e::t_14c7d19ba2dda0 16,18-19,26,30,32,34-36,38-43,46,51,53-54
+  s_4bc3578643284e::t_b757e8da589266 8-12,23,49
+electron/features/agent/claudeProviderMetadata.ts
+  s_4bc3578643284e::t_144d46e52c9012 53-55,57
+  s_4bc3578643284e::t_49e0ab01f0e664 1,5-16,67,82-95,97-133,153
+  s_4bc3578643284e::t_6bac99df57194e 134-152
+  s_4bc3578643284e::t_ebf5cd741fb927 2-4,17-39,41-52,58-66
+  s_4bc3578643284e::t_8a9eb91020be3d 68-81
+  s_4bc3578643284e::t_0a4af0aed302a2 40,56,96
+electron/features/agent/assistantProviderStatus.ts
+  s_4bc3578643284e::t_e7b41434e86868 29
+electron/features/agent/codexAssistant.ts
+  s_4bc3578643284e::t_1102c43e32c88e 777-780
+  s_4bc3578643284e::t_6bac99df57194e 410-411,414,750
+  s_4bc3578643284e::t_4ab0d2932c85d1 42,125,127
+  s_4bc3578643284e::t_8a9eb91020be3d 36,781-784
+  s_4bc3578643284e::t_e7b41434e86868 39-41,126,128-129
+  s_4bc3578643284e::t_ebf5cd741fb927 35
+  s_4bc3578643284e::t_b7419a648bcdb7 120-124
+  s_4bc3578643284e::t_b319244df9acdf 130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "93cdc03d25c782ee9ceb6af0d813729a883883e4",
+  "prompts": {},
+  "sessions": {
+    "s_4bc3578643284e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077e6-eb15-77a0-a18d-00dc2fd0c65a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
