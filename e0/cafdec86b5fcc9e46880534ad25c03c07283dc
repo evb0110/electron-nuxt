@@ -1,0 +1,36 @@
+app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler.ts
+  s_d252de3ad71cee::t_2fef20b448ab6c 144,501
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_d252de3ad71cee::t_d0229c800f1465 524,563,796
+  s_d252de3ad71cee::t_68d35122061789 792-795
+  s_d252de3ad71cee::t_781878043d751e 791,797
+  s_d252de3ad71cee::t_af967f6dcb5c4b 532-533,564
+app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource.ts
+  s_d252de3ad71cee::t_16a5b2925181fe 69-72
+  s_d252de3ad71cee::t_4c8bb3c9d340d3 186-192,208-212,243-247,273-276,285,288-292
+  s_d252de3ad71cee::t_b9ee867a9a3f93 41-68,73-77
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfRenderingSessionBehavior.test.ts
+  s_d252de3ad71cee::t_cd28a3f4f610fa 1030-1031,1040
+tests/e2e/electron/prBlockingSmoke.e2e.test.ts
+  s_d252de3ad71cee::t_a571a94e7eb7ac 31,35,1811-1812
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.test.ts
+  s_d252de3ad71cee::t_781878043d751e 1751
+  s_d252de3ad71cee::t_57aea7c9ca2363 1590-1639,1641-1648,1650,1654,1657-1672
+  s_d252de3ad71cee::t_893b186872c70f 1640,1649,1651-1653,1655-1656
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e0cafdec86b5fcc9e46880534ad25c03c07283dc",
+  "prompts": {},
+  "sessions": {
+    "s_d252de3ad71cee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0723f-6c82-7453-a893-5fe26c4041d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
