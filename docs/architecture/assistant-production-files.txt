@@ -67,6 +67,7 @@ electron/features/agent/assistantTurnLifecycle.ts
 electron/features/agent/assistantTurnLiveness.ts
 electron/features/agent/buildAgentAssistantStateSnapshot.ts
 electron/features/agent/claudeAgentSdkAssistant.ts
+electron/features/agent/claudeProviderMetadata.ts
 electron/features/agent/claudeAssistantStreamPresentation.ts
 electron/features/agent/codexAppServerClient.ts
 electron/features/agent/codexAssistant.ts

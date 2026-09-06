@@ -32,8 +32,8 @@ import { installManagedCodex } from '@electron/features/agent/codexCli';
 import {
     CLAUDE_AGENT_MODELS,
     isClaudeAuthErrorMessage,
-    getClaudeProviderInfo,
-    detectClaudeProviderAuthState,
+    getClaudeAgentSdkInfo,
+    detectClaudeAuthState,
     shouldUseClaudeAssistantFastMode,
     normalizeClaudeAssistantModel,
 } from '@electron/features/agent/claudeProviderMetadata';
@@ -117,11 +117,7 @@ let claudeInfoCache: IClaudeAssistantProviderInfo | null = null;
 let pendingLoginId: string | null = null;
 let authReturnWindow: TAssistantReturnWindow = null;
 let installPromise: Promise<IAgentAssistantInstallResult> | null = null;
-interface IClaudeRuntimeModule {
-    getClaudeAgentSdkInfo(): Promise<IClaudeAssistantProviderInfo>;
-    detectClaudeAuthState(): Promise<'signed-in' | 'signed-out' | 'unknown'>;
-    ClaudeAgentAssistantSession: new (options: IClaudeAgentAssistantSessionOptions) => NonNullable<IAssistantChatSession['claudeSession']>;
-}
+interface IClaudeRuntimeModule {ClaudeAgentAssistantSession: new (options: IClaudeAgentAssistantSessionOptions) => NonNullable<IAssistantChatSession['claudeSession']>;}
 let claudeRuntimeModulePromise: Promise<IClaudeRuntimeModule> | null = null;
 async function loadClaudeRuntimeModule() {
     claudeRuntimeModulePromise ??= import('@electron/features/agent/claudeAgentSdkAssistant') as Promise<IClaudeRuntimeModule>;
@@ -407,11 +403,10 @@ function hasActiveClaudeSession() {
 }
 
 async function refreshClaudeInfo() {
-    const claudeRuntime = await loadClaudeRuntimeModule();
-    claudeInfoCache = await claudeRuntime.getClaudeAgentSdkInfo();
+    claudeInfoCache = await getClaudeAgentSdkInfo();
     if (claudeInfoCache.installed) {
         if (!(hasActiveClaudeSession() && claudeProviderRuntime.authState === 'signed-in')) {
-            const detected = await claudeRuntime.detectClaudeAuthState();
+            const detected = await detectClaudeAuthState();
             // A 'signed-out' demotion (from a real auth failure) is sticky: an
             // inconclusive 'unknown' must not silently re-mark the account as usable.
             // Only positive evidence ('signed-in') clears it.
@@ -778,10 +773,15 @@ export async function getAgentAssistantState(
     // provider runtime. A first send/login/install operation owns startup.
     if (selection.provider === 'codex') {
         await runtimeLifecycle.refreshCodexInfo();
+        if (codexProviderRuntime.authState === 'signed-out' && codexProviderRuntime.runtimeState === 'error') {
+            codexProviderRuntime.runtimeState = 'stopped';
+        }
     } else {
-        claudeInfoCache = await getClaudeProviderInfo();
-        claudeProviderRuntime.authState = await detectClaudeProviderAuthState();
-        claudeProviderRuntime.runtimeState = claudeInfoCache.installed ? 'ready' : 'stopped';
+        claudeInfoCache = await getClaudeAgentSdkInfo();
+        claudeProviderRuntime.authState = await detectClaudeAuthState();
+        claudeProviderRuntime.runtimeState = claudeInfoCache.installed
+            ? claudeProviderRuntime.runtimeState === 'busy' ? 'busy' : 'ready'
+            : 'stopped';
     }
     return currentState(scope, selection);
 }
@@ -795,7 +795,6 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
             error,
         });
     }
-
     if (installPromise) {
         return installPromise;
     }
@@ -839,7 +838,6 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
     })();
     return installPromise;
 }
-
 export async function startAgentAssistantLogin(
     request: IAgentAssistantLoginRequest,
     parentWindow?: BrowserWindow | null,
@@ -1054,7 +1052,6 @@ export async function sendAgentAssistantMessage(
                 });
             }
         }
-
         let currentThreadId: string | null = null;
         const turnGeneration = claimedTurnGeneration;
         try {
@@ -1144,7 +1141,10 @@ export async function sendAgentAssistantMessage(
                     error: getErrorMessage(error),
                 });
             }
-            codexProviderRuntime.lastError = getErrorMessage(error);
+            const providerError = codexProviderRuntime.lastError;
+            codexProviderRuntime.lastError = providerError?.startsWith('Could not verify Codex authentication')
+                ? providerError
+                : getErrorMessage(error);
             session.lastError = codexProviderRuntime.lastError;
             const cleanupRuntime = runtimeLifecycle.getRuntime();
             if (

@@ -547,8 +547,15 @@ describe('agent assistant opt-in gating', () => {
         mocks.codexAuthStatusMode = 'signed-in';
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 
-        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {
+            getAgentAssistantState,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
+        await sendAgentAssistantMessage({
+            text: 'Check auth',
+            scope: createDocumentScope('auth-error.pdf'),
+        });
         const state = await getAgentAssistantState();
 
         expect(state.status.authState).toBe('signed-in');
@@ -565,8 +572,15 @@ describe('agent assistant opt-in gating', () => {
         mocks.codexAuthStatusMode = 'error';
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 
-        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {
+            getAgentAssistantState,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
+        await sendAgentAssistantMessage({
+            text: 'Check auth',
+            scope: createDocumentScope('auth-error.pdf'),
+        });
         const state = await getAgentAssistantState();
 
         expect(state.status.authState).toBe('signed-out');
@@ -582,11 +596,17 @@ describe('agent assistant opt-in gating', () => {
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
 
-        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
-        const firstState = getAgentAssistantState();
+        const firstState = sendAgentAssistantMessage({
+            text: 'Start runtime',
+            scope: createDocumentScope('startup-wait.pdf'),
+        });
         await waitForCodexRequest(process, 'initialize');
-        const secondState = getAgentAssistantState();
+        const secondState = sendAgentAssistantMessage({
+            text: 'Reuse runtime',
+            scope: createDocumentScope('startup-wait-2.pdf'),
+        });
         await settleAsyncTicks();
 
         expect(process.requestMethods).toEqual(['initialize']);
@@ -606,11 +626,14 @@ describe('agent assistant opt-in gating', () => {
         mocks.spawn.mockImplementation(() => process);
 
         const {
-            getAgentAssistantState,
+            sendAgentAssistantMessage,
             shutdownAgentAssistant,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
-        const statePromise = getAgentAssistantState();
+        const statePromise = sendAgentAssistantMessage({
+            text: 'Cancel startup',
+            scope: createDocumentScope('cancel-startup.pdf'),
+        });
         await waitForCodexRequest(process, 'initialize');
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
         await shutdownAgentAssistant();
@@ -647,11 +670,13 @@ describe('agent assistant opt-in gating', () => {
     it('waits for an old client shutdown before starting again after rapid re-enable', async () => {
         const process = enableAssistantRuntime();
         const {
-            getAgentAssistantState,
             sendAgentAssistantMessage,
             shutdownAgentAssistant,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
-        await getAgentAssistantState();
+        await sendAgentAssistantMessage({
+            text: 'Start runtime',
+            scope: createDocumentScope('rapid-reenable-start.pdf'),
+        });
         expect(mocks.spawn).toHaveBeenCalledOnce();
 
         mocks.processKillGate = createInitializeGate();
@@ -680,11 +705,13 @@ describe('agent assistant opt-in gating', () => {
         const oldProcess = enableAssistantRuntime();
         const newProcess = new FakeCodexAppServerProcess();
         const {
-            getAgentAssistantState,
-            installAgentAssistantCodex,
             sendAgentAssistantMessage,
+            installAgentAssistantCodex,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
-        await getAgentAssistantState();
+        await sendAgentAssistantMessage({
+            text: 'Start runtime',
+            scope: createDocumentScope('install-start.pdf'),
+        });
         expect(mocks.spawn).toHaveBeenCalledOnce();
 
         mocks.installManagedCodex.mockResolvedValue({
@@ -715,10 +742,13 @@ describe('agent assistant opt-in gating', () => {
     it('runs every shutdown cleanup request when shutdowns overlap', async () => {
         const process = enableAssistantRuntime();
         const {
-            getAgentAssistantState,
+            sendAgentAssistantMessage,
             shutdownAgentAssistant,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
-        await getAgentAssistantState();
+        await sendAgentAssistantMessage({
+            text: 'Start runtime',
+            scope: createDocumentScope('shutdown-start.pdf'),
+        });
 
         mocks.processKillGate = createInitializeGate();
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
