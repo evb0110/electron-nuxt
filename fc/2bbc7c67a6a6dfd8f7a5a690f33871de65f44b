@@ -1,0 +1,28 @@
+tests/unit/app/modules/agent-panel/assistantImageComposer.test.ts
+  s_0afd208e8e7201::t_93038d69b79b69 47-57,139-140,170,201
+tests/unit/app/modules/agent-panel/assistantImageAttachments.test.ts
+  s_0afd208e8e7201::t_93038d69b79b69 18-37,62-63,205,219
+  s_0afd208e8e7201::t_a3011f59032d17 38-39,41-43,45-61,64-72,74
+  s_0afd208e8e7201::t_3bf4dddd4e6adf 40
+  s_0afd208e8e7201::t_aefe6be881d54e 73
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_0afd208e8e7201::t_93038d69b79b69 2790
+tests/unit/app/modules/scan-cleanup/scanCleanupRunCoordinator.test.ts
+  s_0afd208e8e7201::t_93038d69b79b69 115-116,140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fc2bbc7c67a6a6dfd8f7a5a690f33871de65f44b",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
