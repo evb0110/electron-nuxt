@@ -1,5 +1,6 @@
 use super::*;
 use crate::auto_dewarp::AutoDewarpResult;
+use crate::content::ContentResult;
 use crate::DewarpOptions;
 
 pub(crate) struct TransformPreparationInput<'a> {
@@ -447,6 +448,137 @@ pub(crate) struct Input<'a> {
     pub timings: &'a mut PageStageTimings,
 }
 
+struct RenderGeometryInput<'a> {
+    detected: CachedContentDetection,
+    source_effectively_blank: bool,
+    options: &'a CleanupOptions,
+    region: Rect,
+    working_width: usize,
+    working_height: usize,
+    local_deskew_forward: Affine,
+    local_deskew_inverse: Affine,
+    dewarp_model: Option<DewarpModel>,
+}
+
+struct RenderGeometryOutput {
+    content: ContentResult,
+    source_content_box: Option<Rect>,
+    content_diagnostics: Option<ContentDiagnostics>,
+    force_clean_blank: bool,
+    crop_enabled: bool,
+    output_rect: Rect,
+    output_width: usize,
+    output_height: usize,
+    render_region: Option<Rect>,
+    sampled_region: Option<Rect>,
+    render_plan: ComposedRenderPlan,
+    rendered_width: usize,
+    rendered_height: usize,
+}
+
+fn plan_render_geometry(input: RenderGeometryInput<'_>) -> Result<RenderGeometryOutput, String> {
+    let RenderGeometryInput {
+        detected,
+        source_effectively_blank,
+        options,
+        region,
+        working_width,
+        working_height,
+        local_deskew_forward,
+        local_deskew_inverse,
+        dewarp_model,
+    } = input;
+    let force_clean_blank = source_effectively_blank;
+    if options.match_page_size {
+        // See the analysis path above: placement owns matched margins, while
+        // the renderer still rejects arithmetic that could not be represented.
+        content_result_for_dimensions(
+            working_width,
+            working_height,
+            options.dpi,
+            detected.detected_content,
+            options.margins_mm.map(crate::MarginsMm::values),
+            options.margins_pixels,
+        )?;
+    }
+    let content = content_result_for_dimensions(
+        working_width,
+        working_height,
+        options.dpi,
+        detected.detected_content,
+        if options.match_page_size {
+            None
+        } else {
+            options.margins_mm.map(crate::MarginsMm::values)
+        },
+        if options.match_page_size {
+            Some([0.0; 4])
+        } else {
+            options.margins_pixels
+        },
+    )?;
+    let source_content_box = detected.source_content_box;
+    let content_diagnostics = detected.diagnostics;
+    let crop_enabled = options.crop_content && !options.ocr_mode && content.content.is_some();
+    let output_rect = if crop_enabled {
+        content.output_rect
+    } else {
+        Rect::new(0.0, 0.0, working_width as f64, working_height as f64)
+    };
+    let (output_width, output_height) =
+        options.validate_derived_raster_dimensions(output_rect.width, output_rect.height)?;
+    let render_region = options.resolved_render_crop(output_width, output_height);
+    // Local threshold windows and connected-component cleanup need context
+    // beyond the visible tile. Sample a bounded apron, process it, then trim
+    // back to render_region so panning cannot change interior stroke weight.
+    let sampled_region = render_region.map(|crop| {
+        if matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed) {
+            const PROCESSING_APRON_PX: f64 = 256.0;
+            let left = (crop.x - PROCESSING_APRON_PX).max(0.0);
+            let top = (crop.y - PROCESSING_APRON_PX).max(0.0);
+            let right = (crop.right() + PROCESSING_APRON_PX).min(output_width as f64);
+            let bottom = (crop.bottom() + PROCESSING_APRON_PX).min(output_height as f64);
+            Rect::new(left, top, right - left, bottom - top)
+        } else {
+            crop
+        }
+    });
+    let render_rect = sampled_region.map_or(output_rect, |crop| {
+        Rect::new(
+            output_rect.x + crop.x,
+            output_rect.y + crop.y,
+            crop.width,
+            crop.height,
+        )
+    });
+    let render_plan = ComposedRenderPlan::new(
+        region,
+        local_deskew_forward,
+        local_deskew_inverse,
+        dewarp_model,
+        working_width,
+        working_height,
+        render_rect,
+    );
+    let rendered_width = render_plan.output_width();
+    let rendered_height = render_plan.output_height();
+    Ok(RenderGeometryOutput {
+        content,
+        source_content_box,
+        content_diagnostics,
+        force_clean_blank,
+        crop_enabled,
+        output_rect,
+        output_width,
+        output_height,
+        render_region,
+        sampled_region,
+        render_plan,
+        rendered_width,
+        rendered_height,
+    })
+}
+
 pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
     let Input {
         source,
@@ -569,80 +701,31 @@ pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
         half,
         timings,
     })?;
-    let force_clean_blank = source_effectively_blank;
-    if options.match_page_size {
-        // See the analysis path above: placement owns matched margins, while
-        // the renderer still rejects arithmetic that could not be represented.
-        content_result_for_dimensions(
-            working_width,
-            working_height,
-            options.dpi,
-            detected.detected_content,
-            options.margins_mm.map(crate::MarginsMm::values),
-            options.margins_pixels,
-        )?;
-    }
-    let content = content_result_for_dimensions(
+    let RenderGeometryOutput {
+        content,
+        source_content_box,
+        content_diagnostics,
+        force_clean_blank,
+        crop_enabled,
+        output_rect,
+        output_width,
+        output_height,
+        render_region,
+        sampled_region,
+        render_plan,
+        rendered_width,
+        rendered_height,
+    } = plan_render_geometry(RenderGeometryInput {
+        detected,
+        source_effectively_blank,
+        options,
+        region,
         working_width,
         working_height,
-        options.dpi,
-        detected.detected_content,
-        if options.match_page_size {
-            None
-        } else {
-            options.margins_mm.map(crate::MarginsMm::values)
-        },
-        if options.match_page_size {
-            Some([0.0; 4])
-        } else {
-            options.margins_pixels
-        },
-    )?;
-    let source_content_box = detected.source_content_box;
-    let content_diagnostics = detected.diagnostics;
-    let crop_enabled = options.crop_content && !options.ocr_mode && content.content.is_some();
-    let output_rect = if crop_enabled {
-        content.output_rect
-    } else {
-        Rect::new(0.0, 0.0, working_width as f64, working_height as f64)
-    };
-    let (output_width, output_height) =
-        options.validate_derived_raster_dimensions(output_rect.width, output_rect.height)?;
-    let render_region = options.resolved_render_crop(output_width, output_height);
-    // Local threshold windows and connected-component cleanup need context
-    // beyond the visible tile. Sample a bounded apron, process it, then trim
-    // back to render_region so panning cannot change interior stroke weight.
-    let sampled_region = render_region.map(|crop| {
-        if matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed) {
-            const PROCESSING_APRON_PX: f64 = 256.0;
-            let left = (crop.x - PROCESSING_APRON_PX).max(0.0);
-            let top = (crop.y - PROCESSING_APRON_PX).max(0.0);
-            let right = (crop.right() + PROCESSING_APRON_PX).min(output_width as f64);
-            let bottom = (crop.bottom() + PROCESSING_APRON_PX).min(output_height as f64);
-            Rect::new(left, top, right - left, bottom - top)
-        } else {
-            crop
-        }
-    });
-    let render_rect = sampled_region.map_or(output_rect, |crop| {
-        Rect::new(
-            output_rect.x + crop.x,
-            output_rect.y + crop.y,
-            crop.width,
-            crop.height,
-        )
-    });
-    let render_plan = ComposedRenderPlan::new(
-        region,
         local_deskew_forward,
         local_deskew_inverse,
-        dewarp_model.clone(),
-        working_width,
-        working_height,
-        render_rect,
-    );
-    let rendered_width = render_plan.output_width();
-    let rendered_height = render_plan.output_height();
+        dewarp_model: dewarp_model.clone(),
+    })?;
 
     let render_started = Instant::now();
     let rasterization_started = Instant::now();
