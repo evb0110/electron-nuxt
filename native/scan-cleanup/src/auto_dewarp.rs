@@ -75,13 +75,6 @@ struct ContentGeometry {
     raster_width: f64,
 }
 
-/// Detects dewarp directrices with 200-DPI constants. Callers that know the
-/// raster DPI should use [`detect_curves_at_dpi`] so high-resolution pages are
-/// reduced to the intended analysis scale.
-pub fn detect_curves(source: &GrayImage) -> AutoDewarpResult {
-    detect_curves_at_dpi(source, WORKING_DPI)
-}
-
 pub fn detect_curves_at_dpi(source: &GrayImage, effective_dpi: f64) -> AutoDewarpResult {
     detect_curves_at_dpi_with_depth(source, effective_dpi, None)
 }
