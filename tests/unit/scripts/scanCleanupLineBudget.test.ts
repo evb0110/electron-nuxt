@@ -33,10 +33,16 @@ interface ILineBudgetModule {
     };
     validateScanCleanupBaseline: (value: unknown, label?: string) => unknown;
     compareScanCleanupBaselines: (current: {
-        homes: Record<string, {lines: number}>;
+        homes: Record<string, {
+            lines: number;
+            path: string
+        }>;
         productionTotal: number;
     }, previous: {
-        homes: Record<string, {lines: number}>;
+        homes: Record<string, {
+            lines: number;
+            path: string
+        }>;
         productionTotal: number;
     } | null, options?: {
             allowHomeIncrease?: boolean;
@@ -266,6 +272,9 @@ describe('scan-cleanup line budget', () => {
             ...baseline(),
             version: 2,
         })).toThrow('unsupported');
+        const wrongPath = baseline();
+        wrongPath.homes.app!.path = 'wrong/home';
+        expect(() => module.validateScanCleanupBaseline(wrongPath)).toThrow('unexpected path');
     });
 
     it('rejects raised home and total baselines, allows only an offsetting consolidation, and bootstraps', () => {
