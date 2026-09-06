@@ -425,7 +425,6 @@ export const usePdfViewerSaveTransaction = (
             liveAnnotationChanges: emptyLiveAnnotationChanges,
             hasLoadedSource: Boolean(request.source),
             forceWriterSave: request.forceWriterSave === true,
-            includeManagedShapesForLiveSource: request.includeManagedShapes === true,
             rewriteShapeState: request.rewriteShapeState !== false,
             totalPageCount: Math.max(
                 request.documentStructure?.totalPages ?? 0,

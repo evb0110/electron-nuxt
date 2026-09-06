@@ -1,5 +1,4 @@
 import type { Page } from 'puppeteer-core';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     afterEach,
     describe,
@@ -33,12 +32,6 @@ import {
     readWorkspaceStateValues,
     waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import type { IPdfRenderTraceEntry } from '@app/utils/pdfRenderTrace';
-import {
-    disablePdfDiagnosticSession,
-    enablePdfDiagnosticSession,
-} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
-import { getErrorMessage } from '@contracts/getErrorMessage';
 
 interface IRendererErrorTracker {
     errors: string[];
@@ -67,32 +60,6 @@ interface IManagedShapeDebugShape {
     y?: number;
 }
 
-async function enableBufferedPdfRenderTrace(page: Page) {
-    await enablePdfDiagnosticSession(page, {render: true});
-}
-
-async function getBufferedPdfRenderTrace(page: Page) {
-    return page.evaluate(() => {
-        const traceWindow = window as IE2EWindow & { __getPdfRenderTrace?: () => IPdfRenderTraceEntry[] };
-        return traceWindow.__getPdfRenderTrace?.() ?? [];
-    });
-}
-
-async function waitForManagedShapeSelfSaveImportWithoutRerender(page: Page) {
-    await waitForFunctionInPage(page, () => {
-        const traceWindow = window as IE2EWindow & { __getPdfRenderTrace?: () => IPdfRenderTraceEntry[] };
-        const trace = traceWindow.__getPdfRenderTrace?.() ?? [];
-        return trace.some(entry => (
-            entry.event === 'managed-shapes-import-end'
-            && entry.payload.skippedRerender === true
-        ));
-    }, { timeout: 20_000 });
-
-    const trace = await getBufferedPdfRenderTrace(page);
-    const embeddedShapeRerenderEvents = trace.filter(entry => entry.event === 'embedded-shape-rerender-invalidate');
-    expect(embeddedShapeRerenderEvents).toEqual([]);
-}
-
 function createRendererErrorTracker(page: Page): IRendererErrorTracker {
     const errors: string[] = [];
 
@@ -111,7 +78,7 @@ function createRendererErrorTracker(page: Page): IRendererErrorTracker {
     };
 
     const onPageError = (error: unknown) => {
-        const detail = getErrorMessage(error);
+        const detail = error instanceof Error ? error.message : String(error);
         errors.push(`pageerror:${detail}`);
     };
 
@@ -517,7 +484,7 @@ async function saveViaToolbarButton(page: Page) {
         await clickToolbarButtonWhenEnabled(page, 'Save', 20_000);
     } catch (error) {
         const state = await getToolbarSaveDebugState(page);
-        const detail = getErrorMessage(error);
+        const detail = error instanceof Error ? error.message : String(error);
         throw new Error(`Save toolbar action was not clickable: ${detail}. State: ${JSON.stringify(state)}`);
     }
 
@@ -2054,7 +2021,7 @@ async function waitForShapeCountWithScenarioDiagnostics(
             getPointInteractionDebugState(page, shape.hit),
         ]);
         throw new Error([
-            `${scenario.name}: ${getErrorMessage(error)}`,
+            `${scenario.name}: ${error instanceof Error ? error.message : String(error)}`,
             `stateAfterClick=${JSON.stringify(stateAfterClick)}`,
             `managedShapeState=${JSON.stringify(managedShapeState)}`,
             `toolbarState=${JSON.stringify(toolbarState)}`,
@@ -2153,7 +2120,7 @@ async function runSavedShapeDeleteScenario(page: Page, scenario: ISavedShapeDele
                 }
             }
         } catch (error) {
-            const detail = getErrorMessage(error);
+            const detail = error instanceof Error ? error.message : String(error);
             const managedShapeState = await getManagedShapeDebugState(page);
             throw new Error([
                 `${scenario.name}: step ${stepIndex + 1} (${step.action}) failed`,
@@ -2190,10 +2157,6 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         try {
             expect(rendererErrorTracker?.errors ?? []).toEqual([]);
         } finally {
-            const activeSession = sessionFixture.getSession();
-            if (activeSession) {
-                await disablePdfDiagnosticSession(activeSession.page).catch(() => {});
-            }
             rendererErrorTracker?.detach();
             rendererErrorTracker = null;
             await sessionFixture.stop();
@@ -2363,9 +2326,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         await waitForShapeCount(page, 1);
         await waitForShapeSidebarCount(page, 1);
 
-        await enableBufferedPdfRenderTrace(page);
         await saveViaWindowHandle(page);
-        await waitForManagedShapeSelfSaveImportWithoutRerender(page);
         await waitForShapeCount(page, 1);
         await waitForShapeSidebarCount(page, 1);
         const annotationSummary = await waitForLineCountOnDisk(fixturePath, 1);
