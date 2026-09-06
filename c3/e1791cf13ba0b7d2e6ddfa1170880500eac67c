@@ -1,0 +1,21 @@
+tests/unit/app/components/combine/combinePdfPageMountedStateMachine.test.ts
+  s_0afd208e8e7201::t_61e2319310293c 20,46-51,56-63,67,175-184,187-196
+  s_0afd208e8e7201::t_0865a4ab114940 64-66,185-186
+  s_0afd208e8e7201::t_7a0cfaeb384de7 197-198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c3e1791cf13ba0b7d2e6ddfa1170880500eac67c",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
