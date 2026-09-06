@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import type {
     BrowserWindow,
     IpcMainInvokeEvent,
+    WebContents,
 } from 'electron';
 import {
     beforeEach,
@@ -17,7 +18,6 @@ import type {
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { requireIsoTimestamp } from '@contracts/timestamps';
 import { requireTabId } from '@contracts/windowTabs';
-import { cast } from '@tests/helpers/cast';
 import type * as AgentWorkspaceBridgeModule from '@electron/features/agent/workspaceBridge';
 
 const mocks = vi.hoisted(() => ({fromWebContents: vi.fn()}));
@@ -59,12 +59,36 @@ function createFakeWindow(id = 101): IFakeWindow {
     return window;
 }
 
-function toBrowserWindow(window: IFakeWindow) {
-    return cast<BrowserWindow>(window);
+function isWebContentsTestDouble(value: IFakeWebContents): value is IFakeWebContents & WebContents {
+    return typeof value.isDestroyed === 'function'
+        && typeof value.once === 'function'
+        && typeof value.on === 'function'
+        && typeof value.removeListener === 'function'
+        && typeof value.send === 'function';
 }
 
-function createResponseEvent(window: IFakeWindow) {
-    return cast<IpcMainInvokeEvent>({sender: window.webContents});
+function isBrowserWindowTestDouble(value: IFakeWindow): value is IFakeWindow & BrowserWindow {
+    return typeof value.id === 'number'
+        && typeof value.isDestroyed === 'function'
+        && typeof value.once === 'function'
+        && typeof value.removeListener === 'function'
+        && isWebContentsTestDouble(value.webContents);
+}
+
+function toBrowserWindow(window: IFakeWindow) {
+    // The bridge only reads the members checked here from this Electron double.
+    if (!isBrowserWindowTestDouble(window)) {
+        throw new Error('Invalid BrowserWindow test double');
+    }
+    return window;
+}
+
+function createResponseEvent(window: IFakeWindow): Pick<IpcMainInvokeEvent, 'sender'> {
+    // The response bridge only reads sender from this IPC event double.
+    if (!isWebContentsTestDouble(window.webContents)) {
+        throw new Error('Invalid WebContents test double');
+    }
+    return {sender: window.webContents};
 }
 
 function isSnapshotRequest(value: unknown): value is IAgentWorkspaceSnapshotRequest & {windowId: number} {

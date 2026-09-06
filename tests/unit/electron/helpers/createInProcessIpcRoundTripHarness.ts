@@ -1,14 +1,13 @@
 import type {
     IpcMainInvokeEvent,
     IpcRenderer,
-    IpcRendererEvent,
 } from 'electron';
 import type {
     IIpcInvokeSpec,
     TIpcCodecMap,
 } from '@contracts/ipcMain';
 import type { IValidatedIpcMainRegistrar } from '@electron/platform-ipc/validatedIpcRegistrar';
-import { cast } from '@tests/helpers/cast';
+import {vi} from 'vitest';
 import {
     createHarnessEvent,
     createValidatedRegistrarHarness,
@@ -20,6 +19,9 @@ interface IIpcRoundTripInvokeCall {
     channel: string;
 }
 
+type TRendererListener = (event: unknown, ...args: unknown[]) => void;
+type TTestIpcRenderer = Pick<IpcRenderer, 'invoke' | 'on' | 'postMessage' | 'removeListener' | 'send'>;
+
 export function createInProcessIpcRoundTripHarness<
     TMap extends {[TChannel in keyof TMap]: IIpcInvokeSpec},
     TService,
@@ -27,7 +29,7 @@ export function createInProcessIpcRoundTripHarness<
 >(options: {
     channels: Record<string, string>;
     codecs: TIpcCodecMap<TMap>;
-    createClient: (ipcRenderer: IpcRenderer) => TClient;
+    createClient: (ipcRenderer: TTestIpcRenderer) => TClient;
     event?: IpcMainInvokeEvent;
     postMessage?: (channel: string, message: unknown, transfer?: MessagePort[]) => void;
     register: (registrar: IValidatedIpcMainRegistrar<TMap, IpcMainInvokeEvent>, service: TService) => void;
@@ -36,8 +38,10 @@ export function createInProcessIpcRoundTripHarness<
     const handlers = createValidatedRegistrarHarness(options);
     const event = options.event ?? createHarnessEvent();
     const invokeCalls: IIpcRoundTripInvokeCall[] = [];
-    const listeners = new Map<string, Set<(event: IpcRendererEvent, ...args: unknown[]) => void>>();
-    const renderer = {
+    const listeners = new Map<string, Set<TRendererListener>>();
+    const on = vi.fn();
+    const removeListener = vi.fn();
+    const ipcRenderer = {
         invoke: async (channel: string, ...args: unknown[]) => {
             invokeCalls.push({
                 args,
@@ -46,12 +50,7 @@ export function createInProcessIpcRoundTripHarness<
             const result = await getCapturedIpcHandler(handlers, channel)(event, ...structuredClone(args));
             return structuredClone(result);
         },
-        on: (channel: string, listener: (event: IpcRendererEvent, ...args: unknown[]) => void) => {
-            const channelListeners = listeners.get(channel) ?? new Set();
-            channelListeners.add(listener);
-            listeners.set(channel, channelListeners);
-            return ipcRenderer;
-        },
+        on,
         postMessage: (channel: string, message: unknown, transfer?: MessagePort[]) => {
             if (options.postMessage) {
                 options.postMessage(channel, structuredClone(message), transfer);
@@ -59,19 +58,26 @@ export function createInProcessIpcRoundTripHarness<
             }
             throw new Error(`Unsupported fake IPC postMessage call: ${channel}`);
         },
-        removeListener: (channel: string, listener: (event: IpcRendererEvent, ...args: unknown[]) => void) => {
-            listeners.get(channel)?.delete(listener);
-            return ipcRenderer;
-        },
+        removeListener,
         send: () => undefined,
-    };
-    const ipcRenderer = cast<IpcRenderer>(renderer);
+    } satisfies TTestIpcRenderer;
+    on.mockImplementation((channel: string, listener: TRendererListener) => {
+        const channelListeners = listeners.get(channel) ?? new Set();
+        channelListeners.add(listener);
+        listeners.set(channel, channelListeners);
+        return ipcRenderer;
+    });
+    removeListener.mockImplementation((channel: string, listener: TRendererListener) => {
+        listeners.get(channel)?.delete(listener);
+        return ipcRenderer;
+    });
 
     return {
         client: options.createClient(ipcRenderer),
         emit: (channel: string, ...args: unknown[]) => {
             for (const listener of listeners.get(channel) ?? []) {
-                listener(cast<IpcRendererEvent>({}), ...args);
+                // Renderer callbacks cannot observe the Electron event object in this client API.
+                listener({}, ...args);
             }
         },
         event,

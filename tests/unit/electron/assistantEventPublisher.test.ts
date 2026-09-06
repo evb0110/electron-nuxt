@@ -11,8 +11,10 @@ import type {
     IAgentAssistantState,
 } from '@contracts/agent';
 import type { IAssistantChatSession } from '@electron/features/agent/assistantChatSessionStore';
+import type {IAssistantSelection} from '@electron/features/agent/assistantProviderStatus';
+import {createInitialAssistantTurnOwner} from '@electron/features/agent/assistantTurnLifecycle';
 import { createAssistantEventPublisher } from '@electron/features/agent/createAssistantEventPublisher';
-import { cast } from '@tests/helpers/cast';
+import {createAgentAssistantStatus} from '@tests/helpers/createAgentAssistantStatus';
 
 const mocks = vi.hoisted(() => {
     const windows = new Map<number, {
@@ -40,6 +42,34 @@ function createWindow(id: number) {
     };
 }
 
+function createChatSession(scope: IAgentAssistantChatScope, lastSenderWindowId: number | null): IAssistantChatSession {
+    return {
+        provider: 'codex',
+        scope,
+        model: 'default',
+        effort: 'low',
+        speedMode: 'fast',
+        providerThreadId: null,
+        lastSenderWindowId,
+        turnOwner: {
+            ...createInitialAssistantTurnOwner(),
+            generation: 7,
+        },
+        sendInFlight: null,
+        scopeBinding: null,
+        messages: [],
+        lastAccessedAtMs: 0,
+        turnPresentation: {
+            phase: 'idle',
+            reasoning: '',
+            toolActivity: [],
+            lastEventAtMs: null,
+            usage: null,
+        },
+        claudeSession: undefined,
+    } satisfies IAssistantChatSession;
+}
+
 describe('assistant event publisher', () => {
     beforeEach(() => {
         mocks.windows.clear();
@@ -56,13 +86,12 @@ describe('assistant event publisher', () => {
             documentSessionKey: 'session-a',
             documentRef: requireDocumentRef('/tmp/a.pdf'),
         };
-        const session = {
-            provider: 'codex',
+        const session = createChatSession(scope, 2);
+        const state = {
             scope,
-            lastSenderWindowId: 2,
-            turnOwner: {generation: 7},
-        } as IAssistantChatSession;
-        const state = cast<IAgentAssistantState>({scope});
+            status: createAgentAssistantStatus(),
+            messages: [],
+        } satisfies IAgentAssistantState;
         const publisher = createAssistantEventPublisher({
             currentState: () => state,
             getDefaultScope: () => scope,
@@ -85,14 +114,21 @@ describe('assistant event publisher', () => {
     });
 
     it('attaches state to unbound install progress so renderer event fences accept it', () => {
-        const state = cast<IAgentAssistantState>({scope: null});
+        const state = {
+            scope: null,
+            status: createAgentAssistantStatus(),
+            messages: [],
+        } satisfies IAgentAssistantState;
+        const defaultSelection = {
+            provider: 'codex',
+            model: 'default',
+            effort: 'low',
+            speedMode: 'fast',
+        } satisfies IAssistantSelection;
         const publisher = createAssistantEventPublisher({
             currentState: () => state,
             getDefaultScope: () => null,
-            getDefaultSelection: () => cast<IAssistantChatSession>({
-                provider: 'codex',
-                lastSenderWindowId: null,
-            }),
+            getDefaultSelection: () => defaultSelection,
         });
 
         publisher.publishAssistantEvent({

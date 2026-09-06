@@ -20,8 +20,8 @@ import {
 import {
     createDeferred,
     createTestEventSender,
+    type ITestEventSender,
 } from '@tests/helpers/electronEventEmitterHarness';
-import {cast} from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => {
     class MockDjvuPdfWorkerStartupError extends Error {
@@ -184,16 +184,29 @@ function asJobId(id: string) {
 }
 
 function createEvent(senderId: number) {
-    return {sender: createTestEventSender(senderId)};
+    const sender = createTestEventSender(senderId);
+    if (!isDjvuWebContentsTestDouble(sender)) {
+        throw new Error('Invalid WebContents test double');
+    }
+    return {sender};
+}
+
+function isDjvuWebContentsTestDouble(value: ITestEventSender): value is ITestEventSender & WebContents {
+    return typeof value.id === 'number'
+        && typeof value.isDestroyed === 'function'
+        && typeof value.on === 'function'
+        && typeof value.once === 'function'
+        && typeof value.removeListener === 'function'
+        && typeof value.send === 'function';
 }
 
 function createOperationContext(senderId: number): TDjvuOperationContext {
     const event = createEvent(senderId);
-    return cast<TDjvuOperationContext>({
+    return {
         ...event,
         senderId,
         parentWindow: null,
-    });
+    };
 }
 
 describe('handleDjvuConvertToPdf', () => {

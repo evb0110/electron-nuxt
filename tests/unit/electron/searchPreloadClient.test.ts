@@ -15,22 +15,26 @@ import {
     type ISearchErrorEnvelope,
 } from '@contracts/search';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
-import {cast} from '@tests/helpers/cast';
 
 const SEARCH_CHANNELS = SEARCH_PLATFORM_FEATURE.invokeChannels;
 const SEARCH_EVENT_CHANNELS = SEARCH_PLATFORM_FEATURE.eventChannels;
+type TTestIpcRenderer = Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
+
+// This deliberately violates the request-id brand so the preload boundary guard is exercised.
+const invalidRequestId = 'x'.repeat(129) as TRequestId;
 
 describe('derived Search preload client', () => {
     it('normalizes search requests before invoking main', async () => {
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke: vi.fn(async () => ({
                 results: [],
                 truncated: false,
             })),
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
-        const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
+            send: vi.fn(),
+        } satisfies TTestIpcRenderer;
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
 
         await client.run('  /tmp/work.pdf  ', 'needle', {
             requestId: requireRequestId('  search-1  '),
@@ -52,14 +56,15 @@ describe('derived Search preload client', () => {
     });
 
     it('rejects invalid preload search requests before invoking main', async () => {
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke: vi.fn(),
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
-        const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
+            send: vi.fn(),
+        } satisfies TTestIpcRenderer;
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
 
-        expect(() => client.run('/tmp/work.pdf', 'needle', {requestId: cast<TRequestId>('x'.repeat(129))}))
+        expect(() => client.run('/tmp/work.pdf', 'needle', {requestId: invalidRequestId}))
             .toThrow('requestId exceeds maximum length (128)');
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
@@ -74,14 +79,15 @@ describe('derived Search preload client', () => {
         const cause = new Error(
             `Error invoking remote method '${SEARCH_CHANNELS.run}': ${encodeSerializableErrorEnvelope(envelope)}`,
         );
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke: vi.fn(async () => {
                 throw cause;
             }),
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
-        const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
+            send: vi.fn(),
+        } satisfies TTestIpcRenderer;
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
 
         const error = await client.run('/tmp/work.pdf', 'needle').catch((caught: unknown) => caught);
 
@@ -106,7 +112,7 @@ describe('derived Search preload client', () => {
     });
 
     it('rejects malformed search results returned across IPC', async () => {
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke: vi.fn(async () => ({
                 results: [{
                     pageNumber: 0,
@@ -127,8 +133,9 @@ describe('derived Search preload client', () => {
             })),
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
-        const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
+            send: vi.fn(),
+        } satisfies TTestIpcRenderer;
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
 
         await expect(client.run('/tmp/work.pdf', 'term')).rejects.toMatchObject({
             name: 'PlatformIpcInvokeError',
@@ -138,15 +145,18 @@ describe('derived Search preload client', () => {
 
     it('drops malformed search progress events before callbacks', async () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const on = vi.fn();
+        const ipcRenderer = {
             invoke: vi.fn(),
-            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
-                listeners.set(channel, handler);
-                return ipcRenderer as IpcRenderer;
-            }),
+            on,
             removeListener: vi.fn(),
-        };
-        const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
+            send: vi.fn(),
+        } satisfies TTestIpcRenderer;
+        on.mockImplementation((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
+            listeners.set(channel, handler);
+            return ipcRenderer;
+        });
+        const client = createPlatformFeaturePreloadClient(ipcRenderer, SEARCH_PLATFORM_FEATURE);
         const callback = vi.fn();
 
         client.onProgress(callback);

@@ -21,14 +21,18 @@ import {
     createPdfPersistenceReadyFrame,
     createPdfPersistenceResultFrame,
     isPdfPersistencePreloadToMainPayload,
+    PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
+    PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
+    PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
+    PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
 } from '@contracts/documentPersistenceFrames';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
-import type { IDocumentsService } from '@electron/features/documents/documentsService';
 import { registerDocumentsIpcAdapter } from '@electron/features/documents/registerDocumentsIpcAdapter';
-import { cast } from '@tests/helpers/cast';
+import type {IBeginSerializedPdfPersistenceResult} from '@electron/features/documents/serializedPdfPersistenceContract';
 import { createInProcessIpcRoundTripHarness } from '@tests/unit/electron/helpers/createInProcessIpcRoundTripHarness';
+import { createDocumentsServiceFixture } from '@tests/unit/electron/helpers/createDocumentsServiceFixture';
 
 const mocks = vi.hoisted(() => ({
     appOn: vi.fn(),
@@ -77,18 +81,27 @@ describe('in-process preload to validated IPC round trips', () => {
         const receivedChunks: Uint8Array[] = [];
         const openDocumentDirect = vi.fn(async (_context: unknown, originalPath: string) => ({
             kind: 'pdf' as const,
-            originalPath,
-            workingPath: `/managed/duplicate-source-${originalPath.includes('-a/') ? 'a' : 'b'}.pdf`,
+            originalPath: requireDocumentRef(originalPath),
+            workingPath: requireDocumentRef(`/managed/duplicate-source-${originalPath.includes('-a/') ? 'a' : 'b'}.pdf`),
         }));
-        const service = cast<IDocumentsService>({
-            beginSavePdfData: vi.fn(async () => ({sessionId: 'persistence-session-1'})),
-            createWorkingCopyFromData: vi.fn(async () => '/tmp/working-copy.pdf'),
+        const persistenceBeginResult = {
+            protocolVersion: 1,
+            maxChunkBytes: PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
+            maxInFlightChunks: PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
+            maxTotalBytes: Number.MAX_SAFE_INTEGER,
+            ackTimeoutMs: PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
+            resultTimeoutMs: PDF_PERSISTENCE_DEFAULT_RESULT_TIMEOUT_MS,
+            sessionId: 'persistence-session-1',
+        } satisfies IBeginSerializedPdfPersistenceResult;
+        const service = createDocumentsServiceFixture({
+            beginSavePdfData: vi.fn(async () => persistenceBeginResult),
+            createWorkingCopyFromData: vi.fn(async () => requireDocumentRef('/tmp/working-copy.pdf')),
             openDocumentDirect,
             onWorkingCopyBackingStatusChanged: vi.fn(() => () => {}),
         });
         const harness = createInProcessIpcRoundTripHarness<
             TDocumentsCombinedInvokeMap,
-            IDocumentsService,
+            ReturnType<typeof createDocumentsServiceFixture>,
             ReturnType<typeof createDocumentsPreloadFileClient>
         >({
             channels: documentsCombinedChannels,

@@ -20,11 +20,21 @@ import type {
     IAgentAssistantEvent,
 } from '@contracts/agent';
 import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
-import { cast } from '@tests/helpers/cast';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireTabId} from '@contracts/windowTabs';
+
+function createAssistantWindow(send: (channel: string, event: IAgentAssistantEvent) => void): BrowserWindow {
+    // The publisher only reads these lifecycle members; Electron types the mock as a full BrowserWindow.
+    return {
+        isDestroyed: () => false,
+        webContents: {
+            isDestroyed: () => false,
+            send,
+        },
+    } as BrowserWindow;
+}
 
 const mocks = vi.hoisted(() => ({
     loadSettings: vi.fn(async () => ({assistantPanelEnabled: false})),
@@ -1173,13 +1183,7 @@ describe('agent assistant opt-in gating', () => {
     it('keeps streaming assistant deltas lean while boundary events carry state', async () => {
         enableAssistantRuntime();
         const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
-        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([cast<BrowserWindow>({
-            isDestroyed: () => false,
-            webContents: {
-                isDestroyed: () => false,
-                send,
-            },
-        })]);
+        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([createAssistantWindow(send)]);
         const documentScope = createDocumentScope('stream.pdf');
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
@@ -1203,13 +1207,7 @@ describe('agent assistant opt-in gating', () => {
     it('publishes safe assistant turn progress for non-message item notifications', async () => {
         const process = enableAssistantRuntime();
         const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
-        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([cast<BrowserWindow>({
-            isDestroyed: () => false,
-            webContents: {
-                isDestroyed: () => false,
-                send,
-            },
-        })]);
+        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([createAssistantWindow(send)]);
         const documentScope = createDocumentScope('progress.pdf');
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
