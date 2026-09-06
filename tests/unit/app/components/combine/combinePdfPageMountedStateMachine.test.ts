@@ -17,6 +17,7 @@ import {
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireDocumentRef} from '@contracts/documentRef';
+import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import { useCombinePdfOperation } from '@app/modules/combine/useCombinePdfOperation';
 import { useCombinePdfQueue } from '@app/modules/combine/useCombinePdfQueue';
 
@@ -42,9 +43,27 @@ vi.mock('@app/services/pdf/combinePdfFiles', () => ({
         }
     },
     combinePdfFiles: mocks.combinePdfFiles,
+    getCombinePdfCapabilities: () => ({
+        supportedExtensions: ['.pdf'],
+        maxInputs: 500,
+        maxInputBytes: 32 * 1024 * 1024,
+        maxTotalInputBytes: 64 * 1024 * 1024,
+    }),
 }));
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({ savePdfAs: mocks.savePdfAs })}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
+
+const ButtonStub = defineComponent({
+    inheritAttrs: false,
+    setup: (_props, {attrs, slots}) => () => h('button', {
+        ...attrs,
+        type: 'button',
+    }, slots.default?.()),
+});
+const IconStub = defineComponent({setup: () => () => h('span')});
+const PassthroughStub = defineComponent({
+    setup: (_props, {slots}) => () => h('span', slots.default?.()),
+});
 
 interface IQueueFile {
     id: string;
@@ -151,6 +170,30 @@ describe('mounted Combine PDF page state machine', () => {
         vi.clearAllMocks();
         mocks.savePdfAs.mockResolvedValue('/tmp/saved.pdf');
         mocks.logError.mockReturnValue(mocks.failure);
+    });
+
+    it('executes the page component with the queue controls unlocked', async () => {
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(CombinePdfPage, {
+            showBack: false,
+            showEyebrow: false,
+            showHeader: false,
+        });
+        app.component('UButton', ButtonStub);
+        app.component('UIcon', IconStub);
+        app.component('UAlert', PassthroughStub);
+        app.component('AppTooltip', PassthroughStub);
+        app.mount(host);
+
+        try {
+            await nextTick();
+            expect(host.querySelector('[data-combine-page]')).not.toBeNull();
+            expect(host.querySelector('button')).not.toBeNull();
+        } finally {
+            app.unmount();
+            host.remove();
+        }
     });
 
     it('locks queue mutations, retains a failed-open result, then saves or retries without recombining', async () => {
