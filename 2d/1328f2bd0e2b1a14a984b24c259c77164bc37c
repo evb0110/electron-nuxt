@@ -1,0 +1,21 @@
+app/modules/workspace-shell/composables/useAppShellDirectionalTabs.ts
+  s_d252de3ad71cee::t_e8762b0b8cb156 23,231-235
+docs/pdf-annotations-audit-2026-08-22-implementation-ledger.md
+  s_d252de3ad71cee::t_0dd7b66595b817 918-946
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2d1328f2bd0e2b1a14a984b24c259c77164bc37c",
+  "prompts": {},
+  "sessions": {
+    "s_d252de3ad71cee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0723f-6c82-7453-a893-5fe26c4041d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
