@@ -192,7 +192,11 @@ function createPdfOutlineFixture(outline: unknown[]): TPdfOutline {
             italic: value.italic === true,
             color: value.color instanceof Uint8ClampedArray
                 ? value.color
-                : new Uint8ClampedArray([0, 0, 0]),
+                : new Uint8ClampedArray([
+                    0,
+                    0,
+                    0,
+                ]),
             dest: typeof destination === 'string' || Array.isArray(destination) || destination === null
                 ? destination
                 : null,

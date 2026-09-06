@@ -8,7 +8,7 @@ import {
     CombinePdfError,
 } from '@app/services/pdf/combinePdfFiles';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
-import {removeCompletedCombineSnapshot} from '@app/services/pdf/combineOperationSnapshot';
+import {removeCompletedCombineSnapshot} from '@app/services/pdf/removeCompletedCombineSnapshot';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {BrowserLogger} from '@app/utils/browserLogger';
 

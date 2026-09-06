@@ -3,9 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    removeCompletedCombineSnapshot,
-} from '@app/services/pdf/combineOperationSnapshot';
+import {removeCompletedCombineSnapshot} from '@app/services/pdf/removeCompletedCombineSnapshot';
 
 describe('combine operation snapshots', () => {
     it('removes only the completed immutable snapshot after success', () => {
