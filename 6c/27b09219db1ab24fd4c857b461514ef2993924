@@ -1,0 +1,53 @@
+scan-cleanup-line-budget-baseline.json
+  s_2a795a6f32ad8d::t_8b11ed662b4e14 6,26
+  s_2a795a6f32ad8d::t_8053dcf8aa54d2 1-2,4-5,7-25,27-30
+  s_2a795a6f32ad8d::t_3e95198c596f42 3
+scripts/validation-gates.mjs
+  s_2a795a6f32ad8d::t_0b1c62c755f249 755-757,2594-2598,2604
+  s_2a795a6f32ad8d::t_bd979c5b38e327 582,584-587
+  s_2a795a6f32ad8d::t_45c5ad861df164 583,754
+  s_2a795a6f32ad8d::t_97f9beec2b5c7a 99
+docs/local-gates.md
+  s_2a795a6f32ad8d::t_97f9beec2b5c7a 100-130
+  s_2a795a6f32ad8d::t_57d304f2f738c7 32
+tests/unit/scripts/scanCleanupLineBudget.test.ts
+  s_2a795a6f32ad8d::t_67f8e9a42f3f0b 131-148
+  s_2a795a6f32ad8d::t_785c3b5ebb4d3d 115-128
+  s_2a795a6f32ad8d::t_43b9009f2936e9 22-25,32-37,44-47,80-87,106-113
+  s_2a795a6f32ad8d::t_bd979c5b38e327 69
+  s_2a795a6f32ad8d::t_5289bc856ebc49 52
+  s_2a795a6f32ad8d::t_c72b5195514142 1-21,26-31,38-43,48-51,53-68,70-79,88-105,114,129-130,149-158
+scripts/scan-cleanup-line-budget.mjs
+  s_2a795a6f32ad8d::t_2da498ffa8c105 17-19,21,51,54,56,71,84,151,163,195,222,240,245,254
+  s_2a795a6f32ad8d::t_57d304f2f738c7 286-289
+  s_2a795a6f32ad8d::t_cc7aea20483662 143,153,156,165,206
+  s_2a795a6f32ad8d::t_43b9009f2936e9 10-15,23-46,132,168-171,198-201,227-236,260-263,271-274,301-305,313-317
+  s_2a795a6f32ad8d::t_db045bd31952fe 282-285
+  s_2a795a6f32ad8d::t_653d070d7eb774 324
+  s_2a795a6f32ad8d::t_5289bc856ebc49 99-104,123-126
+  s_2a795a6f32ad8d::t_d3b0ef00ed5f18 74-76
+  s_2a795a6f32ad8d::t_f34107586a3520 16
+  s_2a795a6f32ad8d::t_ab979080de17b8 259
+  s_2a795a6f32ad8d::t_cd271854de07c1 1-9,20,22,47-50,52-53,55,57-70,72-73,79,82-83,85-98,105-122,127-131,133-142,144-150,152,154-155,157-162,164,166-167,172-194,196-197,202-205,207-211,213-221,223-226,237-239,241-244,246-253,255-258,264-270,275-281,290-291,296-300,306-312,318-323,325-327
+  s_2a795a6f32ad8d::t_785c3b5ebb4d3d 77-78,80-81,212,292-295
+scripts/all-gates-validation-plan.mjs
+  s_2a795a6f32ad8d::t_43b9009f2936e9 55-58
+  s_2a795a6f32ad8d::t_785c3b5ebb4d3d 59
+  s_2a795a6f32ad8d::t_0b1c62c755f249 54,60-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6c27b09219db1ab24fd4c857b461514ef2993924",
+  "prompts": {},
+  "sessions": {
+    "s_2a795a6f32ad8d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-54c6-73f3-93f0-bd6a81b94e4d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
