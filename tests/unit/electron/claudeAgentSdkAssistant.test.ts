@@ -203,6 +203,23 @@ describe('claudeAgentSdkAssistant', () => {
         });
     });
 
+    it('reports the bundled Claude executable and SDK version through the shared metadata helper', async () => {
+        const result = await getClaudeAgentSdkInfo({
+            env: {},
+            resolveSdkPackageDir: () => '/sdk',
+            readSdkVersion: vi.fn(async () => '1.2.3'),
+            findClaudeOnPath: vi.fn(async () => null),
+            findBundledClaudeExecutable: vi.fn(async () => '/sdk-native/claude'),
+            pathIsExecutable: vi.fn(async path => path === '/sdk-native/claude'),
+        });
+
+        expect(result).toEqual({
+            installed: true,
+            version: '1.2.3',
+            executablePath: '/sdk-native/claude',
+        });
+    });
+
     it('includes the active turn id on assistant deltas, messages, and errors', async () => {
         const fakeQuery = new FakeClaudeQuery();
         sdkMocks.query.mockReturnValue(fakeQuery);

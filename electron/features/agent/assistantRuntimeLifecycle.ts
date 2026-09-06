@@ -8,6 +8,7 @@ import type {
 import { ASSISTANT_DEFAULT_EFFORT } from '@contracts/agentModels';
 import {
     getCodexCliInfo,
+    runCodexCli,
     type ICodexCliInfo,
 } from '@electron/features/agent/codexCli';
 import {
@@ -100,6 +101,15 @@ function getAssistantCodexHome() {
 
 function getAssistantCwd() {
     return join(getAssistantBaseDir(), 'cwd');
+}
+
+function createCodexProcessEnvironment(codeHome: string, mcpToken?: string) {
+    return {
+        ...process.env,
+        CODEX_HOME: codeHome,
+        ...(mcpToken ? {[ASSISTANT_MCP_TOKEN_ENV]: mcpToken} : {}),
+        NO_COLOR: '1',
+    };
 }
 
 export async function ensureAssistantCwd() {
@@ -252,6 +262,33 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         return codexInfoCache;
     }
 
+    async function refreshCodexAuthStateWithoutRuntime() {
+        if (!codexInfoCache?.installed || !codexInfoCache.path) {
+            options.providerRuntime.authState = 'unknown';
+            options.providerRuntime.account = null;
+            return;
+        }
+        if (options.providerRuntime.authState !== 'unknown') {
+            return;
+        }
+
+        const result = await runCodexCli(codexInfoCache.path, [
+            'login',
+            'status',
+        ], {env: createCodexProcessEnvironment(getAssistantCodexHome())});
+        options.providerRuntime.authState = result.ok ? 'signed-in' : 'signed-out';
+        options.providerRuntime.account = null;
+        if (result.ok) {
+            delete options.providerRuntime.lastError;
+            if (options.providerRuntime.runtimeState === 'stopped') {
+                options.providerRuntime.runtimeState = 'ready';
+            }
+            return;
+        }
+        options.providerRuntime.runtimeState = 'stopped';
+        delete options.providerRuntime.lastError;
+    }
+
     async function refreshAuthState() {
         await refreshCodexAuthState(
             options.providerRuntime,
@@ -375,12 +412,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
 
         const client = new CodexAppServerClient(
             codexInfo.path,
-            {
-                ...process.env,
-                CODEX_HOME: codeHome,
-                [ASSISTANT_MCP_TOKEN_ENV]: mcpToken,
-                NO_COLOR: '1',
-            },
+            createCodexProcessEnvironment(codeHome, mcpToken),
             cwd,
             options.handleNotification,
             options.handleExit,
@@ -522,6 +554,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         refreshAuthState,
         refreshAuthStateAndRuntimeAvailability,
         refreshCodexInfo,
+        refreshCodexAuthStateWithoutRuntime,
         setCodexInfo,
         shutdownCodexRuntime,
     };

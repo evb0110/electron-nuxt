@@ -21,7 +21,6 @@ export async function getAgentAssistantState(
     ...args: Parameters<TAgentAssistantRuntimeModule['getAgentAssistantState']>
 ): Promise<Awaited<ReturnType<TAgentAssistantRuntimeModule['getAgentAssistantState']>>> {
     const runtime = await loadAgentAssistantRuntime();
-    runtime.initializeAgentAssistantRuntime();
     return runtime.getAgentAssistantState(...args);
 }
 
