@@ -2,6 +2,7 @@
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
+    existsSync,
     readFileSync,
     readdirSync,
     writeFileSync,
@@ -17,6 +18,14 @@ const SOURCE_EXTENSIONS = new Set([
     '.vue',
 ]);
 const SCAN_CLEANUP_TEST_PATH = /scan[-_]?cleanup/iu;
+const GENERATED_DIRECTORY_NAMES = new Set([
+    '.nuxt',
+    '.output',
+    'coverage',
+    'dist',
+    'node_modules',
+    'target',
+]);
 /** @typedef {{byFile: Record<string, number>, path: string, total: number}} ILineHome */
 /** @typedef {{homes: Record<string, ILineHome>, productionTotal: number, tests: {byFile: Record<string, number>, total: number}}} ILineCounts */
 /** @typedef {{version: 1, productionTotal: number, homes: Record<string, {lines: number, path: string}>, consolidationApproval?: {version: 1, reason: string, baseCommit: string, previousIdentity: string, currentIdentity: string}}} ILineBudgetBaseline */
@@ -290,8 +299,59 @@ export function splitRustTestCodeLines(source) {
     };
 }
 
+/** @param {string} relativePath @returns {boolean} */
+function isGeneratedFallbackArtifact(relativePath) {
+    const segments = relativePath.split('/');
+    return segments.some(segment => GENERATED_DIRECTORY_NAMES.has(segment))
+        || /(?:^|\/)(?:auto-imports|generated|env)\.d\.ts$/iu.test(relativePath)
+        || /\.(?:generated|gen)\.(?:d\.)?ts$/iu.test(relativePath);
+}
+
+/** @param {string} root @param {string} relativeDirectory @returns {string[] | null} */
+function trackedSourceFiles(root, relativeDirectory) {
+    try {
+        execFileSync('git', [
+            'rev-parse',
+            '--is-inside-work-tree',
+        ], {
+            cwd: root,
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+        const output = execFileSync('git', [
+            'ls-files',
+            '--cached',
+            '--',
+            relativeDirectory,
+        ], {
+            cwd: root,
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+        return output
+            .split(/\r?\n/u)
+            .filter(relativePath => relativePath.length > 0 && SOURCE_EXTENSIONS.has(path.extname(relativePath)))
+            .map(relativePath => path.join(root, relativePath))
+            .filter(filePath => existsSync(filePath))
+            .sort();
+    } catch {
+        return null;
+    }
+}
+
 /** @param {string} root @param {string} relativeDirectory @returns {string[]} */
 function sourceFiles(root, relativeDirectory) {
+    const trackedFiles = trackedSourceFiles(root, relativeDirectory);
+    if (trackedFiles !== null) {
+        return trackedFiles;
+    }
     const directory = path.join(root, relativeDirectory);
     /** @type {string[]} */
     const files = [];
@@ -302,7 +362,8 @@ function sourceFiles(root, relativeDirectory) {
             if (entry.isDirectory()) {
                 visit(entryPath);
             } else if (entry.isFile() && SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
-                files.push(entryPath);
+                const relativePath = path.relative(root, entryPath).split(path.sep).join('/');
+                if (!isGeneratedFallbackArtifact(relativePath)) files.push(entryPath);
             }
         }
     };

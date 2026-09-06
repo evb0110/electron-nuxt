@@ -136,8 +136,10 @@ describe('scan-cleanup line budget', () => {
             mkdir(join(root, 'scan-cleanup-adapters'), {recursive: true}),
             mkdir(join(root, 'native/scan-cleanup/src'), {recursive: true}),
             mkdir(join(root, 'native/scan-cleanup/tests'), {recursive: true}),
+            mkdir(join(root, 'app/modules/scan-cleanup/.nuxt'), {recursive: true}),
             mkdir(join(root, 'tests/unit/scan-cleanup'), {recursive: true}),
         ]);
+        const generatedLines = Array.from({length: 66}, (_, index) => `declare const generated${index}: string;`).join('\n');
         await Promise.all([
             writeFile(join(root, 'app/modules/scan-cleanup/app.ts'), '// eslint-disable-next-line max-lines\nconst app = 1;\n'),
             writeFile(join(root, 'electron/features/scan-cleanup/electron.vue'), '<template>ok</template>\n'),
@@ -147,6 +149,10 @@ describe('scan-cleanup line budget', () => {
             writeFile(join(root, 'native/scan-cleanup/src/lib.rs'), 'fn main() {}\n'),
             writeFile(join(root, 'native/scan-cleanup/src/example_tests.rs'), '#[test]\nfn separate() {}\n'),
             writeFile(join(root, 'native/scan-cleanup/tests/lib.rs'), 'fn test() {}\n'),
+            writeFile(join(root, 'native/scan-cleanup/auto-imports.d.ts'), generatedLines),
+            writeFile(join(root, 'native/scan-cleanup/tests/generated.d.ts'), generatedLines),
+            writeFile(join(root, 'app/modules/scan-cleanup/generated.d.ts'), generatedLines),
+            writeFile(join(root, 'app/modules/scan-cleanup/.nuxt/generated.ts'), generatedLines),
             writeFile(join(root, 'tests/unit/scan-cleanup/example.test.ts'), 'it("works", () => {});\n'),
             writeFile(join(root, 'scan-cleanup-core/ignored.js'), 'const ignored = 1;\n'),
         ]);
