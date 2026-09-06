@@ -1,6 +1,7 @@
 import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
+    access,
     mkdtemp,
     readFile,
     readdir,
@@ -17,14 +18,18 @@ import puppeteer from 'puppeteer-core';
 import type {Page} from 'puppeteer-core';
 import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
-import {requirePageIndex} from '@contracts/pageNumbers';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     applyCombinedPdfPageLabels,
     inspectPdfCombineCatalog,
 } from '@pdf-core/pdfCombineCatalog';
 import {writePdfBookmarkOutlines} from '@pdf-core/writePdfBookmarkOutlines';
 import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
-import {waitForPackagedCdpEndpoint} from '@scripts/release/waitForPackagedCdpEndpoint';
+import {
+    waitForPackagedCdpEndpoint,
+    waitForPackagedRendererPage,
+} from '@scripts/release/waitForPackagedCdpEndpoint';
 import {
     findFreePort,
     isProcessAlive,
@@ -39,10 +44,11 @@ import {
     openAnnotationsTab,
     openPdfInApp,
     saveViaWindowHandle,
+    waitForLivePdfJsAnnotationChange,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
 import {getWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
@@ -201,6 +207,19 @@ async function closeBrowserGracefully(browser: TConnectedBrowser | null) {
     ]);
 }
 
+async function assertPathAbsent(pathToCheck: string, description: string): Promise<void> {
+    try {
+        await access(pathToCheck);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return;
+        }
+        throw error;
+    }
+
+    throw new Error(`Packaged smoke cleanup left ${description} at ${pathToCheck}`);
+}
+
 async function run() {
     const executablePath = parseExecutablePath(process.argv.slice(2));
     const workDirectory = await mkdtemp(path.join(tmpdir(), 'evb-packaged-core-smoke-'));
@@ -218,8 +237,8 @@ async function run() {
         env: {
             ...process.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
-            EVB_AUTOMATION_HIDE_WINDOW: '0',
-            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_SESSION_NAME: 'packaged-core-pdf-smoke',
             EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
             EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
@@ -230,10 +249,18 @@ async function run() {
             'pipe',
         ],
     });
-    child.stdout?.pipe(process.stdout);
-    child.stderr?.pipe(process.stderr);
+    child.stdout.pipe(process.stdout);
+    child.stderr.pipe(process.stderr);
 
     let browser: TConnectedBrowser | null = null;
+    let primaryError: Error | null = null;
+    // Collected instead of held in a captured let. Flow analysis does not see an
+    // assignment made inside recordCleanupError, so a later read narrows to the
+    // null initializer and reports a live branch as dead.
+    const cleanupErrors: Error[] = [];
+    const recordCleanupError = (error: unknown): void => {
+        cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
+    };
     try {
         const browserWSEndpoint = await waitForPackagedCdpEndpoint(
             cdpPort,
@@ -245,12 +272,11 @@ async function run() {
             defaultViewport: null,
             protocolTimeout: 420_000,
         });
-        const pages = await browser.pages();
-        const page = pages.find(candidate => candidate.url().startsWith('evb-viewer://app/'))
-            ?? pages.find(candidate => !candidate.isClosed());
-        if (!page) {
-            throw new Error('Packaged Electron exposed no renderer page');
-        }
+        const page = await waitForPackagedRendererPage(
+            browser,
+            STARTUP_TIMEOUT_MS,
+            'Packaged Electron',
+        );
         const rendererFailures: string[] = [];
         page.on('console', (message) => {
             const renderedMessage = `[packaged-renderer:${message.type()}] ${message.text()}`;
@@ -263,8 +289,8 @@ async function run() {
         });
         page.on('pageerror', (error) => {
             const errorDetails = error instanceof Error
-                ? error.stack ?? error.message
-                : String(error);
+                ? error.stack ?? getErrorMessage(error)
+                : getErrorMessage(error);
             const renderedError = `[packaged-renderer:pageerror] ${errorDetails}`;
             rendererFailures.push(renderedError);
             console.error(renderedError);
@@ -277,11 +303,19 @@ async function run() {
 
         await openAnnotationsTab(page, OPERATION_TIMEOUT_MS);
         const annotationText = `Packaged smoke annotation ${Date.now()}`;
-        await createCanonicalTextBoxWithPointer(page, annotationText, {
-            x: 0.4,
-            y: 0.3,
-        });
-        await page.keyboard.press('Escape');
+        if (await createFreeTextAnnotationWithPointer(
+            page,
+            annotationText,
+            {
+                x: 0.4,
+                y: 0.3,
+            },
+            1,
+            OPERATION_TIMEOUT_MS,
+        ) < 1) {
+            throw new Error('Packaged smoke failed to create a FreeText annotation');
+        }
+        await waitForLivePdfJsAnnotationChange(page, OPERATION_TIMEOUT_MS);
         await waitForSaveEnabled(page);
         await saveViaWindowHandle(page, OPERATION_TIMEOUT_MS);
         await waitForSavedAnnotation(fixturePath, OPERATION_TIMEOUT_MS);
@@ -348,21 +382,40 @@ async function run() {
 
         console.log('Packaged core-PDF smoke passed: open, annotation save, metadata-preserving rotate, source isolation, and search.');
     } catch (error) {
-        await capturePackagedCorePdfFailureArtifacts(browser, error);
-        throw error;
+        primaryError = error instanceof Error ? error : new Error(String(error));
+        try {
+            await capturePackagedCorePdfFailureArtifacts(browser, error);
+        } catch (captureError) {
+            recordCleanupError(captureError);
+        }
     } finally {
-        await closeBrowserGracefully(browser);
-        if (typeof child.pid === 'number') {
-            await waitForProcessExit(child.pid, 5_000);
+        try {
+            await closeBrowserGracefully(browser);
+        } catch (error) {
+            recordCleanupError(error);
         }
-        await browser?.disconnect().catch(() => {});
-        if (typeof child.pid === 'number') {
-            if (isProcessAlive(child.pid)) {
-                await killProcessTree(child.pid, 3_000);
+
+        try {
+            if (typeof child.pid === 'number') {
+                if (!await waitForProcessExit(child.pid, 5_000)) {
+                    await killProcessTree(child.pid, 3_000);
+                    if (!await waitForProcessExit(child.pid, 5_000)) {
+                        recordCleanupError(new Error(`Packaged smoke child process ${child.pid} did not exit after cleanup`));
+                    }
+                }
+            } else if (child.exitCode === null) {
+                child.kill('SIGKILL');
             }
-        } else if (child.exitCode === null) {
-            child.kill('SIGKILL');
+        } catch (error) {
+            recordCleanupError(error);
         }
+
+        try {
+            await browser?.disconnect();
+        } catch (error) {
+            recordCleanupError(error);
+        }
+
         try {
             await rm(workDirectory, {
                 force: true,
@@ -370,9 +423,23 @@ async function run() {
                 recursive: true,
                 retryDelay: 200,
             });
+            await assertPathAbsent(workDirectory, 'temporary smoke directory');
         } catch (error) {
-            console.warn(`Packaged smoke cleanup left temporary files at ${workDirectory}:`, error);
+            recordCleanupError(error);
         }
+
+        const [firstCleanupError] = cleanupErrors;
+        if (firstCleanupError && primaryError) {
+            console.error('Packaged smoke cleanup failed after the primary failure:', firstCleanupError);
+        }
+    }
+
+    if (primaryError) {
+        throw primaryError;
+    }
+    const [finalCleanupError] = cleanupErrors;
+    if (finalCleanupError) {
+        throw new Error(String(finalCleanupError));
     }
 }
 

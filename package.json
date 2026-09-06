@@ -121,6 +121,7 @@
     "check:electron:install": "node scripts/check-electron-install.mjs",
     "check:electron-builder:asar-unpack": "node scripts/check-electron-builder-asar-unpack.mjs",
     "check:drizzle-schema": "node scripts/check-drizzle-schema.mjs",
+    "check:tests:as-never": "pnpm exec tsx scripts/checkTestsAsNever.ts",
     "check:production-dependency-audit": "pnpm exec tsx scripts/checkProductionDependencyAudit.ts",
     "check:production-dependency-audit:production-only": "pnpm exec tsx scripts/checkProductionDependencyAudit.ts --production-only",
     "check:static:assets": "node scripts/check-web-deploy-source.mjs",
