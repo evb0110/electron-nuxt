@@ -37,20 +37,33 @@ describe('lazy assistant facade', () => {
 
     it('loads the facade runtime for a state read without initializing it', async () => {
         const {getAgentAssistantState} = await import('@electron/features/agent/lazyAgentAssistant');
-        await expect(getAgentAssistantState()).resolves.toEqual({state: 'read'});
+        await expect(Promise.all([
+            getAgentAssistantState(),
+            getAgentAssistantState(),
+        ])).resolves.toEqual([
+            {state: 'read'},
+            {state: 'read'},
+        ]);
         expect(observations.moduleEvaluations).toBe(1);
-        expect(observations.stateReads).toBe(1);
+        expect(observations.stateReads).toBe(2);
         expect(observations.runtimeInitializations).toBe(0);
     });
 
     it('initializes the runtime when an operation needs it and reuses the module', async () => {
         const {
             getAgentAssistantState,
+            shutdownAgentAssistantIfLoaded,
             sendAgentAssistantMessage,
         } = await import('@electron/features/agent/lazyAgentAssistant');
         await sendAgentAssistantMessage({} as never);
         await getAgentAssistantState();
         expect(observations.moduleEvaluations).toBe(1);
         expect(observations.runtimeInitializations).toBe(1);
+
+        await shutdownAgentAssistantIfLoaded();
+        expect(observations.shutdowns).toBe(1);
+        await sendAgentAssistantMessage({} as never);
+        expect(observations.moduleEvaluations).toBe(1);
+        expect(observations.runtimeInitializations).toBe(2);
     });
 });

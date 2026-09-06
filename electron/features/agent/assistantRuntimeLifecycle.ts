@@ -8,6 +8,7 @@ import type {
 import { ASSISTANT_DEFAULT_EFFORT } from '@contracts/agentModels';
 import {
     getCodexCliInfo,
+    runCodexCli,
     type ICodexCliInfo,
 } from '@electron/features/agent/codexCli';
 import {
@@ -250,6 +251,33 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
     async function refreshCodexInfo() {
         codexInfoCache = await getCodexCliInfo();
         return codexInfoCache;
+    }
+
+    async function refreshCodexAuthStateWithoutRuntime() {
+        if (!codexInfoCache?.installed || !codexInfoCache.path) {
+            options.providerRuntime.authState = 'unknown';
+            options.providerRuntime.account = null;
+            return;
+        }
+        if (options.providerRuntime.authState !== 'unknown') {
+            return;
+        }
+
+        const result = await runCodexCli(codexInfoCache.path, [
+            'login',
+            'status',
+        ]);
+        options.providerRuntime.authState = result.ok ? 'signed-in' : 'signed-out';
+        options.providerRuntime.account = null;
+        if (result.ok) {
+            delete options.providerRuntime.lastError;
+            if (options.providerRuntime.runtimeState === 'stopped') {
+                options.providerRuntime.runtimeState = 'ready';
+            }
+            return;
+        }
+        options.providerRuntime.runtimeState = 'stopped';
+        delete options.providerRuntime.lastError;
     }
 
     async function refreshAuthState() {
@@ -522,6 +550,7 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
         refreshAuthState,
         refreshAuthStateAndRuntimeAvailability,
         refreshCodexInfo,
+        refreshCodexAuthStateWithoutRuntime,
         setCodexInfo,
         shutdownCodexRuntime,
     };

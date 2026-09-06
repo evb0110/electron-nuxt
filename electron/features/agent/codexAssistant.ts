@@ -774,6 +774,7 @@ export async function getAgentAssistantState(
     // provider runtime. A first send/login/install operation owns startup.
     if (selection.provider === 'codex') {
         await runtimeLifecycle.refreshCodexInfo();
+        await runtimeLifecycle.refreshCodexAuthStateWithoutRuntime();
         if (codexProviderRuntime.authState === 'signed-out' && codexProviderRuntime.runtimeState === 'error') {
             codexProviderRuntime.runtimeState = 'stopped';
         }

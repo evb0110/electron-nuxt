@@ -40,6 +40,7 @@ function createAssistantWindow(send: (channel: string, event: IAgentAssistantEve
 const mocks = vi.hoisted(() => ({
     loadSettings: vi.fn(async () => ({assistantPanelEnabled: false})),
     getCodexCliInfo: vi.fn(),
+    runCodexCli: vi.fn(async () => ({ok: true})),
     installManagedCodex: vi.fn(),
     spawn: vi.fn(),
     assistantDisabledMessage: 'Enable EVB Assistant in Settings to use assistant chat.',
@@ -350,6 +351,7 @@ vi.mock('@electron/features/agent/codexCli', () => ({
     CODEX_APP_INSTALL_URL: 'https://developers.openai.com/codex/app',
     CODEX_STANDALONE_INSTALL_URL: 'https://example.test/install-codex',
     getCodexCliInfo: mocks.getCodexCliInfo,
+    runCodexCli: mocks.runCodexCli,
     installManagedCodex: mocks.installManagedCodex,
 }));
 
@@ -501,6 +503,7 @@ describe('agent assistant opt-in gating', () => {
         mocks.claudeSessionConstructor.mockReset();
         mocks.codexAccountReadMode = 'success';
         mocks.codexAuthStatusMode = 'signed-in';
+        mocks.runCodexCli.mockResolvedValue({ok: true});
     });
 
     afterEach(async () => {
@@ -548,6 +551,26 @@ describe('agent assistant opt-in gating', () => {
         expect(mocks.getCodexCliInfo).not.toHaveBeenCalled();
         expect(mocks.startEmbeddedMcpServer).not.toHaveBeenCalled();
         expect(mocks.spawn).not.toHaveBeenCalled();
+    });
+
+    it('reports fresh installed Codex authentication without starting its runtime', async () => {
+        configureEnabledAssistantRuntime();
+        mocks.runCodexCli.mockResolvedValue({ok: true});
+        const {getAgentAssistantState}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const state = await getAgentAssistantState({provider: 'codex'});
+
+        expect(state.status.authState).toBe('signed-in');
+        expect(state.status.runtimeState).toBe('ready');
+        expect(mocks.runCodexCli).toHaveBeenCalledWith(
+            '/Applications/Codex.app/Contents/Resources/codex',
+            [
+                'login',
+                'status',
+            ],
+        );
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        expect(mocks.startEmbeddedMcpServer).not.toHaveBeenCalled();
     });
 
     it('rejects assistant chat actions while disabled', async () => {
