@@ -52,6 +52,7 @@ import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/v
 import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
 import {getWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
 const STARTUP_TIMEOUT_MS = 75_000;
 const OPERATION_TIMEOUT_MS = 45_000;
@@ -311,7 +312,6 @@ async function run() {
                 y: 0.3,
             },
             1,
-            OPERATION_TIMEOUT_MS,
         ) < 1) {
             throw new Error('Packaged smoke failed to create a FreeText annotation');
         }
@@ -362,10 +362,7 @@ async function run() {
         await assertNoPageOperationResidue(workingCopyPath);
 
         const searchResult = await page.evaluate(async ({pdfPath}) => {
-            const api = (window as Window & {electronAPI?: {search?: {run?: (
-                pdfPath: string,
-                query: string,
-            ) => Promise<{results: unknown[]}>;};};}).electronAPI;
+            const api = (window as typeof globalThis & IE2EWindow).electronAPI;
             if (!api?.search?.run) {
                 throw new Error('electronAPI.search.run is unavailable');
             }

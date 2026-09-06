@@ -1209,7 +1209,7 @@ describe('Electron E2E - native save and reopen', () => {
 
             if (sourcePath) {
                 const granted = await evaluateInPage(session.page, async path => {
-                    const grant = (window as IAutomationFileOpenGrantWindow)
+                    const grant = (window as typeof globalThis & IAutomationFileOpenGrantWindow)
                         .__allowRendererFileOpenForAutomation;
                     return typeof grant === 'function' && grant(path);
                 }, sourcePath);

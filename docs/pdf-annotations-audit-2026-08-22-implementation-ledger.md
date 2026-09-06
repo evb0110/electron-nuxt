@@ -774,3 +774,85 @@ safe preload decoder, native managed-shape save projection, exact large-PDF
 fixture routing, and the complete #350 evidence recorded above. Candidate
 commit, PR integration, integrated-main verification, and the remaining #196,
 #168, #167, and Project 4 closure checks remain open.
+
+### 2026-09-06, integrated-branch acceptance after reconciliation
+
+The integrated `own-annotations` branch is `8df59f90e`. It contains current
+`origin/main` through `7487f5a81`, the renderer migration through
+`c2242c826`, the integration fixes through `e6830318e`, the packaged-smoke
+topology repair through `e9f12ca58`, the current-main lint-budget correction
+through `fc659d835`, and the canonical stored-document-reference test repair
+through `8df59f90e`. The branch is clean and pushed to
+`origin/own-annotations`.
+
+The #350 lifecycle gate passed on the integrated branch at
+`2026-09-06T03-12-07-392Z-3307788-2bfe2fc2.ndjson`: four of four tests passed
+in 76.12 seconds. It used both private fixtures and the required headless
+Electron wrapper. The minimized legacy fixture still has its required
+3,153-byte size and SHA-256
+`f6f4a9800e5cd65891b57136000e59f083fb0a91aa2fe2ee4811903e60a130da`.
+
+The exact 882-page acceptance passed at
+`2026-09-06T03-15-29-031Z-3311555-b88d0e53.ndjson`: eight of eight tests
+passed in 472.21 seconds using the required 722,178,517-byte fixture with
+SHA-256
+`1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6`.
+The exact 2,646-page acceptance passed at
+`2026-09-06T03-23-31-725Z-3318917-38b954ae.ndjson`: two of two tests passed
+in 168.00 seconds using the required 2,168,527,413-byte fixture with
+SHA-256
+`5609c151c1cec881da4b97ec7028250574f8f0ee67540dcdc8808cc7b8ab0aea`.
+
+The first post-push #350 attempt was invalid evidence, not a product result.
+One direct invocation omitted the repository's sandbox-disabling headless
+wrapper and failed at Electron startup because `chrome-sandbox` was mode 755;
+the corrected wrapper run above passed. A separate outer gate also lacked the
+page-operations environment and stopped at the structural check. No acceptance
+failure was waived.
+
+The full changed-source related-unit command ran manually after the pre-push
+hook's fixed 180-second timeout: 6,959 tests passed and five skipped. It found
+one stale browser mock using the impossible `stored://` document reference;
+the mock now uses the canonical `browser://documents/...` reference and its
+focused rerun passed two of two. The hook was then allowed to use the
+repository's explicit `EVB_PREPUSH_SKIP=1` escape hatch only for the already
+verified timeout, after topology and lint checks passed. This remains recorded
+as an infrastructure timeout, not a test waiver.
+
+Native-preview acceptance, the post-integration broad Electron regression,
+CodeRabbit's integrated-branch review, integrated-main verification, and the
+remaining issue, PR, and Project 4 state transitions remain open.
+
+### 2026-09-06, Recent reopen teardown repair
+
+The post-integration broad run at gate
+`2026-09-06T03-32-06-568Z-3326643-8f155a68.ndjson` exposed a real Recent
+reopen defect. Focused reproduction first failed at
+`2026-09-06T04-02-02-754Z-3353304-3f70c86c.ndjson` and again with the
+workspace settle path at `2026-09-06T04-35-48-215Z-3395732-afc016bb.ndjson`.
+After the old document closed, a viewport-nearby render could enter
+`PDFDocumentProxy.getPage()` while the page cache was being cleared. The
+scheduler then waited for that page lease before destroying the old PDF.js
+document, so the new Recent open stayed in `isLoading` with zero pages. The
+same failure was present in the baseline and was treated as an inherited
+product defect, not as a reason to waive acceptance.
+
+The repair fences the active raster scheduler before cache cleanup, passes each
+raster work controller's abort signal through the page-lease path, races page
+acquisition against cancellation, and cleans an unclaimed page that resolves
+after cancellation. A unit regression holds `getPage(2)` pending through
+cleanup and requires PDF.js teardown to complete before the page resolves.
+The focused document-session and scheduler unit runs passed 62 of 62 tests
+locally at 04:54 UTC.
+
+The corrected Recent test now waits for the active source and the workspace's
+settled toolbar state before checking the rendered page. Its clean headless
+Electron rerun passed one of one test in 10.48 seconds at gate
+`2026-09-06T04-58-56-901Z-3420299-e38a198e.ndjson`. Temporary render tracing was
+removed after the reproduction and green rerun. The source fixture and all
+previous exact 882-page, exact 2,646-page, and #350 evidence remain unchanged.
+
+The same broad run exposed a stale `viewerSmoke` selector for foreign links.
+The test now checks PDF.js's read-only `.linkAnnotation a[data-href]` layer,
+which is the current documented behavior for foreign links. Its focused rerun
+passed one of one at `2026-09-06T04-09-39-639Z-3361913-b1a50679.ndjson`.

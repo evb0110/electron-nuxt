@@ -1168,7 +1168,12 @@ describe('Electron E2E - Viewer Smoke', () => {
                 '.editor-pane.is-active .workspace-host[data-workspace-active="true"] '
                 + '.page_container[data-page="5"]',
             );
-            return Boolean(page?.querySelector('.pdf-link-overlay[data-href]'));
+            // Foreign links remain in PDF.js's read-only annotation layer. The
+            // canonical EVB layer owns editable annotations, not link elements.
+            return Boolean(page?.querySelector(
+                '.annotation-layer .linkAnnotation a[data-href], '
+                + '.annotationLayer .linkAnnotation a[data-href]',
+            ));
         }, {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
 
         const rendererFailures: string[] = [];
@@ -1208,9 +1213,12 @@ describe('Electron E2E - Viewer Smoke', () => {
             await waitForFunctionInPage(session.page, () => {
                 const page = document.querySelector<HTMLElement>(
                     '.editor-pane.is-active .workspace-host[data-workspace-active="true"] '
-                    + '.page_container[data-page="5"]',
+                        + '.page_container[data-page="5"]',
                 );
-                return Boolean(page?.querySelector('.pdf-link-overlay[data-href]'));
+                return Boolean(page?.querySelector(
+                    '.annotation-layer .linkAnnotation a[data-href], '
+                    + '.annotationLayer .linkAnnotation a[data-href]',
+                ));
             }, {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
             expect(rendererFailures).toEqual([]);
         } finally {
