@@ -796,3 +796,37 @@ Candidate commit is `aba9aa6d`; integration has the corresponding local
 commit. Temporary diagnostics were removed. The next required check is the
 affected integrated three-file gate, followed by broad regression and exact
 large-fixture acceptance after review.
+
+### 2026-09-06, integrated continuity repair and acceptance follow-up
+
+The final continuity diagnosis is now backed by quiet focused runs and the
+affected integrated topology. The PDF split-close case had previously failed
+with page changes and anchor drift even though the authoritative committed
+page was stable. During a resize transition the chassis selected the nearest
+visible page, which could be a neighboring page after split geometry changed.
+The chassis now prefers the committed or requested page when that page is
+mounted, while retaining nearest-page selection for opening and uncommitted
+layouts. The new preference has a unit regression covering a mounted page that
+is not nearest the viewport centre.
+
+The DjVu split-close case had previously released page-source state while the
+resize transition was still active. `retainOnlyPageStates` now defers that
+release until the existing settled callback, alongside the existing render and
+scroll fences. The guard preserves the current renderer/store architecture and
+does not restore the retired PDF.js editor bridge.
+
+| Failure | Last red evidence | Diagnosis and smallest change | Focused green evidence | Next check |
+| --- | --- | --- | --- | --- |
+| PDF split-close continuity | `2026-09-06T07-21-34-285Z-3770003-cf3991f0`, page-change and drift frames | Capture the mounted committed/requested page as the semantic anchor; keep strict blank, identity, page, and drift assertions | `2026-09-06T07-33-25-638Z-3802533-6e66b3b9`, `07-34-25-830Z-3804037-7bad01d5`, `07-37-16-150Z-3808235-eb6a3795`; integrated gate `2026-09-06T07-43-36-991Z-3820576-96c2194c` | Broad regression and exact 882/2646 acceptance on the final candidate, then integrated-main verification |
+| DjVu split-close continuity | `2026-09-06T06-41-03-850Z-3618909-ebd85d47`, two blank and three page-change frames | Defer resident-page eviction through the full resize transition; render and scroll were already fenced | `2026-09-06T07-38-23-818Z-3810011-1624079f`, `07-39-25-751Z-3812431-61b50149`, `07-40-29-832Z-3815007-45fd4a80`; integrated gate `2026-09-06T07-43-36-991Z-3820576-96c2194c` | Broad regression and exact 882/2646 acceptance on the final candidate, then integrated-main verification |
+| Warm high-zoom DjVu host count | `2026-09-06T07-02-06-806Z-3689719-105a97dc`, one host under the combined topology | The isolated case passes; the prior one-host result is load-sensitive lifecycle eviction, not evidence for a decoder failure. Keep the two-host contract unchanged and use the integrated gate as the topology check | Isolated focused runs `2026-09-06T07-41-39-933Z-3817142-3477bcd1` and `07-42-40-551Z-3818979-4eaa348b`; integrated gate passed all 15 selected tests | Recheck in broad and large-document acceptance; if it recurs, capture lifecycle temperature, pressure, and host-mount state before changing code or tests |
+
+The exact affected gate `2026-09-06T07-43-36-991Z-3820576-96c2194c` passed 15
+tests with five intentional skips across the three affected files. All
+temporary debug instrumentation was removed before the passing runs. The
+candidate and integration worktrees contain the same three runtime changes;
+the candidate also contains the anchor unit regression, which is being mirrored
+in integration before commit. The next coordinator gates are targeted lint
+and unit checks, review, the broad regression, exact 882-page and 2,646-page
+acceptance, and then fresh integrated-main verification. The private book and
+recording remain on the VPS and were not uploaded publicly.

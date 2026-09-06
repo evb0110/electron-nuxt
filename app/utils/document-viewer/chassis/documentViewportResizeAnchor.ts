@@ -14,6 +14,8 @@ export interface IDocumentViewportAnchorPosition {
     readonly top: number;
 }
 
+export interface IDocumentViewportResizeAnchorOptions {readonly preferredPageNumber?: number | null;}
+
 function clampRatio(value: number) {
     return Math.max(0, Math.min(1, value));
 }
@@ -36,6 +38,7 @@ function distanceFromPoint(rect: DOMRect, x: number, y: number) {
  */
 export function captureDocumentViewportResizeAnchor(
     viewport: HTMLElement,
+    options?: IDocumentViewportResizeAnchorOptions,
 ): IDocumentViewportResizeAnchor | null {
     const viewportRect = viewport.getBoundingClientRect();
     if (viewportRect.width <= 0 || viewportRect.height <= 0) {
@@ -58,7 +61,11 @@ export function captureDocumentViewportResizeAnchor(
             }]
             : [];
     });
-    const candidate = candidates.reduce<(typeof candidates)[number] | null>((nearest, current) => (
+    const preferredPageNumber = options?.preferredPageNumber;
+    const preferred = typeof preferredPageNumber === 'number'
+        ? candidates.find(candidate => candidate.pageNumber === preferredPageNumber)
+        : undefined;
+    const candidate = preferred ?? candidates.reduce<(typeof candidates)[number] | null>((nearest, current) => (
         nearest === null
         || distanceFromPoint(current.rect, anchorX, anchorY)
             < distanceFromPoint(nearest.rect, anchorX, anchorY)

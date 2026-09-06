@@ -1125,6 +1125,9 @@ export const useDocumentPageSourceRuntime = (options: {
         if (!props.value.isResizing) scheduleRender.schedule();
     });
     function retainOnlyPageStates(pages: readonly number[]) {
+        if (props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
+            return;
+        }
         const retainedPages = new Set(pages);
         for (const pageNumber of presentation.pageStates.keys()) {
             if (!retainedPages.has(pageNumber)) {
