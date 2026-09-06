@@ -158,7 +158,7 @@ describe('Sentry source-map canaries', () => {
             environment: 'test',
             tags: {
                 evb_schema: 'evb-diagnostic-v1',
-                evb_canary: 'sourcemap-v6',
+                evb_canary: 'sourcemap-v7',
             },
             exception: {values: [{stacktrace: {frames: [{
                 abs_path: 'dist-electron/main.js',
@@ -174,7 +174,7 @@ describe('Sentry source-map canaries', () => {
             bundle: 'dist-electron/main.js',
             codeFile: 'dist-electron/main.js',
             debugId: '12345678-1234-5678-9abc-123456789abc',
-            eventId: 'c5172bffbb9b5d21a3f35cb54c0f4b5b',
+            eventId: '3d5cd2dab9a963574eb65ac0881ff5bc',
             expectedFunction: 'start',
             expectedLine: 1,
             expectedSource: 'electron/main.ts',
@@ -277,6 +277,66 @@ describe('Sentry source-map canaries', () => {
                 filename: 'https://evb-viewer.invalid/_nuxt/app.js',
             }]}}]},
             debug_meta: {images: [{code_file: 'https://evb-viewer.invalid/_nuxt/app.js'}]},
+        });
+    });
+
+    it('uses the deployed browser URL shape for Vercel function bundles', async () => {
+        const webIdentity = {
+            target: 'web',
+            release: 'evb-viewer-web@1.2.3',
+            dist: 'preview-function-fixture',
+            environment: 'preview',
+        } as const;
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-sentry-function-canary-'));
+        roots.push(root);
+        const manifestPath = getPrivateSourcemapManifestPath({
+            projectRoot: root,
+            identity: webIdentity,
+        });
+        const stageRoot = path.dirname(manifestPath);
+        const mapPath = 'maps/.vercel/output/functions/__fallback.func/chunks/_/index.mjs.map';
+        await mkdir(path.join(stageRoot, path.dirname(mapPath)), {recursive: true});
+        await writeFile(path.join(stageRoot, mapPath), JSON.stringify({
+            version: 3,
+            file: 'index.mjs',
+            sources: ['../../../../../../server/index.ts'],
+            names: ['start'],
+            mappings: 'AAAAA',
+            debug_id: '12345678-1234-5678-9abc-123456789abc',
+        }));
+        await writeFile(manifestPath, JSON.stringify({
+            schemaVersion: 2,
+            identity: webIdentity,
+            bundles: [{
+                bundle: '.vercel/output/functions/__fallback.func/chunks/_/index.mjs',
+                role: 'nitro-server',
+                sources: ['server/index.ts'],
+                stagedMapPath: mapPath,
+            }],
+        }));
+        const sentEvents: unknown[] = [];
+        const sendEvent = vi.fn(async (event: unknown) => {
+            sentEvents.push(event);
+        });
+
+        await sendSentrySourcemapCanaries({
+            environment: {
+                EVB_SENTRY_TARGET: 'web',
+                EVB_SENTRY_RELEASE: webIdentity.release,
+                EVB_SENTRY_DIST: webIdentity.dist,
+                EVB_SENTRY_ENVIRONMENT: webIdentity.environment,
+                SENTRY_BROWSER_DSN: 'https://public@o123.ingest.de.sentry.io/42',
+            },
+            projectRoot: root,
+            sendEvent,
+        });
+
+        expect(sentEvents[0]).toMatchObject({
+            exception: {values: [{stacktrace: {frames: [{
+                abs_path: 'https://evb-viewer.invalid/__fallback.func/chunks/_/index.mjs',
+                filename: 'https://evb-viewer.invalid/__fallback.func/chunks/_/index.mjs',
+            }]}}]},
+            debug_meta: {images: [{code_file: 'https://evb-viewer.invalid/__fallback.func/chunks/_/index.mjs'}]},
         });
     });
 

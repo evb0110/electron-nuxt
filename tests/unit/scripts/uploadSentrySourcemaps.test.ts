@@ -188,21 +188,30 @@ describe('uploadSentrySourcemaps', () => {
                 'private-web-project',
             ]);
             expect(args).not.toContain('private-desktop-project');
-            const staticRoot = args.find(argument => argument.endsWith('/vercel/output/static'))!;
-            expect(await readFile(path.join(
-                staticRoot,
-                '_nuxt/example.js',
-            ), 'utf8')).toContain('_sentryDebugIds');
-            expect(JSON.parse(await readFile(path.join(
-                staticRoot,
-                '_nuxt/example.js.map',
-            ), 'utf8'))).toMatchObject({version: 3});
-            await expect(readFile(path.join(
-                staticRoot,
-                '.vercel/output/static/_nuxt/example.js',
-            ))).rejects.toMatchObject({code: 'ENOENT'});
-            expect(await readFile(path.join(staticRoot, '../../../app/example.ts'), 'utf8'))
-                .toContain('fixture');
+            const staticRoot = args.find(argument => argument.endsWith('/vercel/output/static'));
+            if (staticRoot) {
+                expect(await readFile(path.join(
+                    staticRoot,
+                    '_nuxt/example.js',
+                ), 'utf8')).toContain('_sentryDebugIds');
+                expect(JSON.parse(await readFile(path.join(
+                    staticRoot,
+                    '_nuxt/example.js.map',
+                ), 'utf8'))).toMatchObject({
+                    sources: ['../app/example.ts'],
+                    version: 3,
+                });
+                await expect(readFile(path.join(
+                    staticRoot,
+                    '.vercel/output/static/_nuxt/example.js',
+                ))).rejects.toMatchObject({code: 'ENOENT'});
+            } else {
+                const sourceRoot = args.at(-1);
+                expect(args).toContain('~/app/');
+                expect(sourceRoot).toBeTypeOf('string');
+                expect(await readFile(path.join(sourceRoot!, 'example.ts'), 'utf8'))
+                    .toContain('fixture');
+            }
         });
 
         const receipt = await uploadSentrySourcemaps({
@@ -212,7 +221,7 @@ describe('uploadSentrySourcemaps', () => {
             runCli,
         });
 
-        expect(runCli).toHaveBeenCalledOnce();
+        expect(runCli).toHaveBeenCalledTimes(2);
         const cliArgs = runCli.mock.calls[0]?.[0] ?? [];
         const urlPrefixIndex = cliArgs.indexOf('--url-prefix');
         expect(cliArgs.slice(urlPrefixIndex, urlPrefixIndex + 2)).toEqual([
@@ -221,7 +230,13 @@ describe('uploadSentrySourcemaps', () => {
         ]);
         const staticRoot = cliArgs.find(argument => argument.endsWith('/vercel/output/static'));
         expect(staticRoot).toBeTypeOf('string');
-        expect(cliArgs).toContain(path.join(staticRoot!, '../../../app'));
+        expect(cliArgs.at(-1)).toBe(staticRoot);
+        const sourceArgs = runCli.mock.calls[1]?.[0] ?? [];
+        expect(sourceArgs).toContain('~/app/');
+        expect(sourceArgs.at(-1)).toBe(path.join(
+            staticRoot!,
+            '../../../app',
+        ));
         expect(receipt).toMatchObject({
             bundleCount: 1,
             identity: webIdentity,
