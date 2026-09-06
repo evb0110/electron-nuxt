@@ -31,3 +31,10 @@ export {
 } from '@electron/features/djvu/main/viewing';
 export {pruneStaleDjvuArtifactJobs} from '@electron/features/djvu/main/djvuArtifactManifest';
 export {buildCompactDjvuAwarePdfFromDjvu} from '@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu';
+export {
+    getDjvuOutline,
+    getDjvuPageCount,
+    getDjvuResolution,
+} from '@electron/features/djvu/main/metadata';
+export {parseDjvuOutline} from '@electron/features/djvu/main/parseDjvuOutline';
+export {allowDjvuWritePath} from '@electron/features/djvu/main/exportPaths';

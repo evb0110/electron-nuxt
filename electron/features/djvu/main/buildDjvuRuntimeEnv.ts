@@ -1,8 +1,7 @@
 import { app } from 'electron';
 import { join } from 'path';
-import { getDjvuNativeToolsBase } from '@electron/djvu/nativeToolPaths';
+import { getDjvuNativeToolsBase } from '@electron/features/djvu/main/nativeToolPaths';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
-
 interface IBuildDjvuRuntimeEnvOptions {
     baseEnv?: NodeJS.ProcessEnv;
     platform?: NodeJS.Platform;

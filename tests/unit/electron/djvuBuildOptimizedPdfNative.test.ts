@@ -44,7 +44,7 @@ describe('DjVu optimized PDF native fast path', () => {
         ]);
         mocks.nativeBuild.mockResolvedValueOnce(nativeBytes);
 
-        const { buildOptimizedPdf } = await import('@electron/djvu/buildOptimizedPdf');
+        const { buildOptimizedPdf } = await import('@electron/features/djvu/main/buildOptimizedPdf');
         const onPageProcessed = vi.fn();
 
         await expect(buildOptimizedPdf([
@@ -67,7 +67,7 @@ describe('DjVu optimized PDF native fast path', () => {
         const controller = new AbortController();
         mocks.nativeBuild.mockResolvedValueOnce(nativeBytes);
 
-        const { buildOptimizedPdf } = await import('@electron/djvu/buildOptimizedPdf');
+        const { buildOptimizedPdf } = await import('@electron/features/djvu/main/buildOptimizedPdf');
         const onPageProcessed = vi.fn();
 
         await expect(buildOptimizedPdf(['/tmp/page-1.pgm'], 300, onPageProcessed, {signal: controller.signal})).resolves.toBe(nativeBytes);
@@ -82,7 +82,7 @@ describe('DjVu optimized PDF native fast path', () => {
             return Promise.resolve(null);
         });
 
-        const { buildOptimizedPdf } = await import('@electron/djvu/buildOptimizedPdf');
+        const { buildOptimizedPdf } = await import('@electron/features/djvu/main/buildOptimizedPdf');
 
         await expect(buildOptimizedPdf(['/tmp/missing-page.pgm'], 300, undefined, {signal: controller.signal})).rejects.toThrow('canceled after native build');
     });
@@ -96,7 +96,7 @@ describe('DjVu optimized PDF native fast path', () => {
             20,
         ]));
 
-        const { buildOptimizedPdf } = await import('@electron/djvu/buildOptimizedPdf');
+        const { buildOptimizedPdf } = await import('@electron/features/djvu/main/buildOptimizedPdf');
         const pdfBytes = await buildOptimizedPdf([imagePath], 200);
         const pdf = await PDFDocument.load(pdfBytes);
 
@@ -126,7 +126,7 @@ describe('DjVu optimized PDF native fast path', () => {
             controller.abort(new DOMException('fallback canceled', 'AbortError'));
         });
 
-        const { buildOptimizedPdf } = await import('@electron/djvu/buildOptimizedPdf');
+        const { buildOptimizedPdf } = await import('@electron/features/djvu/main/buildOptimizedPdf');
 
         await expect(buildOptimizedPdf([
             firstImagePath,

@@ -16,8 +16,8 @@ import {
 import {
     cancelConversion,
     convertDjvuToPdfFile,
+    getDjvuPageCount,
 } from '@electron/features/djvu/public';
-import { getDjvuPageCount } from '@electron/djvu/metadata';
 import {
     assertNonEmptyPdfOutput,
     getPdfPageCount,

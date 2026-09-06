@@ -17,9 +17,9 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     getDjvuPageCount,
     getDjvuResolution,
-} from '@electron/djvu/metadata';
-import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
-import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
+} from '@electron/features/djvu/main/metadata';
+import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
+import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {

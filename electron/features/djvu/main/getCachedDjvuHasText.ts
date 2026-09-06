@@ -1,7 +1,7 @@
 import {stat} from 'node:fs/promises';
 import {resolve} from 'node:path';
 
-import {detectDjvuHasText} from '@electron/djvu/textSearch';
+import {detectDjvuHasText} from '@electron/features/djvu/main/textSearch';
 import {
     abortErrorFromSignal,
     createAbortError,

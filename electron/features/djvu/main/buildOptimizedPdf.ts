@@ -11,7 +11,7 @@ import {
     extractGrayscaleFromRgb,
     isRgbDataGrayscale,
     parseNetpbm,
-} from '@electron/djvu/netpbm';
+} from '@electron/features/djvu/main/netpbm';
 import { tryBuildOptimizedPdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 
 interface IBuildOptimizedPdfOptions { signal?: AbortSignal; }

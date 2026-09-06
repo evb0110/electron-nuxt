@@ -29,14 +29,12 @@ import {
     buildCompactDjvuAwarePdfFromDjvu,
     cancelConversion,
     getDjvuPageSizesForViewing,
-} from '@electron/features/djvu/public';
-import { resolveDjvuCompactFidelityPreset } from '@contracts/djvuConversionPolicy';
-import {
     getDjvuPageCount,
     getDjvuOutline,
     getDjvuResolution,
-} from '@electron/djvu/metadata';
-import { parseDjvuOutline } from '@electron/djvu/parseDjvuOutline';
+    parseDjvuOutline,
+} from '@electron/features/djvu/public';
+import { resolveDjvuCompactFidelityPreset } from '@contracts/djvuConversionPolicy';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     isFiniteWorkerMessageNumber,

@@ -345,7 +345,7 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
 
 const KNOWN_NON_DOCUMENT_READS: readonly IKnownNonDocumentRead[] = [
     {
-        module: 'electron/djvu/buildOptimizedPdf.ts',
+        module: 'electron/features/djvu/main/buildOptimizedPdf.ts',
         pattern: /const fileData = await readFile\(imagePaths\[i\]!\)/u,
         reason: 'Raster image input, not a document PDF.',
     },

@@ -1,5 +1,5 @@
-import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
-import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
+import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
+import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
@@ -23,7 +23,6 @@ import {
     createAbortError,
     isAbortError,
 } from '@electron/utils/abort';
-
 const DJVU_TEXT_TIMEOUT_MS = parseBoundedIntegerEnv(
     'EVB_DJVU_TEXT_TIMEOUT_MS',
     10 * 60 * 1_000,

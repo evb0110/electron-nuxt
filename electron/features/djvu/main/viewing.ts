@@ -7,9 +7,9 @@ import {
     unlink,
 } from 'fs/promises';
 import {resolve} from 'path';
-import { getDjvuPageCount } from '@electron/djvu/metadata';
+import { getDjvuPageCount } from '@electron/features/djvu/main/metadata';
 import { getDjvuPageSourceInfoForViewing } from '@electron/features/djvu/main/pagePreview';
-import { isAllowedDjvuTempPdfPath } from '@electron/djvu/isAllowedDjvuTempPdfPath';
+import { isAllowedDjvuTempPdfPath } from '@electron/features/djvu/main/isAllowedDjvuTempPdfPath';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isErrnoException } from '@contracts/runtimeGuards';

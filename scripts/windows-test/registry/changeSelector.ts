@@ -110,7 +110,7 @@ export const windowsTestChangeAreas: readonly IWindowsTestChangeArea[] = [
         paths: [
             'electron/native-tools/**',
             'electron/ocr/**',
-            'electron/djvu/**',
+            'electron/features/djvu/**',
             'electron/search/**',
             'native/**',
             'resources/**',

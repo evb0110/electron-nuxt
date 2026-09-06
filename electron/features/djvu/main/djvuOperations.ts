@@ -3,15 +3,15 @@ import type { WebContents } from 'electron';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
-import { estimateSizes } from '@electron/djvu/estimateSizes';
+import { estimateSizes } from '@electron/features/djvu/main/estimateSizes';
 import {
     getDjvuHasText,
     getDjvuMetadata,
     getDjvuOutline,
     getDjvuPageCount,
     getDjvuResolution,
-} from '@electron/djvu/metadata';
-import { parseDjvuOutline } from '@electron/djvu/parseDjvuOutline';
+} from '@electron/features/djvu/main/metadata';
+import { parseDjvuOutline } from '@electron/features/djvu/main/parseDjvuOutline';
 import {
     awaitDurableDjvuConvertJob,
     awaitDurableDjvuOpenJob,
@@ -44,7 +44,7 @@ import { cancelConversion } from '@electron/features/djvu/main/ddjvuConversion';
 import {
     readDjvuPageText,
     searchDjvuText,
-} from '@electron/djvu/textSearch';
+} from '@electron/features/djvu/main/textSearch';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { isAbortError } from '@electron/utils/abort';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
