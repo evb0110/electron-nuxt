@@ -1,0 +1,26 @@
+server/utils/analytics.ts
+  s_0afd208e8e7201::t_bd7c6306a2a920 18,67
+server/utils/getRuntimeEnv.ts
+  s_0afd208e8e7201::t_bd7c6306a2a920 18-27
+tests/unit/server/analyticsAdmission.test.ts
+  s_0afd208e8e7201::t_bd7c6306a2a920 104
+tests/unit/server/getRuntimeEnv.test.ts
+  s_0afd208e8e7201::t_bd7c6306a2a920 6-9,34-39
+  s_0afd208e8e7201::t_0f100eb28631a6 40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "35b9779d0ef97cff342b0d8c414d771c8561a9e0",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
