@@ -50,7 +50,6 @@ import {
     setScanCleanupRunError,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
-import {cast} from '@tests/helpers/cast';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 // Counts the real reduction rather than replacing it: the document's layouts
@@ -2788,7 +2787,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
             started: false,
-            jobId: cast<TJobId>(''),
+            jobId: requireJobId('unavailable-job'),
             error: 'Scan cleanup is unavailable',
             errorCode: 'tools-unavailable',
         });

@@ -15,7 +15,6 @@ import type {
 } from '@contracts/electronApiScanCleanup';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TTranslateFn} from '@i18n-app';
-import {cast} from '@tests/helpers/cast';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 const diagnosticMocks = vi.hoisted(() => ({
@@ -113,8 +112,8 @@ function runningJobState(jobId: TJobId): TScanCleanupJobState {
 function stubCapability(
     onListener: (listener: (state: TScanCleanupJobState) => void) => void,
     nextJobId: () => string,
-) {
-    return cast<IScanCleanupCapability>({
+): IScanCleanupCapability {
+    return {
         preview: vi.fn(),
         cancelPreview: vi.fn(),
         detectAll: vi.fn(),
@@ -138,7 +137,7 @@ function stubCapability(
             return () => undefined;
         }),
         onDetectionJobState: vi.fn(() => () => undefined),
-    });
+    };
 }
 
 describe('scan cleanup run coordinator', () => {
