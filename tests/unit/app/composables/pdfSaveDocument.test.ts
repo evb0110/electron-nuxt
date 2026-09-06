@@ -8,7 +8,13 @@ import {
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { savePdfDocumentWithCommittedEditors } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
-import { cast } from '@tests/helpers/cast';
+import {createPdfDocumentProxy} from '@tests/helpers/createPdfDocumentProxy';
+
+function createAnnotationEditorUiManager(commitOrRemove: () => void): AnnotationEditorUIManager {
+    const fixture = {commitOrRemove} satisfies Pick<AnnotationEditorUIManager, 'commitOrRemove'>;
+    // PDF.js owns the full manager shape. This seam exercises only its commit hook.
+    return fixture as AnnotationEditorUIManager;
+}
 
 describe('savePdfDocumentWithCommittedEditors', () => {
     afterEach(() => {
@@ -24,8 +30,8 @@ describe('savePdfDocumentWithCommittedEditors', () => {
         ]));
 
         const result = await savePdfDocumentWithCommittedEditors({
-            pdfDocument: cast<PDFDocumentProxy>({ saveDocument }),
-            annotationUiManager: cast<AnnotationEditorUIManager>({ commitOrRemove }),
+            pdfDocument: createPdfDocumentProxy({saveDocument}),
+            annotationUiManager: createAnnotationEditorUiManager(commitOrRemove),
         });
 
         expect(commitOrRemove).toHaveBeenCalledOnce();
@@ -52,8 +58,8 @@ describe('savePdfDocumentWithCommittedEditors', () => {
 
         let settled = false;
         const savePromise = savePdfDocumentWithCommittedEditors({
-            pdfDocument: cast<PDFDocumentProxy>({ saveDocument }),
-            annotationUiManager: cast<AnnotationEditorUIManager>({ commitOrRemove }),
+            pdfDocument: createPdfDocumentProxy({saveDocument}),
+            annotationUiManager: createAnnotationEditorUiManager(commitOrRemove),
         }).then(() => {
             settled = true;
         });
@@ -80,7 +86,7 @@ describe('savePdfDocumentWithCommittedEditors', () => {
 
         const result = await savePdfDocumentWithCommittedEditors({
             pdfDocument: null,
-            annotationUiManager: cast<AnnotationEditorUIManager>({ commitOrRemove }),
+            annotationUiManager: createAnnotationEditorUiManager(commitOrRemove),
         });
 
         expect(result).toBeNull();
@@ -88,8 +94,8 @@ describe('savePdfDocumentWithCommittedEditors', () => {
     });
 
     it('aborts when the active PDF document changes while editor commits settle', async () => {
-        const firstDocument = cast<PDFDocumentProxy>({ saveDocument: vi.fn(async () => new Uint8Array([1])) });
-        const secondDocument = cast<PDFDocumentProxy>({ saveDocument: vi.fn(async () => new Uint8Array([2])) });
+        const firstDocument = createPdfDocumentProxy({saveDocument: vi.fn(async () => new Uint8Array([1]))});
+        const secondDocument = createPdfDocumentProxy({saveDocument: vi.fn(async () => new Uint8Array([2]))});
         let activeDocument: PDFDocumentProxy | null = firstDocument;
         const commitOrRemove = vi.fn(() => {
             activeDocument = secondDocument;
@@ -97,7 +103,7 @@ describe('savePdfDocumentWithCommittedEditors', () => {
 
         const result = await savePdfDocumentWithCommittedEditors({
             pdfDocument: firstDocument,
-            annotationUiManager: cast<AnnotationEditorUIManager>({ commitOrRemove }),
+            annotationUiManager: createAnnotationEditorUiManager(commitOrRemove),
             getCurrentPdfDocument: () => activeDocument,
         });
 
@@ -112,8 +118,8 @@ describe('savePdfDocumentWithCommittedEditors', () => {
         const saveDocument = vi.fn(() => new Promise<Uint8Array>((resolve) => {
             saveState.resolveSave = resolve;
         }));
-        const firstDocument = cast<PDFDocumentProxy>({ saveDocument });
-        const secondDocument = cast<PDFDocumentProxy>({ saveDocument: vi.fn(async () => new Uint8Array([9])) });
+        const firstDocument = createPdfDocumentProxy({saveDocument});
+        const secondDocument = createPdfDocumentProxy({saveDocument: vi.fn(async () => new Uint8Array([9]))});
         let activeDocument: PDFDocumentProxy | null = firstDocument;
 
         const savePromise = savePdfDocumentWithCommittedEditors({
@@ -134,7 +140,7 @@ describe('savePdfDocumentWithCommittedEditors', () => {
 
     it('aborts when the PDF document is destroyed before saving', async () => {
         const saveDocument = vi.fn(async () => new Uint8Array([5]));
-        const pdfDocument = cast<PDFDocumentProxy>({
+        const pdfDocument = createPdfDocumentProxy({
             destroyed: true,
             saveDocument,
         });

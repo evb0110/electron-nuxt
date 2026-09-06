@@ -1,4 +1,7 @@
+// @vitest-environment happy-dom
+
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -13,7 +16,6 @@ import {
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 import { observeDocumentViewportWheelInteraction } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
-import { cast } from '@tests/helpers/cast';
 import {requireDocumentRef} from '@contracts/documentRef';
 
 function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSource {
@@ -33,11 +35,32 @@ function createSource(kind: 'pdf' | 'djvu', pageCount: number): IDocumentPageSou
     };
 }
 
+function createViewportContainer() {
+    const container = document.createElement('div');
+    // Keep the detached test viewport unbounded so the write port receives
+    // the authored coordinates instead of happy-dom's zero-size geometry.
+    Object.defineProperties(container, {
+        scrollHeight: {
+            configurable: true,
+            value: Number.POSITIVE_INFINITY,
+        },
+        scrollWidth: {
+            configurable: true,
+            value: Number.POSITIVE_INFINITY,
+        },
+    });
+    return container;
+}
+
 describe('document viewer chassis authority', () => {
+    afterEach(() => {
+        document.body.replaceChildren();
+    });
+
     it('scopes opening-page elements to a unique chassis instance', () => {
         const first = createDocumentViewerChassisAuthority(ref('djvu'));
         const second = createDocumentViewerChassisAuthority(ref('djvu'));
-        const element = {} as HTMLElement;
+        const element = document.createElement('div');
 
         expect(first.instanceId).not.toBe(second.instanceId);
         expect(first.openingPageElement.value).toBeNull();
@@ -65,14 +88,12 @@ describe('document viewer chassis authority', () => {
                 height: '800px',
             },
         })).toBe(true);
-        authority.bindOpeningPageElement(cast<HTMLElement>({
-            isConnected: true,
-            dataset: {
-                openSurfaceFrameOwner: 'chassis-owner',
-                openSurfaceGeneration: String(generation),
-                pageNumber: '3',
-            },
-        }));
+        const element = document.createElement('div');
+        element.dataset.openSurfaceFrameOwner = 'chassis-owner';
+        element.dataset.openSurfaceGeneration = String(generation);
+        element.dataset.pageNumber = '3';
+        document.body.append(element);
+        authority.bindOpeningPageElement(element);
 
         expect(authority.commitOpeningPageVisual(generation - 1, 3, 'fresh')).toBe(false);
         expect(authority.commitOpeningPageVisual(generation, 2, 'fresh')).toBe(false);
@@ -115,10 +136,7 @@ describe('document viewer chassis authority', () => {
 
     it('clears an authored scroll origin for physical wheel input but preserves it for zoom', () => {
         const authority = createDocumentViewerChassisAuthority(ref('pdf'));
-        const container = {
-            scrollLeft: 0,
-            scrollTop: 0,
-        } as HTMLElement;
+        const container = createViewportContainer();
 
         authority.viewportWritePort.apply(container, {
             intent: authority.viewportWritePort.beginIntent('navigate:7'),
@@ -159,10 +177,9 @@ describe('document viewer chassis authority', () => {
     it('resets a stale viewport offset synchronously when a document generation begins', () => {
         const openSurface = createDocumentOpenSurfaceSession();
         const authority = createDocumentViewerChassisAuthority(ref('pdf'), 1, openSurface);
-        const container = {
-            scrollLeft: 7,
-            scrollTop: 4,
-        } as HTMLElement;
+        const container = createViewportContainer();
+        container.scrollLeft = 7;
+        container.scrollTop = 4;
         authority.bindViewportElement(container);
 
         openSurface.begin({
@@ -177,10 +194,7 @@ describe('document viewer chassis authority', () => {
 
     it('rejects stale continuations after supersession, user input, and source revision changes', () => {
         const authority = createDocumentViewerChassisAuthority(ref('pdf'));
-        const container = {
-            scrollLeft: 0,
-            scrollTop: 0,
-        } as HTMLElement;
+        const container = createViewportContainer();
         const staleByIntent = authority.viewportWritePort.beginIntent('navigate:old');
         const current = authority.viewportWritePort.beginIntent('navigate:new');
 
@@ -216,14 +230,11 @@ describe('document viewer chassis authority', () => {
 
     it('rebinds feature presentation and events without replacing the chassis viewport', () => {
         const authority = createDocumentViewerChassisAuthority(ref('pdf'));
-        const container = {
-            scrollLeft: 0,
-            scrollTop: 0,
-        } as HTMLElement;
+        const container = createViewportContainer();
         const received: string[] = [];
         const interaction = {
             deltaPx: 120,
-            event: cast<WheelEvent>({preventDefault: vi.fn()}),
+            event: new WheelEvent('wheel'),
             intent: 'platform-scroll' as const,
         };
         authority.bindViewportElement(container);

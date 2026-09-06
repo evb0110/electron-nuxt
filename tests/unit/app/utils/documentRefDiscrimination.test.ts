@@ -17,7 +17,12 @@ import {
     resolveDocumentRefBackend,
 } from '@app/utils/documentRef';
 import type {TDocumentRef} from '@contracts/documentRef';
-import {cast} from '@tests/helpers/cast';
+
+function isDocumentRefFixture(value: unknown): value is TDocumentRef {
+    // Legacy document refs are branded strings, so the brand has no runtime
+    // marker. Keep the malformed relative value at the boundary intentionally.
+    return typeof value === 'string';
+}
 
 describe('documentRef discrimination', () => {
     it('distinguishes browser refs from native absolute paths', () => {
@@ -29,7 +34,10 @@ describe('documentRef discrimination', () => {
         expect(isBrowserDocumentRef(requireDocumentRef('/Users/example/document.pdf'))).toBe(false);
         expect(resolveDocumentRefBackend(requireDocumentRef('/Users/example/document.pdf'))).toBe('electron');
 
-        const relativeRef = cast<TDocumentRef>('relative/document.pdf');
+        const relativeRef: unknown = 'relative/document.pdf';
+        if (!isDocumentRefFixture(relativeRef)) {
+            throw new TypeError('Invalid document reference fixture');
+        }
         expect(inferDocumentRefBackend(relativeRef)).toBe('unknown');
         expect(resolveDocumentRefBackend(relativeRef)).toBeUndefined();
     });

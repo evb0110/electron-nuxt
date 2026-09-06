@@ -7,7 +7,6 @@ import {
     vi,
 } from 'vitest';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
-import { cast } from '@tests/helpers/cast';
 
 const recoveryMocks = vi.hoisted(() => ({
     claimBrowserWorkspaceRecoveryOwner: vi.fn(),
@@ -67,11 +66,15 @@ class MockBroadcastChannel {
     }
 
     private dispatch(data: unknown) {
-        const event = cast<MessageEvent<unknown>>({ data });
+        const event = new MessageEvent<unknown>('message', {data});
         for (const listener of Array.from(this.listeners)) {
             listener(event);
         }
     }
+}
+
+function createPageTransitionEvent(type: 'pagehide' | 'pageshow', persisted: boolean) {
+    return Object.assign(new Event(type), {persisted});
 }
 
 function stubBrowserGlobals(href = 'http://localhost:3235/') {
@@ -102,7 +105,7 @@ function stubBrowserGlobals(href = 'http://localhost:3235/') {
         close: vi.fn(),
     };
 
-    vi.stubGlobal('window', cast<Window>(windowStub));
+    vi.stubGlobal('window', windowStub);
     vi.stubGlobal('document', { title: 'EVB Viewer Web' });
     vi.stubGlobal('BroadcastChannel', MockBroadcastChannel);
     return {
@@ -449,10 +452,10 @@ describe('browserWindowTabsCapability', () => {
         const {browserWindowTabsCapability} = await import('@app/platform/browserWindowTabs');
         browserWindowTabsCapability.notifyRendererReady();
         browserWindow.close.mockImplementation(() => {
-            browserWindow.dispatch('pagehide', cast<PageTransitionEvent>({persisted: true}));
+            browserWindow.dispatch('pagehide', createPageTransitionEvent('pagehide', true));
             window.setTimeout(() => browserWindow.dispatch(
                 'pagehide',
-                cast<PageTransitionEvent>({persisted: false}),
+                createPageTransitionEvent('pagehide', false),
             ), 10);
         });
 
@@ -471,14 +474,14 @@ describe('browserWindowTabsCapability', () => {
         browserWindowTabsCapability.notifyRendererReady();
         messages.length = 0;
 
-        browserWindow.dispatch('pagehide', cast<PageTransitionEvent>({persisted: true}));
+        browserWindow.dispatch('pagehide', createPageTransitionEvent('pagehide', true));
         expect(messages).toContainEqual(expect.objectContaining({
             type: 'unregister',
             windowId: 100,
         }));
 
         messages.length = 0;
-        browserWindow.dispatch('pageshow', cast<PageTransitionEvent>({persisted: true}));
+        browserWindow.dispatch('pageshow', createPageTransitionEvent('pageshow', true));
         expect(messages).toContainEqual(expect.objectContaining({
             type: 'announce',
             windowId: 100,
