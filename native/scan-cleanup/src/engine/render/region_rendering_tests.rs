@@ -127,3 +127,111 @@ fn geometry_stage_pins_split_region_crop_coordinates_and_scale() {
         Some(Point::new(15.0, 7.0))
     );
 }
+
+#[test]
+fn raster_stage_preserves_grayscale_source_pixels_on_identity_plan() {
+    let source = GrayImage::from_vec(4, 3, 4, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        .expect("synthetic grayscale raster dimensions must be valid");
+    let options = CleanupOptions {
+        output_mode: OutputMode::Bw,
+        ..CleanupOptions::default()
+    };
+    let plan = ComposedRenderPlan::new(
+        Rect::new(0.0, 0.0, 4.0, 3.0),
+        Affine::scaling(1.0, 1.0),
+        Affine::scaling(1.0, 1.0),
+        None,
+        4,
+        3,
+        Rect::new(0.0, 0.0, 4.0, 3.0),
+    );
+    let output = prepare_render_planes(RasterPlaneInput {
+        normalized: &source,
+        routing_source: &source,
+        color_source: None,
+        source_picture_mask: None,
+        tone_preservation_alpha: None,
+        text_tone_diagnostics: None,
+        options: &options,
+        preserve_confirmed_photo_tones: false,
+        working_width: 4,
+        working_height: 3,
+        render_region: None,
+        sampled_region: None,
+        output_rect: Rect::new(0.0, 0.0, 4.0, 3.0),
+        render_plan: &plan,
+        rendered_width: 4,
+        rendered_height: 3,
+        region: Rect::new(0.0, 0.0, 4.0, 3.0),
+        local_deskew_forward: Affine::scaling(1.0, 1.0),
+        local_deskew_inverse: Affine::scaling(1.0, 1.0),
+        dewarp_model: None,
+        timings: &mut PageStageTimings::default(),
+    })
+    .expect("identity raster plan should be valid");
+
+    assert_eq!(output.rendered_gray.data(), source.data());
+    assert_eq!(output.rendered_source_gray.data(), source.data());
+    assert!(output.rendered_color.is_none());
+    assert!(output.rendered_tone_alpha.is_none());
+}
+
+#[test]
+fn raster_stage_keeps_optional_color_and_alpha_planes_aligned() {
+    let source = GrayImage::new(3, 2, 80);
+    let color = RgbImage::from_vec(
+        3,
+        2,
+        vec![
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+        ],
+    )
+    .expect("synthetic RGB raster dimensions must be valid");
+    let alpha = GrayImage::from_vec(3, 2, 3, vec![20, 40, 60, 80, 100, 120])
+        .expect("synthetic alpha dimensions must be valid");
+    let options = CleanupOptions {
+        output_mode: OutputMode::Color,
+        ..CleanupOptions::default()
+    };
+    let plan = ComposedRenderPlan::new(
+        Rect::new(0.0, 0.0, 3.0, 2.0),
+        Affine::scaling(1.0, 1.0),
+        Affine::scaling(1.0, 1.0),
+        None,
+        3,
+        2,
+        Rect::new(0.0, 0.0, 3.0, 2.0),
+    );
+    let output = prepare_render_planes(RasterPlaneInput {
+        normalized: &source,
+        routing_source: &source,
+        color_source: Some(&color),
+        source_picture_mask: None,
+        tone_preservation_alpha: Some(&alpha),
+        text_tone_diagnostics: None,
+        options: &options,
+        preserve_confirmed_photo_tones: false,
+        working_width: 3,
+        working_height: 2,
+        render_region: None,
+        sampled_region: None,
+        output_rect: Rect::new(0.0, 0.0, 3.0, 2.0),
+        render_plan: &plan,
+        rendered_width: 3,
+        rendered_height: 2,
+        region: Rect::new(0.0, 0.0, 3.0, 2.0),
+        local_deskew_forward: Affine::scaling(1.0, 1.0),
+        local_deskew_inverse: Affine::scaling(1.0, 1.0),
+        dewarp_model: None,
+        timings: &mut PageStageTimings::default(),
+    })
+    .expect("identity color plan should be valid");
+
+    assert_eq!(
+        output.rendered_color.expect("color plane is present"),
+        color
+    );
+    let rendered_alpha = output.rendered_tone_alpha.expect("alpha plane is present");
+    assert_eq!((rendered_alpha.width(), rendered_alpha.height()), (3, 2));
+    assert_eq!(output.rendered_gray, GrayImage::new(3, 2, 255));
+}
