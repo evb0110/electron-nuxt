@@ -522,7 +522,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     function leaseOwnedPage(
         document: IPdfDocument,
         pageNumber: number,
-        retention: TPdfDocumentPageLeaseRetention = 'render-cache',
+        retention: TPdfDocumentPageLeaseRetention = 'render-cache', signal?: AbortSignal,
     ) {
         if (pdfDocument.value !== document) {
             throw createStalePdfDocumentError(
@@ -530,8 +530,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             );
         }
         return retention === 'transient-background'
-            ? pageCache.leaseTransientBackgroundPage(pageNumber)
-            : pageCache.leasePage(pageNumber);
+            ? pageCache.leaseTransientBackgroundPage(pageNumber, signal)
+            : pageCache.leasePage(pageNumber, signal);
     }
 
     async function acceptLoadedDocument(
@@ -563,7 +563,8 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         const leasePage = (
             pageNumber: number,
             retention: TPdfDocumentPageLeaseRetention = 'render-cache',
-        ) => leaseOwnedPage(document, pageNumber, retention);
+            signal?: AbortSignal,
+        ) => leaseOwnedPage(document, pageNumber, retention, signal);
         registerPdfDocumentPageLeaseOwner(document, leasePage);
         activeRasterScheduler = ensurePdfPageRasterScheduler(document, {
             documentFence: captureFence(),
@@ -788,7 +789,12 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         pendingRangeReadFailure = null;
         const version = incrementRenderVersion();
         const document = pdfDocument.value;
-        if (activeRasterScheduler) {
+        const rasterScheduler = activeRasterScheduler;
+        if (rasterScheduler) {
+            rasterScheduler.invalidate({
+                documentFence: rasterScheduler.documentFence,
+                reason: 'document-cleanup',
+            });
             activeRasterScheduler = null;
             options.emitRasterScheduler?.(null);
         }

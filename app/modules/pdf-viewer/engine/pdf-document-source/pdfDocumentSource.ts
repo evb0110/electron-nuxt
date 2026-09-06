@@ -154,6 +154,43 @@ interface ICreatePdfDocumentPageCacheOptions {
     getRenderVersion: () => number;
 }
 
+async function waitForPdfPageRequest(
+    request: Promise<IPdfPage>,
+    signal: AbortSignal | undefined,
+    onLatePage: (page: IPdfPage) => void,
+) {
+    if (!signal) {
+        return request;
+    }
+    signal.throwIfAborted();
+    let aborted = false;
+    let removeAbortListener = () => {};
+    const abortPromise = new Promise<never>((_resolve, reject) => {
+        const abort = () => {
+            aborted = true;
+            reject(createStalePdfDocumentError('Rendering cancelled: PDF page request was aborted'));
+        };
+        signal.addEventListener('abort', abort, {once: true});
+        removeAbortListener = () => signal.removeEventListener('abort', abort);
+        if (signal.aborted) {
+            abort();
+        }
+    });
+    void request.then((page) => {
+        if (aborted || signal.aborted) {
+            onLatePage(page);
+        }
+    }, () => undefined);
+    try {
+        return await Promise.race([
+            request,
+            abortPromise,
+        ]);
+    } finally {
+        removeAbortListener();
+    }
+}
+
 export function createStalePdfDocumentError(message: string) {
     const error = new Error(message);
     error.name = 'RenderingCancelledException';
@@ -262,7 +299,13 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         return entry;
     }
 
-    async function getPage(pageNumber: number) {
+    function cleanupUnclaimedPage(page: IPdfPage) {
+        if (!entriesByProxy.has(page)) {
+            page.cleanup();
+        }
+    }
+
+    async function getPage(pageNumber: number, signal?: AbortSignal) {
         const document = options.getDocument();
         const version = options.getRenderVersion();
 
@@ -278,7 +321,11 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
                 version,
                 renderVersion: options.getRenderVersion(),
             });
-            page = await document.getPage(pageNumber);
+            page = await waitForPdfPageRequest(
+                document.getPage(pageNumber),
+                signal,
+                cleanupUnclaimedPage,
+            );
             if (version !== options.getRenderVersion() || document !== options.getDocument()) {
                 logPdfRenderTrace('pdf-document-page-cache-stale-cleanup', {
                     pageNumber,
@@ -309,8 +356,11 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         return page;
     }
 
-    async function leasePage(pageNumber: number): Promise<IPdfDocumentPageLease> {
-        const page = await getPage(pageNumber);
+    async function leasePage(
+        pageNumber: number,
+        signal?: AbortSignal,
+    ): Promise<IPdfDocumentPageLease> {
+        const page = await getPage(pageNumber, signal);
         const entry = entriesByPageNumber.get(pageNumber);
         if (!entry || entry.page !== page) {
             throw createStalePdfDocumentError(
@@ -336,7 +386,10 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         };
     }
 
-    async function leaseTransientBackgroundPage(pageNumber: number): Promise<IPdfDocumentPageLease> {
+    async function leaseTransientBackgroundPage(
+        pageNumber: number,
+        signal?: AbortSignal,
+    ): Promise<IPdfDocumentPageLease> {
         const document = options.getDocument();
         const version = options.getRenderVersion();
         if (!document) {
@@ -345,10 +398,14 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
 
         const cached = entriesByPageNumber.get(pageNumber);
         if (cached && !cached.cleaned) {
-            return leasePage(pageNumber);
+            return leasePage(pageNumber, signal);
         }
 
-        const page = await document.getPage(pageNumber);
+        const page = await waitForPdfPageRequest(
+            document.getPage(pageNumber),
+            signal,
+            cleanupUnclaimedPage,
+        );
         if (version !== options.getRenderVersion() || document !== options.getDocument()) {
             throw createStalePdfDocumentError('Background PDF page request became stale');
         }

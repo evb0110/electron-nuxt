@@ -134,6 +134,7 @@ interface ICreatePdfPageRasterSchedulerOptions {
     leasePage: (
         pageNumber: number,
         retention?: TPdfDocumentPageLeaseRetention,
+        signal?: AbortSignal,
     ) => Promise<IPdfDocumentPageLease>;
     maxConcurrency?: number | undefined;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
@@ -490,6 +491,7 @@ export function createPdfPageRasterScheduler(
             work.pageLease = await options.leasePage(
                 work.demand.pageNumber,
                 work.demand.retention,
+                work.controller.signal,
             );
             if (!isDemandCurrent(work)) {
                 settleWork(work, {

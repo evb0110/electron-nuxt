@@ -1663,7 +1663,7 @@ describe('PdfDocumentSession range loading', () => {
         await vi.waitFor(() => expect(prepareStarted).toHaveBeenCalledOnce());
 
         documentState.cleanup();
-        await vi.waitFor(() => expect(scheduler.snapshot().accepting).toBe(false));
+        expect(scheduler.snapshot().accepting).toBe(false);
 
         expect(documentDestroy).not.toHaveBeenCalled();
         expect(page.cleanup).not.toHaveBeenCalled();
