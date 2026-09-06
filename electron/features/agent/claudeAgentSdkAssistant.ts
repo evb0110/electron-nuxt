@@ -46,20 +46,6 @@ import {
     normalizeClaudeAssistantModel,
     shouldUseClaudeAssistantFastMode,
 } from '@electron/features/agent/claudeProviderMetadata';
-export {
-    CLAUDE_AGENT_DEFAULT_MODEL,
-    CLAUDE_AGENT_INSTALL_URL,
-    CLAUDE_AGENT_MODELS,
-    detectClaudeAuthState,
-    getClaudeAgentSdkInfo,
-    getClaudeAssistantModelLabel,
-    isClaudeAuthErrorMessage,
-    normalizeClaudeAssistantModel,
-    shouldUseClaudeAssistantFastMode,
-} from '@electron/features/agent/claudeProviderMetadata';
-export type { IClaudeAgentSdkInfoOptions } from '@electron/features/agent/claudeProviderMetadata';
-export type { TClaudeAuthState } from '@electron/features/agent/claudeProviderMetadata';
-
 const logger = createLogger('agent-claude-assistant');
 const CLAUDE_EFFORT_LEVEL_BY_ASSISTANT_EFFORT = {
     low: 'low',

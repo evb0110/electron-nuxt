@@ -7,12 +7,14 @@ import {
 } from 'vitest';
 import {
     ClaudeAgentAssistantSession,
+    normalizeClaudeSdkModelList,
+} from '@electron/features/agent/claudeAgentSdkAssistant';
+import {
     getClaudeAgentSdkInfo,
     getClaudeAssistantModelLabel,
     normalizeClaudeAssistantModel,
-    normalizeClaudeSdkModelList,
     shouldUseClaudeAssistantFastMode,
-} from '@electron/features/agent/claudeAgentSdkAssistant';
+} from '@electron/features/agent/claudeProviderMetadata';
 
 const sdkMocks = vi.hoisted(() => ({query: vi.fn()}));
 
