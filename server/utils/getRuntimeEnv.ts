@@ -15,3 +15,13 @@ export function firstNonEmptyStringPreservingWhitespace(values: ReadonlyArray<st
 
     return '';
 }
+
+export function firstNonWhitespaceString(values: ReadonlyArray<string | undefined>) {
+    for (const value of values) {
+        if (typeof value === 'string' && value.trim().length > 0) {
+            return value;
+        }
+    }
+
+    return '';
+}

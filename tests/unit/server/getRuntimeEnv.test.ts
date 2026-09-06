@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { firstNonEmptyStringPreservingWhitespace } from '@server/utils/getRuntimeEnv';
+import {
+    firstNonEmptyStringPreservingWhitespace,
+    firstNonWhitespaceString,
+} from '@server/utils/getRuntimeEnv';
 
 describe('root runtime environment selection', () => {
     it('returns an empty string when every value is undefined or empty', () => {
@@ -27,5 +30,12 @@ describe('root runtime environment selection', () => {
             'primary',
             'fallback',
         ])).toBe('primary');
+    });
+
+    it('skips whitespace-only values when selecting a configured value', () => {
+        expect(firstNonWhitespaceString([
+            '   ',
+            ' fallback ',
+        ])).toBe(' fallback ');
     });
 });

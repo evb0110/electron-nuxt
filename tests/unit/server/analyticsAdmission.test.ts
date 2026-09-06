@@ -101,7 +101,7 @@ describe('root analytics admission policy', () => {
             ANALYTICS_HASH_SECRET: secret,
             NUXT_ANALYTICS_ALLOWED_HOSTS: ' ',
             ANALYTICS_ALLOWED_HOSTS: 'other.example',
-        }, 'web.evb-viewer.com')).toBe(true);
+        }, 'web.evb-viewer.com')).toBe(false);
     });
 
     it('fails closed without a strong visitor-hash secret', () => {

@@ -15,6 +15,7 @@ import {
     resolveStrongAnalyticsSecret,
 } from '@contracts/analyticsPrivacy';
 import {
+    firstNonWhitespaceString,
     firstNonEmptyStringPreservingWhitespace,
     getRuntimeEnv,
 } from '@server/utils/getRuntimeEnv';
@@ -63,7 +64,7 @@ export function isAnalyticsWriteAllowedForHost(
     }
 
     const allowedHosts = normalizeAllowedHosts(
-        firstNonEmptyStringPreservingWhitespace([
+        firstNonWhitespaceString([
             env.NUXT_ANALYTICS_ALLOWED_HOSTS,
             env.ANALYTICS_ALLOWED_HOSTS,
         ]),
