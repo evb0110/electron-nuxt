@@ -1,5 +1,10 @@
 pub mod analyze;
+pub mod batch_reconciliation;
+pub mod output_geometry;
+pub mod page_statistics;
 pub mod prepare;
 pub mod render;
 pub mod render_plan;
+pub mod resource_planning;
+pub mod staged_input;
 pub mod text_axis;
