@@ -579,6 +579,205 @@ fn plan_render_geometry(input: RenderGeometryInput<'_>) -> Result<RenderGeometry
     })
 }
 
+struct RasterPlaneInput<'a> {
+    normalized: &'a GrayImage,
+    routing_source: &'a GrayImage,
+    color_source: Option<&'a RgbImage>,
+    source_picture_mask: Option<&'a BinaryImage>,
+    tone_preservation_alpha: Option<&'a GrayImage>,
+    text_tone_diagnostics: Option<TextToneDiagnostics>,
+    options: &'a CleanupOptions,
+    preserve_confirmed_photo_tones: bool,
+    working_width: usize,
+    working_height: usize,
+    render_region: Option<Rect>,
+    sampled_region: Option<Rect>,
+    output_rect: Rect,
+    render_plan: &'a ComposedRenderPlan,
+    rendered_width: usize,
+    rendered_height: usize,
+    region: Rect,
+    local_deskew_forward: Affine,
+    local_deskew_inverse: Affine,
+    dewarp_model: Option<DewarpModel>,
+    timings: &'a mut PageStageTimings,
+}
+
+struct RasterPlaneOutput {
+    rendered_gray: GrayImage,
+    rendered_color: Option<RgbImage>,
+    rendered_source_gray: GrayImage,
+    rendered_tone_alpha: Option<GrayImage>,
+    forward_transform: Option<Affine>,
+    inverse_transform: Option<Affine>,
+    dewarp_mapping: Option<DewarpMappingGrid>,
+}
+
+fn prepare_render_planes(input: RasterPlaneInput<'_>) -> Result<RasterPlaneOutput, String> {
+    let RasterPlaneInput {
+        normalized,
+        routing_source,
+        color_source,
+        source_picture_mask,
+        tone_preservation_alpha,
+        text_tone_diagnostics,
+        options,
+        preserve_confirmed_photo_tones,
+        working_width,
+        working_height,
+        render_region,
+        sampled_region,
+        output_rect,
+        render_plan,
+        rendered_width,
+        rendered_height,
+        region,
+        local_deskew_forward,
+        local_deskew_inverse,
+        dewarp_model,
+        timings,
+    } = input;
+    let rasterization_started = Instant::now();
+    // Halftone plates can alias into horizontal bands when a confirmed photo
+    // is reduced to a smaller tonal layer. Descreen only the owner, and only
+    // when the render is genuinely downscaled; the routing raster and every
+    // unowned paper/text pixel continue to use the original normalized image.
+    let descreened_normalized = if should_prefilter_confirmed_photo_regions(
+        preserve_confirmed_photo_tones,
+        options.output_mode,
+        rendered_width,
+        rendered_height,
+        working_width,
+        working_height,
+    ) {
+        source_picture_mask
+            .filter(|mask| mask.count_black() > 0)
+            .map(|mask| {
+                let normalized_owner =
+                    resample_binary_mask_nearest(mask, normalized.width(), normalized.height());
+                let mut filtered = normalized.clone();
+                prefilter_confirmed_photo_regions(&mut filtered, &normalized_owner);
+                filtered
+            })
+    } else {
+        None
+    };
+    let tonal_render_source = descreened_normalized.as_ref().unwrap_or(normalized);
+    // A colour page publishes its RGB raster; the gray twin is never encoded, so
+    // the only question it answered — blankness — moves to the analysis level.
+    let skips_gray_twin = options.output_mode == OutputMode::Color
+        && color_source.is_some()
+        && !render_plan.has_dewarp();
+    let (mut rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
+        if render_plan.has_dewarp() {
+            let gray = rasterize_inverse_area_with(
+                tonal_render_source,
+                rendered_width,
+                rendered_height,
+                |point| render_plan.output_to_source(point),
+            );
+            let color = color_source.map(|source| {
+                rasterize_inverse_area_rgb_with(source, rendered_width, rendered_height, |point| {
+                    render_plan.output_to_source(point)
+                })
+            });
+            let metadata_plan = render_region.map_or_else(
+                || render_plan.clone(),
+                |crop| {
+                    ComposedRenderPlan::new(
+                        region,
+                        local_deskew_forward,
+                        local_deskew_inverse,
+                        dewarp_model,
+                        working_width,
+                        working_height,
+                        Rect::new(
+                            output_rect.x + crop.x,
+                            output_rect.y + crop.y,
+                            crop.width,
+                            crop.height,
+                        ),
+                    )
+                },
+            );
+            let grid = sampled_dewarp_grid(&metadata_plan, region);
+            (gray, color, None, None, Some(grid))
+        } else {
+            let inverse = render_plan
+                .affine_inverse()
+                .ok_or("Cleanup affine render plan is unavailable")?;
+            let forward = inverse
+                .inverse()
+                .ok_or("Cleanup transform is not invertible")?;
+            (
+                if skips_gray_twin {
+                    GrayImage::new(rendered_width, rendered_height, 255)
+                } else {
+                    render_affine_gray(
+                        tonal_render_source,
+                        rendered_width,
+                        rendered_height,
+                        inverse,
+                    )
+                },
+                color_source.map(|color| {
+                    render_affine_rgb(color, rendered_width, rendered_height, inverse)
+                }),
+                Some(forward),
+                Some(inverse),
+                None,
+            )
+        };
+    let rendered_source_gray = if render_plan.has_dewarp() {
+        rasterize_inverse_area_with(routing_source, rendered_width, rendered_height, |point| {
+            render_plan.output_to_source(point)
+        })
+    } else {
+        render_affine_gray(
+            routing_source,
+            rendered_width,
+            rendered_height,
+            render_plan
+                .affine_inverse()
+                .expect("cleanup affine render plan is available"),
+        )
+    };
+    timings.rasterization_ms += rasterization_started.elapsed().as_secs_f64() * 1_000.0;
+    // Coarse tonal evidence is valid for deriving the global tone curve, but
+    // only pixel-resolution picture geometry may form a boundary in the
+    // rendered raster.
+    let rendered_tone_alpha = tone_preservation_alpha.map(|alpha| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(alpha.width(), alpha.height(), normalized);
+        render_gray_field(alpha, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    if let Some(diagnostics) = text_tone_diagnostics {
+        apply_text_tone_excluding(
+            &mut rendered_gray,
+            diagnostics,
+            rendered_tone_alpha.as_ref(),
+        );
+    }
+    let (forward_transform, inverse_transform) =
+        if let (Some(forward), Some(region)) = (forward_transform, sampled_region) {
+            let intrinsic_forward = forward.then(Affine::translation(region.x, region.y));
+            (Some(intrinsic_forward), intrinsic_forward.inverse())
+        } else {
+            (forward_transform, inverse_transform)
+        };
+    Ok(RasterPlaneOutput {
+        rendered_gray,
+        rendered_color,
+        rendered_source_gray,
+        rendered_tone_alpha,
+        forward_transform,
+        inverse_transform,
+        dewarp_mapping,
+    })
+}
+
 pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
     let Input {
         source,
@@ -728,136 +927,37 @@ pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
     })?;
 
     let render_started = Instant::now();
-    let rasterization_started = Instant::now();
-    // Halftone plates can alias into horizontal bands when a confirmed photo
-    // is reduced to a smaller tonal layer. Descreen only the owner, and only
-    // when the render is genuinely downscaled; the routing raster and every
-    // unowned paper/text pixel continue to use the original normalized image.
-    let descreened_normalized = if should_prefilter_confirmed_photo_regions(
+    let RasterPlaneOutput {
+        rendered_gray,
+        rendered_color,
+        rendered_source_gray,
+        mut rendered_tone_alpha,
+        forward_transform,
+        inverse_transform,
+        dewarp_mapping,
+    } = prepare_render_planes(RasterPlaneInput {
+        normalized,
+        routing_source,
+        color_source,
+        source_picture_mask,
+        tone_preservation_alpha,
+        text_tone_diagnostics,
+        options,
         preserve_confirmed_photo_tones,
-        options.output_mode,
-        rendered_width,
-        rendered_height,
         working_width,
         working_height,
-    ) {
-        source_picture_mask
-            .filter(|mask| mask.count_black() > 0)
-            .map(|mask| {
-                let normalized_owner =
-                    resample_binary_mask_nearest(mask, normalized.width(), normalized.height());
-                let mut filtered = normalized.clone();
-                prefilter_confirmed_photo_regions(&mut filtered, &normalized_owner);
-                filtered
-            })
-    } else {
-        None
-    };
-    let tonal_render_source = descreened_normalized.as_ref().unwrap_or(normalized);
-    // A colour page publishes its RGB raster; the gray twin is never encoded, so
-    // the only question it answered — blankness — moves to the analysis level.
-    let skips_gray_twin = options.output_mode == OutputMode::Color
-        && color_source.is_some()
-        && !render_plan.has_dewarp();
-    let (mut rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
-        if render_plan.has_dewarp() {
-            let gray = rasterize_inverse_area_with(
-                tonal_render_source,
-                rendered_width,
-                rendered_height,
-                |point| render_plan.output_to_source(point),
-            );
-            let color = color_source.map(|source| {
-                rasterize_inverse_area_rgb_with(source, rendered_width, rendered_height, |point| {
-                    render_plan.output_to_source(point)
-                })
-            });
-            let metadata_plan = render_region.map_or_else(
-                || render_plan.clone(),
-                |crop| {
-                    ComposedRenderPlan::new(
-                        region,
-                        local_deskew_forward,
-                        local_deskew_inverse,
-                        dewarp_model,
-                        working_width,
-                        working_height,
-                        Rect::new(
-                            output_rect.x + crop.x,
-                            output_rect.y + crop.y,
-                            crop.width,
-                            crop.height,
-                        ),
-                    )
-                },
-            );
-            let grid = sampled_dewarp_grid(&metadata_plan, region);
-            (gray, color, None, None, Some(grid))
-        } else {
-            let inverse = render_plan
-                .affine_inverse()
-                .ok_or("Cleanup affine render plan is unavailable")?;
-            let forward = inverse
-                .inverse()
-                .ok_or("Cleanup transform is not invertible")?;
-            (
-                if skips_gray_twin {
-                    GrayImage::new(rendered_width, rendered_height, 255)
-                } else {
-                    render_affine_gray(
-                        tonal_render_source,
-                        rendered_width,
-                        rendered_height,
-                        inverse,
-                    )
-                },
-                color_source.map(|color| {
-                    render_affine_rgb(color, rendered_width, rendered_height, inverse)
-                }),
-                Some(forward),
-                Some(inverse),
-                None,
-            )
-        };
-    let rendered_source_gray = if render_plan.has_dewarp() {
-        rasterize_inverse_area_with(routing_source, rendered_width, rendered_height, |point| {
-            render_plan.output_to_source(point)
-        })
-    } else {
-        render_affine_gray(
-            routing_source,
-            rendered_width,
-            rendered_height,
-            render_plan
-                .affine_inverse()
-                .expect("cleanup affine render plan is available"),
-        )
-    };
-    timings.rasterization_ms += rasterization_started.elapsed().as_secs_f64() * 1_000.0;
-    // Coarse tonal evidence is valid for deriving the global tone curve, but
-    // only pixel-resolution picture geometry may form a boundary in the
-    // rendered raster.
-    let mut rendered_tone_alpha = tone_preservation_alpha.map(|alpha| {
-        let (mask_scale_x, mask_scale_y) =
-            auxiliary_mask_scales(alpha.width(), alpha.height(), normalized);
-        render_gray_field(alpha, rendered_width, rendered_height, |point| {
-            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
-        })
-    });
-    if let Some(diagnostics) = text_tone_diagnostics {
-        apply_text_tone_excluding(
-            &mut rendered_gray,
-            diagnostics,
-            rendered_tone_alpha.as_ref(),
-        );
-    }
-    let (forward_transform, inverse_transform) =
-        if let (Some(forward), Some(region)) = (forward_transform, sampled_region) {
-            let intrinsic_forward = forward.then(Affine::translation(region.x, region.y));
-            (Some(intrinsic_forward), intrinsic_forward.inverse())
-        } else {
-            (forward_transform, inverse_transform)
-        };
+        render_region,
+        sampled_region,
+        output_rect,
+        render_plan: &render_plan,
+        rendered_width,
+        rendered_height,
+        region,
+        local_deskew_forward,
+        local_deskew_inverse,
+        dewarp_model,
+        timings,
+    })?;
     let mask_rasterization_started = Instant::now();
     let mut rendered_picture_mask = source_picture_mask.map(|mask| {
         let (mask_scale_x, mask_scale_y) =
