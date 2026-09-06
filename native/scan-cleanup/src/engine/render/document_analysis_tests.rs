@@ -181,3 +181,107 @@ fn mode_stage_pins_coherent_photo_preservation_and_mask_replacement() {
     assert!(output.photographic_picture_mask.is_some());
     assert!(output.output_picture_mask.is_some());
 }
+
+#[test]
+fn quality_stage_normalizes_with_semantic_exclusion_and_caches_complete_artifact() {
+    let source = GrayImage::new(32, 24, 196);
+    let layout_normalized = source.clone();
+    let tonal_protection_mask = Arc::new(BinaryImage::from_fn_parallel(32, 24, |x, y| {
+        x == 5 && y == 7
+    }));
+    let semantic_preservation_alpha = Arc::new(GrayImage::new(32, 24, 96));
+    let options = CleanupOptions {
+        output_mode: crate::OutputMode::Grayscale,
+        normalize_illumination: true,
+        ..CleanupOptions::default()
+    };
+    let fingerprint = crate::cache::SourceFingerprint::from_path(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+        0,
+    )
+    .expect("manifest directory must be stat-able");
+    let cache = PageCache::new(
+        Arc::new(std::sync::Mutex::new(crate::cache::ByteLru::new(1 << 20))),
+        fingerprint.clone(),
+    );
+    let key = StageCacheKey::analysis(
+        &fingerprint,
+        &options,
+        true,
+        true,
+        true,
+        true,
+        CalibrationConfig::default(),
+    );
+    let illumination_preparation = prepare_illumination(&source);
+    let mut timings = PageStageTimings::default();
+    let QualityNormalizationOutput { artifact } =
+        normalize_and_assemble_analysis_artifact(QualityNormalizationInput {
+            analysis_key: Some(key.clone()),
+            source: &source,
+            options: &options,
+            prepare_quality_raster: true,
+            cache: Some(&cache),
+            timings: &mut timings,
+            normalization_started: std::time::Instant::now(),
+            evidence: NormalizationEvidence {
+                illumination_preparation: Some(illumination_preparation),
+                rotated: source.clone(),
+                layout_normalized: layout_normalized.clone(),
+                picture_mask: None,
+                tonal_protection_mask: Some(Arc::clone(&tonal_protection_mask)),
+                semantic_preservation_alpha: Some(Arc::clone(&semantic_preservation_alpha)),
+                text_vicinity_mask: None,
+            },
+            artifact_evidence: ArtifactEvidence {
+                continuous_tone_mask: None,
+                spatial_tone_mask: None,
+                text_mask: None,
+                content_picture_mask: None,
+                source_effectively_blank: false,
+                analysis_threshold: Some(128),
+                text_axis: None,
+            },
+            metadata: ArtifactAssemblyMetadata {
+                scale_x: 1.0,
+                scale_y: 1.0,
+                full_width: 32,
+                full_height: 24,
+                calibration: PageCalibration::estimate(
+                    &layout_normalized,
+                    300.0,
+                    CalibrationConfig::default(),
+                ),
+                effective_dpi: 150.0,
+            },
+            mode: ModePreservationOutput {
+                output_mode_recommendation: None,
+                resolved_output_mode: crate::OutputMode::Grayscale,
+                chroma_picture_mask: None,
+                significant_picture: false,
+                refine_picture_ownership: false,
+                output_picture_mask: None,
+                photographic_picture_mask: None,
+                coherent_photo_mask: None,
+                photo_preservation_alpha: None,
+                tone_preservation_alpha: None,
+                preserve_confirmed_photo_tones: false,
+                use_soft_alpha_foreground: false,
+                protect_tonal_text_vicinity: false,
+            },
+        });
+
+    assert_eq!(
+        (artifact.normalized.width(), artifact.normalized.height()),
+        (32, 24)
+    );
+    assert_eq!(artifact.resolved_output_mode, crate::OutputMode::Grayscale);
+    assert_eq!(artifact.analysis_threshold, Some(128));
+    assert!(timings.quality_normalization_ms >= 0.0);
+    assert!(cache
+        .shared
+        .lock()
+        .expect("synthetic cache lock must succeed")
+        .get::<AnalysisArtifact>(&key)
+        .is_some());
+}

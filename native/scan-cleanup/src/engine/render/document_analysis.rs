@@ -942,6 +942,202 @@ struct ModePreservationOutput {
     protect_tonal_text_vicinity: bool,
 }
 
+struct NormalizationEvidence {
+    illumination_preparation: Option<IlluminationPreparation>,
+    rotated: GrayImage,
+    layout_normalized: GrayImage,
+    picture_mask: Option<Arc<BinaryImage>>,
+    tonal_protection_mask: Option<Arc<BinaryImage>>,
+    semantic_preservation_alpha: Option<Arc<GrayImage>>,
+    text_vicinity_mask: Option<Arc<BinaryImage>>,
+}
+
+struct ArtifactEvidence {
+    continuous_tone_mask: Option<Arc<BinaryImage>>,
+    spatial_tone_mask: Option<Arc<BinaryImage>>,
+    text_mask: Option<Arc<BinaryImage>>,
+    content_picture_mask: Option<Arc<BinaryImage>>,
+    source_effectively_blank: bool,
+    analysis_threshold: Option<u8>,
+    text_axis: Option<TextAxisHint>,
+}
+
+struct ArtifactAssemblyMetadata {
+    scale_x: f64,
+    scale_y: f64,
+    full_width: usize,
+    full_height: usize,
+    calibration: PageCalibration,
+    effective_dpi: f64,
+}
+
+struct QualityNormalizationInput<'a> {
+    analysis_key: Option<StageCacheKey>,
+    source: &'a GrayImage,
+    options: &'a CleanupOptions,
+    prepare_quality_raster: bool,
+    cache: Option<&'a PageCache>,
+    timings: &'a mut PageStageTimings,
+    normalization_started: Instant,
+    evidence: NormalizationEvidence,
+    artifact_evidence: ArtifactEvidence,
+    metadata: ArtifactAssemblyMetadata,
+    mode: ModePreservationOutput,
+}
+
+struct QualityNormalizationOutput {
+    artifact: Arc<AnalysisArtifact>,
+}
+
+fn normalize_and_assemble_analysis_artifact(
+    input: QualityNormalizationInput<'_>,
+) -> QualityNormalizationOutput {
+    let QualityNormalizationInput {
+        analysis_key,
+        source,
+        options,
+        prepare_quality_raster,
+        cache,
+        timings,
+        normalization_started,
+        evidence,
+        artifact_evidence,
+        metadata,
+        mode,
+    } = input;
+    let NormalizationEvidence {
+        illumination_preparation,
+        rotated,
+        layout_normalized,
+        picture_mask,
+        tonal_protection_mask,
+        semantic_preservation_alpha,
+        text_vicinity_mask,
+    } = evidence;
+    let ArtifactEvidence {
+        continuous_tone_mask,
+        spatial_tone_mask,
+        text_mask,
+        content_picture_mask,
+        source_effectively_blank,
+        analysis_threshold,
+        text_axis,
+    } = artifact_evidence;
+    let ArtifactAssemblyMetadata {
+        scale_x,
+        scale_y,
+        full_width,
+        full_height,
+        calibration,
+        effective_dpi,
+    } = metadata;
+    let ModePreservationOutput {
+        output_mode_recommendation,
+        resolved_output_mode,
+        chroma_picture_mask,
+        output_picture_mask,
+        photographic_picture_mask,
+        coherent_photo_mask,
+        photo_preservation_alpha,
+        tone_preservation_alpha,
+        preserve_confirmed_photo_tones,
+        use_soft_alpha_foreground,
+        protect_tonal_text_vicinity,
+        significant_picture,
+        refine_picture_ownership: _,
+    } = mode;
+
+    let quality_normalization_started = Instant::now();
+    let canonical_routing_source = Arc::new(rotate_orthogonal(source, options.rotation));
+    let normalized = if options.normalize_illumination {
+        if prepare_quality_raster {
+            let grayscale_normalization_exclusion =
+                if resolved_output_mode == OutputMode::Grayscale && coherent_photo_mask.is_some() {
+                    photographic_picture_mask.clone()
+                } else {
+                    union_optional_masks(picture_mask.as_ref(), tonal_protection_mask.as_ref())
+                };
+            let normalization_model_exclusion = match resolved_output_mode {
+                OutputMode::Grayscale => grayscale_normalization_exclusion.as_deref(),
+                OutputMode::Mixed => photographic_picture_mask.as_deref(),
+                OutputMode::Color if significant_picture => {
+                    grayscale_normalization_exclusion.as_deref()
+                }
+                OutputMode::Color => None,
+                OutputMode::Bw | OutputMode::Auto => None,
+            };
+            let semantic_alpha = match resolved_output_mode {
+                OutputMode::Grayscale if protect_tonal_text_vicinity => None,
+                OutputMode::Grayscale => semantic_preservation_alpha.as_deref(),
+                OutputMode::Mixed if protect_tonal_text_vicinity => None,
+                OutputMode::Mixed => semantic_preservation_alpha.as_deref(),
+                OutputMode::Color if significant_picture => semantic_preservation_alpha.as_deref(),
+                OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
+            };
+            let photo_alpha = match resolved_output_mode {
+                OutputMode::Grayscale => photo_preservation_alpha.as_deref(),
+                OutputMode::Mixed => photo_preservation_alpha.as_deref(),
+                OutputMode::Color if significant_picture => photo_preservation_alpha.as_deref(),
+                OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
+            };
+            let preparation = illumination_preparation
+                .expect("illumination preparation exists when normalization is enabled");
+            normalize_illumination_prepared_with_masks(
+                &rotated,
+                normalization_model_exclusion,
+                semantic_alpha,
+                photo_alpha,
+                text_vicinity_mask.as_deref(),
+                preparation,
+            )
+        } else {
+            layout_normalized.clone()
+        }
+    } else {
+        rotated
+    };
+    timings.quality_normalization_ms +=
+        quality_normalization_started.elapsed().as_secs_f64() * 1_000.0;
+    let artifact = Arc::new(AnalysisArtifact {
+        normalized: Arc::new(normalized),
+        layout_normalized: Arc::new(layout_normalized),
+        canonical_routing_source,
+        scale_x,
+        scale_y,
+        full_width,
+        full_height,
+        calibration,
+        effective_dpi,
+        canonical_routing_dpi: options.dpi,
+        picture_mask: output_picture_mask,
+        halftone_zone_mask: continuous_tone_mask,
+        spatial_tone_mask,
+        chroma_picture_mask,
+        tonal_protection_mask,
+        semantic_preservation_alpha,
+        photo_preservation_alpha,
+        tone_preservation_alpha,
+        text_mask,
+        text_vicinity_mask,
+        content_picture_mask,
+        source_effectively_blank,
+        output_mode_recommendation,
+        preserve_confirmed_photo_tones,
+        use_soft_alpha_foreground,
+        resolved_output_mode,
+        analysis_threshold,
+        text_axis,
+    });
+    timings.normalization_ms += normalization_started.elapsed().as_secs_f64() * 1_000.0;
+    if let (Some(cache), Some(key)) = (cache, analysis_key) {
+        let bytes = analysis_artifact_bytes(&artifact);
+        if let Ok(mut shared) = cache.shared.lock() {
+            shared.insert(key, Arc::clone(&artifact), bytes);
+        }
+    }
+    QualityNormalizationOutput { artifact }
+}
+
 fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreservationOutput {
     let ModePreservationInput {
         rotated,
@@ -1360,94 +1556,57 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         text_soft_edge_ratio,
     });
     timings.mode_recommendation_ms += mode_recommendation_started.elapsed().as_secs_f64() * 1_000.0;
-    let quality_normalization_started = Instant::now();
-    let canonical_routing_source = Arc::new(rotate_orthogonal(source, options.rotation));
-    let normalized = if options.normalize_illumination {
-        if prepare_quality_raster {
-            let grayscale_normalization_exclusion =
-                if resolved_output_mode == OutputMode::Grayscale && coherent_photo_mask.is_some() {
-                    photographic_picture_mask.clone()
-                } else {
-                    union_optional_masks(picture_mask.as_ref(), tonal_protection_mask.as_ref())
-                };
-            let normalization_model_exclusion = match resolved_output_mode {
-                OutputMode::Grayscale => grayscale_normalization_exclusion.as_deref(),
-                OutputMode::Mixed => photographic_picture_mask.as_deref(),
-                OutputMode::Color if significant_picture => {
-                    grayscale_normalization_exclusion.as_deref()
-                }
-                OutputMode::Color => None,
-                OutputMode::Bw | OutputMode::Auto => None,
-            };
-            let semantic_alpha = match resolved_output_mode {
-                OutputMode::Grayscale if protect_tonal_text_vicinity => None,
-                OutputMode::Grayscale => semantic_preservation_alpha.as_deref(),
-                OutputMode::Mixed if protect_tonal_text_vicinity => None,
-                OutputMode::Mixed => semantic_preservation_alpha.as_deref(),
-                OutputMode::Color if significant_picture => semantic_preservation_alpha.as_deref(),
-                OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
-            };
-            let photo_alpha = match resolved_output_mode {
-                OutputMode::Grayscale => photo_preservation_alpha.as_deref(),
-                OutputMode::Mixed => photo_preservation_alpha.as_deref(),
-                OutputMode::Color if significant_picture => photo_preservation_alpha.as_deref(),
-                OutputMode::Color | OutputMode::Bw | OutputMode::Auto => None,
-            };
-            let preparation = illumination_preparation
-                .expect("illumination preparation exists when normalization is enabled");
-            normalize_illumination_prepared_with_masks(
-                &rotated,
-                normalization_model_exclusion,
-                semantic_alpha,
-                photo_alpha,
-                text_vicinity_mask.as_deref(),
-                preparation,
-            )
-        } else {
-            layout_normalized.clone()
-        }
-    } else {
-        rotated
-    };
-    timings.quality_normalization_ms +=
-        quality_normalization_started.elapsed().as_secs_f64() * 1_000.0;
-    let artifact = Arc::new(AnalysisArtifact {
-        normalized: Arc::new(normalized),
-        layout_normalized: Arc::new(layout_normalized),
-        canonical_routing_source,
-        scale_x,
-        scale_y,
-        full_width,
-        full_height,
-        calibration,
-        effective_dpi,
-        canonical_routing_dpi: options.dpi,
-        picture_mask: output_picture_mask,
-        halftone_zone_mask: continuous_tone_mask.clone(),
-        spatial_tone_mask,
-        chroma_picture_mask,
-        tonal_protection_mask,
-        semantic_preservation_alpha,
-        photo_preservation_alpha,
-        tone_preservation_alpha,
-        text_mask,
-        text_vicinity_mask,
-        content_picture_mask,
-        source_effectively_blank,
-        output_mode_recommendation,
-        preserve_confirmed_photo_tones,
-        use_soft_alpha_foreground,
-        resolved_output_mode,
-        analysis_threshold,
-        text_axis,
-    });
-    timings.normalization_ms += normalization_started.elapsed().as_secs_f64() * 1_000.0;
-    if let (Some(cache), Some(key)) = (cache, analysis_key.clone()) {
-        let bytes = analysis_artifact_bytes(&artifact);
-        if let Ok(mut shared) = cache.shared.lock() {
-            shared.insert(key, Arc::clone(&artifact), bytes);
-        }
-    }
+    let QualityNormalizationOutput { artifact } =
+        normalize_and_assemble_analysis_artifact(QualityNormalizationInput {
+            analysis_key,
+            source,
+            options,
+            prepare_quality_raster,
+            cache,
+            timings,
+            normalization_started,
+            evidence: NormalizationEvidence {
+                illumination_preparation,
+                rotated,
+                layout_normalized,
+                picture_mask,
+                tonal_protection_mask,
+                semantic_preservation_alpha,
+                text_vicinity_mask,
+            },
+            artifact_evidence: ArtifactEvidence {
+                continuous_tone_mask,
+                spatial_tone_mask,
+                text_mask,
+                content_picture_mask,
+                source_effectively_blank,
+                analysis_threshold,
+                text_axis,
+            },
+            metadata: ArtifactAssemblyMetadata {
+                scale_x,
+                scale_y,
+                full_width,
+                full_height,
+                calibration,
+                effective_dpi,
+            },
+            mode: ModePreservationOutput {
+                output_mode_recommendation,
+                resolved_output_mode,
+                chroma_picture_mask,
+                significant_picture,
+                refine_picture_ownership: _refine_picture_ownership,
+                output_picture_mask,
+                photographic_picture_mask,
+                coherent_photo_mask,
+                photo_preservation_alpha,
+                tone_preservation_alpha,
+                preserve_confirmed_photo_tones,
+                use_soft_alpha_foreground,
+                protect_tonal_text_vicinity,
+            },
+        });
     artifact
 }
 pub(crate) fn run(input: Input<'_>) -> PreparedAnalysis {
