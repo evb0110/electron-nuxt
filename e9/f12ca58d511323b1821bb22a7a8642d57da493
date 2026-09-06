@@ -1,0 +1,22 @@
+scripts/release/verifyPackagedCorePdfSmoke.ts
+  s_d252de3ad71cee::t_9412011910dba0 4,21-22,29-32,47,210-222,240-241,252-253,256-263,275-279,292-293,306-318,385-390,392-395,397-407,409-416,418,426,428,430-442
+  s_d252de3ad71cee::t_fc8fba6379d4e4 51
+package.json
+  s_d252de3ad71cee::t_fc8fba6379d4e4 124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e9f12ca58d511323b1821bb22a7a8642d57da493",
+  "prompts": {},
+  "sessions": {
+    "s_d252de3ad71cee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0723f-6c82-7453-a893-5fe26c4041d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
