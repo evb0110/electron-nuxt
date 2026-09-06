@@ -59,6 +59,10 @@ import {
     waitForSessionReady,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
+    cleanupSessionAppTempIfUnowned,
+    hasWorkspaceRecoveryEvidence,
+} from '@scripts/electron-run/electronRunSessionCleanup';
+import {
     electronUserDataPath,
     getCurrentSessionName,
     sessionDir,
@@ -67,7 +71,10 @@ import {
     sessionPreserveWorkspaceCheckpointMarkerPath,
 } from '@scripts/electron-run/electronRunSessionPaths';
 import type { ISessionState } from '@scripts/electron-run/electronRunSessionTypes';
-import { clearAutomationWorkspaceCrashCheckpoint } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {
+    clearAutomationWorkspaceCrashCheckpoint,
+    workspaceCrashCheckpointPath,
+} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 
 let sessionState: ISessionState | null = null;
 
@@ -88,6 +95,15 @@ export function clearAutomationWorkspaceCrashCheckpointAfterSessionExit(
 ) {
     return shouldClearAutomationWorkspaceCrashCheckpointOnExit(exitCode)
         && clearAutomationWorkspaceCrashCheckpoint(sessionName);
+}
+
+export function shouldPreserveWorkspaceRecoveryArtifacts(
+    exitCode: number,
+    preserveMarkerExists: boolean,
+    checkpointExists: boolean,
+) {
+    return preserveMarkerExists
+        || (!shouldClearAutomationWorkspaceCrashCheckpointOnExit(exitCode) && checkpointExists);
 }
 
 async function ensureSessionCanStart() {
@@ -250,7 +266,11 @@ function clearRuntimeSessionFiles() {
 async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<typeof createServer> | null) {
     console.log('\nShutting down...');
     const keepNuxtOnStop = existsSync(sessionKeepNuxtMarkerPath());
-    const preserveWorkspaceCheckpoint = existsSync(sessionPreserveWorkspaceCheckpointMarkerPath());
+    const preserveWorkspaceCheckpoint = shouldPreserveWorkspaceRecoveryArtifacts(
+        exitCode,
+        existsSync(sessionPreserveWorkspaceCheckpointMarkerPath()),
+        existsSync(workspaceCrashCheckpointPath(getCurrentSessionName())),
+    );
     if (keepNuxtOnStop) {
         console.log('[Nuxt] Keeping dev server alive for fast restart');
     }
@@ -267,6 +287,11 @@ async function cleanupSessionAndExit(exitCode: number, httpServer: ReturnType<ty
     try {
         unlinkSync(sessionPreserveWorkspaceCheckpointMarkerPath());
     } catch {}
+    if (!preserveWorkspaceCheckpoint) {
+        if (!cleanupSessionAppTempIfUnowned()) {
+            console.warn('[Session] App temp cleanup retained the namespace because a session-owned Electron process is still alive.');
+        }
+    }
     await stopSessionNuxtProcess(sessionState, keepNuxtOnStop);
     sessionState = null;
     closeActiveDevServerOutputTee();
@@ -295,6 +320,15 @@ function installStartupSignalCleanup() {
             .catch((error) => {
                 const message = getErrorMessage(error);
                 console.error(`[Session] Startup cleanup failed: ${message}`);
+            })
+            .then(() => {
+                try {
+                    if (!hasWorkspaceRecoveryEvidence() && !cleanupSessionAppTempIfUnowned()) {
+                        console.warn('[Session] Startup app temp cleanup retained the namespace because a session-owned Electron process is still alive.');
+                    }
+                } catch (error) {
+                    console.error(`[Session] Startup app temp cleanup failed: ${getErrorMessage(error)}`);
+                }
             })
             .finally(() => {
                 process.exit(getSignalExitCode(signal));
@@ -535,7 +569,17 @@ export async function startControlledSession(forceClean = false, options: IStart
         await new Promise(() => {});
     } catch (error) {
         startupSignalCleanup.disarm();
-        await cleanupSessionStartingAttempt();
+        try {
+            await cleanupSessionStartingAttempt();
+        } finally {
+            try {
+                if (!hasWorkspaceRecoveryEvidence() && !cleanupSessionAppTempIfUnowned()) {
+                    console.warn('[Session] Failed-start app temp cleanup retained the namespace because a session-owned Electron process is still alive.');
+                }
+            } catch (cleanupError) {
+                console.error(`[Session] Failed-start app temp cleanup failed: ${getErrorMessage(cleanupError)}`);
+            }
+        }
         clearSessionStarting();
         closeActiveDevServerOutputTee();
         throw error;

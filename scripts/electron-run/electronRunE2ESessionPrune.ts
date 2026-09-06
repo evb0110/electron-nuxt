@@ -12,14 +12,20 @@ import {
 import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
 import {
     inspectProcessIdentity,
+    findSessionOwnedElectronPids,
     killVerifiedSessionProcess,
     matchesSessionProcessIdentity,
     type ISessionProcessIdentityExpectation,
 } from '@scripts/electron-run/electronRunProcessIdentity';
 import {
+    electronUserDataPath,
     sessionDir,
     sessionsBaseDir,
 } from '@scripts/electron-run/electronRunSessionPaths';
+import {
+    cleanupSessionAppTempIfUnowned,
+    hasWorkspaceRecoveryEvidence,
+} from '@scripts/electron-run/electronRunSessionCleanup';
 
 const DEFAULT_STALE_E2E_SESSION_AGE_MS = 24 * 60 * 60 * 1000;
 const PROCESS_STOP_GRACE_MS = 1_200;
@@ -39,9 +45,10 @@ export interface IStaleE2ESessionPruneResult {
     }>;
 }
 
-interface ISelectStaleE2ESessionsOptions {
+export interface ISelectStaleE2ESessionsOptions {
     nowMs?: number;
     maxAgeMs?: number;
+    candidates?: IE2ESessionDirCandidate[];
 }
 
 export function isE2ESessionName(name: string) {
@@ -136,6 +143,17 @@ async function stopLiveMetadataProcesses(name: string) {
             });
         }
     }
+    const profileExpectation = {
+        kind: 'electron' as const,
+        sessionName: name,
+        electronUserDataDir: electronUserDataPath(name),
+    } satisfies ISessionProcessIdentityExpectation;
+    for (const electronPid of findSessionOwnedElectronPids(profileExpectation)) {
+        candidates.push({
+            pid: electronPid,
+            expectation: profileExpectation,
+        });
+    }
     const verifiedOwnedPids = new Set<number>();
     for (const candidate of candidates) {
         const pid = candidate.pid;
@@ -158,11 +176,14 @@ async function stopLiveMetadataProcesses(name: string) {
         });
     }
 
+    for (const electronPid of findSessionOwnedElectronPids(profileExpectation)) {
+        verifiedOwnedPids.add(electronPid);
+    }
     return [...verifiedOwnedPids].filter(pid => isProcessAlive(pid));
 }
 
 export async function pruneStaleE2ESessions(options: ISelectStaleE2ESessionsOptions = {}): Promise<IStaleE2ESessionPruneResult> {
-    const stale = selectStaleE2ESessionDirs(listE2ESessionDirCandidates(), options);
+    const stale = selectStaleE2ESessionDirs(options.candidates ?? listE2ESessionDirCandidates(), options);
     const result: IStaleE2ESessionPruneResult = {
         stale: stale.map(candidate => candidate.name),
         removed: [],
@@ -174,12 +195,26 @@ export async function pruneStaleE2ESessions(options: ISelectStaleE2ESessionsOpti
         if (remainingLivePids.length > 0) {
             result.refused.push({
                 name: candidate.name,
-                reason: `metadata process(es) still alive after stop: ${remainingLivePids.join(', ')}`,
+                reason: `session-owned process(es) still alive after stop: ${remainingLivePids.join(', ')}`,
+            });
+            continue;
+        }
+        if (hasWorkspaceRecoveryEvidence(candidate.name)) {
+            result.refused.push({
+                name: candidate.name,
+                reason: 'workspace recovery evidence is present; retained for later recovery',
             });
             continue;
         }
 
         try {
+            if (!cleanupSessionAppTempIfUnowned(candidate.name)) {
+                result.refused.push({
+                    name: candidate.name,
+                    reason: 'session-owned Electron process appeared during temp cleanup; retained for safety',
+                });
+                continue;
+            }
             rmSync(sessionDir(candidate.name), {
                 recursive: true,
                 force: true,

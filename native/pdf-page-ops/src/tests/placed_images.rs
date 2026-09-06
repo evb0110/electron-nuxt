@@ -5,17 +5,28 @@
         ]
     }
 
+    thread_local! {
+        static PLACED_IMAGE_TEMP_FILES: std::cell::RefCell<Vec<PathBuf>> = std::cell::RefCell::new(Vec::new());
+    }
+
+    struct PlacedImageTestCleanup;
+
+    impl Drop for PlacedImageTestCleanup {
+        fn drop(&mut self) {
+            let paths = PLACED_IMAGE_TEMP_FILES.with(|files| std::mem::take(&mut *files.borrow_mut()));
+            for path in paths {
+                let _ = remove_file(path);
+            }
+        }
+    }
+
     struct PlacedImageContinuationCleanup {
         pdf_path: PathBuf,
-        image_paths: Vec<PathBuf>,
     }
 
     impl Drop for PlacedImageContinuationCleanup {
         fn drop(&mut self) {
             let _ = remove_file(&self.pdf_path);
-            for image_path in &self.image_paths {
-                let _ = remove_file(image_path);
-            }
         }
     }
 
@@ -23,6 +34,7 @@
         let bytes_path = temp_pdf_path("placed-image-jpeg");
         let bytes = minimal_jpeg_bytes();
         write(&bytes_path, &bytes).unwrap();
+        PLACED_IMAGE_TEMP_FILES.with(|files| files.borrow_mut().push(bytes_path.clone()));
         PlacedImage {
             page_index: 0,
             stable_key: None,
@@ -42,6 +54,7 @@
 
     #[test]
     fn rejects_placed_image_sidecars_whose_manifest_no_longer_matches() {
+        let _sidecar_cleanup = PlacedImageTestCleanup;
         let mut image = placed_jpeg_mutation();
         image.sha256 = "0".repeat(64);
         let error = validate_placed_images(&[image]).unwrap_err();
@@ -51,11 +64,11 @@
 
     #[test]
     fn placed_image_metadata_limits_reject_before_opening_payloads() {
+        let _sidecar_cleanup = PlacedImageTestCleanup;
         use std::cell::Cell;
         use std::fs::File;
 
         let mut image = placed_jpeg_mutation();
-        let image_path = image.bytes_path.clone();
         File::options()
             .write(true)
             .open(&image.bytes_path)
@@ -80,11 +93,11 @@
             NativeErrorCode::TooLarge
         );
         assert_eq!(open_count.get(), 0);
-        let _ = remove_file(image_path);
     }
 
     #[test]
     fn placed_image_aggregate_limit_is_checked_before_any_payload_read() {
+        let _sidecar_cleanup = PlacedImageTestCleanup;
         use std::cell::Cell;
         use std::fs::File;
 
@@ -110,13 +123,11 @@
         assert_eq!(native_error.code, NativeErrorCode::TooLarge);
         assert!(native_error.message.contains("3-byte aggregate admission ceiling"));
         assert_eq!(open_count.get(), 0);
-        for image in images {
-            let _ = remove_file(image.bytes_path);
-        }
     }
 
     #[test]
     fn placed_image_apply_reuses_validated_bytes_after_sidecar_removal() {
+        let _sidecar_cleanup = PlacedImageTestCleanup;
         let (mut document, page_id) = create_test_document();
         let image = placed_jpeg_mutation();
         let image_path = image.bytes_path.clone();
@@ -134,6 +145,7 @@
 
     #[test]
     fn rejects_duplicate_stable_placed_image_targets_without_an_exact_ref() {
+        let _sidecar_cleanup = PlacedImageTestCleanup;
         let (mut document, page_id) = create_test_document();
         let stable_key = "placed-image-duplicate";
         let stamp_ids = (0..2)
@@ -168,6 +180,7 @@
 
     #[test]
     fn appends_placed_jpeg_as_incremental_stamp_annotation() {
+        let _sidecar_cleanup = PlacedImageTestCleanup;
         let (mut document, page_id) = create_test_document();
         let input_path = temp_pdf_path("append-placed-image-input");
         let output_path = temp_pdf_path("append-placed-image-output");
@@ -246,6 +259,7 @@
 
     #[test]
     fn keeps_fallback_names_unique_when_placed_images_continue_across_chunks() {
+        let _sidecar_cleanup = PlacedImageTestCleanup;
         let (mut document, page_id) = create_test_document();
         let pdf_path = temp_pdf_path("continued-placed-images");
         let mut original_bytes = Vec::new();
@@ -254,14 +268,8 @@
 
         let mut images = (0..17).map(|_| placed_jpeg_mutation()).collect::<Vec<_>>();
         let trailing_images = images.split_off(16);
-        let image_paths = images
-            .iter()
-            .chain(trailing_images.iter())
-            .map(|image| image.bytes_path.clone())
-            .collect::<Vec<_>>();
         let _cleanup = PlacedImageContinuationCleanup {
             pdf_path: pdf_path.clone(),
-            image_paths,
         };
         let modified_at = "D:20260829121300+04'00'";
         append_native_mutations(
@@ -311,6 +319,7 @@
 
     #[test]
     fn reopens_updates_and_deletes_a_placed_image_without_orphan_stamps() {
+        let _sidecar_cleanup = PlacedImageTestCleanup;
         let (mut document, page_id) = create_test_document();
         let pdf_path = temp_pdf_path("update-canonical-placed-image");
         let mut original_bytes = Vec::new();
