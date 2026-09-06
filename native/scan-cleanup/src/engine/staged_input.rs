@@ -1,18 +1,17 @@
 //! Stream and staged raster input coordination.
-use crate::adapters::batch_cli::*;
-use crate::adapters::single_ocr_cli::invalid;
 use crate::io::{copy_bounded_cancelable, BoundedIoError, MAX_STREAM_INPUT_BYTES};
+use crate::protocol::manifest_v3::{normalized_path, ManifestV3, Page};
 #[cfg(test)]
 use crate::protocol::manifest_v3::{
     AnalysisPurpose, CanvasScope, DetailPixelRect, DetailRenderPlan, Operation, PageOutput,
     RenderMode, VERSION,
 };
-use crate::protocol::manifest_v3::{ManifestV3, Page};
-use crate::protocol::progress::{Progress, ProgressStage};
 #[cfg(test)]
 use crate::CleanupOptions;
 use evb_native_support::{NativeError, NativeErrorCode};
+use std::collections::HashSet;
 use std::error::Error;
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -22,6 +21,19 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LeaseEvent {
+    Required,
+    Released,
+}
+
+pub(crate) type LeaseAnnouncer<'a> =
+    &'a (dyn Fn(LeaseEvent, usize, usize) -> Result<(), NativeError> + Sync);
+
+fn invalid(message: impl Into<String>) -> NativeError {
+    NativeError::new(NativeErrorCode::InvalidRequest, message.into())
+}
 pub(crate) struct MaterializedStreamPage {
     index: usize,
     page: Page,
@@ -41,6 +53,152 @@ pub(crate) fn manifest_has_stream_inputs(manifest: &ManifestV3) -> bool {
         fs::metadata(&page.input_path).is_ok_and(|metadata| !metadata.file_type().is_file())
     })
 }
+
+pub(crate) fn assert_manifest_paths_within_root(
+    manifest: &ManifestV3,
+    root: &Path,
+) -> Result<(), NativeError> {
+    let canonical_root = fs::canonicalize(root).map_err(|error| {
+        invalid(format!(
+            "Allowed path root is not an existing directory: {} ({error})",
+            root.display()
+        ))
+    })?;
+    if !canonical_root.is_dir() {
+        return Err(invalid(format!(
+            "Allowed path root is not a directory: {}",
+            root.display()
+        )));
+    }
+    let canonical_root = normalized_path(&canonical_root);
+    for path in manifest
+        .input_paths()
+        .into_iter()
+        .chain(manifest.destination_paths())
+    {
+        if fs::symlink_metadata(path).is_ok() && fs::canonicalize(path).is_err() {
+            return Err(invalid(format!(
+                "Manifest path cannot be resolved: {}",
+                path.display()
+            )));
+        }
+        if !resolved_manifest_path(path).starts_with(&canonical_root) {
+            return Err(invalid(format!(
+                "Manifest path escapes the allowed path root: {}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
+    let mut input_paths = HashSet::new();
+    let mut input_files = HashSet::new();
+    for path in manifest.input_paths() {
+        input_paths.insert(resolved_manifest_path(path));
+        if let Some(identity) = existing_file_identity(path) {
+            input_files.insert(identity);
+        }
+    }
+    let mut destination_paths = HashSet::new();
+    let mut destination_files = HashSet::new();
+    for path in manifest.destination_paths() {
+        let resolved = resolved_manifest_path(path);
+        if input_paths.contains(&resolved)
+            || existing_file_identity(path).is_some_and(|identity| input_files.contains(&identity))
+        {
+            return Err(invalid(format!(
+                "Output destination aliases an input file: {}",
+                path.display()
+            )));
+        }
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_dir() || metadata.is_file() => {}
+            Ok(_) => {
+                return Err(invalid(format!(
+                    "Output destination must be a regular file or directory: {}",
+                    path.display()
+                )));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(NativeError::new(
+                    NativeErrorCode::Io,
+                    format!(
+                        "Unable to inspect output destination {}: {error}",
+                        path.display()
+                    ),
+                ));
+            }
+        }
+        if !destination_paths.insert(resolved)
+            || existing_file_identity(path)
+                .is_some_and(|identity| !destination_files.insert(identity))
+        {
+            return Err(invalid(format!(
+                "Output destinations must refer to different files: {}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn resolved_manifest_path(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        normalized_path(path)
+    } else {
+        std::env::current_dir()
+            .map(|directory| normalized_path(&directory.join(path)))
+            .unwrap_or_else(|_| normalized_path(path))
+    };
+    let mut ancestor = absolute.as_path();
+    let mut missing = Vec::<OsString>::new();
+    loop {
+        if let Ok(mut resolved) = fs::canonicalize(ancestor) {
+            for component in missing.iter().rev() {
+                resolved.push(component);
+            }
+            return normalized_path(&resolved);
+        }
+        let Some(file_name) = ancestor.file_name() else {
+            return absolute;
+        };
+        missing.push(file_name.to_owned());
+        let Some(parent) = ancestor.parent() else {
+            return absolute;
+        };
+        ancestor = parent;
+    }
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ExistingFileIdentity {
+    device: u64,
+    inode: u64,
+}
+
+#[cfg(unix)]
+fn existing_file_identity(path: &Path) -> Option<ExistingFileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata(path)
+        .ok()
+        .map(|metadata| ExistingFileIdentity {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        })
+}
+
+#[cfg(not(unix))]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ExistingFileIdentity;
+
+#[cfg(not(unix))]
+fn existing_file_identity(_path: &Path) -> Option<ExistingFileIdentity> {
+    None
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,7 +207,6 @@ mod tests {
         AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode,
         MAX_STAGED_INPUT_PEAK_PIXELS, VERSION,
     };
-    use crate::protocol::progress::ProgressStage;
     use crate::CleanupOptions;
     use evb_native_support::{NativeError, NativeErrorCode};
     use scan_primitives::GrayImage;
@@ -331,7 +488,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let window = 2usize;
         let manifest = staged_input_manifest(&dir, 8, window);
-        let leases: Mutex<Vec<(ProgressStage, usize)>> = Mutex::new(Vec::new());
+        let leases: Mutex<Vec<(LeaseEvent, usize)>> = Mutex::new(Vec::new());
         /// What a real producer keeps: which rasters are on disk, and which of
         /// them the sidecar currently holds a lease on. Both live under one
         /// lock so an eviction decision cannot race a lease it must honour.
@@ -342,12 +499,12 @@ mod tests {
         }
         let producer: Mutex<ProducerWindow> = Mutex::new(ProducerWindow::default());
         let peak_resident = AtomicUsize::new(0);
-        let announce = |stage: ProgressStage, page_number: usize, total_pages: usize| {
+        let announce = |stage: LeaseEvent, page_number: usize, total_pages: usize| {
             assert_eq!(total_pages, 8);
             leases.lock().unwrap().push((stage, page_number));
             let page_index = page_number - 1;
             match stage {
-                ProgressStage::PageInputRequired => {
+                LeaseEvent::Required => {
                     // The producer window: publish the requested page, first
                     // evicting a resident raster nothing holds a lease on. Pages
                     // can be analysed concurrently, so evicting the oldest
@@ -380,7 +537,7 @@ mod tests {
                     producer.leased.push(page_index);
                     peak_resident.fetch_max(producer.resident.len(), Ordering::AcqRel);
                 }
-                ProgressStage::PageInputReleased => {
+                LeaseEvent::Released => {
                     let mut producer = producer.lock().unwrap();
                     let held = producer
                         .leased
@@ -389,7 +546,6 @@ mod tests {
                         .expect("a release must name a page this producer leased");
                     producer.leased.remove(held);
                 }
-                other => panic!("unexpected lease frame {other:?}"),
             }
             Ok(())
         };
@@ -416,15 +572,11 @@ mod tests {
         for page_number in 1..=8 {
             let required = leases
                 .iter()
-                .filter(|(stage, number)| {
-                    *stage == ProgressStage::PageInputRequired && *number == page_number
-                })
+                .filter(|(stage, number)| *stage == LeaseEvent::Required && *number == page_number)
                 .count();
             let released = leases
                 .iter()
-                .filter(|(stage, number)| {
-                    *stage == ProgressStage::PageInputReleased && *number == page_number
-                })
+                .filter(|(stage, number)| *stage == LeaseEvent::Released && *number == page_number)
                 .count();
             assert_eq!((page_number, required), (page_number, 1));
             assert_eq!((page_number, released), (page_number, 1));
@@ -443,18 +595,17 @@ mod tests {
         let manifest = staged_input_manifest(&dir, 1, 1);
         let page = &manifest.pages[0];
         let renders = AtomicUsize::new(0);
-        let announce = |stage: ProgressStage, page_number: usize, _total: usize| {
+        let announce = |stage: LeaseEvent, page_number: usize, _total: usize| {
             assert_eq!(page_number, 1);
             match stage {
-                ProgressStage::PageInputRequired => {
+                LeaseEvent::Required => {
                     renders.fetch_add(1, Ordering::AcqRel);
                     fs::write(&page.input_path, b"deterministic").unwrap();
                 }
                 // Releasing drops the raster, exactly as a one-page window does.
-                ProgressStage::PageInputReleased => {
+                LeaseEvent::Released => {
                     fs::remove_file(&page.input_path).unwrap();
                 }
-                other => panic!("unexpected lease frame {other:?}"),
             }
             Ok(())
         };
@@ -481,8 +632,8 @@ mod tests {
         let manifest = staged_input_manifest(&dir, 1, 1);
         let page = &manifest.pages[0];
         fs::write(&page.input_path, b"page").unwrap();
-        let leases: Mutex<Vec<ProgressStage>> = Mutex::new(Vec::new());
-        let announce = |stage: ProgressStage, _page: usize, _total: usize| {
+        let leases: Mutex<Vec<LeaseEvent>> = Mutex::new(Vec::new());
+        let announce = |stage: LeaseEvent, _page: usize, _total: usize| {
             leases.lock().unwrap().push(stage);
             Ok(())
         };
@@ -493,10 +644,7 @@ mod tests {
         assert_eq!(error.to_string(), "page failed");
         assert_eq!(
             leases.into_inner().unwrap(),
-            vec![
-                ProgressStage::PageInputRequired,
-                ProgressStage::PageInputReleased
-            ]
+            vec![LeaseEvent::Required, LeaseEvent::Released]
         );
         let _ = fs::remove_dir_all(dir);
     }
@@ -513,7 +661,7 @@ mod tests {
         manifest.staged_input_window = None;
         let page = &manifest.pages[0];
         let announced = AtomicUsize::new(0);
-        let announce = |_stage: ProgressStage, _page: usize, _total: usize| {
+        let announce = |_stage: LeaseEvent, _page: usize, _total: usize| {
             announced.fetch_add(1, Ordering::AcqRel);
             Ok(())
         };
@@ -902,25 +1050,9 @@ pub(crate) fn staged_input_is_ready(path: &Path, page_number: usize) -> Result<b
     }
 }
 
-pub(crate) fn write_lease_progress(
-    stage: ProgressStage,
-    page_number: usize,
-    total_pages: usize,
-) -> Result<(), NativeError> {
-    write_progress(Progress::page_input(stage, page_number, total_pages)).map_err(|error| {
-        NativeError::new(
-            NativeErrorCode::NativeFailure,
-            format!("Unable to publish scan-cleanup staged input lease: {error}"),
-        )
-    })
-}
-
 /// Publishes one staged-input lease frame. Production announces it on the
 /// progress stream; tests substitute a recorder so the lease sequence itself
 /// can be asserted without reading this process's stdout.
-type LeaseAnnouncer<'a> =
-    &'a (dyn Fn(ProgressStage, usize, usize) -> Result<(), NativeError> + Sync);
-
 /// Take this page's staged-input lease.
 ///
 /// Under `stagedInputWindow` the owning process keeps only a bounded number of
@@ -938,7 +1070,7 @@ pub(crate) fn acquire_staged_page_input(
     }
     let page_number = page.source_page_index.saturating_add(1);
     let total_pages = manifest.pages.len();
-    announce(ProgressStage::PageInputRequired, page_number, total_pages)?;
+    announce(LeaseEvent::Required, page_number, total_pages)?;
     wait_for_staged_page_input(
         &page.input_path,
         page_number,
@@ -989,19 +1121,10 @@ pub(crate) fn release_staged_page_input(
         return Ok(());
     }
     announce(
-        ProgressStage::PageInputReleased,
+        LeaseEvent::Released,
         page.source_page_index.saturating_add(1),
         manifest.pages.len(),
     )
-}
-
-/// Run one page's read-side work while its staged input is leased.
-pub(crate) fn with_staged_page_input<T>(
-    manifest: &ManifestV3,
-    page: &Page,
-    read: impl FnOnce() -> Result<T, NativeError>,
-) -> Result<T, NativeError> {
-    with_announced_staged_page_input(manifest, page, &write_lease_progress, read)
 }
 
 pub(crate) fn with_announced_staged_page_input<T>(
@@ -1150,324 +1273,336 @@ where
     })
 }
 
-#[cfg(unix)]
-#[test]
-fn allowed_path_root_rejects_symlink_escapes_and_keeps_real_descendants() {
-    use std::os::unix::fs::symlink;
+#[cfg(test)]
+mod path_validation_tests {
+    use super::*;
 
-    let base = std::env::temp_dir().join(format!(
-        "evb-scan-cleanup-allowed-root-{}-{}",
-        std::process::id(),
-        line!()
-    ));
-    let _ = fs::remove_dir_all(&base);
-    let root = base.join("root");
-    let outside = base.join("outside");
-    fs::create_dir_all(&root).unwrap();
-    fs::create_dir_all(&outside).unwrap();
-    fs::create_dir_all(root.join("nested")).unwrap();
-    fs::write(root.join("input.png"), b"input").unwrap();
-    fs::write(outside.join("secret.png"), b"secret").unwrap();
-    symlink(outside.join("secret.png"), root.join("input-link.png")).unwrap();
-    symlink(&outside, root.join("escape-dir")).unwrap();
-    symlink(root.join("input.png"), root.join("inside-link.png")).unwrap();
-    symlink(outside.join("missing.png"), root.join("dangling.png")).unwrap();
+    #[cfg(unix)]
+    #[test]
+    fn allowed_path_root_rejects_symlink_escapes_and_keeps_real_descendants() {
+        use std::os::unix::fs::symlink;
 
-    let manifest_with = |input: PathBuf, output: PathBuf| ManifestV3 {
-        version: VERSION,
-        operation: Operation::Render,
-        analysis_purpose: AnalysisPurpose::Classification,
-        render_mode: RenderMode::Final,
-        canvas_scope: CanvasScope::Page,
-        document_canvas: None,
-        host_memory_bytes: None,
-        raster_window: 1,
-        staged_input_window: None,
-        staged_input_peak_pixels: None,
-        pages: vec![Page {
-            input_path: input,
-            analysis_input_path: None,
-            analysis_dpi: None,
-            trusted_foreground_mask_path: None,
-            trusted_mrc_background_path: None,
-            source_page_index: 0,
-            page_metadata_path: root.join("page.json"),
-            options: CleanupOptions {
-                match_page_size: false,
-                ..CleanupOptions::default()
-            },
-            document_prior: None,
-            detail_render_plan: None,
-            outputs: vec![PageOutput {
-                output_path: output,
-                metadata_path: root.join("output.json"),
-                bilevel_output_path: None,
-                background_output_path: None,
-                foreground_mask_output_path: None,
-                foreground_alpha_output_path: None,
-                picture_mask_output_path: None,
-                tone_preservation_alpha_output_path: None,
+        let base = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-allowed-root-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("root");
+        let outside = base.join("outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("input.png"), b"input").unwrap();
+        fs::write(outside.join("secret.png"), b"secret").unwrap();
+        symlink(outside.join("secret.png"), root.join("input-link.png")).unwrap();
+        symlink(&outside, root.join("escape-dir")).unwrap();
+        symlink(root.join("input.png"), root.join("inside-link.png")).unwrap();
+        symlink(outside.join("missing.png"), root.join("dangling.png")).unwrap();
+
+        let manifest_with = |input: PathBuf, output: PathBuf| ManifestV3 {
+            version: VERSION,
+            operation: Operation::Render,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Final,
+            canvas_scope: CanvasScope::Page,
+            document_canvas: None,
+            host_memory_bytes: None,
+            raster_window: 1,
+            staged_input_window: None,
+            staged_input_peak_pixels: None,
+            pages: vec![Page {
+                input_path: input,
+                analysis_input_path: None,
+                analysis_dpi: None,
+                trusted_foreground_mask_path: None,
+                trusted_mrc_background_path: None,
+                source_page_index: 0,
+                page_metadata_path: root.join("page.json"),
+                options: CleanupOptions {
+                    match_page_size: false,
+                    ..CleanupOptions::default()
+                },
+                document_prior: None,
+                detail_render_plan: None,
+                outputs: vec![PageOutput {
+                    output_path: output,
+                    metadata_path: root.join("output.json"),
+                    bilevel_output_path: None,
+                    background_output_path: None,
+                    foreground_mask_output_path: None,
+                    foreground_alpha_output_path: None,
+                    picture_mask_output_path: None,
+                    tone_preservation_alpha_output_path: None,
+                }],
             }],
-        }],
-    };
-
-    // A real input and a not-yet-created output below a real directory.
-    assert_manifest_paths_within_root(
-        &manifest_with(root.join("input.png"), root.join("nested/output.png")),
-        &root,
-    )
-    .unwrap();
-
-    // A symlink that resolves back inside the root stays valid.
-    assert_manifest_paths_within_root(
-        &manifest_with(root.join("inside-link.png"), root.join("nested/output.png")),
-        &root,
-    )
-    .unwrap();
-
-    // An existing input symlink pointing outside the root.
-    assert!(assert_manifest_paths_within_root(
-        &manifest_with(root.join("input-link.png"), root.join("nested/output.png")),
-        &root,
-    )
-    .unwrap_err()
-    .to_string()
-    .contains("escapes the allowed path root"));
-
-    // A missing output below a symlinked external ancestor.
-    assert!(assert_manifest_paths_within_root(
-        &manifest_with(root.join("input.png"), root.join("escape-dir/output.png")),
-        &root,
-    )
-    .unwrap_err()
-    .to_string()
-    .contains("escapes the allowed path root"));
-
-    // A lexical escape that never touches the filesystem.
-    assert!(assert_manifest_paths_within_root(
-        &manifest_with(root.join("input.png"), root.join("../outside/output.png")),
-        &root,
-    )
-    .unwrap_err()
-    .to_string()
-    .contains("escapes the allowed path root"));
-
-    // A dangling symlink resolves to nothing this root can vouch for.
-    assert!(assert_manifest_paths_within_root(
-        &manifest_with(root.join("dangling.png"), root.join("nested/output.png")),
-        &root,
-    )
-    .unwrap_err()
-    .to_string()
-    .contains("cannot be resolved"));
-
-    // input_paths() and destination_paths() carry more than inputPath and
-    // the primary output. Every auxiliary entry is judged by the same root,
-    // so each slot is filled twice: once with a symlink that resolves back
-    // inside the root, once with one that resolves outside it.
-    let inside_link = root.join("inside-link.png");
-    let outside_link = root.join("input-link.png");
-    let detail_plan = |base_metadata: PathBuf, base_raster: PathBuf, base_cleaned: PathBuf| {
-        let region = DetailPixelRect {
-            x_px: 0.0,
-            y_px: 0.0,
-            width_px: 16.0,
-            height_px: 16.0,
         };
-        DetailRenderPlan {
-            base_metadata_path: base_metadata,
-            base_raster_path: base_raster,
-            base_cleaned_raster_path: Some(base_cleaned),
-            source_crop: region.clone(),
-            full_source_width_px: 32,
-            full_source_height_px: 32,
-            scale: 1.0,
-            render_region: region.clone(),
-            sampled_region: region,
-        }
-    };
-    let detail_slot = |select: fn(PathBuf, PathBuf) -> (PathBuf, PathBuf, PathBuf)| {
-        let inside = inside_link.clone();
-        move |page: &mut Page, path: PathBuf| {
-            let (base_metadata, base_raster, base_cleaned) = select(path, inside.clone());
-            page.detail_render_plan = Some(detail_plan(base_metadata, base_raster, base_cleaned));
-        }
-    };
-    type AuxiliarySlot = (&'static str, Box<dyn Fn(&mut Page, PathBuf)>);
-    let auxiliary_slots: Vec<AuxiliarySlot> = vec![
-        (
-            "analysisInputPath",
-            Box::new(|page: &mut Page, path| {
-                page.analysis_input_path = Some(path);
-                page.analysis_dpi = Some(150.0);
-            }),
-        ),
-        (
-            "trustedForegroundMaskPath",
-            Box::new(|page: &mut Page, path| page.trusted_foreground_mask_path = Some(path)),
-        ),
-        (
-            "trustedMrcBackgroundPath",
-            Box::new(|page: &mut Page, path| page.trusted_mrc_background_path = Some(path)),
-        ),
-        (
-            "detailRenderPlan.baseMetadataPath",
-            Box::new(detail_slot(|path, inside| (path, inside.clone(), inside))),
-        ),
-        (
-            "detailRenderPlan.baseRasterPath",
-            Box::new(detail_slot(|path, inside| (inside.clone(), path, inside))),
-        ),
-        (
-            "detailRenderPlan.baseCleanedRasterPath",
-            Box::new(detail_slot(|path, inside| (inside.clone(), inside, path))),
-        ),
-        (
-            "pageMetadataPath",
-            Box::new(|page: &mut Page, path| page.page_metadata_path = path),
-        ),
-        (
-            "outputs.metadataPath",
-            Box::new(|page: &mut Page, path| page.outputs[0].metadata_path = path),
-        ),
-        (
-            "outputs.bilevelOutputPath",
-            Box::new(|page: &mut Page, path| page.outputs[0].bilevel_output_path = Some(path)),
-        ),
-        (
-            "outputs.backgroundOutputPath",
-            Box::new(|page: &mut Page, path| page.outputs[0].background_output_path = Some(path)),
-        ),
-        (
-            "outputs.foregroundMaskOutputPath",
-            Box::new(|page: &mut Page, path| {
-                page.outputs[0].foreground_mask_output_path = Some(path)
-            }),
-        ),
-        (
-            "outputs.foregroundAlphaOutputPath",
-            Box::new(|page: &mut Page, path| {
-                page.outputs[0].foreground_alpha_output_path = Some(path)
-            }),
-        ),
-        (
-            "outputs.pictureMaskOutputPath",
-            Box::new(|page: &mut Page, path| page.outputs[0].picture_mask_output_path = Some(path)),
-        ),
-        (
-            "outputs.tonePreservationAlphaOutputPath",
-            Box::new(|page: &mut Page, path| {
-                page.outputs[0].tone_preservation_alpha_output_path = Some(path)
-            }),
-        ),
-    ];
-    for (label, fill) in &auxiliary_slots {
-        let mut accepted = manifest_with(root.join("input.png"), root.join("nested/output.png"));
-        fill(&mut accepted.pages[0], inside_link.clone());
-        assert!(
-            assert_manifest_paths_within_root(&accepted, &root).is_ok(),
-            "{label} resolving inside the root must be accepted",
-        );
 
-        let mut rejected = manifest_with(root.join("input.png"), root.join("nested/output.png"));
-        fill(&mut rejected.pages[0], outside_link.clone());
-        let error = assert_manifest_paths_within_root(&rejected, &root)
-            .expect_err(&format!(
-                "{label} resolving outside the root must be rejected"
-            ))
-            .to_string();
-        assert!(
-            error.contains("escapes the allowed path root"),
-            "{label}: {error}"
-        );
+        // A real input and a not-yet-created output below a real directory.
+        assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap();
+
+        // A symlink that resolves back inside the root stays valid.
+        assert_manifest_paths_within_root(
+            &manifest_with(root.join("inside-link.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap();
+
+        // An existing input symlink pointing outside the root.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input-link.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("escapes the allowed path root"));
+
+        // A missing output below a symlinked external ancestor.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("escape-dir/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("escapes the allowed path root"));
+
+        // A lexical escape that never touches the filesystem.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("../outside/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("escapes the allowed path root"));
+
+        // A dangling symlink resolves to nothing this root can vouch for.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("dangling.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("cannot be resolved"));
+
+        // input_paths() and destination_paths() carry more than inputPath and
+        // the primary output. Every auxiliary entry is judged by the same root,
+        // so each slot is filled twice: once with a symlink that resolves back
+        // inside the root, once with one that resolves outside it.
+        let inside_link = root.join("inside-link.png");
+        let outside_link = root.join("input-link.png");
+        let detail_plan = |base_metadata: PathBuf, base_raster: PathBuf, base_cleaned: PathBuf| {
+            let region = DetailPixelRect {
+                x_px: 0.0,
+                y_px: 0.0,
+                width_px: 16.0,
+                height_px: 16.0,
+            };
+            DetailRenderPlan {
+                base_metadata_path: base_metadata,
+                base_raster_path: base_raster,
+                base_cleaned_raster_path: Some(base_cleaned),
+                source_crop: region.clone(),
+                full_source_width_px: 32,
+                full_source_height_px: 32,
+                scale: 1.0,
+                render_region: region.clone(),
+                sampled_region: region,
+            }
+        };
+        let detail_slot = |select: fn(PathBuf, PathBuf) -> (PathBuf, PathBuf, PathBuf)| {
+            let inside = inside_link.clone();
+            move |page: &mut Page, path: PathBuf| {
+                let (base_metadata, base_raster, base_cleaned) = select(path, inside.clone());
+                page.detail_render_plan =
+                    Some(detail_plan(base_metadata, base_raster, base_cleaned));
+            }
+        };
+        type AuxiliarySlot = (&'static str, Box<dyn Fn(&mut Page, PathBuf)>);
+        let auxiliary_slots: Vec<AuxiliarySlot> = vec![
+            (
+                "analysisInputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.analysis_input_path = Some(path);
+                    page.analysis_dpi = Some(150.0);
+                }),
+            ),
+            (
+                "trustedForegroundMaskPath",
+                Box::new(|page: &mut Page, path| page.trusted_foreground_mask_path = Some(path)),
+            ),
+            (
+                "trustedMrcBackgroundPath",
+                Box::new(|page: &mut Page, path| page.trusted_mrc_background_path = Some(path)),
+            ),
+            (
+                "detailRenderPlan.baseMetadataPath",
+                Box::new(detail_slot(|path, inside| (path, inside.clone(), inside))),
+            ),
+            (
+                "detailRenderPlan.baseRasterPath",
+                Box::new(detail_slot(|path, inside| (inside.clone(), path, inside))),
+            ),
+            (
+                "detailRenderPlan.baseCleanedRasterPath",
+                Box::new(detail_slot(|path, inside| (inside.clone(), inside, path))),
+            ),
+            (
+                "pageMetadataPath",
+                Box::new(|page: &mut Page, path| page.page_metadata_path = path),
+            ),
+            (
+                "outputs.metadataPath",
+                Box::new(|page: &mut Page, path| page.outputs[0].metadata_path = path),
+            ),
+            (
+                "outputs.bilevelOutputPath",
+                Box::new(|page: &mut Page, path| page.outputs[0].bilevel_output_path = Some(path)),
+            ),
+            (
+                "outputs.backgroundOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].background_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.foregroundMaskOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].foreground_mask_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.foregroundAlphaOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].foreground_alpha_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.pictureMaskOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].picture_mask_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.tonePreservationAlphaOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].tone_preservation_alpha_output_path = Some(path)
+                }),
+            ),
+        ];
+        for (label, fill) in &auxiliary_slots {
+            let mut accepted =
+                manifest_with(root.join("input.png"), root.join("nested/output.png"));
+            fill(&mut accepted.pages[0], inside_link.clone());
+            assert!(
+                assert_manifest_paths_within_root(&accepted, &root).is_ok(),
+                "{label} resolving inside the root must be accepted",
+            );
+
+            let mut rejected =
+                manifest_with(root.join("input.png"), root.join("nested/output.png"));
+            fill(&mut rejected.pages[0], outside_link.clone());
+            let error = assert_manifest_paths_within_root(&rejected, &root)
+                .expect_err(&format!(
+                    "{label} resolving outside the root must be rejected"
+                ))
+                .to_string();
+            assert!(
+                error.contains("escapes the allowed path root"),
+                "{label}: {error}"
+            );
+        }
+
+        // A missing or non-directory root is rejected before any path check.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("nested/output.png")),
+            &base.join("no-such-root"),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("not an existing directory"));
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("nested/output.png")),
+            &root.join("input.png"),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("not a directory"));
+
+        let _ = fs::remove_dir_all(&base);
     }
 
-    // A missing or non-directory root is rejected before any path check.
-    assert!(assert_manifest_paths_within_root(
-        &manifest_with(root.join("input.png"), root.join("nested/output.png")),
-        &base.join("no-such-root"),
-    )
-    .unwrap_err()
-    .to_string()
-    .contains("not an existing directory"));
-    assert!(assert_manifest_paths_within_root(
-        &manifest_with(root.join("input.png"), root.join("nested/output.png")),
-        &root.join("input.png"),
-    )
-    .unwrap_err()
-    .to_string()
-    .contains("not a directory"));
+    #[cfg(unix)]
+    #[test]
+    fn manifest_path_preflight_rejects_hardlink_aliases() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-manifest-aliases-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("input.png");
+        let input_alias = dir.join("input-alias.png");
+        fs::write(&input, b"input").unwrap();
+        fs::hard_link(&input, &input_alias).unwrap();
+        let mut manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::PagePlan,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes: None,
+            raster_window: 1,
+            staged_input_window: None,
+            staged_input_peak_pixels: None,
+            pages: vec![Page {
+                input_path: input,
+                analysis_input_path: None,
+                analysis_dpi: None,
+                trusted_foreground_mask_path: None,
+                trusted_mrc_background_path: None,
+                source_page_index: 0,
+                page_metadata_path: input_alias,
+                options: CleanupOptions::default(),
+                document_prior: None,
+                detail_render_plan: None,
+                outputs: Vec::new(),
+            }],
+        };
+        manifest.validate().unwrap();
+        assert!(preflight_manifest_paths(&manifest)
+            .unwrap_err()
+            .to_string()
+            .contains("aliases an input file"));
 
-    let _ = fs::remove_dir_all(&base);
-}
+        let shared_destination = dir.join("shared-destination");
+        let destination_alias = dir.join("destination-alias");
+        fs::write(&shared_destination, b"old output").unwrap();
+        fs::hard_link(&shared_destination, &destination_alias).unwrap();
+        manifest.operation = Operation::Render;
+        manifest.pages[0].options.match_page_size = false;
+        manifest.pages[0].page_metadata_path = shared_destination.clone();
+        manifest.pages[0].outputs.push(PageOutput {
+            output_path: dir.join("output.png"),
+            metadata_path: destination_alias.clone(),
+            bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
+        });
+        manifest.validate().unwrap();
+        assert!(preflight_manifest_paths(&manifest)
+            .unwrap_err()
+            .to_string()
+            .contains("different files"));
+        assert_eq!(fs::read(&shared_destination).unwrap(), b"old output");
+        assert_eq!(fs::read(&destination_alias).unwrap(), b"old output");
 
-#[cfg(unix)]
-#[test]
-fn manifest_path_preflight_rejects_hardlink_aliases() {
-    let dir = std::env::temp_dir().join(format!(
-        "evb-scan-cleanup-manifest-aliases-{}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&dir).unwrap();
-    let input = dir.join("input.png");
-    let input_alias = dir.join("input-alias.png");
-    fs::write(&input, b"input").unwrap();
-    fs::hard_link(&input, &input_alias).unwrap();
-    let mut manifest = ManifestV3 {
-        version: VERSION,
-        operation: Operation::Analyze,
-        analysis_purpose: AnalysisPurpose::PagePlan,
-        render_mode: RenderMode::Preview,
-        canvas_scope: CanvasScope::default(),
-        document_canvas: None,
-        host_memory_bytes: None,
-        raster_window: 1,
-        staged_input_window: None,
-        staged_input_peak_pixels: None,
-        pages: vec![Page {
-            input_path: input,
-            analysis_input_path: None,
-            analysis_dpi: None,
-            trusted_foreground_mask_path: None,
-            trusted_mrc_background_path: None,
-            source_page_index: 0,
-            page_metadata_path: input_alias,
-            options: CleanupOptions::default(),
-            document_prior: None,
-            detail_render_plan: None,
-            outputs: Vec::new(),
-        }],
-    };
-    manifest.validate().unwrap();
-    assert!(preflight_manifest_paths(&manifest)
-        .unwrap_err()
-        .to_string()
-        .contains("aliases an input file"));
-
-    let shared_destination = dir.join("shared-destination");
-    let destination_alias = dir.join("destination-alias");
-    fs::write(&shared_destination, b"old output").unwrap();
-    fs::hard_link(&shared_destination, &destination_alias).unwrap();
-    manifest.operation = Operation::Render;
-    manifest.pages[0].options.match_page_size = false;
-    manifest.pages[0].page_metadata_path = shared_destination.clone();
-    manifest.pages[0].outputs.push(PageOutput {
-        output_path: dir.join("output.png"),
-        metadata_path: destination_alias.clone(),
-        bilevel_output_path: None,
-        background_output_path: None,
-        foreground_mask_output_path: None,
-        foreground_alpha_output_path: None,
-        picture_mask_output_path: None,
-        tone_preservation_alpha_output_path: None,
-    });
-    manifest.validate().unwrap();
-    assert!(preflight_manifest_paths(&manifest)
-        .unwrap_err()
-        .to_string()
-        .contains("different files"));
-    assert_eq!(fs::read(&shared_destination).unwrap(), b"old output");
-    assert_eq!(fs::read(&destination_alias).unwrap(), b"old output");
-
-    let _ = fs::remove_dir_all(dir);
+        let _ = fs::remove_dir_all(dir);
+    }
 }

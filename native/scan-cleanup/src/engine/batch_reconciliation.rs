@@ -1,23 +1,30 @@
 //! Cross-page classification reconciliation.
-use crate::adapters::batch_cli::{
-    page_cache_for, PageResultMetadata, PageRunResult, Tier1Provenance,
-};
 use crate::cache::ByteLru;
 use crate::domain::options::OutputMode;
 use crate::engine::page_statistics::{
     bucket_classification, classification_bucket, dimensions_within_tolerance, median, ramp_local,
-    robust_typographic_median, run_classification,
+    robust_typographic_median, run_classification, PageResultMetadata, PageRunResult,
 };
-use crate::engine::staged_input::with_staged_page_input;
+use crate::engine::resource_planning::page_cache_for;
+use crate::engine::staged_input::{with_announced_staged_page_input, LeaseAnnouncer};
 use crate::protocol::manifest_v3::{AnalysisPurpose, ManifestV3, Operation};
 use crate::split::LayoutClassification;
 use evb_native_support::{NativeError, NativeErrorEnvelope};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
+
+#[derive(Clone, Copy)]
+pub(crate) struct Tier1Provenance {
+    pub(crate) verdict: LayoutClassification,
+    pub(crate) confidence: f64,
+    pub(crate) candidate_cutter_ratio: Option<f64>,
+    pub(crate) whitespace_score: f64,
+}
 pub(crate) fn reconcile_classification_batch(
     manifest: &ManifestV3,
     results: &mut [PageRunResult],
     cache: &Arc<Mutex<ByteLru>>,
+    announce: LeaseAnnouncer<'_>,
 ) -> Result<(), Box<dyn Error>> {
     let eligible = results
         .iter()
@@ -159,22 +166,27 @@ pub(crate) fn reconcile_classification_batch(
                 // staged raster has to be replayable rather than consumed: the
                 // lease is taken again and the owning process re-renders the
                 // same input if its window already released it.
-                let mut rerun = with_staged_page_input(manifest, &manifest.pages[index], || {
-                    let page_cache = page_cache_for(&manifest.pages[index], cache)?;
-                    run_classification(
-                        &manifest.pages[index],
-                        manifest.canvas_scope,
-                        Some(prior),
-                        manifest.operation == Operation::Analyze
-                            || manifest.pages[index].options.output_mode == OutputMode::Auto,
-                        manifest.analysis_purpose == AnalysisPurpose::PagePlan,
-                        &page_cache,
-                    )
-                    .map_err(|error| {
-                        let envelope = NativeErrorEnvelope::from_error(error.as_ref());
-                        NativeError::new(envelope.code, envelope.message)
-                    })
-                })?;
+                let mut rerun = with_announced_staged_page_input(
+                    manifest,
+                    &manifest.pages[index],
+                    announce,
+                    || {
+                        let page_cache = page_cache_for(&manifest.pages[index], cache)?;
+                        run_classification(
+                            &manifest.pages[index],
+                            manifest.canvas_scope,
+                            Some(prior),
+                            manifest.operation == Operation::Analyze
+                                || manifest.pages[index].options.output_mode == OutputMode::Auto,
+                            manifest.analysis_purpose == AnalysisPurpose::PagePlan,
+                            &page_cache,
+                        )
+                        .map_err(|error| {
+                            let envelope = NativeErrorEnvelope::from_error(error.as_ref());
+                            NativeError::new(envelope.code, envelope.message)
+                        })
+                    },
+                )?;
                 rerun.timings += results[index].timings;
                 results[index] = rerun;
                 preserve_tier1_provenance_after_rerun(&mut results[index].metadata, tier1, prior);
@@ -239,12 +251,12 @@ pub(crate) fn preserve_tier1_provenance_after_rerun(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::batch_cli::manifest_cache;
+    use crate::engine::page_statistics::EnginePageTimings as PageStageTimings;
+    use crate::engine::resource_planning::manifest_cache;
     use crate::protocol::manifest_v3::{
         AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode, SplitSeamPolyline,
         VERSION,
     };
-    use crate::protocol::progress::PageStageTimings;
     use crate::split::{ClusterDimensions, DocumentPrior, LayoutClassification};
     use crate::{CleanupOptions, OrthogonalRotation};
     use scan_primitives::{GrayImage, Point};
@@ -336,6 +348,7 @@ mod tests {
             &manifest,
             &mut results,
             &manifest_cache(Operation::Analyze, None),
+            &|_event, _page, _total| Ok(()),
         )
         .unwrap_err();
         assert!(!error.to_string().is_empty());
@@ -480,6 +493,7 @@ mod tests {
             &manifest,
             &mut results,
             &manifest_cache(Operation::Analyze, None),
+            &|_event, _page, _total| Ok(()),
         )
         .unwrap();
 

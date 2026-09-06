@@ -1,27 +1,361 @@
 //! Robust page-level statistics used by reconciliation.
-use crate::adapters::batch_cli::*;
-use crate::adapters::single_ocr_cli::invalid;
 use crate::cache::{PageCache, StageCacheKey};
 use crate::engine::output_geometry::*;
 use crate::engine::render::*;
-use crate::ink_consistency::PageInkConsistencyContext;
+use crate::engine::resource_planning::run_page_jobs;
+use crate::engine::staged_input::manifest_has_stream_inputs;
+use crate::ink_consistency::{
+    minority_selection_mask, stroke_mass_metrics, DocumentInkPrior, DocumentInkSample,
+    PageInkConsistencyContext,
+};
 use crate::io::{pbm, raster};
 use crate::pipeline::CleanupMetadata;
 use crate::png;
-use crate::protocol::manifest_v3::{CanvasScope, DocumentCanvas, Page};
+use crate::protocol::manifest_v3::{CanvasScope, DocumentCanvas, ManifestV3, Page, PageOutput};
 use crate::protocol::progress::PageStageTimings;
 use crate::split::LayoutClassification;
 use crate::{CleanupOptions, OrthogonalRotation, OutputMode};
 use evb_native_support::{bounded_io::deserialize_json_file_bounded, NativeError, NativeErrorCode};
 use scan_primitives::{BinaryImage, GrayImage, RgbImage};
+use serde::Serialize;
 use std::error::Error;
-use std::fs;
+use std::ops::AddAssign;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct EnginePageTimings {
+    pub(crate) decode_ms: f64,
+    pub(crate) analysis_level_ms: f64,
+    pub(crate) normalization_ms: f64,
+    pub(crate) illumination_preparation_ms: f64,
+    pub(crate) layout_normalization_ms: f64,
+    pub(crate) calibration_ms: f64,
+    pub(crate) picture_mask_ms: f64,
+    pub(crate) mode_recommendation_ms: f64,
+    pub(crate) quality_normalization_ms: f64,
+    pub(crate) text_axis_ms: f64,
+    pub(crate) split_ms: f64,
+    pub(crate) deskew_ms: f64,
+    pub(crate) content_ms: f64,
+    pub(crate) rasterization_ms: f64,
+    pub(crate) mask_rasterization_ms: f64,
+    pub(crate) binarization_ms: f64,
+    pub(crate) threshold_preparation_ms: f64,
+    pub(crate) thresholding_ms: f64,
+    pub(crate) binary_postprocess_ms: f64,
+    pub(crate) mixed_composition_ms: f64,
+    pub(crate) output_processing_ms: f64,
+    pub(crate) render_ms: f64,
+    pub(crate) write_ms: f64,
+}
+
+impl AddAssign for EnginePageTimings {
+    fn add_assign(&mut self, other: Self) {
+        self.decode_ms += other.decode_ms;
+        self.analysis_level_ms += other.analysis_level_ms;
+        self.normalization_ms += other.normalization_ms;
+        self.illumination_preparation_ms += other.illumination_preparation_ms;
+        self.layout_normalization_ms += other.layout_normalization_ms;
+        self.calibration_ms += other.calibration_ms;
+        self.picture_mask_ms += other.picture_mask_ms;
+        self.mode_recommendation_ms += other.mode_recommendation_ms;
+        self.quality_normalization_ms += other.quality_normalization_ms;
+        self.text_axis_ms += other.text_axis_ms;
+        self.split_ms += other.split_ms;
+        self.deskew_ms += other.deskew_ms;
+        self.content_ms += other.content_ms;
+        self.rasterization_ms += other.rasterization_ms;
+        self.mask_rasterization_ms += other.mask_rasterization_ms;
+        self.binarization_ms += other.binarization_ms;
+        self.threshold_preparation_ms += other.threshold_preparation_ms;
+        self.thresholding_ms += other.thresholding_ms;
+        self.binary_postprocess_ms += other.binary_postprocess_ms;
+        self.mixed_composition_ms += other.mixed_composition_ms;
+        self.output_processing_ms += other.output_processing_ms;
+        self.render_ms += other.render_ms;
+        self.write_ms += other.write_ms;
+    }
+}
+
+fn engine_timings(timings: PageStageTimings) -> EnginePageTimings {
+    EnginePageTimings {
+        decode_ms: timings.decode_ms,
+        analysis_level_ms: timings.analysis_level_ms,
+        normalization_ms: timings.normalization_ms,
+        illumination_preparation_ms: timings.illumination_preparation_ms,
+        layout_normalization_ms: timings.layout_normalization_ms,
+        calibration_ms: timings.calibration_ms,
+        picture_mask_ms: timings.picture_mask_ms,
+        mode_recommendation_ms: timings.mode_recommendation_ms,
+        quality_normalization_ms: timings.quality_normalization_ms,
+        text_axis_ms: timings.text_axis_ms,
+        split_ms: timings.split_ms,
+        deskew_ms: timings.deskew_ms,
+        content_ms: timings.content_ms,
+        rasterization_ms: timings.rasterization_ms,
+        mask_rasterization_ms: timings.mask_rasterization_ms,
+        binarization_ms: timings.binarization_ms,
+        threshold_preparation_ms: timings.threshold_preparation_ms,
+        thresholding_ms: timings.thresholding_ms,
+        binary_postprocess_ms: timings.binary_postprocess_ms,
+        mixed_composition_ms: timings.mixed_composition_ms,
+        output_processing_ms: timings.output_processing_ms,
+        render_ms: timings.render_ms,
+        write_ms: timings.write_ms,
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PageResultMetadata {
+    pub(crate) source_page_index: usize,
+    pub(crate) layout_classification: LayoutClassification,
+    pub(crate) layout_confidence: f64,
+    pub(crate) cutter_x_px: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) split_seam: Option<crate::protocol::manifest_v3::SplitSeamPolyline>,
+    pub(crate) rotation_degrees: OrthogonalRotation,
+    pub(crate) canvas_scope: CanvasScope,
+    pub(crate) excluded: bool,
+    pub(crate) blank_outputs_skipped: usize,
+    pub(crate) output_count: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) outputs: Vec<crate::pipeline::AnalysisOutputMetadata>,
+    pub(crate) tier1_verdict: LayoutClassification,
+    pub(crate) reconciled: bool,
+    pub(crate) cluster_agreement: f64,
+    pub(crate) split_diagnostics: crate::split::SplitDiagnostics,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) document_prior: Option<crate::split::DocumentPrior>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) text_axis: Option<crate::engine::text_axis::TextAxisHint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) recommended_output_mode: Option<OutputMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) recommended_output_mode_confidence: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) recommended_output_mode_reason:
+        Option<crate::mode_select::OutputModeRecommendationReason>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) soft_alpha_foreground_recommendation: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) output_mode_diagnostics: Option<crate::mode_select::OutputModeDiagnostics>,
+    #[serde(skip)]
+    pub(crate) rotated_width: usize,
+    #[serde(skip)]
+    pub(crate) rotated_height: usize,
+    #[serde(skip)]
+    pub(crate) candidate_cutter_ratio: Option<f64>,
+    #[serde(skip)]
+    pub(crate) whitespace_score: f64,
+    #[serde(skip)]
+    pub(crate) reconciliation_eligible: bool,
+    #[serde(skip)]
+    pub(crate) tier1_confidence: f64,
+    #[serde(skip)]
+    pub(crate) calibration_stroke_width_px: Option<f64>,
+    #[serde(skip)]
+    pub(crate) calibration_x_height_px: Option<f64>,
+}
+
+pub(crate) struct PageRunResult {
+    pub(crate) outputs: Vec<crate::engine::output_geometry::WrittenOutput>,
+    pub(crate) metadata: PageResultMetadata,
+    pub(crate) page_metadata_path: std::path::PathBuf,
+    pub(crate) timings: EnginePageTimings,
+}
+
 const MAX_DETAIL_METADATA_BYTES: usize = 16 * 1024 * 1024;
 const SOFT_FOREGROUND_MAX_DPI: f64 = 300.0;
+
+fn invalid(message: impl Into<String>) -> NativeError {
+    NativeError::new(NativeErrorCode::InvalidRequest, message.into())
+}
+
+fn map_raster_error(error: raster::RasterReadError, path: &Path, page_index: usize) -> NativeError {
+    let code = match error {
+        raster::RasterReadError::Io(_) => NativeErrorCode::Io,
+        raster::RasterReadError::Invalid(_) => NativeErrorCode::InvalidRequest,
+        raster::RasterReadError::TooLarge(_) => NativeErrorCode::TooLarge,
+    };
+    NativeError::new(
+        code,
+        format!(
+            "Unable to read scan-cleanup raster for page {} ({}): {error}",
+            page_index + 1,
+            path.display(),
+        ),
+    )
+}
+
+fn map_image_error(message: String) -> NativeError {
+    let code = if message.contains("guardrails") {
+        NativeErrorCode::TooLarge
+    } else {
+        NativeErrorCode::InvalidRequest
+    };
+    NativeError::new(code, message)
+}
+
+pub(crate) trait PagePublication {
+    fn write_metadata(&self, path: &Path, metadata: &CleanupMetadata)
+        -> Result<(), Box<dyn Error>>;
+    fn remove_file(&self, path: &Path);
+}
+
+fn trusted_selection_is_incomplete(selection_width: usize, background_width: usize) -> bool {
+    background_width.saturating_mul(2) > selection_width
+}
+
+pub(crate) fn write_gray_layer_background(path: &Path, image: &GrayImage) -> Result<(), String> {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ppm"))
+    {
+        raster::write_gray_ppm_atomic(path, image)
+    } else if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("pgm"))
+    {
+        raster::write_gray_pgm_atomic(path, image)
+    } else {
+        png::write_gray_atomic(path, image)
+    }
+}
+
+fn resolve_destinations(
+    page: &Page,
+    output_count: usize,
+    fallback: Option<(&Path, &Path)>,
+) -> Result<Vec<PageOutput>, NativeError> {
+    if !page.outputs.is_empty() {
+        if page.outputs.len() < output_count {
+            return Err(invalid(format!(
+                "Cleanup produced {output_count} pages but only {} output destinations were supplied",
+                page.outputs.len()
+            )));
+        }
+        return Ok(page.outputs.iter().take(output_count).cloned().collect());
+    }
+    let (output, metadata) =
+        fallback.ok_or_else(|| invalid("Render page requires output destinations"))?;
+    if output_count == 1 {
+        return Ok(vec![PageOutput {
+            output_path: output.to_path_buf(),
+            metadata_path: metadata.to_path_buf(),
+            bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
+        }]);
+    }
+    Ok((0..output_count)
+        .map(|index| PageOutput {
+            output_path: suffixed_path(output, index),
+            metadata_path: suffixed_path(metadata, index),
+            bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
+        })
+        .collect())
+}
+
+fn suffixed_path(path: &Path, index: usize) -> std::path::PathBuf {
+    let suffix = if index == 0 { "left" } else { "right" };
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("page");
+    let extension = path.extension().and_then(|value| value.to_str());
+    let name = match extension {
+        Some(extension) => format!("{stem}-{suffix}.{extension}"),
+        None => format!("{stem}-{suffix}"),
+    };
+    path.with_file_name(name)
+}
+
+fn derive_page_ink_sample(page: &Page) -> Result<Option<DocumentInkSample>, NativeError> {
+    if page.options.output_mode != OutputMode::Bw
+        || !page.options.source_has_bilevel_layer
+        || page.options.thickness != 0
+    {
+        return Ok(None);
+    }
+    let Some(selection_path) = page.trusted_foreground_mask_path.as_ref() else {
+        return Ok(None);
+    };
+    let Some(background_path) = page.trusted_mrc_background_path.as_ref() else {
+        return Ok(None);
+    };
+    let selection = raster::read_foreground_selection(
+        selection_path,
+        page.options.max_pixels,
+        page.options.max_dimension,
+    )
+    .map_err(|error| map_raster_error(error, selection_path, page.source_page_index))?;
+    let (background_width, _) = raster::read_dimensions(
+        background_path,
+        page.options.max_pixels,
+        page.options.max_dimension,
+    )
+    .map_err(|error| map_raster_error(error, background_path, page.source_page_index))?;
+    if trusted_selection_is_incomplete(selection.width(), background_width) {
+        return Ok(None);
+    }
+    let Some(ink) = minority_selection_mask(&selection) else {
+        return Ok(None);
+    };
+    let Some(metrics) = stroke_mass_metrics(&ink) else {
+        return Ok(None);
+    };
+    Ok(Some(DocumentInkSample {
+        metrics,
+        width: ink.width(),
+        height: ink.height(),
+    }))
+}
+
+pub(crate) fn derive_page_ink_contexts(
+    manifest: &ManifestV3,
+) -> Result<Vec<Option<PageInkConsistencyContext>>, Box<dyn Error>> {
+    if !manifest.pages.iter().any(|page| {
+        page.trusted_foreground_mask_path.is_some()
+            && page.trusted_mrc_background_path.is_some()
+            && page.options.output_mode == OutputMode::Bw
+            && page.options.source_has_bilevel_layer
+            && page.options.thickness == 0
+    }) {
+        return Ok(vec![None; manifest.pages.len()]);
+    }
+    let samples = if manifest_has_stream_inputs(manifest) {
+        manifest
+            .pages
+            .iter()
+            .map(derive_page_ink_sample)
+            .collect::<Result<Vec<_>, _>>()?
+    } else {
+        run_page_jobs(manifest, |(_, page)| derive_page_ink_sample(page))?
+    };
+    let Some(prior) = DocumentInkPrior::from_page_samples(samples.iter().flatten().copied()) else {
+        return Ok(vec![None; samples.len()]);
+    };
+    Ok(samples
+        .into_iter()
+        .map(|source_sample| {
+            source_sample.map(|source_sample| PageInkConsistencyContext {
+                prior,
+                source_sample,
+            })
+        })
+        .collect())
+}
 
 pub(crate) fn dimensions_within_tolerance(left: usize, right: usize) -> bool {
     left.abs_diff(right) as f64 / left.max(right).max(1) as f64 <= 0.02
@@ -147,6 +481,7 @@ pub(crate) fn run_page(
     fallback_destination: Option<(&Path, &Path)>,
     page_ink_consistency: Option<PageInkConsistencyContext>,
     cache: &PageCache,
+    publication: &dyn PagePublication,
 ) -> Result<PageRunResult, Box<dyn Error>> {
     let options = page.options.clone();
     options.validate().map_err(invalid)?;
@@ -478,23 +813,24 @@ pub(crate) fn run_page(
                     .and_then(|plan| plan.trims.get(index))
                     .copied()
                     .unwrap_or_default();
-                let mut placement =
-                    plan_canvas_placement_for_with_optical_center_and_fit_and_fold_trim(
-                        output.image.width(),
-                        output.image.height(),
+                let mut placement = plan_canvas_placement(
+                    CanvasPlacementRequest {
+                        width: output.image.width(),
+                        height: output.image.height(),
                         paper_width,
                         paper_height,
-                        output.metadata.content_box.is_some(),
-                        &options,
-                        output.metadata.half,
-                        &canvas,
-                        PLACEMENT_CENTERING_BOUNDS_X,
-                        shared_spread_overflow_plan
+                        content_detected: output.metadata.content_box.is_some(),
+                        options: &options,
+                        half: output.metadata.half,
+                        optical_content_bounds_x: PLACEMENT_CENTERING_BOUNDS_X,
+                        shared_overflow_fit: shared_spread_overflow_plan
                             .as_ref()
                             .map(|plan| plan.shared_fit),
                         fold_trim,
-                        placement_near_paper_edge_runs_for_output(output),
-                    );
+                        outer_near_paper_runs: placement_near_paper_edge_runs_for_output(output),
+                    },
+                    &canvas,
+                );
                 placement.optical_content_bounds_x = optical_content_bounds_x;
                 (placement, canvas)
             })
@@ -580,7 +916,7 @@ pub(crate) fn run_page(
                     Some(path.clone())
                 }
                 Some((path, Err(error))) => {
-                    let _ = fs::remove_file(path);
+                    publication.remove_file(path);
                     output.metadata.warnings.push(format!(
                         "Bilevel output was not written; the composite fallback was published instead: {error}"
                     ));
@@ -680,8 +1016,8 @@ pub(crate) fn run_page(
                         }
                     })();
                     if let Err(error) = layer_result {
-                        let _ = fs::remove_file(background_path);
-                        let _ = fs::remove_file(foreground_path);
+                        publication.remove_file(background_path);
+                        publication.remove_file(foreground_path);
                         restore_mixed_composite_from_layers(output);
                         output.metadata.warnings.push(format!(
                             "Mixed layers were not written safely; the composite fallback was published instead: {error}"
@@ -764,7 +1100,7 @@ pub(crate) fn run_page(
                         .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                 }
             }
-            write_json_atomic(&destination.metadata_path, &output.metadata)?;
+            publication.write_metadata(&destination.metadata_path, &output.metadata)?;
             let (paper_width, paper_height) = matched_output_paper_dimensions(&output.metadata);
             let optical_content_bounds_x = output
                 .metadata
@@ -834,28 +1170,28 @@ pub(crate) fn run_page(
     })();
     if let Err(error) = publication_result {
         for destination in &destinations {
-            let _ = fs::remove_file(&destination.output_path);
-            let _ = fs::remove_file(&destination.metadata_path);
+            publication.remove_file(&destination.output_path);
+            publication.remove_file(&destination.metadata_path);
             if let Some(bilevel_path) = &destination.bilevel_output_path {
-                let _ = fs::remove_file(bilevel_path);
+                publication.remove_file(bilevel_path);
             }
             if let Some(background_path) = &destination.background_output_path {
-                let _ = fs::remove_file(background_path);
+                publication.remove_file(background_path);
             }
             if let Some(mask_path) = &destination.foreground_mask_output_path {
-                let _ = fs::remove_file(mask_path);
+                publication.remove_file(mask_path);
             }
             if let Some(alpha_path) = &destination.foreground_alpha_output_path {
-                let _ = fs::remove_file(alpha_path);
+                publication.remove_file(alpha_path);
             }
             if let Some(mask_path) = &destination.picture_mask_output_path {
-                let _ = fs::remove_file(mask_path);
+                publication.remove_file(mask_path);
             }
             if let Some(mask_path) = &destination.tone_preservation_alpha_output_path {
-                let _ = fs::remove_file(mask_path);
+                publication.remove_file(mask_path);
             }
         }
-        let _ = fs::remove_file(&page.page_metadata_path);
+        publication.remove_file(&page.page_metadata_path);
         return Err(error);
     }
     timings.write_ms += write_started.elapsed().as_secs_f64() * 1_000.0;
@@ -863,7 +1199,7 @@ pub(crate) fn run_page(
         outputs: written,
         metadata: page_metadata,
         page_metadata_path: page.page_metadata_path.clone(),
-        timings,
+        timings: engine_timings(timings),
     })
 }
 pub(crate) fn run_classification(
@@ -961,7 +1297,7 @@ pub(crate) fn run_classification(
         outputs: Vec::new(),
         metadata: page_metadata,
         page_metadata_path: page.page_metadata_path.clone(),
-        timings,
+        timings: engine_timings(timings),
     })
 }
 
@@ -1022,5 +1358,35 @@ pub(crate) fn write_layer_background(path: &Path, image: &RgbImage) -> Result<()
         raster::write_rgb_ppm_atomic(path, image)
     } else {
         png::write_rgb_atomic(path, image)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_trusted_foreground_selection;
+    use scan_primitives::{BinaryImage, GrayImage};
+
+    #[test]
+    fn trusted_mrc_foreground_uses_sparse_marks_for_either_soft_mask_polarity() {
+        let mut source = GrayImage::new(8, 4, 176);
+        for x in 2..6 {
+            source.set(x, 2, 18);
+        }
+        let mut sparse_white = GrayImage::new(8, 4, 0);
+        let mut dense_white = GrayImage::new(8, 4, 255);
+        for x in 2..6 {
+            sparse_white.set(x, 2, 255);
+            dense_white.set(x, 2, 0);
+        }
+
+        let expected = BinaryImage::from_fn_parallel(8, 4, |x, y| y == 2 && (2..6).contains(&x));
+        assert_eq!(
+            normalize_trusted_foreground_selection(&sparse_white, &source),
+            expected
+        );
+        assert_eq!(
+            normalize_trusted_foreground_selection(&dense_white, &source),
+            expected
+        );
     }
 }
