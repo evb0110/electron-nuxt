@@ -6,7 +6,9 @@
     }
 
     thread_local! {
-        static PLACED_IMAGE_TEMP_FILES: std::cell::RefCell<Vec<PathBuf>> = std::cell::RefCell::new(Vec::new());
+        static PLACED_IMAGE_TEMP_FILES: std::cell::RefCell<Vec<PathBuf>> = const {
+            std::cell::RefCell::new(Vec::new())
+        };
     }
 
     struct PlacedImageTestCleanup;
