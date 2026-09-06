@@ -13,3 +13,20 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
 Edit the right-hand column to match whatever vocabulary you actually use.
+
+## Platform labels
+
+Every issue carries exactly one or more `platform:` labels saying where the defect
+reproduces, which is not the same as where it was observed. An audit run on the
+Linux VPS that finds a cross-platform save bug is `platform:any`.
+
+| Label               | Meaning                                                    |
+| ------------------- | ---------------------------------------------------------- |
+| `platform:any`      | Reproduces on every platform; no OS-specific work           |
+| `platform:macos`    | macOS-specific behavior, runner, or API                     |
+| `platform:linux`    | Linux-specific behavior, runner, or filesystem              |
+| `platform:windows`  | Windows-specific behavior, runner, or path handling         |
+| `platform:web`      | Browser build only, not the Electron desktop app            |
+
+Apply more than one OS label when a defect is confirmed on some platforms and
+absent on others. Use `platform:any` rather than listing all four.
