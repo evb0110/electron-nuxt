@@ -5,11 +5,40 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import {
+    ref,
+    type Ref,
+} from 'vue';
 import { commitPdfPageSkeletonGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import type { IDocumentOpenSurfaceSnapshot } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import { cast } from '@tests/helpers/cast';
+
+function createElementShim(shape: Record<string, unknown>): HTMLElement {
+    // The lifecycle reads only connectivity, scroll extent, selectors, and
+    // measured boxes from these DOM fixtures.
+    return Object.assign(Object.create(null), shape);
+}
+
+function createCanvasShim(shape: Record<string, unknown>): HTMLCanvasElement {
+    // Canvas dimensions and its measured box are the only fields under test.
+    return Object.assign(Object.create(null), shape);
+}
+
+function createChassisAuthority(
+    snapshot: Ref<IDocumentOpenSurfaceSnapshot>,
+    commitGeometry: (generation: number, geometry: {
+        width: number;
+        height: number;
+        margin: number
+    }) => boolean,
+): IDocumentViewerChassisAuthority {
+    // The lifecycle receives the full app authority in production but reads
+    // only this open-surface slice in the unit.
+    return {openSurface: {
+        snapshot,
+        commitGeometry,
+    }} as IDocumentViewerChassisAuthority;
+}
 
 describe('commitPdfPageSkeletonGeometry', () => {
     it('keeps the previous surface until the expected virtual extent is mounted', () => {
@@ -29,8 +58,8 @@ describe('commitPdfPageSkeletonGeometry', () => {
             failure: null,
         });
         const commitGeometry = vi.fn(() => true);
-        const pageSkeleton = cast<HTMLElement>({ isConnected: true });
-        const pageContainer = cast<HTMLElement>({
+        const pageSkeleton = createElementShim({ isConnected: true });
+        const pageContainer = createElementShim({
             isConnected: true,
             querySelector: vi.fn(() => pageSkeleton),
             getBoundingClientRect: vi.fn(() => ({
@@ -38,14 +67,11 @@ describe('commitPdfPageSkeletonGeometry', () => {
                 height: 1224,
             })),
         });
-        const viewerContainer = cast<HTMLElement>({
+        const viewerContainer = createElementShim({
             scrollHeight: 1245,
             querySelector: vi.fn(() => pageContainer),
         });
-        const chassisAuthority = cast<IDocumentViewerChassisAuthority>({ openSurface: {
-            snapshot,
-            commitGeometry,
-        } });
+        const chassisAuthority = createChassisAuthority(snapshot, commitGeometry);
         vi.stubGlobal('window', { getComputedStyle: vi.fn(() => ({
             display: 'block',
             visibility: 'visible',
@@ -112,7 +138,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             failure: null,
         });
         const commitGeometry = vi.fn(() => true);
-        const canvas = cast<HTMLCanvasElement>({
+        const canvas = createCanvasShim({
             isConnected: true,
             width: 1390,
             height: 1798,
@@ -121,7 +147,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
                 height: 1112.94,
             })),
         });
-        const pageContainer = cast<HTMLElement>({
+        const pageContainer = createElementShim({
             isConnected: true,
             querySelector: vi.fn((selector: string) => selector === '.page_canvas canvas' ? canvas : null),
             getBoundingClientRect: vi.fn(() => ({
@@ -129,14 +155,11 @@ describe('commitPdfPageSkeletonGeometry', () => {
                 height: 1112.94,
             })),
         });
-        const viewerContainer = cast<HTMLElement>({
+        const viewerContainer = createElementShim({
             scrollHeight: 478942,
             querySelector: vi.fn(() => pageContainer),
         });
-        const chassisAuthority = cast<IDocumentViewerChassisAuthority>({ openSurface: {
-            snapshot,
-            commitGeometry,
-        } });
+        const chassisAuthority = createChassisAuthority(snapshot, commitGeometry);
 
         expect(commitPdfPageSkeletonGeometry(
             chassisAuthority,
@@ -176,7 +199,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             failure: null,
         });
         const commitGeometry = vi.fn(() => true);
-        const canvas = cast<HTMLCanvasElement>({
+        const canvas = createCanvasShim({
             isConnected: true,
             width: 1390,
             height: 1798,
@@ -185,7 +208,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
                 height: 1112.94,
             })),
         });
-        const pageContainer = cast<HTMLElement>({
+        const pageContainer = createElementShim({
             isConnected: true,
             querySelector: vi.fn((selector: string) => selector === '.page_canvas canvas' ? canvas : null),
             getBoundingClientRect: vi.fn(() => ({
@@ -193,14 +216,11 @@ describe('commitPdfPageSkeletonGeometry', () => {
                 height: 1112.94,
             })),
         });
-        const viewerContainer = cast<HTMLElement>({
+        const viewerContainer = createElementShim({
             scrollHeight: 478942,
             querySelector: vi.fn(() => pageContainer),
         });
-        const chassisAuthority = cast<IDocumentViewerChassisAuthority>({ openSurface: {
-            snapshot,
-            commitGeometry,
-        } });
+        const chassisAuthority = createChassisAuthority(snapshot, commitGeometry);
 
         expect(commitPdfPageSkeletonGeometry(
             chassisAuthority,

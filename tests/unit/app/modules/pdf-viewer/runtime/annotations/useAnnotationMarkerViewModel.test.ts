@@ -10,7 +10,16 @@ import {
 } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
-import { cast } from '@tests/helpers/cast';
+
+function createDomRect(shape: object): DOMRect {
+    // Marker placement reads only the page rectangle fields.
+    return shape as DOMRect;
+}
+
+function createElementShim(shape: Record<string, unknown>): HTMLElement {
+    // The marker view model uses only the page selector and measured box.
+    return Object.assign(Object.create(null), shape);
+}
 
 const labels = {
     annotation: 'Annotation',
@@ -174,7 +183,7 @@ describe('useAnnotationMarkerViewModel', () => {
             },
         })]);
         const pageWidth = ref(100);
-        const pageContainer = cast<HTMLElement>({getBoundingClientRect: () => ({
+        const pageContainer = createElementShim({getBoundingClientRect: () => createDomRect({
             x: 0,
             y: 0,
             left: 0,
@@ -185,7 +194,7 @@ describe('useAnnotationMarkerViewModel', () => {
             height: 100,
             toJSON: () => ({}),
         })});
-        const viewerContainer = ref(cast<HTMLElement>({querySelector: (selector: string) => (
+        const viewerContainer = ref(createElementShim({querySelector: (selector: string) => (
             selector === '.page_container[data-page="1"]'
                 ? pageContainer
                 : null

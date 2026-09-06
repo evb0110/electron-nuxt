@@ -6,10 +6,6 @@ import {
     vi,
 } from 'vitest';
 import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
-import type {
     IBookmarkIdentityInput,
     IBookmarkItem,
 } from '@app/types/pdfOutline';
@@ -20,7 +16,7 @@ import {
     parseOutlineItems,
 } from '@app/utils/pdfOutlineHelpers';
 import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 function createEntry(
     title: string,
@@ -63,7 +59,7 @@ function collectIdsByTitlePath(
 }
 
 function createPdfDocumentStub() {
-    return cast<PDFDocumentProxy>({
+    return createPdfDocumentProxy({
         numPages: 10,
         getDestination: vi.fn(async (_name: string) => [
             {
@@ -73,7 +69,7 @@ function createPdfDocumentStub() {
             { name: 'Fit' },
         ]),
         getPageIndex: vi.fn(async (_ref: unknown) => 3),
-        getPage: vi.fn(async (_pageNumber: number) => cast<PDFPageProxy>({
+        getPage: vi.fn(async (_pageNumber: number) => ({
             view: [
                 0,
                 0,
@@ -306,15 +302,12 @@ describe('createBookmarkIdentityFactory', () => {
     });
 
     it('still issues ids when a malformed entry carries no title', () => {
+        const malformedEntry = createEntry('', {pageIndex: requirePageIndex(2)});
+        Reflect.deleteProperty(malformedEntry, 'title');
         const outline = buildOutline([
-            cast<IPdfBookmarkEntry>({
-                pageIndex: 2,
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }),
+            // This fixture models persisted data that omitted a required field.
+            // The outline builder owns normalization at this boundary.
+            malformedEntry,
             createEntry('Named', { pageIndex: requirePageIndex(2)}),
         ]);
 

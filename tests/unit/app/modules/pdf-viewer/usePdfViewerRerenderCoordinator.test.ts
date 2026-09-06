@@ -19,7 +19,8 @@ import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/naviga
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
-import { cast } from '@tests/helpers/cast';
+import type { IPdfViewerTransaction } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 const waitForVisualFrames = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('@app/utils/asyncHelpers', () => ({waitForVisualFrames}));
@@ -86,6 +87,33 @@ function createDeferred() {
     };
 }
 
+function createTransaction(id: number): IPdfViewerTransaction {
+    return {
+        id,
+        kind: 'resize',
+        source: 'resize-observer',
+        state: 'preparing',
+        documentRef: {
+            document: null,
+            documentLoadToken: 0,
+            documentVersion: 0,
+        },
+        target: null,
+        fitPlan: {
+            mode: 'none',
+            scalePage: null,
+            hydrateRange: null,
+            viewMode: null,
+            pagedTargetRenderHandoff: null,
+        },
+        scrollPlan: null,
+        renderRequest: null,
+        createdAtMs: 0,
+        userViewportInteractionEpoch: 0,
+        cancellation: null,
+    };
+}
+
 function getRenderedRangeFromFirstCall(
     reRenderAllVisiblePages: ReturnType<typeof createReRenderAllVisiblePagesMock>,
 ) {
@@ -138,7 +166,7 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
 
     const deps = {
         viewerContainer: ref(null),
-        pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+        pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
         isLoading: ref(false),
         numPages: ref(10),
         currentPage,
@@ -183,6 +211,7 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
         targetPage: null,
         txn: 1,
     });
+    const transactionViewMode = ref(deps.viewMode.value);
     return {
         ...deps,
         transactionController: deps.transactionController ?? usePdfViewerTransactionController({
@@ -190,8 +219,8 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
             currentPage: deps.currentPage,
             visibleRange: deps.visibleRange,
             numPages: deps.numPages,
-            viewMode: cast(deps.viewMode),
-            pdfDocument: cast(deps.pdfDocument),
+            viewMode: transactionViewMode,
+            pdfDocument: deps.pdfDocument,
             userViewportInteractionEpoch: ref(0),
         }),
     };
@@ -293,7 +322,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
     it('uses the visible current page as a trusted toolbar zoom anchor', async () => {
         const zoom = ref(1);
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy());
         const currentPage = ref(157);
         const visibleRange = ref({
             start: 156,
@@ -378,7 +407,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
     it('keeps the visible page owner while gesture geometry changes', async () => {
         const zoom = ref(1);
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy());
         const currentPage = ref(157);
         const visibleRange = ref({
             start: 156,
@@ -501,7 +530,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         vi.useFakeTimers();
         try {
             const zoom = ref(1);
-            const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({id: 'old'}));
+            const pdfDocument = shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy({id: 'old'}));
             const submitZoomViewportStateIntent = vi.fn();
             const enqueueZoomSync = vi.fn();
             usePdfViewerRerenderCoordinator(createDeps({
@@ -513,7 +542,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
             zoom.value = 2;
             await nextTick();
-            pdfDocument.value = cast({id: 'replacement'});
+            pdfDocument.value = createPdfDocumentProxy({id: 'replacement'});
             await vi.advanceTimersByTimeAsync(0);
 
             expect(submitZoomViewportStateIntent).not.toHaveBeenCalled();
@@ -1264,7 +1293,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
     it('does not start a superseded fit run after the paint wait', async () => {
         const fitMode = ref<'width' | 'height'>('width');
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({id: 'original'}));
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy({id: 'original'}));
         const visualFrame = createDeferred();
         waitForVisualFrames.mockImplementationOnce(() => visualFrame.promise);
         const setupPagePlaceholders = vi.fn();
@@ -1733,7 +1762,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
         const syncCurrentPageFromViewport = vi.fn(async () => {});
         const transactionController = {
-            beginTransaction: vi.fn(() => cast({ id: 31 })),
+            beginTransaction: vi.fn(() => createTransaction(31)),
             advanceTransaction: vi.fn(() => true),
             isTransactionCurrent: vi.fn(() => true),
         };
@@ -1877,7 +1906,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         const resizeAnchor = createResizeAnchor(8);
         let transactionCurrent = true;
         const transactionController = {
-            beginTransaction: vi.fn(() => cast({id: 31})),
+            beginTransaction: vi.fn(() => createTransaction(31)),
             advanceTransaction: vi.fn(() => true),
             isTransactionCurrent: vi.fn(() => transactionCurrent),
         };

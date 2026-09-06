@@ -13,7 +13,7 @@ import {
 } from 'vitest';
 import { usePdfViewerActivationRestore } from '@app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 function rect(left: number, top: number, width: number, height: number): DOMRect {
     return {
@@ -39,7 +39,7 @@ function createHarness(options: {
     };
 } = {}) {
     const currentPage = options.currentPage ?? 6;
-    const documentA = cast<PDFDocumentProxy>({fingerprint: 'a'});
+    const documentA = createPdfDocumentProxy({fingerprint: 'a'});
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(documentA);
     const isActive = ref(true);
     const visibleRange = ref(options.visibleRange ?? {
@@ -152,7 +152,7 @@ describe('usePdfViewerActivationRestore', () => {
     it('fences a late completion after the document changes', async () => {
         const harness = createHarness();
         harness.renderVisiblePages.mockImplementationOnce(async () => {
-            harness.pdfDocument.value = cast<PDFDocumentProxy>({fingerprint: 'b'});
+            harness.pdfDocument.value = createPdfDocumentProxy({fingerprint: 'b'});
         });
         const runId = harness.restore.nextActivationRestoreRunId();
         await harness.restore.renderActiveDocumentAfterActivation(runId);

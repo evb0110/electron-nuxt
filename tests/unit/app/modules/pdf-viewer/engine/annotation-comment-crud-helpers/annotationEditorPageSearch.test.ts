@@ -5,10 +5,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { cast } from '@tests/helpers/cast';
 import { findEditorByAnnotationElementId } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorByAnnotationElementId';
 import { findEditorForComment } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findEditorForComment';
 
@@ -44,7 +42,8 @@ function createSparseUiManager(editors: readonly IPdfjsEditor[]) {
     });
     const getEditor = vi.fn<(id: string) => IPdfjsEditor | null>(() => null);
     return {
-        manager: cast<AnnotationEditorUIManager>({
+        // The search helper only calls these two PDF.js manager methods.
+        manager: Object.assign(Object.create(null), {
             getEditor,
             getEditors,
         }),
@@ -56,18 +55,18 @@ function createSparseUiManager(editors: readonly IPdfjsEditor[]) {
 
 describe('annotation editor page search', () => {
     it('finds an annotation on the last sparse page without a million-page scan', () => {
-        const firstEditor = cast<IPdfjsEditor>({
+        const firstEditor = {
             id: 'first-editor',
             uid: 'first-editor',
             annotationElementId: 'first-annotation',
             parentPageIndex: 0,
-        });
-        const lastEditor = cast<IPdfjsEditor>({
+        } as IPdfjsEditor;
+        const lastEditor = {
             id: 'last-editor',
             uid: 'last-editor',
             annotationElementId: 'last-annotation',
             parentPageIndex: PAGE_COUNT - 1,
-        });
+        } as IPdfjsEditor;
         const harness = createSparseUiManager([
             firstEditor,
             lastEditor,
@@ -99,12 +98,12 @@ describe('annotation editor page search', () => {
     });
 
     it('checks the global editor map before any page fallback', () => {
-        const editor = cast<IPdfjsEditor>({
+        const editor = {
             id: 'global-editor',
             uid: 'global-editor',
             annotationElementId: 'global-annotation',
             parentPageIndex: PAGE_COUNT - 1,
-        });
+        } as IPdfjsEditor;
         const harness = createSparseUiManager([editor]);
         harness.getEditor.mockImplementation((id: string) => id === 'global-editor' ? editor : null);
 

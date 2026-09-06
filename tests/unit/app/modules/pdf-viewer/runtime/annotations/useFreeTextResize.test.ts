@@ -10,7 +10,6 @@ import {
 import { effectScope } from 'vue';
 import { useFreeTextResize } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
-import { cast } from '@tests/helpers/cast';
 
 function createFreeTextEditor() {
     const div = document.createElement('div');
@@ -24,7 +23,7 @@ function createFreeTextEditor() {
 
     return {
         div,
-        editor: {
+        editor: Object.assign(Object.create(null), {
             div,
             height: 1,
             serialize: () => ({
@@ -33,7 +32,7 @@ function createFreeTextEditor() {
             }),
             updateParams,
             width: 1,
-        } as IPdfjsEditor,
+        }),
         updateParams,
     };
 }
@@ -126,7 +125,9 @@ describe('useFreeTextResize', () => {
             selectedEditor.current = editor;
         };
         const uiManager = {setSelected};
-        const editor = cast<IPdfjsEditor>({
+        // This delayed-DOM scenario needs only the editor fields read by the
+        // resize bridge; PDF.js supplies the rest at runtime.
+        const editor = Object.assign(Object.create(null), {
             div: null,
             height: 1,
             isSelected: false,

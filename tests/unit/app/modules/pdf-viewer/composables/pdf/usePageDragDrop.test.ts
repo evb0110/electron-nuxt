@@ -18,7 +18,6 @@ import {
     createRangePageSelection,
     type TPageMoveOperation,
 } from '@contracts/pageNumbers';
-import { cast } from '@tests/helpers/cast';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 vi.mock('vue', async () => ({
@@ -29,15 +28,15 @@ vi.mock('vue', async () => ({
 const toastAddMock = vi.fn();
 
 function createDropEvent(paths: string[]) {
-    const files = paths.map((path, index) => cast<File>({
-        name: `file-${index}`,
-        path,
-    }));
-
-    return cast<DragEvent>({
-        dataTransfer: { files },
-        preventDefault: vi.fn(),
+    const files = paths.map((path, index) => {
+        const file = new File([], `file-${index}`);
+        Object.defineProperty(file, 'path', {value: path});
+        return file;
     });
+    const event = new Event('drop');
+    Object.defineProperty(event, 'dataTransfer', {value: {files}});
+    Object.defineProperty(event, 'preventDefault', {value: vi.fn()});
+    return event as DragEvent;
 }
 
 function createDragEventTarget() {

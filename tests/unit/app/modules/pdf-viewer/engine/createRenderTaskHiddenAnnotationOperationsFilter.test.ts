@@ -3,15 +3,21 @@ import {
     expect,
     it,
 } from 'vitest';
-import type { RenderTask } from 'pdfjs-dist';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
-import { cast } from '@tests/helpers/cast';
 
 function createTask(fnArray: number[], argsArray: unknown[]) {
-    return cast<RenderTask>({_internalRenderTask: {operatorList: {
+    // The filter reads only PDF.js's private operator-list slot. Keep that
+    // deliberate private-shape shim in this local fixture builder.
+    return Object.assign(Object.create(null), {_internalRenderTask: {operatorList: {
         fnArray,
         argsArray,
     }}});
+}
+
+function createUnsupportedTask() {
+    // This case proves the runtime guard rejects a task without the private
+    // PDF.js operator-list shape.
+    return Object.create(null);
 }
 
 describe('createRenderTaskHiddenAnnotationOperationsFilter', () => {
@@ -54,7 +60,7 @@ describe('createRenderTaskHiddenAnnotationOperationsFilter', () => {
 
     it('reports an unsupported private render-task shape for narrow caller fallback', () => {
         const runtime = createRenderTaskHiddenAnnotationOperationsFilter(new Set(['12R']));
-        expect(runtime.bindTask(cast<RenderTask>({}))).toBe(false);
+        expect(runtime.bindTask(createUnsupportedTask())).toBe(false);
     });
 
     it('keeps every operator when the bound page carries no annotation boundaries', () => {

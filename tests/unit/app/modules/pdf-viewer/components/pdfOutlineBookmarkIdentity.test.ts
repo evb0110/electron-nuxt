@@ -8,10 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
+import type {PDFDocumentProxy} from 'pdfjs-dist';
 import type { PropType } from 'vue';
 import {
     createApp,
@@ -25,7 +22,7 @@ import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type { IDocumentBookmarkTreeItem } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 
@@ -162,7 +159,7 @@ function createEntry(
 }
 
 function createPdfDocumentStub(outline: unknown[]) {
-    return cast<PDFDocumentProxy>({
+    return createPdfDocumentProxy({
         numPages: 10,
         getOutline: vi.fn(async () => outline),
         getDestination: vi.fn(async (_name: string) => [
@@ -173,7 +170,7 @@ function createPdfDocumentStub(outline: unknown[]) {
             { name: 'Fit' },
         ]),
         getPageIndex: vi.fn(async (_ref: unknown) => 3),
-        getPage: vi.fn(async (_pageNumber: number) => cast<PDFPageProxy>({
+        getPage: vi.fn(async (_pageNumber: number) => ({
             view: [
                 0,
                 0,

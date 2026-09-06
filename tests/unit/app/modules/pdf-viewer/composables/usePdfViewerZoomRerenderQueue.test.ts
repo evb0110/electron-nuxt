@@ -12,7 +12,7 @@ import {
 import { usePdfViewerZoomRerenderQueue } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerZoomRerenderQueue';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IPdfViewerTransaction } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 type TQueueOptions = Parameters<typeof usePdfViewerZoomRerenderQueue>[0];
@@ -63,7 +63,7 @@ function createQueueHarness(overrides: Partial<TQueueOptions> = {}) {
     const setZoomRerenderBusy = vi.fn();
     const queue = usePdfViewerZoomRerenderQueue({
         performancePolicy,
-        pdfDocument: shallowRef<PDFDocumentProxy | null>(cast<PDFDocumentProxy>({ fingerprint: 'doc' })),
+        pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy({fingerprint: 'doc'})),
         isLoading: ref(false),
         viewerContainer: ref(null),
         summarizeViewerMetricsForLog: () => ({}),
@@ -344,11 +344,30 @@ describe('usePdfViewerZoomRerenderQueue', () => {
         const beginTransaction = vi.fn<TQueueTransactionController['beginTransaction']>((options) => {
             activeTransactionId = nextTransactionId;
             nextTransactionId += 1;
-            return cast<IPdfViewerTransaction>({
+            return {
                 id: activeTransactionId,
                 kind: options.kind,
                 source: options.source,
-            });
+                state: 'preparing',
+                documentRef: {
+                    document: null,
+                    documentLoadToken: 0,
+                    documentVersion: 0,
+                },
+                target: null,
+                fitPlan: {
+                    mode: 'none',
+                    scalePage: null,
+                    hydrateRange: null,
+                    viewMode: null,
+                    pagedTargetRenderHandoff: null,
+                },
+                scrollPlan: null,
+                renderRequest: null,
+                createdAtMs: 0,
+                userViewportInteractionEpoch: 0,
+                cancellation: null,
+            } satisfies IPdfViewerTransaction;
         });
         const advanceTransaction = vi.fn<TQueueTransactionController['advanceTransaction']>((transactionId) => (
             transactionId === activeTransactionId

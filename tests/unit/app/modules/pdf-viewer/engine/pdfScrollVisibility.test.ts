@@ -5,7 +5,6 @@ import {
     vi,
 } from 'vitest';
 import { getViewportVisibilityFromDom } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
-import { cast } from '@tests/helpers/cast';
 
 function createPageElement(options: {
     height: number;
@@ -14,7 +13,9 @@ function createPageElement(options: {
     top: number;
     width: number;
 }) {
-    return cast<HTMLElement>({
+    // This helper supplies only the layout fields read by the pure visibility
+    // calculator. It is intentionally a structural HTMLElement shim.
+    return Object.assign(Object.create(null), {
         classList: { contains: vi.fn(() => false) },
         dataset: { page: String(options.page) },
         offsetHeight: options.height,
@@ -42,7 +43,7 @@ describe('getViewportVisibilityFromDom', () => {
                 width: 200,
             }),
         ];
-        const container = cast<HTMLElement>({
+        const container = Object.assign(Object.create(null), {
             clientHeight: 100,
             clientWidth: 100,
             querySelectorAll: vi.fn(() => pages),

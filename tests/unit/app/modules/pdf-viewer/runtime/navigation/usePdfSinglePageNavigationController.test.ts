@@ -10,7 +10,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import { cast } from '@tests/helpers/cast';
 import {
     effectScope,
     nextTick,
@@ -24,6 +23,7 @@ import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-p
 import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import { usePdfSinglePageNavigationController } from '@app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 function requireLayoutPageTop(layout: IPdfPageLayoutMetrics, pageIndex: number) {
     const top = getLayoutPageTop(layout, requirePageIndex(pageIndex));
@@ -1123,7 +1123,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
                 isLoading: ref(false),
-                pdfDocument: shallowRef(cast<PDFDocumentProxy>({
+                pdfDocument: shallowRef(createPdfDocumentProxy({
                     numPages: 2,
                     getDestination: vi.fn(async () => null),
                     getPageIndex: vi.fn(async () => 1),

@@ -11,7 +11,6 @@ import {
 } from 'vue';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
-import { cast } from '@tests/helpers/cast';
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({ AnnotationMode: {
     DISABLE: 0,
@@ -48,7 +47,7 @@ function installCanvasDocument(canvas = createCanvas()) {
     };
 }
 
-function createPdfPage<T extends Record<string, unknown>>(overrides: T = {} as T) {
+function createPdfPage<T extends Record<string, unknown>>(overrides?: T) {
     const renderTask = {
         cancel: vi.fn(),
         promise: Promise.resolve(),
@@ -56,7 +55,11 @@ function createPdfPage<T extends Record<string, unknown>>(overrides: T = {} as T
     return {
         pageNumber: 1,
         getViewport: vi.fn(() => DEFAULT_VIEWPORT),
-        render: vi.fn(() => renderTask),
+        getOperatorList: vi.fn(async () => ({
+            fnArray: [],
+            argsArray: [],
+        })),
+        render: vi.fn((_context: Record<string, unknown>) => renderTask),
         ...overrides,
     };
 }
@@ -124,7 +127,8 @@ describe('usePdfCanvasRenderer', () => {
             annotationMode: AnnotationMode.DISABLE,
             canvas,
         }));
-        const renderContext = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls)[0]?.[0];
+        // Vitest records PDF.js render options as an untyped mock argument.
+        const renderContext = pdfPage.render.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
         expect(renderContext).not.toHaveProperty('annotationCanvasMap');
         expect(result?.annotationCanvasMap).toBeNull();
     });
@@ -280,11 +284,12 @@ describe('usePdfCanvasRenderer', () => {
     it('replaces the existing page canvas without clearing sibling overlay layers', () => {
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
         const nextCanvas = {} as HTMLCanvasElement;
-        const canvasHost = cast<HTMLElement>({
+        // This host models only the DOM methods used by mountCanvas.
+        const canvasHost = Object.assign(Object.create(null), {
             prepend: vi.fn(),
             querySelector: vi.fn(() => null),
         });
-        const previousCanvas = cast<HTMLCanvasElement>({
+        const previousCanvas = Object.assign(Object.create(null), {
             parentElement: canvasHost,
             replaceWith: vi.fn(),
         });

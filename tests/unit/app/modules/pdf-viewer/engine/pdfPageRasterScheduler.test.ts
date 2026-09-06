@@ -27,7 +27,6 @@ import {
     type IPdfRenderSupervisorEvent,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
-import { cast } from '@tests/helpers/cast';
 
 const documentFence = {
     documentRevision: null,
@@ -35,15 +34,28 @@ const documentFence = {
     loadToken: 1,
 } satisfies IPdfRasterDocumentFence;
 
-function createPageProxy(pageNumber: number) {
-    return cast<PDFPageProxy>({pageNumber});
+function createPageProxy(
+    pageNumber: number,
+    overrides: {getOperatorList?: PDFPageProxy['getOperatorList']} = {},
+): PDFPageProxy {
+    // The scheduler needs page identity and, in one preparation test, the
+    // operator-list method. PDF.js provides the rest of this proxy.
+    return {
+        pageNumber,
+        ...overrides,
+    } as PDFPageProxy;
 }
 
-function createTask(promise: Promise<unknown> = Promise.resolve()) {
-    return cast<RenderTask>({
-        cancel: vi.fn(),
+function createTask(
+    promise: Promise<void> = Promise.resolve(),
+    cancel: RenderTask['cancel'] = vi.fn(),
+): RenderTask {
+    // The scheduler observes only the public cancellation and settlement
+    // members. The remaining RenderTask fields belong to PDF.js internals.
+    return {
+        cancel,
         promise,
-    });
+    } as RenderTask;
 }
 
 function createDemand(
@@ -317,10 +329,7 @@ describe('PdfPageRasterScheduler', () => {
             prepare: async () => ({kind: 'low'}),
             start: () => {
                 starts.push('low');
-                return cast<RenderTask>({
-                    cancel: cancelLow,
-                    promise: lowTask.promise,
-                });
+                return createTask(lowTask.promise, cancelLow);
             },
             commit: () => true,
             discard: vi.fn(),
@@ -431,10 +440,7 @@ describe('PdfPageRasterScheduler', () => {
             target: {
                 id: 'cancel',
                 prepare: async () => ({}),
-                start: () => cast<RenderTask>({
-                    cancel,
-                    promise: render.promise,
-                }),
+                start: () => createTask(render.promise, cancel),
                 commit,
                 discard: vi.fn(),
                 release: vi.fn(),
@@ -457,10 +463,7 @@ describe('PdfPageRasterScheduler', () => {
         const release = vi.fn();
         const prepareStarted = vi.fn();
         const disposeSettled = vi.fn();
-        const page = cast<PDFPageProxy>({
-            pageNumber: 1,
-            getOperatorList: vi.fn(() => operatorList.promise),
-        });
+        const page = createPageProxy(1, {getOperatorList: vi.fn(() => operatorList.promise)});
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async () => ({
@@ -973,10 +976,7 @@ describe('PdfPageRasterScheduler', () => {
             start: () => {
                 startCount += 1;
                 return startCount === 1
-                    ? cast<RenderTask>({
-                        cancel: firstCancel,
-                        promise: firstRender.promise,
-                    })
+                    ? createTask(firstRender.promise, firstCancel)
                     : createTask();
             },
             commit: () => true,
@@ -1040,10 +1040,7 @@ describe('PdfPageRasterScheduler', () => {
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: 'watchdog-resource-ownership',
             prepare: async demand => ({pageNumber: demand.pageNumber}),
-            start: () => cast<RenderTask>({
-                cancel,
-                promise: render.promise,
-            }),
+            start: () => createTask(render.promise, cancel),
             commit: () => true,
             discard: vi.fn(),
             onRenderStall,
@@ -1309,14 +1306,11 @@ describe('PdfPageRasterScheduler', () => {
                 }
                 const render = Promise.withResolvers<undefined>();
                 renders.set(pageNumber, render);
-                return cast<RenderTask>({
-                    cancel: () => {
-                        cancelled.push(pageNumber);
-                        const error = new Error('replaced');
-                        error.name = 'RenderingCancelledException';
-                        render.reject(error);
-                    },
-                    promise: render.promise,
+                return createTask(render.promise, () => {
+                    cancelled.push(pageNumber);
+                    const error = new Error('replaced');
+                    error.name = 'RenderingCancelledException';
+                    render.reject(error);
                 });
             },
             commit: ({pageNumber}) => {
@@ -1383,10 +1377,7 @@ describe('PdfPageRasterScheduler', () => {
                 prepare: async demand => ({pageNumber: demand.pageNumber}),
                 start: ({pageNumber}) => {
                     started.push(pageNumber);
-                    return cast<RenderTask>({
-                        cancel,
-                        promise: render.promise,
-                    });
+                    return createTask(render.promise, cancel);
                 },
                 commit: () => true,
                 discard: vi.fn(),

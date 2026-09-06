@@ -9,7 +9,6 @@ import { usePdfScroll as usePdfScrollProduction } from '@app/modules/pdf-viewer/
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import {getPageTop} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import {PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import { cast } from '@tests/helpers/cast';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 const usePdfScroll = (
@@ -19,6 +18,11 @@ const usePdfScroll = (
     viewportWritePort: createTestPdfViewportWritePort().port,
 });
 
+function createElementShim(shape: Record<string, unknown>): HTMLElement {
+    // These geometry tests model only the layout and query methods they read.
+    return Object.assign(Object.create(null), shape);
+}
+
 function createContainerStub(options?: {
     clientWidth?: number;
     scrollLeft?: number;
@@ -26,7 +30,7 @@ function createContainerStub(options?: {
     let scrollTop = 0;
     let scrollLeft = options?.scrollLeft ?? 0;
 
-    const container = cast<HTMLElement>({
+    const container = createElementShim({
         clientWidth: options?.clientWidth ?? 200,
         clientHeight: 200,
         scrollHeight: 2000,
@@ -67,7 +71,7 @@ function createPageElementStub(
     },
 ) {
     const width = options?.width ?? 200;
-    return cast<HTMLElement>({
+    return createElementShim({
         dataset: { page: String(pageNumber) },
         offsetLeft: options?.left ?? 0,
         offsetTop: top,
@@ -91,7 +95,7 @@ function createMountedPageScrollHarness(options: {
     let scrollLeft = 0;
     let scrollTop = 0;
     const selector = `.page_container[data-page="${options.pageNumber}"]`;
-    const page = cast<HTMLElement>({
+    const page = createElementShim({
         dataset: { page: String(options.pageNumber) },
         offsetLeft: options.pageLeft,
         offsetTop: options.pageTop,
@@ -101,7 +105,7 @@ function createMountedPageScrollHarness(options: {
         clientHeight: options.pageHeight,
         classList: { contains: () => false },
     });
-    const container = cast<HTMLElement>({
+    const container = createElementShim({
         clientWidth: options.clientWidth,
         clientHeight: options.clientHeight,
         scrollWidth: Math.max(options.clientWidth, options.pageLeft + options.pageWidth),
@@ -190,7 +194,7 @@ describe('usePdfScroll page layout fallback', () => {
             width: 0.1,
             height: 0.1,
         };
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 200,
             clientWidth: 200,
             scrollHeight: 2_000,
@@ -273,7 +277,7 @@ describe('usePdfScroll page layout fallback', () => {
         const originalResizeObserver = globalThis.ResizeObserver;
         const mutationDisconnect = vi.fn();
         const resizeDisconnect = vi.fn();
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 200,
             clientWidth: 200,
             scrollHeight: 2_000,
@@ -360,7 +364,7 @@ describe('usePdfScroll page layout fallback', () => {
         const originalResizeObserver = globalThis.ResizeObserver;
         const mutationDisconnect = vi.fn();
         const resizeDisconnect = vi.fn();
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 200,
             clientWidth: 200,
             scrollHeight: 2_000,
@@ -447,7 +451,7 @@ describe('usePdfScroll page layout fallback', () => {
 
     it('prefers mounted DOM visibility when layout metrics disagree during virtualization', () => {
         const mountedPage = createPageElementStub(5, 500, 200);
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 100,
             clientWidth: 200,
             scrollHeight: 2000,
@@ -481,7 +485,7 @@ describe('usePdfScroll page layout fallback', () => {
     it('ignores offscreen buffered pages when resolving visible page state', () => {
         const bufferedPage = createPageElementStub(2, 0, 300, true);
         const activePage = createPageElementStub(4, 20, 180);
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 200,
             clientWidth: 200,
             scrollHeight: 240,
@@ -512,7 +516,7 @@ describe('usePdfScroll page layout fallback', () => {
             left: 200,
             width: 200,
         });
-        const container = cast<HTMLElement>({
+        const container = createElementShim({
             clientHeight: 200,
             clientWidth: 200,
             scrollHeight: 200,

@@ -10,11 +10,28 @@ import {
     shallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 vi.mock('@app/utils/asyncHelpers', () => ({waitForVisualFrames: vi.fn(async () => {})}));
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {diagnostic: vi.fn()}}));
+
+function createViewerContainer(overrides: {
+    clientHeight?: number;
+    clientWidth?: number;
+    scrollLeft?: number;
+    scrollTop?: number;
+} = {}): HTMLElement {
+    // Current-page sync reads only these layout values and querySelectorAll.
+    return Object.assign(Object.create(null), {
+        clientHeight: 800,
+        clientWidth: 600,
+        scrollLeft: 0,
+        scrollTop: 0,
+        querySelectorAll: () => [],
+        ...overrides,
+    });
+}
 
 const { usePdfViewerCurrentPageSync } = await import(
     '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync'
@@ -32,14 +49,14 @@ describe('usePdfViewerCurrentPageSync', () => {
 
         try {
             const sync = scope.run(() => usePdfViewerCurrentPageSync({
-                viewerContainer: ref(cast<HTMLElement>({ querySelectorAll: () => [] })),
+                viewerContainer: ref(createViewerContainer()),
                 numPages: ref(10),
                 visibleRange: ref({
                     start: 2,
                     end: 2,
                 }),
                 currentPage,
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
                 isLoading: ref(false),
                 getMostVisiblePage: vi.fn(() => 2),
                 updateCurrentPage,
@@ -60,20 +77,14 @@ describe('usePdfViewerCurrentPageSync', () => {
     });
 
     it('invalidates stabilized current-page sync when the document changes mid-sample', async () => {
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy());
         const emitCurrentPage = vi.fn();
         const getMostVisiblePage = vi.fn(() => 2);
         const scope = effectScope();
 
         try {
             const sync = scope.run(() => usePdfViewerCurrentPageSync({
-                viewerContainer: ref(cast<HTMLElement>({
-                    clientHeight: 800,
-                    clientWidth: 600,
-                    scrollLeft: 0,
-                    scrollTop: 0,
-                    querySelectorAll: () => [],
-                })),
+                viewerContainer: ref(createViewerContainer()),
                 numPages: ref(10),
                 visibleRange: ref({
                     start: 1,
@@ -117,14 +128,14 @@ describe('usePdfViewerCurrentPageSync', () => {
 
         try {
             const sync = scope.run(() => usePdfViewerCurrentPageSync({
-                viewerContainer: ref(cast<HTMLElement>({ querySelectorAll: () => [] })),
+                viewerContainer: ref(createViewerContainer()),
                 numPages: ref(10),
                 visibleRange: ref({
                     start: 5,
                     end: 5,
                 }),
                 currentPage,
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
                 isLoading: ref(false),
                 getMostVisiblePage: vi.fn(() => 1),
                 updateCurrentPage,
@@ -157,20 +168,14 @@ describe('usePdfViewerCurrentPageSync', () => {
 
         try {
             const sync = scope.run(() => usePdfViewerCurrentPageSync({
-                viewerContainer: ref(cast<HTMLElement>({
-                    clientHeight: 800,
-                    clientWidth: 600,
-                    scrollLeft: 0,
-                    scrollTop: 0,
-                    querySelectorAll: () => [],
-                })),
+                viewerContainer: ref(createViewerContainer()),
                 numPages: ref(10),
                 visibleRange: ref({
                     start: 5,
                     end: 5,
                 }),
                 currentPage,
-                pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
                 isLoading: ref(false),
                 getMostVisiblePage,
                 updateCurrentPage: vi.fn(() => 1),

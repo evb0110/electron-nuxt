@@ -10,7 +10,6 @@ import {
 import { ref } from 'vue';
 import type { TAgentTextMarkupKind } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import type { TAnnotationCreationOutcome } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import { cast } from '@tests/helpers/cast';
 import { createTextMarkupFromTextRunner } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/createTextMarkupFromTextRunner';
 
 function createRunnerHarness() {
@@ -80,10 +79,14 @@ describe('createTextMarkupFromTextRunner subtype resolution', () => {
         // declared `TMarkupSubtype`, which then reached pdf.js as a subtype.
         const harness = createRunnerHarness();
 
+        // This value represents an unvalidated automation payload. The runner
+        // owns the runtime fallback, so the test crosses its declared input
+        // union at this single boundary to exercise malformed data.
+        const unsupportedMarkup = 'scribble' as TAgentTextMarkupKind;
         const result = await harness.createTextMarkupFromText({
             pageNumber: requirePageNumber(1),
             text: 'Page 1 text',
-            markup: cast<TAgentTextMarkupKind>('scribble'),
+            markup: unsupportedMarkup,
         });
 
         expect(result.subtype).toBe('Highlight');
