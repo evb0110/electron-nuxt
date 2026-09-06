@@ -1,0 +1,23 @@
+scripts/release/upload-sentry-sourcemaps.mjs
+  s_b412fd4cd3f576::t_7653ff2f6aa1db 46,170-228,230-278,320-328
+  s_b412fd4cd3f576::t_348466640b18b4 229
+tests/unit/scripts/uploadSentrySourcemaps.test.ts
+  s_b412fd4cd3f576::t_7653ff2f6aa1db 232-285
+  s_b412fd4cd3f576::t_783dbc70c7751b 231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "dbe0a9033a2060e35fce46acf7ea7944f0ed8db1",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
