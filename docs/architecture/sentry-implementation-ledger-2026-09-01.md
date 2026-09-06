@@ -1,22 +1,27 @@
 # Sentry error telemetry implementation ledger
 
-- Status: current implementation ledger, updated from repository and live-control evidence on 2026-09-05
+- Status: current implementation ledger, updated from repository and live-control evidence on 2026-09-06
 - Ledger date: 2026-09-01
-- Repository version at planning time: 0.1.445
-- Repository commit inspected: `55e00c7670e2c3b077da63238b3adfba10e34a28` on `main`
+- Repository version at acceptance: 0.1.453
+- Repository implementation SHA: `92cb7970a0f7ac5e7a966b38cff574fe3722b4c5` on `main`
 - Architecture source of truth: `docs/architecture/sentry-error-telemetry-ledger-2026-09-01.md`
 - Legal and privacy source of truth: `docs/research/sentry-opt-out-diagnostics-2026-09-01.md`
-- Implementation snapshot: repository work is implemented, but the earlier
-  source-map acceptance record was invalidated by live Sentry review on
-  2026-09-05. Production currently shows 256 unresolved deterministic web
-  source-map canary issues, and a representative event reports
-  `missing_source_content`. Exact-byte deployment, account controls, the
-  hosted-browser consent behavior, the landing acknowledgement, and artifact
-  scans remain recorded separately. The uploader and canary verifier are being
-  repaired before any source-map or eight-identity acceptance claim can close.
-- This ledger is current. It is not deferred or superseded. A blocked item
-  remains part of this ledger until its external evidence or observation period
-  is complete.
+- Implementation snapshot: the source-map uploader and per-event API verifier
+  repair is implemented and accepted. Exact-SHA CI run
+  [34003537093](https://github.com/evb0110/evb-viewer/actions/runs/34003537093)
+  passed for `92cb7970a0f7ac5e7a966b38cff574fe3722b4c5`. The canary-enabled
+  replacement matrix
+  [34006005475](https://github.com/evb0110/evb-viewer/actions/runs/34006005475)
+  passed overall, with all eight shipping identities producing 230 submitted
+  and 230 verified events. The separate Windows 7 legacy PDF journey remains
+  advisory and failed before the application journey; it produced no shipping
+  artifact, credential, or Sentry proof.
+- Production web deployment `dpl_4eGs7Nt4nnKevc3arabqENdvNX5f` is READY at
+  `web.evb-viewer.com`. Its fresh `evb-viewer-web@0.1.453` production receipt
+  contains 259 events, all 259 verified, with 218 generated or vendor-only
+  bundles skipped at submission. The final record is current and is not
+  deferred or superseded. Nitro's separate legal and observation gates remain
+  open and are not part of this client acceptance.
 
 ## Scope
 
@@ -129,19 +134,15 @@ reporting and does not satisfy a live canary.
   Vercel stores the browser DSN in Production and keeps the separate Nitro DSN
   in Preview only. Nitro remains disabled because its legal, retention, and
   objection gates are not complete.
-- A strict upload accepted the web release with 473 mapped bundles, 16
-  manifest-proved mapless generated facades, and 1,375 project sources. The
-  protected Preview deployment is Ready, ships no public maps, and every served
-  browser bundle hash matches the private manifest through authenticated Vercel
-  access. This proves byte handling, not hosted symbolication.
-- The first web artifact attempt exposed a Sentry CLI behavior that silently
-  skipped the hidden `.vercel` tree. The uploader stages that tree under a
-  visible temporary directory and invokes the CLI from the Vercel `static` and
-  `functions` roots. The old invocation omitted the `~/` URL prefix for the
-  static root and had no API verifier. The production feed now shows 256
-  unresolved deterministic canary issues, with a sampled `missing_source_content`
-  result. SEN-MAP-04 is therefore blocked until a fresh exact release passes
-  the new upload and per-event API verification flow.
+- A strict upload accepted the final web release with 477 mapped bundles, 15
+  manifest-proved mapless generated facades, and 1,386 project sources. The
+  READY production deployment ships no public maps, and served-byte parity
+  matches the private manifest. The uploader stages Vercel's hidden output in a
+  visible temporary tree, uploads the static and functions roots with the
+  correct URL identities, then uploads each top-level source root with its
+  matching URL prefix. The verifier queries Sentry's source-map-debug and
+  processed-event APIs for every canary event and writes only a credential-free
+  receipt.
 - The hardened Electron and browser adapters each sent one closed test event,
   and post-scrubber repeats confirmed that no URL, request, raw content, user,
   or derived geography survived. The macOS arm64 private upload accepted all
@@ -186,10 +187,11 @@ reporting and does not satisfy a live canary.
   cycle and the platform-supported quota notifications were verified on
   2026-09-05.
 
-## Current repository baseline
+## Planning baseline (historical)
 
-Verified at `55e00c767`. These are the numbers and paths the migration work
-items are sized against.
+Verified at `55e00c767`. These numbers and paths document the migration
+planning baseline. The acceptance evidence above and the exact-SHA CI run are
+the current implementation record.
 
 | Fact | Value | Where |
 | --- | --- | --- |
@@ -1492,7 +1494,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-04 Upload maps and verify symbolication
 
-- Status: blocked pending the uploader repair and a fresh per-event API verification receipt
+- Status: complete; exact-SHA desktop and production web receipts passed on 2026-09-06
 - Depends on: SEN-MAP-05, SEN-EXT-02, SEN-EXT-06, SEN-SDK-02, SEN-SDK-03,
   SEN-SDK-05
 - Difficulty: x-hard
@@ -1538,14 +1540,16 @@ current repository or external-gate status.
   covering delayed processing and missing source content, a workflow policy test
   that verification follows every canary step, a secret scan on public
   artifacts, and a test that a re-dispatch path performs no upload.
-- Exit evidence: a passing `canary-verification-receipt.json` for every
-  project-source canary in the exact release and dist. Generated or vendor-only
-  bundles without an EVB source mapping are recorded in the private canary
-  receipt and do not claim symbolication proof.
+- Exit evidence: `34006005475` contains one passing
+  `canary-verification-receipt.json` for each of the eight shipping desktop
+  identities, with 230 submitted and 230 verified events per dist. The
+  production `evb-viewer-web@0.1.453` receipt contains 259 verified events.
+  Generated or vendor-only bundles without an EVB source mapping remain
+  explicitly excluded from symbolication claims.
 
 #### SEN-MAP-05 Prebuilt viewer deployment
 
-- Status: served-byte parity complete; source-map acceptance remains blocked by SEN-MAP-04
+- Status: complete; exact production deployment and source-map verification passed 2026-09-06
 - Depends on: SEN-MAP-03
 - Difficulty: x-hard
 - Paths: `scripts/deployVercelPrivate.mjs`, the `deploy:web` and
@@ -1684,8 +1688,8 @@ current repository or external-gate status.
 
 #### SEN-CAN-01 Desktop consent canary
 
-- Status: implemented; macOS arm64 local packaged matrix passed 2026-09-05,
-  all-identity hosted acceptance and update/recovery deadline proof pending
+- Status: complete for the eight shipping identities; the hosted matrix passed
+  2026-09-06. Windows 7 remains advisory and credential-free.
 - Depends on: SEN-CON-03, SEN-CON-05, SEN-CORE-09, SEN-MIG-04, SEN-MIG-07,
   SEN-MIG-09, SEN-MIG-13, SEN-SDK-02, SEN-MAP-04, SEN-CON-07
 - Difficulty: x-hard
@@ -1705,7 +1709,9 @@ current repository or external-gate status.
 
 #### SEN-CAN-02 Hosted browser consent canary
 
-- Status: consent behavior, request counts, revocation, CSP, and runtime Error ID complete; source-map acceptance remains blocked by SEN-MAP-04
+- Status: complete for the consent, request-count, revocation, CSP, runtime
+  Error ID, served-byte, and source-map checks on the production deployment
+  2026-09-06
 - Depends on: SEN-CON-05, SEN-MIG-04, SEN-SDK-03, SEN-MAP-04, SEN-CON-07
 - Difficulty: hard
 - Paths: a preview deployment and the browser integration suite
