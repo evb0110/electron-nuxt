@@ -915,3 +915,32 @@ blank-frame, canvas-identity, semantic-page, and anchor-drift checks. The
 candidate and integration changes are now ready for commit and the affected
 regression group. The private book and recording remain on the VPS and were
 not uploaded publicly.
++### 2026-09-06, split delivery fence and affected-gate follow-up
+
+The affected three-file gate at
+`2026-09-06T08-34-08-342Z-3904048-e16cdfa4` failed only in the PDF
+split-close case. It recorded four page-change frames, one during split and
+three during close, 15 anchor-drift frames, and maximum drift
+`0.49979075442575527`; DjVu split-close and the page-7 smoke passed. A
+temporary per-frame probe in the coordinator-owned E2E helper showed the
+remaining combined-topology run at
+`2026-09-06T08-44-08-971Z-3922378-0095119e` still had one page-change frame
+and 19 drift frames, but no blank frame. The retained chassis anchor and the
+viewport session both remained on page 4. This confirmed a visual delivery
+race rather than an obsolete assertion or fixture error. The strict
+continuity assertions stayed unchanged.
+
+The smallest product change keeps the workspace split resize fence open for
+two visual frames after the Vue split patch, so the second layout and
+ResizeObserver delivery can apply the existing semantic anchor before the
+settled track is painted. The change is mirrored in candidate and integration
+branches in
+`app/modules/workspace-shell/composables/useAppShellDirectionalTabs.ts`.
+The focused unit checks passed 15/15 in both worktrees and targeted lint
+passed in both. The temporary per-frame probe was removed after diagnosis.
+
+A fresh run of the exact affected topology passed all 15 selected tests with
+five intentional skips at
+`2026-09-06T09-02-39-958Z-3943832-53c18067`, including PDF and DjVu
+split-close continuity and the page-7 smoke. Broad regression, exact
+large-document acceptance, and integrated-main verification remain required.
