@@ -51,3 +51,79 @@ fn blank_single_region_has_pinned_raster_and_blankness() {
     assert_eq!(result.metadata.output_height, source.height());
     assert!(result.effectively_blank);
 }
+
+#[test]
+fn geometry_stage_keeps_full_page_canvas_and_region_origin() {
+    let options = CleanupOptions {
+        output_mode: OutputMode::Color,
+        ..CleanupOptions::default()
+    };
+    let output = plan_render_geometry(RenderGeometryInput {
+        detected: CachedContentDetection {
+            detected_content: None,
+            source_content_box: None,
+            diagnostics: None,
+        },
+        source_effectively_blank: false,
+        options: &options,
+        region: Rect::new(0.0, 0.0, 32.0, 24.0),
+        working_width: 32,
+        working_height: 24,
+        local_deskew_forward: Affine::scaling(1.0, 1.0),
+        local_deskew_inverse: Affine::scaling(1.0, 1.0),
+        dewarp_model: None,
+    })
+    .expect("full-page geometry should be valid");
+
+    assert_eq!(output.output_rect, Rect::new(0.0, 0.0, 32.0, 24.0));
+    assert_eq!((output.output_width, output.output_height), (32, 24));
+    assert!(output.render_region.is_none());
+    assert_eq!((output.rendered_width, output.rendered_height), (32, 24));
+    assert_eq!(
+        output.render_plan.output_to_source(Point::new(0.0, 0.0)),
+        Some(Point::new(0.0, 0.0))
+    );
+}
+
+#[test]
+fn geometry_stage_pins_split_region_crop_coordinates_and_scale() {
+    let options = CleanupOptions {
+        output_mode: OutputMode::Color,
+        render_crop: Some(crate::NormalizedRect {
+            x: 0.25,
+            y: 0.25,
+            width: 0.5,
+            height: 0.5,
+            rotation: OrthogonalRotation::None,
+        }),
+        ..CleanupOptions::default()
+    };
+    let output = plan_render_geometry(RenderGeometryInput {
+        detected: CachedContentDetection {
+            detected_content: None,
+            source_content_box: None,
+            diagnostics: None,
+        },
+        source_effectively_blank: false,
+        options: &options,
+        region: Rect::new(10.0, 4.0, 20.0, 12.0),
+        working_width: 20,
+        working_height: 12,
+        local_deskew_forward: Affine::scaling(1.0, 1.0),
+        local_deskew_inverse: Affine::scaling(1.0, 1.0),
+        dewarp_model: None,
+    })
+    .expect("split-page crop geometry should be valid");
+
+    assert_eq!(output.render_region, Some(Rect::new(5.0, 3.0, 10.0, 6.0)));
+    assert_eq!(output.sampled_region, output.render_region);
+    assert_eq!(
+        output.render_plan.output_rect(),
+        Rect::new(5.0, 3.0, 10.0, 6.0)
+    );
+    assert_eq!((output.rendered_width, output.rendered_height), (10, 6));
+    assert_eq!(
+        output.render_plan.output_to_source(Point::new(0.0, 0.0)),
+        Some(Point::new(15.0, 7.0))
+    );
+}
