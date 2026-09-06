@@ -129,8 +129,10 @@ unsafe account state.
 
 ## Credential rotation
 
-The runtime keys are separate for desktop, hosted browser, and Nitro. The upload
-token is a fourth credential with only release and source-map upload scope.
+The runtime keys are separate for desktop, hosted browser, and Nitro. The
+restricted upload token has only release and source-map upload scope. The
+read-only verification token is a separate credential and is never used for
+uploads.
 
 1. Create one replacement credential at a time with the same origin and scope
    restrictions recorded in `sentry-account-controls.md`.
@@ -141,7 +143,10 @@ token is a fourth credential with only release and source-map upload scope.
    checks.
 4. Promote the replacement to production only after preview passes.
 5. Revoke the old credential and verify that it no longer accepts events or
-   uploads.
+   uploads. For the read-only verification credential, repeat the exact
+   read-only API request with the old credential still held only in the
+   operator process and require an HTTP 401 or 403 denial. Keep the old value
+   out of the command text, logs, receipt, and report.
 6. Record the credential role, rotation date, verifier, and outcome. Do not
    record the value, key identifier, DSN, or private URL.
 
@@ -285,9 +290,18 @@ week before completing the Nitro canary.
 
 ## Four-week production proof
 
-After every enabled runtime passes its canary, record four consecutive weekly
-reviews. A failed measure opens a remediation issue and leaves the Sentry parent
-issue open.
+The operating record has two scopes. The enabled-client baseline covers the
+eight shipping desktop identities and the served production browser. The
+Nitro record starts only after its legal and preview gates. A baseline or a
+synthetic canary is not an elapsed week. A failed measure opens a remediation
+issue and leaves the umbrella issue open.
+
+The first valid enabled-client production baseline is 2026-09-06 for
+`v0.1.453`: eight desktop identities and production web passed the consent,
+closed-event, source-map, and artifact checks recorded above. The next weekly
+review is due 2026-09-13 UTC. The earliest four-week client record is
+2026-10-04 UTC if each weekly review passes. Nitro has no observation start
+date because its processing remains disabled.
 
 | Week | Enabled runtimes and releases | Volume within thresholds | Suppression correct | Quota healthy | Forbidden fields | Symbolication | Actionable outcomes | Remediation issue |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -295,6 +309,12 @@ issue open.
 | 2 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
 | 3 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
 | 4 | Pending | Pending | Pending | Pending | None expected | Pending | Pending | None |
+
+The repository has no dedicated Sentry scheduler or durable wake-up job. The
+existing scheduled GitHub Actions workflows are unrelated maintenance and do
+not perform this review. Until a named operator or an explicitly created
+durable schedule records the next review, the due date above is a procedure,
+not a claim that an idle agent will wake itself.
 
 ## Package-removal rehearsal
 

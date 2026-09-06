@@ -109,8 +109,21 @@ reporting and does not satisfy a live canary.
   acceptance number.
 - Hosted-browser reporting is enabled in the exact production viewer build and
   remains consent-gated. Desktop artifacts receive their separately scoped
-  build credential, but each distribution remains subject to its packaged
-  canary. Nitro production reporting remains disabled.
+  build credential, and all eight shipping identities passed the packaged
+  canary matrix. Nitro production reporting remains disabled.
+
+### Acceptance scope split
+
+The enabled-client acceptance record covers the eight shipping desktop
+identities and the served production browser. Its dated baseline is the exact
+`v0.1.453` evidence recorded on 2026-09-06. This closes client implementation,
+consent, source-map, alert, weekly-procedure, and removal requirements where
+the issue scope names those clients.
+
+Viewer Nitro is a separate server-side scope. Its legal review, objection
+route, preview and one-week observation, and any four-week program evidence
+remain tracked by #222, #261, and #267. A client baseline is not a Nitro
+canary, and neither is an elapsed four-week record.
 
 ### Live control proof recorded through 2026-09-05
 
@@ -181,11 +194,13 @@ reporting and does not satisfy a live canary.
 ### External and elapsed-time gates still open
 
 - A qualified person must approve the viewer Nitro legitimate-interests
-  assessment before Nitro processing starts.
-- The packaged desktop consent canary, the one-week Nitro canary, and the
-  four-week production proof remain incomplete. The first weekly operations
-  cycle and the platform-supported quota notifications were verified on
-  2026-09-05.
+  assessment before Nitro processing starts. This is the authored release
+  gate recorded above, not a legal attestation by this repository.
+- The enabled-client baseline is complete for the eight shipping desktop
+  identities and production browser. The one-week Nitro canary and the
+  four-week elapsed production proof remain incomplete. The first weekly
+  operations cycle and platform-supported quota notifications were verified
+  on 2026-09-05.
 
 ## Planning baseline (historical)
 
@@ -381,21 +396,24 @@ Phase 5
   SEN-CON-05, SEN-MIG-04, SEN-SDK-03, SEN-MAP-04, SEN-CON-07 -> SEN-CAN-02
 
 Phase 6
-  SEN-CAN-01, SEN-CAN-02, SEN-CAN-03 -> SEN-OPS-01 -> SEN-OPS-02
+  SEN-CAN-01, SEN-CAN-02 -> SEN-OPS-01 -> SEN-OPS-02
   SEN-OPS-02, SEN-MIG-01, SEN-MIG-02 -> SEN-OPS-03
+
+  Nitro-specific operation remains dependent on SEN-CAN-03 and is tracked by
+  #261/#267; it is not a prerequisite for enabled-client operation.
 ```
 
 ### Phase map
 
 | Phase | Contents | Entry condition | Exit gate |
 | --- | --- | --- | --- |
-| 0 | `SEN-ACK-*`, `SEN-EXT-01` through `SEN-EXT-05` | none | Acknowledgement ships and works offline; account, notice, and legal gates are recorded as passed; no project and no event exists |
+| 0 | `SEN-ACK-*`, `SEN-EXT-01` through `SEN-EXT-05` | none | Acknowledgement ships and works offline; enabled-client account and notice gates are recorded as passed. The separate Nitro legal gate remains in `SEN-EXT-04`. |
 | 1 | `SEN-CORE-*` | none | Synthetic failures produce one local occurrence and one safe captured record; no production SDK or DSN exists |
 | 2 | `SEN-MIG-*`, `SEN-CON-01` through `SEN-CON-06`, `SEN-GATE-*` | Phase 1 exit | Every red presentation carries a receipt, every red console path has one owner, expected cases create no record, known duplicates produce one occurrence |
 | 3 | `SEN-EXT-06`, `SEN-EXT-07`, `SEN-SDK-*`, `SEN-MAP-*` | Phase 0 and Phase 2 exits | Projects, restricted credentials, private maps, source-fetching policy, capture transports, and test environments show safe, symbolicated, unique events; production reporting remains disabled |
 | 4 | `SEN-SRV-*`, `SEN-CAN-03` | Phase 3 exit and `SEN-EXT-04` | One week of viewer Nitro preview and production canary data is safe, low noise, and actionable |
 | 5 | `SEN-CON-07`, `SEN-CAN-01`, `SEN-CAN-02` | Phase 3 exit | Consent, privacy, dedupe, source map, update, relaunch, recovery, and shutdown canaries pass on every shipping platform |
-| 6 | `SEN-OPS-*` | Phase 4 and Phase 5 exits | Four weeks of operation meet every success measure in the architecture ledger |
+| 6 | Enabled-client `SEN-OPS-*` | Phase 5 exit | Enabled-client operations meet the recorded alert, privacy, deletion, quota, and symbolication measures. Nitro operation remains a separate `SEN-CAN-03` path. |
 
 Phase 0 and Phase 1 are independent and may proceed in parallel. Phase 2 needs
 only Phase 1. Nothing in Phases 0 through 2 requires a Sentry project, DSN,
@@ -510,7 +528,8 @@ current repository or external-gate status.
 
 #### SEN-EXT-02 Privacy and scrubbing controls
 
-- Status: partially complete; all privacy and scrubber controls are verified, but quota alerts remain pending
+- Status: complete for enabled-client operation; all privacy, scrubber, and
+  quota controls are verified
 - Depends on: SEN-EXT-01
 - Difficulty: medium
 - Scope: Sentry account only.
@@ -527,7 +546,9 @@ current repository or external-gate status.
 
 #### SEN-EXT-03 Legal instruments and notice
 
-- Status: partially complete; DPA and public notice verified, qualified legal review record pending
+- Status: complete for consent-gated client diagnostics; DPA, public notice,
+  and locale publication are verified. The qualified-review record belongs to
+  the separate default-on Nitro release gate in SEN-EXT-04.
 - Depends on: SEN-EXT-02, SEN-EXT-05
 - Difficulty: hard
 - Scope: legal, notice, and translation publication after SEN-EXT-05 completes
@@ -1727,7 +1748,7 @@ current repository or external-gate status.
 #### SEN-OPS-01 Alerts and quota
 
 - Status: complete; three production issue alerts and the platform-supported personal error-quota notification are enabled
-- Depends on: SEN-CAN-01, SEN-CAN-02, SEN-CAN-03
+- Depends on: SEN-CAN-01, SEN-CAN-02
 - Difficulty: medium
 - Behavior: configure exactly four alert classes: a new or regressed high-priority
   fatal production issue, a new or regressed production issue with a diagnostic
@@ -1739,6 +1760,8 @@ current repository or external-gate status.
   Do not alert on preview, tests, cancellation, expected teardown, validation,
   unsupported input, or ordinary offline behavior.
 - Exit evidence: the four alerts exist and the excluded categories are recorded.
+  Nitro operation is intentionally not a prerequisite for this enabled-client
+  acceptance record.
 
 #### SEN-OPS-02 Weekly triage procedure
 

@@ -10,6 +10,17 @@ This repository contains three related apps:
 | Browser workspace | repository root | SSR Nuxt build served at `/` |
 | Landing/download site | `landing/` | Release picker, docs, and marketing pages |
 
+Desktop and hosted-browser Sentry diagnostics are consent-gated. Viewer Nitro
+remains disabled pending its separate legal and objection gates. Operate
+client diagnostics from the maintained
+[Sentry agent check](docs/operations/sentry-agent-check.md),
+[runbook](docs/operations/sentry-runbook.md), [account controls](docs/operations/sentry-account-controls.md),
+[architecture ledger](docs/architecture/sentry-error-telemetry-ledger-2026-09-01.md),
+and [implementation ledger](docs/architecture/sentry-implementation-ledger-2026-09-01.md).
+The reusable agent routing is installed locally at
+`~/.codex/skills/sentry-operations/SKILL.md` on the operator Mac; VPS
+availability must be verified before use there.
+
 ![EVB Viewer](docs/screenshot.png)
 
 ## Highlights

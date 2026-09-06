@@ -111,8 +111,12 @@ Primary external sources include:
 - [Microsoft Store Policies 10.5.1 and 10.5.2](https://learn.microsoft.com/en-us/windows/apps/publish/store-policies#105-personal-information)
 
 The legal conclusion is an engineering release constraint, not legal advice.
-A qualified reviewer must approve the legitimate-interests assessment and
-public notice before default-on Nitro reporting ships.
+The requirement to record a qualified reviewer role and date is an authored
+release rule for default-on viewer Nitro. The authoritative GDPR and EDPB
+materials linked above describe the legitimate-interest, necessity, balancing,
+and objection analysis, but this ledger does not claim that they prescribe a
+particular reviewer title. Client consent-gated diagnostics do not depend on
+the Nitro reviewer gate.
 
 ## Live Sentry account facts
 
@@ -139,7 +143,7 @@ hardened and provisioned it on 2026-09-04:
 | IP address storage prevention | Enabled |
 | Minidump attachment storage | Disabled |
 | Advanced scrub rules | Targeted forbidden-field list; canonical frame and Debug ID fields preserved |
-| Credentials | Three purpose-specific client keys and one `org:ci` upload token |
+| Credentials | Three purpose-specific client keys, one `org:ci` upload token, and a separate read-only verification token |
 
 The sponsored plan removes quota pressure, but it does not change the privacy
 boundary. The account controls now permit private artifact upload and
@@ -1227,7 +1231,9 @@ Start with four alert classes:
 - A new or regressed fatal production issue.
 - A new production diagnostic code.
 - A production code whose rate exceeds the expected burst threshold.
-- Quota at 50, 75, and 90 percent.
+- Platform-supported quota notifications. This account exposes `80% and 100%`
+  or `100%`, and the stricter available `80% and 100%` setting is enabled.
+  The historical 50/75/90 points are not available in the current account UI.
 
 Do not page on preview, tests, cancellation, expected teardown, validation,
 unsupported input, or ordinary offline behavior.
