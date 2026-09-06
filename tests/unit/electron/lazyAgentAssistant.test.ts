@@ -4,6 +4,20 @@ import {
     it,
     vi,
 } from 'vitest';
+import type { IAgentAssistantSendMessageRequest } from '@contracts/agent';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireTabId} from '@contracts/windowTabs';
+
+const assistantSendRequest = {
+    text: 'test assistant message',
+    scope: {
+        kind: 'document',
+        key: 'document:lazy-assistant-test',
+        title: 'Lazy assistant test',
+        tabId: requireTabId('tab-lazy-assistant-test'),
+        documentRef: requireDocumentRef('/tmp/lazy-assistant-test.pdf'),
+    },
+} satisfies IAgentAssistantSendMessageRequest;
 
 const observations = vi.hoisted(() => ({
     moduleEvaluations: 0,
@@ -55,14 +69,14 @@ describe('lazy assistant facade', () => {
             shutdownAgentAssistantIfLoaded,
             sendAgentAssistantMessage,
         } = await import('@electron/features/agent/lazyAgentAssistant');
-        await sendAgentAssistantMessage({} as never);
+        await sendAgentAssistantMessage(assistantSendRequest);
         await getAgentAssistantState();
         expect(observations.moduleEvaluations).toBe(1);
         expect(observations.runtimeInitializations).toBe(1);
 
         await shutdownAgentAssistantIfLoaded();
         expect(observations.shutdowns).toBe(1);
-        await sendAgentAssistantMessage({} as never);
+        await sendAgentAssistantMessage(assistantSendRequest);
         expect(observations.moduleEvaluations).toBe(1);
         expect(observations.runtimeInitializations).toBe(2);
     });
