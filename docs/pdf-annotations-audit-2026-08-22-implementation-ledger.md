@@ -884,3 +884,10 @@ five intentional skips at
 `2026-09-06T09-02-39-958Z-3943832-53c18067`, including PDF and DjVu
 split-close continuity and the page-7 smoke. Broad regression, exact
 large-document acceptance, and integrated-main verification remain required.
++
+
+CodeRabbit was attempted after this commit. Both review requests ended with
+the review WebSocket closing before findings. `coderabbit doctor` passed all
+9 checks, including authentication and backend/WebSocket reachability, and a
+single retry produced the same close. No review findings were returned, so
+this is recorded as a review-service failure rather than an approval.
