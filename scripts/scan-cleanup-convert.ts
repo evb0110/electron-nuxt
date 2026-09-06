@@ -749,7 +749,7 @@ export function buildScanCleanupCliDetectionRequestFields(
     };
 }
 
-export async function main() {
+async function main() {
     const argumentsValue = parseArguments(process.argv.slice(2));
     const sourceStats = await stat(argumentsValue.sourcePdfPath);
     const qpdfBinary = resolveTool('qpdf', 'qpdf');
