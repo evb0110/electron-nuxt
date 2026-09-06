@@ -1,0 +1,317 @@
+tests/unit/app/platform/browserDocumentsFileCapability.test.ts
+  s_d252de3ad71cee::t_a71da156a15570 15
+  s_d252de3ad71cee::t_2d7369a6bdaea9 665
+electron/features/documents/registerDocumentsIpcAdapter.ts
+  s_d252de3ad71cee::t_106eba38ed9bf6 56,381-382,385-390,504-505,635-639,678-681
+tests/unit/electron/documentSaveUtilityProtocol.test.ts
+  s_d252de3ad71cee::t_65ea604c2a0e53 15-16,29,61,312,332-333
+tests/e2e/electron/helpers/fixtures.ts
+  s_d252de3ad71cee::t_2bd43bd1a42bb4 50,1079,1102,1113
+  s_d252de3ad71cee::t_89ec4922821c0b 664-768
+  s_d252de3ad71cee::t_b6eb8f1c153a6e 1094
+tests/unit/app/modules/pdf-viewer/usePdfAnnotationColorCommands.test.ts
+  s_d252de3ad71cee::t_2813df1e59b588 12-13
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_d252de3ad71cee::t_99a1853d9da6db 882
+app/platform/browser-api/createBrowserDocumentsCapability.ts
+  s_d252de3ad71cee::t_6665e1b6b250bf 137-140,160
+  s_d252de3ad71cee::t_f966cbf0756ed0 161-163,250-252
+tests/unit/app/modules/pdf-viewer/annotations/editor/useTextBoxInlineEdit.test.ts
+  s_d252de3ad71cee::t_f7d5c55a8a4caa 15,20
+tests/unit/packages/pdf-core/pdfCombineCatalog.test.ts
+  s_d252de3ad71cee::t_2d7369a6bdaea9 10,16,23
+tests/unit/app/modules/pdf-viewer/annotations/annotationStorePublicApi.test.ts
+  s_d252de3ad71cee::t_ff1607a679e50f 16-17
+tests/unit/electron/inProcessIpcRoundTrip.test.ts
+  s_d252de3ad71cee::t_65ea604c2a0e53 25,74-75,139,164,175,195,233,238,243
+tests/unit/electron/preloadFileClient.test.ts
+  s_d252de3ad71cee::t_65ea604c2a0e53 222,577
+packages/contracts/stagedArtifacts.ts
+  s_d252de3ad71cee::t_b413691906fad0 13-16,67,234,267,279
+  s_d252de3ad71cee::t_571b9abf67ff5c 3,220,225,248,263,274
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_d252de3ad71cee::t_cbb43ded0ab38b 35-36,43,49,89,100-101
+  s_d252de3ad71cee::t_bc3f84fe3a4b76 113,117-118
+  s_d252de3ad71cee::t_0f6d001157edbc 439,451,487,524,564,606,643
+scripts/windows-test/images/createTestClone.ts
+  s_d252de3ad71cee::t_a277c1de7589a6 31-48,71,80,187-209
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_d252de3ad71cee::t_03fb4a91591672 812,820,869,892-893,897,928
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_d252de3ad71cee::t_d97fbb51289cd1 102-103,310,314-315
+app/platform/browser-api/createCombinedPdfFromPaths.ts
+  s_d252de3ad71cee::t_66208af5f58975 25-27,46
+  s_d252de3ad71cee::t_de83d6f326bac8 23,197,206-207
+  s_d252de3ad71cee::t_8eaa2ffadf8e64 123
+  s_d252de3ad71cee::t_56b6550b5056fc 61,214,216
+tests/unit/app/modules/pdf-viewer/runtime/sessions/annotationHistoryDocumentSwap.test.ts
+  s_d252de3ad71cee::t_82e4265691df22 26-28,49,53-54
+  s_d252de3ad71cee::t_9970655740efbf 119,122,126
+packages/contracts/pdfOpenFileSchemas.ts
+  s_d252de3ad71cee::t_28b85ef73abe64 2,23-24,29,33-34,40,43-44,46-47,58-59
+scripts/release/verifyPackagedCorePdfSmoke.ts
+  s_d252de3ad71cee::t_2bd43bd1a42bb4 20,58,67
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_d252de3ad71cee::t_56b6550b5056fc 181
+  s_d252de3ad71cee::t_d11030ae7090e2 18,195,207
+  s_d252de3ad71cee::t_a5036d8d00ca93 19,1258
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationSessionHelpers.ts
+  s_d252de3ad71cee::t_45829bf90eb1da 39
+  s_d252de3ad71cee::t_f5cf63187fd9b1 13,27
+electron/features/documents/createDocumentsPreloadFileClient.ts
+  s_d252de3ad71cee::t_241d0d323b01e5 142,145,296,602
+  s_d252de3ad71cee::t_ee0f54665f4547 65-70
+  s_d252de3ad71cee::t_3f70460205a36b 685-690,695-715,732,738,755-756,761-763,806-812,825,840,846,858,865,870,881,888,893,992,1069
+  s_d252de3ad71cee::t_b8d637dea31568 71
+  s_d252de3ad71cee::t_3318843ecb8a86 2-5
+  s_d252de3ad71cee::t_ee078f80b6e32b 751-754,791,1026-1029,1035-1038,1091-1094,1117-1120
+app/modules/native-pdf-viewer/runtime/nativePdfSparsePageGeometry.ts
+  s_d252de3ad71cee::t_8c733c1113d32f 146-150
+packages/contracts/documentsPlatformFeatureSchemas.ts
+  s_d252de3ad71cee::t_c2d63630634cbb 419
+  s_d252de3ad71cee::t_936f7003610eeb 635,661-662,676,682,687,696,699,701,713,719
+  s_d252de3ad71cee::t_4b1928ea0c0f53 288-299,579,593
+  s_d252de3ad71cee::t_dd5b2ed78ed20c 921,1112,1160,1163
+  s_d252de3ad71cee::t_e15b5dc37b1181 514,516
+  s_d252de3ad71cee::t_593669bd34f2c2 598-599,612,622-623,627-628
+  s_d252de3ad71cee::t_03e48bacdbf06d 928,942,948,981,986,1046,1048,1054,1058,1063,1079
+  s_d252de3ad71cee::t_2f4740cf88afc1 725-726,729-730,733-734,737-738,741-742,748-749,753-754,758-759,762-763,766-767
+  s_d252de3ad71cee::t_bc40e6949539e5 434,952
+  s_d252de3ad71cee::t_c5fb56b4ffd763 869,875,885,891,901,907,997,1003
+  s_d252de3ad71cee::t_d2c902d5d3ed6f 32,111-113,235-237
+  s_d252de3ad71cee::t_e70321eda17e35 773,778,787-788,792-793,801,806,814,819,826,833,840-841,856
+  s_d252de3ad71cee::t_23a08ed47aaf04 1-2
+  s_d252de3ad71cee::t_74483bd3bfd9c5 25-28,72-82,95-100,102,104-105,115,117,120,251-258,261-273,275-278,280-287,300-303
+  s_d252de3ad71cee::t_9d049794aab975 38,233-234,238
+  s_d252de3ad71cee::t_8eaa2ffadf8e64 1115,1128
+  s_d252de3ad71cee::t_f80aa97d46af9b 526,535,844-846,858,871,877,887,893,909,930,966,1122
+tests/unit/app/modules/pdf-viewer/annotations/annotationApplication.test.ts
+  s_d252de3ad71cee::t_aafa1f0d702e36 14-15,21,25-26,67
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts
+  s_d252de3ad71cee::t_aafa1f0d702e36 159
+tests/unit/app/services/pdf-save/nativeTextBoxMutations.test.ts
+  s_d252de3ad71cee::t_cbb43ded0ab38b 15-16,25,29-30,89
+  s_d252de3ad71cee::t_0f6d001157edbc 126
+app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint.ts
+  s_d252de3ad71cee::t_38fffc18be5fcc 1-42
+app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/resolveWordOffsets.ts
+  s_d252de3ad71cee::t_f64d1290be5c3f 1-58
+electron/features/documents/createPdfAnnotationParsePreloadMethods.ts
+  s_d252de3ad71cee::t_669c18834b80ac 18,45,52,57
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_d252de3ad71cee::t_a5036d8d00ca93 601-602
+  s_d252de3ad71cee::t_aae31382dda34f 8,41
+  s_d252de3ad71cee::t_66208af5f58975 22,615
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture.ts
+  s_d252de3ad71cee::t_74b5a61fc9299f 26-27,255,259-264
+tests/unit/contracts/nativePdfMutations.textBoxes.test.ts
+  s_d252de3ad71cee::t_2d7369a6bdaea9 13,34-35
+app/modules/pdf-viewer/components/PdfViewerPortalLayers.vue
+  s_d252de3ad71cee::t_a5d51c9ae98b6e 14,36
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreBulkImport.test.ts
+  s_d252de3ad71cee::t_d8a37670b6e74f 87,91-92,94-108,111-117
+  s_d252de3ad71cee::t_8b1e64f3b2a1dc 45
+  s_d252de3ad71cee::t_a3304fc3a0de60 9,14,16,28-29,73,159
+  s_d252de3ad71cee::t_8f7c215b6eace2 36
+electron/features/documents/main/openInputPaths.service.ts
+  s_d252de3ad71cee::t_ee078f80b6e32b 36,206,271-272,362-363
+  s_d252de3ad71cee::t_e15b5dc37b1181 284
+tests/unit/contracts/stagedArtifacts.test.ts
+  s_d252de3ad71cee::t_37867579713d71 14
+  s_d252de3ad71cee::t_65ea604c2a0e53 15,18,25,47,214
+app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools.ts
+  s_d252de3ad71cee::t_489d929f9c0e4b 16,70
+app/modules/scan-cleanup/composables/useScanCleanupSourceSha256.ts
+  s_d252de3ad71cee::t_eb3aa2b78dee6f 2-3,5,71
+app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity.ts
+  s_d252de3ad71cee::t_90973c37b0bf19 11,34-35
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_d252de3ad71cee::t_923df900318170 14,168
+  s_d252de3ad71cee::t_45829bf90eb1da 27,499,519,538,557
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreSaveFrontierRollback.test.ts
+  s_d252de3ad71cee::t_ff1607a679e50f 14
+app/platform/browser/browserDocumentRepository.ts
+  s_d252de3ad71cee::t_de83d6f326bac8 66,90,131
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_d252de3ad71cee::t_20cde43eb8a7d1 8-9,106,110-111
+app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts
+  s_d252de3ad71cee::t_923df900318170 91
+  s_d252de3ad71cee::t_c5e45a4aa48f63 2-3,33,37,95-96,101,106,108,131,156,170,179,248,252,298,317,519-520,589-592,617-618
+app/modules/pdf-viewer/components/PdfViewerPage.vue
+  s_d252de3ad71cee::t_5a5204239e0206 54,73,101-102
+electron/preload/createElectronApi.ts
+  s_d252de3ad71cee::t_106eba38ed9bf6 18-24,31,275,286-287,302,304-305,307-310,312,326-328,378,385
+app/modules/pdf-viewer/runtime/sessions/deriveSelectedTextForParsedHighlights.ts
+  s_d252de3ad71cee::t_66b0d4d6b5ed0a 10-11,14,29,53
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_d252de3ad71cee::t_c3ac46064db6b5 662-664
+  s_d252de3ad71cee::t_8d50feec01041e 78,85,88
+  s_d252de3ad71cee::t_1b25fd65376253 79,533,581-585,742,956-958
+app/platform/browser-api/createBrowserDocumentsFileCapability.ts
+  s_d252de3ad71cee::t_8eaa2ffadf8e64 75,659-662
+  s_d252de3ad71cee::t_de83d6f326bac8 7-10,134,162,171,256,1107,1110,1113,1115
+app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts
+  s_d252de3ad71cee::t_03357a0aca9a16 191-196
+  s_d252de3ad71cee::t_3318843ecb8a86 203
+  s_d252de3ad71cee::t_c3ac46064db6b5 3,326,564-567
+  s_d252de3ad71cee::t_3e59c49a9995d2 2,4,10,198-202,204,207-212,285,356-372,383-407,421,540,542-543
+  s_d252de3ad71cee::t_f24154854ad6ae 28,45-51,114-116
+packages/pdf-core/pdfCombineCatalog.ts
+  s_d252de3ad71cee::t_4399d5a1b196c1 117,202-204
+  s_d252de3ad71cee::t_d2c902d5d3ed6f 14,108,118
+app/modules/pdf-viewer/engine/annotation-subtype-hints/collectMarkupSubtypeHints.ts
+  s_d252de3ad71cee::t_489d929f9c0e4b 7,97
+app/modules/workspace-shell/composables/usePageAnnotationActions.ts
+  s_d252de3ad71cee::t_a5036d8d00ca93 3,818-822,824,855-858,1005
+app/types/annotations.ts
+  s_d252de3ad71cee::t_66208af5f58975 93-95
+tests/unit/app/modules/pdf-viewer/annotations/annotationEntityEquality.test.ts
+  s_d252de3ad71cee::t_ff1607a679e50f 22-23
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreExternalIdentityHistory.test.ts
+  s_d252de3ad71cee::t_ff1607a679e50f 18-19
+tests/unit/app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools.test.ts
+  s_d252de3ad71cee::t_f7d5c55a8a4caa 14,19,41,57
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEvents.test.ts
+  s_d252de3ad71cee::t_82e4265691df22 34,41,133,248,327
+electron/features/documents/main/pdfAnnotationIndex.ts
+  s_d252de3ad71cee::t_ee078f80b6e32b 77,79,338,345,353,449
+  s_d252de3ad71cee::t_3318843ecb8a86 22-29
+app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient.ts
+  s_d252de3ad71cee::t_45829bf90eb1da 425-427,434-436
+  s_d252de3ad71cee::t_e24bc96299739e 11,358,382,391
+electron/features/documents/main/pdfEmbeddedShapeIndex.ts
+  s_d252de3ad71cee::t_ee078f80b6e32b 21-22,24-26,28-29,87,89,169-173,396,403,497
+  s_d252de3ad71cee::t_e15b5dc37b1181 389
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreDirtyAndPersisted.test.ts
+  s_d252de3ad71cee::t_ff1607a679e50f 12-13
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreSaveIdentityRebase.test.ts
+  s_d252de3ad71cee::t_aafa1f0d702e36 24-25,31,35-36,54,58-59,81,85-86
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_d252de3ad71cee::t_82e4265691df22 24,36
+packages/contracts/nativePdfMutations.ts
+  s_d252de3ad71cee::t_35f4af03fbaf63 28,47,260,514,1207
+  s_d252de3ad71cee::t_a44d6475ff8aa8 709
+electron/features/documents/main/pdfAnnotationParse.ts
+  s_d252de3ad71cee::t_ee078f80b6e32b 27-28,30-32,34,79,81,265,272,279,382
+tests/unit/app/modules/pdf-viewer/tools/useAnnotationShapes.test.ts
+  s_d252de3ad71cee::t_9970655740efbf 37,57,106,157,183,318,354
+  s_d252de3ad71cee::t_2813df1e59b588 20
+app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/findClosestTextSpanInPage.ts
+  s_d252de3ad71cee::t_f64d1290be5c3f 1-42
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_d252de3ad71cee::t_52a1ad8dd7349a 27-28,30,177,181,184,230,235,238,281,989-990,1024
+tests/integration/browser/browserAnnotationSaveAcceptanceEntry.ts
+  s_d252de3ad71cee::t_5645055512792f 14-15,17-18,59,68,70,91,128,137,146,155,166
+app/platform/browser-api/createNativePdfPreviewSourceFromPath.ts
+  s_d252de3ad71cee::t_92e169bab302a2 72-76
+tests/unit/app/modules/workspace-shell/composables/createDocumentPersistence.test.ts
+  s_d252de3ad71cee::t_0f595a2b7f3636 728-729,1029-1030
+packages/contracts/electronApiDocuments.ts
+  s_d252de3ad71cee::t_f72417a171df0c 169-170,546,564,570,575,611,625-626,634,679-680
+  s_d252de3ad71cee::t_d73f9d40a05f23 558,561
+  s_d252de3ad71cee::t_a9d5e12dc49b08 2-5,242,245,265,278-279,282,288,298,301
+  s_d252de3ad71cee::t_2239701241a6c6 86-87,91-92,118,183,205,349,455
+  s_d252de3ad71cee::t_b413691906fad0 28-30,44-46,55-57
+  s_d252de3ad71cee::t_a3c008c9d76132 905,908,919,923,927,930,938,942-943,953,957-958,990,1029,1035,1041,1047,1053
+  s_d252de3ad71cee::t_6946dd2b84a50e 51-54
+  s_d252de3ad71cee::t_9b074d2113e8bc 313,324-325,494,497,504,512,515,525
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreSavedBaseline.test.ts
+  s_d252de3ad71cee::t_aafa1f0d702e36 11,17
+app/modules/pdf-viewer/components/PdfViewerViewport.vue
+  s_d252de3ad71cee::t_35bff2a53a25e1 55-56,81-82,84-85,87-91,103,130-131,147,151,154-155,157
+  s_d252de3ad71cee::t_b59ae3af3a09ca 39-40
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_d252de3ad71cee::t_dff25a8d07befd 20-21,23-25,27,95,121,129,150,270-271,273
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_d252de3ad71cee::t_74b5a61fc9299f 61,66-67
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_d252de3ad71cee::t_56b71105ca8fa1 5,235,264,297-305,424-426,652,657-660,927
+tests/unit/electron/managedTempFileHandles.test.ts
+  s_d252de3ad71cee::t_65ea604c2a0e53 30,202,466,520,524
+  s_d252de3ad71cee::t_02d2b0411068c6 31,221
+  s_d252de3ad71cee::t_c2d63630634cbb 511-519,521-523,532
+electron/features/documents/createDocumentsService.ts
+  s_d252de3ad71cee::t_a915c1d0e54a99 129,176-179,181,319-321
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreReplaceFromDocument.test.ts
+  s_d252de3ad71cee::t_ff1607a679e50f 17-18
+tests/unit/app/modules/pdf-viewer/runtime/sessions/annotationDocumentIdentity.test.ts
+  s_d252de3ad71cee::t_9ec07968cec1e8 4,49,183
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver.ts
+  s_d252de3ad71cee::t_e5947d8450333e 7,96
+app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache.ts
+  s_d252de3ad71cee::t_af53e08328ff25 1-4,128
+app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime.ts
+  s_d252de3ad71cee::t_9ee2dd85c03eb6 3-4,53,72,82,124-136,327,492,589,593
+app/platform/generated/createLazyBrowserPlatformApiGenerated.ts
+  s_d252de3ad71cee::t_de83d6f326bac8 5,25,29
+app/modules/pdf-viewer/annotations/persistence/nativeAnnotationDeleteProjection.ts
+  s_d252de3ad71cee::t_66208af5f58975 6,91
+app/modules/pdf-viewer/engine/annotations/types.ts
+  s_d252de3ad71cee::t_f64d1290be5c3f 1-20
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_d252de3ad71cee::t_1ac6afba6e83e8 186
+tests/unit/app/modules/pdf-viewer/annotations/annotationBackendConformance.test.ts
+  s_d252de3ad71cee::t_aafa1f0d702e36 10-11,30,53,109,113-114,165
+  s_d252de3ad71cee::t_9970655740efbf 160,191
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_d252de3ad71cee::t_82320a87265815 40-41,1085,1102,1119,1141,1163,1180,1201,1222-1225
+  s_d252de3ad71cee::t_3318843ecb8a86 1189
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_d252de3ad71cee::t_aae31382dda34f 17-18,20,589-595
+packages/contracts/pdfAnnotationParseSchemas.ts
+  s_d252de3ad71cee::t_6f9458389621ff 38,43,66-67,71
+  s_d252de3ad71cee::t_7195c6a35e194a 669,673,683,692
+  s_d252de3ad71cee::t_d2c902d5d3ed6f 41,68-70
+  s_d252de3ad71cee::t_88c735231f7f89 604,609,639,644
+app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry.ts
+  s_d252de3ad71cee::t_f08a0736c42567 12,88
+tests/unit/scripts/stress/viewerAnnotationsCreation.test.ts
+  s_d252de3ad71cee::t_8b1e64f3b2a1dc 68,71,74-75
+  s_d252de3ad71cee::t_2d7369a6bdaea9 95,105
+  s_d252de3ad71cee::t_d8a37670b6e74f 59-65,85,104,106-117,119-121
+app/modules/pdf-viewer/annotations/domain/annotationStore.ts
+  s_d252de3ad71cee::t_8b1e64f3b2a1dc 462-464,475
+  s_d252de3ad71cee::t_8474c9510f5003 131-132,242-244,276-349,392-396,431-459,461,465-474,1037-1054
+  s_d252de3ad71cee::t_d29f9658bf6e0e 3-4,6,714-715
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_d252de3ad71cee::t_02d2b0411068c6 152-153,155
+  s_d252de3ad71cee::t_c8089892a01c12 127-129,132,135-137,140-141,143-144
+electron/features/documents/appendWorkingCopyPassword.ts
+  s_d252de3ad71cee::t_07c5f734c5767b 20
+  s_d252de3ad71cee::t_4781171d66f157 5,18
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreBatch.test.ts
+  s_d252de3ad71cee::t_8f7c215b6eace2 32
+  s_d252de3ad71cee::t_a3304fc3a0de60 9,13,15,24-25,43-44,71,79
+scripts/stress/stressDeterministicDriver.ts
+  s_d252de3ad71cee::t_ec833e3acdf46c 353
+electron/search/worker.ts
+  s_d252de3ad71cee::t_e15b5dc37b1181 130,166,186,780,791
+  s_d252de3ad71cee::t_106eba38ed9bf6 31,48,60,177,204,209-214,218,230,431,439
+tests/unit/app/modules/pdf-viewer/usePdfViewerVirtualization.test.ts
+  s_d252de3ad71cee::t_2813df1e59b588 21
+app/modules/workspace-shell/composables/usePageSaveOrchestration.ts
+  s_d252de3ad71cee::t_d17772ebcd8a74 14,294
+tests/unit/app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture.test.ts
+  s_d252de3ad71cee::t_f7d5c55a8a4caa 15,22,49,110
+packages/contracts/index.ts
+  s_d252de3ad71cee::t_0c10ee87241664 198-201,356-374
+tests/unit/app/modules/workspace-shell/composables/usePageAnnotationTools.test.ts
+  s_d252de3ad71cee::t_02d2b0411068c6 47
+  s_d252de3ad71cee::t_c9fdb0b2d07c4c 14,31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e6830318eb2a9a96fe1f2533d4bdffb9017d6f75",
+  "prompts": {},
+  "sessions": {
+    "s_d252de3ad71cee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0723f-6c82-7453-a893-5fe26c4041d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
