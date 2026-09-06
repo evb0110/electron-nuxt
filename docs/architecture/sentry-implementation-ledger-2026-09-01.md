@@ -1941,9 +1941,17 @@ Each has an enforcing gate.
 
 ## Issue-ready acceptance criteria
 
-The first GitHub issue is the self-contained umbrella for all 64 work items. A
-work item may later become a child issue when it is scheduled. The umbrella and
-every child issue must state:
+The first GitHub issue was the self-contained delivery umbrella for the 64 work
+items. Its approved delivery scope is now closed for the consent-gated desktop
+and hosted-browser diagnostics. Nitro approval and activation remain in
+[#222](https://github.com/evb0110/evb-viewer/issues/222) and
+[#261](https://github.com/evb0110/evb-viewer/issues/261). Real dated observation
+and the four-week record remain in
+[#267](https://github.com/evb0110/evb-viewer/issues/267). Those follow-ups are
+not delivery criteria and remain open.
+
+A work item may later become a child issue when it is scheduled. The umbrella
+and every child issue must state:
 
 1. The problem in observable terms, including the current behavior at the named
    paths.
@@ -1962,7 +1970,12 @@ depends on a Sentry project that does not exist yet.
 
 ## Definition of done
 
-The whole program is done when all of the following hold at once.
+The closed delivery program is done when the consent-gated desktop and
+hosted-browser requirements below hold. This definition does not include Nitro
+activation or elapsed operating proof. Those continuing requirements remain in
+[#222](https://github.com/evb0110/evb-viewer/issues/222),
+[#261](https://github.com/evb0110/evb-viewer/issues/261), and
+[#267](https://github.com/evb0110/evb-viewer/issues/267).
 
 - Every red UI state and every red console entry in shipping code enters the
   local failure gate, and both the red-presentation and unclassified-code
@@ -1978,14 +1991,19 @@ The whole program is done when all of the following hold at once.
   activity, and revocation produces no close-time or client-report envelope.
 - The acknowledgement renders in both landing footer paths and the app page, in
   every supported locale, offline, with no Sentry request before a click.
-- Account hardening, the DPA, the notice, and the viewer Nitro assessment are
-  complete and recorded.
+- Account hardening, the DPA, and the consent notice are complete and
+  recorded. The viewer Nitro assessment is a retained follow-up, not a client
+  delivery criterion.
 - Public packages and deployments contain no maps, sources, staging directories,
   tokens, or wrong-runtime DSNs, and receipts match the shipped bytes.
 - Removing the Sentry packages and adapters leaves local logs, error UI,
   recovery, save, print, update, and product behavior intact.
-- Four weeks of production operation meet every success measure in the
-  architecture ledger.
+
+The continuing Nitro and observation definitions remain in the runbook and in
+[#222](https://github.com/evb0110/evb-viewer/issues/222),
+[#261](https://github.com/evb0110/evb-viewer/issues/261), and
+[#267](https://github.com/evb0110/evb-viewer/issues/267). Their elapsed-time
+requirements are not claimed by this delivery definition.
 
 ## Decision register
 

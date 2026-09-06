@@ -128,7 +128,11 @@ no source maps. The exact production receipt contains 259 deterministic
 source-map canaries, all verified through the source-map-debug and
 processed-event checks. The earlier v0.1.452 `missing_source_content` result is
 historical and does not describe the current release. Nitro runtime reporting
-remains disabled pending its legal approval and observation gates.
+remains disabled pending its legal approval and observation gates. The review
+and objection work stays open in [#222](https://github.com/evb0110/evb-viewer/issues/222),
+enablement and canary work stays open in
+[#261](https://github.com/evb0110/evb-viewer/issues/261), and dated observation
+stays open in [#267](https://github.com/evb0110/evb-viewer/issues/267).
 
 The live browser check on 2026-09-05 recorded no Sentry request before consent,
 one event after the user granted the still-live report, no later event after

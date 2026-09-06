@@ -286,22 +286,28 @@ resolved to its expected EVB sources and functions.
 
 Run Nitro in preview first. Production remains disabled until the preview gate
 and legal approval pass. Review preview and production canary data for one full
-week before completing the Nitro canary.
+week before completing the Nitro canary. This work remains outside the closed
+desktop/browser delivery scope and is tracked by
+[#222](https://github.com/evb0110/evb-viewer/issues/222) and
+[#261](https://github.com/evb0110/evb-viewer/issues/261).
 
 ## Four-week production proof
 
 The operating record has two scopes. The enabled-client baseline covers the
 eight shipping desktop identities and the served production browser. The
 Nitro record starts only after its legal and preview gates. A baseline or a
-synthetic canary is not an elapsed week. A failed measure opens a remediation
-issue and leaves the umbrella issue open.
+synthetic canary is not an elapsed week. This record continues after the
+desktop/browser delivery closure. A failed measure opens a remediation issue;
+it does not reopen the closed delivery project.
 
 The first valid enabled-client production baseline is 2026-09-06 for
 `v0.1.453`: eight desktop identities and production web passed the consent,
 closed-event, source-map, and artifact checks recorded above. The next weekly
 review is due 2026-09-13 UTC. The earliest four-week client record is
 2026-10-04 UTC if each weekly review passes. Nitro has no observation start
-date because its processing remains disabled.
+date because its processing remains disabled. The client baseline is not a
+four-week completion claim. Continue it under
+[#267](https://github.com/evb0110/evb-viewer/issues/267), which remains open.
 
 | Week | Enabled runtimes and releases | Volume within thresholds | Suppression correct | Quota healthy | Forbidden fields | Symbolication | Actionable outcomes | Remediation issue |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

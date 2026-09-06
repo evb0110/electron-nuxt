@@ -133,7 +133,10 @@ stop normal triage and follow the privacy-incident procedure in the runbook.
 
 ### 5. Report a fixed result
 
-Use this shape so another agent can act on the result without guessing:
+Use this shape so another agent can act on the result without guessing. State
+whether the result concerns the closed desktop/browser delivery scope or the
+continuing Nitro and elapsed-time follow-ups. Delivery closure is not Nitro
+approval and is not a four-week operating result:
 
 ```text
 Sentry check
