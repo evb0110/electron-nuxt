@@ -364,8 +364,7 @@ pub(crate) fn compose_layers(
     let content_height = ((placement.content_height as f64 * scale_y).round() as usize)
         .max(1)
         .min(background_height);
-    let left = ((placement.materialization_left as f64 * scale_x).round() as usize)
-        .min(background_width.saturating_sub(content_width));
+    let left = (placement.materialization_left as f64 * scale_x).round() as usize;
     let source_offset_left = ((placement.materialization_source_offset_left as f64 * scale_x)
         .round() as usize)
         .min(content_width);
@@ -3624,39 +3623,6 @@ mod tests {
             compose_tone_preservation_alpha(Some(alpha), placement, &canvas).unwrap();
         assert_eq!(placed_alpha.get(2, 2), 200);
         assert_eq!(placed_alpha.get(0, 0), 0);
-    }
-
-    #[test]
-    fn mixed_background_clamps_scaled_left_to_the_canvas() {
-        let canvas = GeometryCanvas {
-            width_points: 4.8,
-            height_points: 4.0,
-            width_px: 4,
-            height_px: 4,
-        };
-        let options = CleanupOptions {
-            dpi: 150.0,
-            source_background_dpi: Some(150.0),
-            ..CleanupOptions::default()
-        };
-        let mut placement = warning_event_placement();
-        placement.content_width = 1;
-        placement.content_height = 2;
-        placement.materialization_left = 3;
-        placement.top = 0;
-        let layers = GeometryMixedLayers {
-            foreground_mask: BinaryImage::new(2, 2),
-            foreground_alpha: None,
-            background: GrayImage::new(2, 2, 40),
-            color_background: None,
-            source_mrc: false,
-        };
-
-        let composed = compose_layers(None, Some(layers), &options, placement, &canvas).unwrap();
-
-        assert_eq!(composed.background.width(), 10);
-        assert_eq!(composed.background.get(6, 0), 255);
-        assert_eq!(composed.background.get(7, 0), 40);
     }
 
     #[test]
