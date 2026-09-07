@@ -1,0 +1,43 @@
+tests/e2e/electron/legacyNote350.e2e.test.ts
+  s_e0ecc8fda9d238::t_7b528fe4a8ee8a 1201-1206
+  s_e0ecc8fda9d238::t_2555e3d73293fe 620
+  s_e0ecc8fda9d238::t_13ce50a8aa6134 1173-1178
+  s_e0ecc8fda9d238::t_99196983f29537 1208-1214
+  s_e0ecc8fda9d238::t_7d9999b29af34c 1207
+  s_e0ecc8fda9d238::t_e4c0198ed432d3 1166-1169
+  s_e0ecc8fda9d238::t_4112096995b2d7 1172,1179-1185
+  s_e0ecc8fda9d238::t_c2b4db50c4713e 1147-1165,1170-1171,1186,1198-1200,1215-1216
+  s_e0ecc8fda9d238::t_13ef7c59189503 1187-1197
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_e0ecc8fda9d238::t_48d82a5eb38c03 69,500-505,738-746
+app/modules/pdf-viewer/components/PdfNoteAnnotation.vue
+  s_e0ecc8fda9d238::t_e165fa78e520dd 107-113
+  s_e0ecc8fda9d238::t_c8b163d9d6bfcf 23
+  s_e0ecc8fda9d238::t_0274c9fcedcbc0 114-116
+  s_e0ecc8fda9d238::t_792845e1631f5e 97-105
+  s_e0ecc8fda9d238::t_cc27a88a4ff7bb 44,68-70
+  s_e0ecc8fda9d238::t_48d82a5eb38c03 2-8,10-22,24-29,48-61,74-96,106,117
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_e0ecc8fda9d238::t_57813f29eccf8e 1829-1839
+  s_e0ecc8fda9d238::t_1272008c708403 1828
+  s_e0ecc8fda9d238::t_70e108c6a72f6c 1867-1870
+  s_e0ecc8fda9d238::t_c2b4db50c4713e 1844-1854,1866,1871-1872
+  s_e0ecc8fda9d238::t_256187f2dfa32f 1855-1865
+  s_e0ecc8fda9d238::t_7d9999b29af34c 1840-1843
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c86dc691f1676c76194680973ff3537dc597a556",
+  "prompts": {},
+  "sessions": {
+    "s_e0ecc8fda9d238": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07bee-953d-7163-875d-9e3bdd2ab722",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
