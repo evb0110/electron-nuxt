@@ -1,6 +1,6 @@
 import {
-    isBrowserLegacyDocumentRef,
     parseDocumentRef,
+    isBrowserLegacyDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {
@@ -173,6 +173,12 @@ function decodeFileIdentity(value: unknown): TArtifactFileIdentity | null {
     return decodeBrowserStoreFileIdentity(value);
 }
 
+function isPosixFileIdentity(
+    value: TArtifactFileIdentity,
+): value is Extract<TArtifactFileIdentity, {platform: 'posix'}> {
+    return value.platform === 'posix';
+}
+
 function decodeValidations(value: unknown): IStagedArtifactValidations | null {
     if (
         !isRecord(value)
@@ -217,10 +223,13 @@ function decodeValidations(value: unknown): IStagedArtifactValidations | null {
 }
 
 export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact | null {
-    const path = isRecord(value) ? parseDocumentRef(value.path) : null;
+    if (!isRecord(value)) {
+        return null;
+    }
+    const path = parseDocumentRef(value.path);
+    const leaseId = parseLeaseId(value.leaseId);
     if (
-        !isRecord(value)
-        || (value.receiptVersion !== 1 && value.receiptVersion !== 2)
+        (value.receiptVersion !== 1 && value.receiptVersion !== 2)
         || value.artifactKind !== 'pdf'
         || path === null
         || typeof value.size !== 'number'
@@ -231,7 +240,7 @@ export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact 
             || !SHA256_PATTERN.test(value.sha256)
         ))
         || (value.receiptVersion === 2 && value.sha256 !== undefined)
-        || parseLeaseId(value.leaseId) === null
+        || leaseId === null
         || (value.revision !== null && typeof value.revision !== 'string')
     ) {
         return null;
@@ -245,7 +254,7 @@ export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact 
     if (
         fileIdentity.platform === 'browser'
         && (
-            fileIdentity.documentRef !== path
+            fileIdentity.documentRef !== value.path
             || revision === null
             || fileIdentity.revisionToken !== revision
         )
@@ -256,27 +265,32 @@ export function decodeTypedStagedArtifact(value: unknown): ITypedStagedArtifact 
         return null;
     }
     if (value.receiptVersion === 2) {
-        const posixIdentity = fileIdentity as Extract<TArtifactFileIdentity, {platform: 'posix'}>;
+        if (!isPosixFileIdentity(fileIdentity)) {
+            return null;
+        }
         return {
             receiptVersion: 2,
             artifactKind: 'pdf',
             path,
             size: value.size,
-            fileIdentity: posixIdentity,
+            fileIdentity,
             validations,
-            leaseId: parseLeaseId(value.leaseId)!,
+            leaseId,
             revision,
         };
+    }
+    if (typeof value.sha256 !== 'string') {
+        return null;
     }
     return {
         receiptVersion: 1,
         artifactKind: 'pdf',
         path,
         size: value.size,
-        sha256: value.sha256 as string,
+        sha256: value.sha256,
         fileIdentity,
         validations,
-        leaseId: parseLeaseId(value.leaseId)!,
+        leaseId,
         revision,
     };
 }

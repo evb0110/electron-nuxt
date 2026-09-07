@@ -469,6 +469,7 @@ describe('validation gate policy', () => {
 
         expect(stageIds).toEqual([
             'build.prepare',
+            'scan-cleanup.line-budget',
             'lint.full',
             'typecheck.full',
             'test.coverage',

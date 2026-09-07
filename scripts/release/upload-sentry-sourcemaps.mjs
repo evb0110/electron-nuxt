@@ -155,16 +155,20 @@ function cliUploadRoots(identity, uploadRoot, manifest) {
     return [...roots].sort((left, right) => left.localeCompare(right, 'en'));
 }
 
-/** @param {string} uploadRoot @param {IPrivateManifest} manifest @returns {string[]} */
-function sourceUploadRoots(uploadRoot, manifest) {
-    const roots = new Set();
+/** @param {string} uploadRoot @param {IPrivateManifest} manifest @returns {Array<{path: string, urlPrefix: string}>} */
+function sourceUploadEntries(uploadRoot, manifest) {
+    const entries = new Map();
     for (const source of manifest.sources) {
         const [topLevel] = source.path.split('/');
         if (topLevel) {
-            roots.add(path.join(uploadRoot, topLevel));
+            const sourceRoot = path.join(uploadRoot, topLevel);
+            entries.set(sourceRoot, {
+                path: sourceRoot,
+                urlPrefix: source.path === topLevel ? '~/' : `~/${topLevel}/`,
+            });
         }
     }
-    return [...roots].sort((left, right) => left.localeCompare(right, 'en'));
+    return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path, 'en'));
 }
 
 /** @param {string} value @returns {string} */
@@ -227,6 +231,21 @@ function canonicalSourceMapReference(bundlePath, sourceRoot, sourcePath) {
     return isRelativeSourceReference(reference) ? reference : null;
 }
 
+/** @param {TSentryBuildIdentity} identity @param {string} bundlePath @returns {string} */
+function sentryBundlePath(identity, bundlePath) {
+    if (identity.target === 'web') {
+        const staticPrefix = '.vercel/output/static/';
+        if (bundlePath.startsWith(staticPrefix)) {
+            return bundlePath.slice(staticPrefix.length);
+        }
+        const functionsPrefix = '.vercel/output/functions/';
+        if (bundlePath.startsWith(functionsPrefix)) {
+            return bundlePath.slice(functionsPrefix.length);
+        }
+    }
+    return uploadRelativePath(identity.target, bundlePath);
+}
+
 /** @param {string} mapSource @param {IPrivateSource[]} sources @returns {IPrivateSource | null} */
 function findPrivateSource(mapSource, sources) {
     const normalizedMapSource = normalizeSourcePath(mapSource);
@@ -268,7 +287,7 @@ async function prepareSourceUploadAliases(
     if (!Array.isArray(map.sources)) {
         return;
     }
-    const uploadBundlePath = uploadRelativePath(identity.target, bundle.bundle);
+    const uploadBundlePath = sentryBundlePath(identity, bundle.bundle);
     const sourceRoot = typeof map.sourceRoot === 'string' ? map.sourceRoot : undefined;
     let mapChanged = false;
     for (let index = 0; index < map.sources.length; index += 1) {
@@ -503,24 +522,12 @@ export async function uploadSentrySourcemaps({
         });
         try {
             const cliRoots = cliUploadRoots(normalizedIdentity, uploadRoot, manifest);
-            const sourceRoots = normalizedIdentity.target === 'web'
-                ? sourceUploadRoots(uploadRoot, manifest)
-                : [];
-            const sourceOwner = cliRoots.find(cliRoot => (
-                cliRoot === path.join(uploadRoot, 'vercel/output/static')
-            )) ?? cliRoots[0];
             for (const cliRoot of cliRoots) {
                 const urlPrefix = cliUploadUrlPrefix(
                     normalizedIdentity,
                     uploadRoot,
                     cliRoot,
                 );
-                const paths = cliRoot === sourceOwner
-                    ? [
-                        cliRoot,
-                        ...sourceRoots,
-                    ]
-                    : [cliRoot];
                 await runCli([
                     'sourcemaps',
                     'upload',
@@ -544,8 +551,35 @@ export async function uploadSentrySourcemaps({
                         '--url-prefix',
                         urlPrefix,
                     ]),
-                    ...paths,
+                    cliRoot,
                 ], {token});
+            }
+            if (normalizedIdentity.target === 'web') {
+                for (const sourceEntry of sourceUploadEntries(uploadRoot, manifest)) {
+                    await runCli([
+                        'sourcemaps',
+                        'upload',
+                        '--org',
+                        organization,
+                        '--project',
+                        project,
+                        '--release',
+                        normalizedIdentity.release,
+                        '--dist',
+                        normalizedIdentity.dist,
+                        '--validate',
+                        '--strict',
+                        '--wait',
+                        '--quiet',
+                        ...UPLOAD_EXTENSIONS.flatMap(extension => [
+                            '--ext',
+                            extension,
+                        ]),
+                        '--url-prefix',
+                        sourceEntry.urlPrefix,
+                        sourceEntry.path,
+                    ], {token});
+                }
             }
         } catch {
             throw new Error('Private Sentry source-map upload failed');

@@ -102,6 +102,7 @@ describe('in-process preload to validated IPC round trips', () => {
         const service = cast<IDocumentsService>({
             beginSavePdfData: vi.fn(async () => ({sessionId: 'persistence-session-1'})),
             createWorkingCopyFromData: vi.fn(async () => '/tmp/working-copy.pdf'),
+            onWorkingCopyBackingStatusChanged: vi.fn(() => () => {}),
             openDocumentDirect,
             parsePdfAnnotations,
         });

@@ -4,7 +4,7 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import { isRecord } from '@contracts/runtimeGuards';
-import {requirePageIndex} from '@contracts/pageNumbers';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 
 const REWRITABLE_SUBTYPE_HINTS = new Set<TMarkupSubtype>([

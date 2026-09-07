@@ -1,11 +1,4 @@
 import {
-    lstat,
-    mkdtemp,
-    readdir,
-    rm,
-} from 'node:fs/promises';
-import {join} from 'node:path';
-import {
     PDF_ANNOTATION_LINE_END_STYLES,
     PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
     PDF_ANNOTATION_SHAPE_TYPES,
@@ -19,13 +12,10 @@ import type {
     IPdfEmbeddedShapeIndexSession,
 } from '@contracts/electronApiDocuments';
 import {
-    requireDocumentRef,
+    parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import {
-    createSessionId,
-    type TSessionId,
-} from '@contracts/shared';
+import {createSessionId} from '@contracts/shared';
 import {parseEpochMs} from '@contracts/timestamps';
 import {
     PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
@@ -49,8 +39,6 @@ import {
 } from '@electron/features/page-ops/public/nativePageOpsPath';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {cancelNativeCommandGroup} from '@electron/native-tools/runNativeCommand';
-import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {registerNativePdfSenderCleanup} from '@electron/features/documents/main/nativePdfPreview';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
@@ -60,13 +48,17 @@ import {
     isRecord,
 } from '@contracts/runtimeGuards';
 import {
-    addSafePdfSidecarOffset,
-    assertPdfSidecarFitsSafeOffsetRange,
     assertSafePdfSidecarOffset,
-    findPdfSidecarLineIndex,
-    parsePdfSidecarJsonLine,
-    readPdfSidecarLine,
+    cancelPdfSidecarSession,
+    cleanupPdfSidecarSession,
+    cleanupPdfSidecarSessionWhenOperationSettles,
+    createPdfSidecarMainOperation,
+    expireStalePdfSidecarSessions,
+    readPdfSidecarChunk,
+    runPdfSidecarOperation,
+    scanPdfSidecarIntoSession,
     scanPdfSidecarLines,
+    sweepStalePdfSidecarArtifacts,
     type IScannedPdfSidecar,
 } from '@electron/features/documents/main/pdfSidecarLineIndex';
 
@@ -84,9 +76,9 @@ const MAX_SHAPE_STROKES = 4_096;
 const logger = createLogger('pdf-embedded-shape-index');
 
 interface IShapeIndexSessionState {
-    sessionId: TSessionId;
+    sessionId: string;
     ownerId: number;
-    documentRef: TDocumentRef;
+    documentRef: string;
     resolvedPath: string;
     expectedRevisionToken: TDocumentRevisionToken;
     sidecarDirectory: string;
@@ -171,6 +163,14 @@ function decodeOptionalTimestamp(value: unknown, fieldName: string) {
         throw new Error(`${fieldName} must be an epoch millisecond timestamp`);
     }
     return timestamp;
+}
+
+function requireDocumentRef(value: unknown): TDocumentRef {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
 }
 
 function decodeOptionalEnum<T extends string>(
@@ -301,35 +301,14 @@ function assertSessionOwner(session: IShapeIndexSessionState, context: IDocument
     }
 }
 
-function cancelSession(session: IShapeIndexSessionState, reason: string) {
-    session.canceled = true;
-    if (!session.abortController.signal.aborted) {
-        session.abortController.abort(new Error(reason));
-    }
-    cancelNativeCommandGroup(session.cancelGroup);
-}
-
 function cleanupWhenOperationSettles(session: IShapeIndexSessionState) {
-    void session.operationPromise
-        .catch(() => undefined)
-        .then(() => cleanupSession(session));
+    cleanupPdfSidecarSessionWhenOperationSettles(session, cleanupSession);
 }
 
-async function cleanupSession(session: IShapeIndexSessionState) {
-    if (session.cleanupPromise) {
-        return session.cleanupPromise;
-    }
-    sessions.delete(session.sessionId);
-    session.unregisterSenderCleanup?.();
-    delete session.unregisterSenderCleanup;
-    session.cleanupPromise = rm(session.sidecarDirectory, {
-        force: true,
-        recursive: true,
-    })
-        .catch((error: unknown) => {
-            logger.warn(`Failed to remove embedded shape index sidecar: ${String(error)}`);
-        });
-    return session.cleanupPromise;
+function cleanupSession(session: IShapeIndexSessionState) {
+    return cleanupPdfSidecarSession(sessions, session, (error: unknown) => {
+        logger.warn(`Failed to remove embedded shape index sidecar: ${String(error)}`);
+    });
 }
 
 /** Keep the native verb and argument order in one helper for CLI alignment. */
@@ -394,57 +373,42 @@ export async function beginPdfEmbeddedShapeIndex(
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
     const sessionId = createSessionId('pdf-embedded-shape-index');
-    const sidecarDirectory = await mkdtemp(join(getAppTempDir(), SHAPE_INDEX_DIRECTORY_PREFIX));
-    const sidecarPath = join(sidecarDirectory, SHAPE_INDEX_FILE_NAME);
-    const abortController = new AbortController();
-    const session: IShapeIndexSessionState = {
+    const {
+        session,
+        mainOperation,
+        cancel,
+    } = await createPdfSidecarMainOperation({
         sessionId,
         ownerId: getOwnerId(context),
-        documentRef: requireDocumentRef(filePath),
+        documentRef: filePath,
         resolvedPath,
         expectedRevisionToken,
-        sidecarDirectory,
-        sidecarPath,
-        index: {
-            dataStartOffset: 0,
-            dataBytes: 0,
-            pageCount: 0,
-            entryCount: 0,
-            lines: [],
-        },
-        abortController,
+        tempDir: getAppTempDir(),
+        directoryPrefix: SHAPE_INDEX_DIRECTORY_PREFIX,
+        fileName: SHAPE_INDEX_FILE_NAME,
         cancelGroup: `pdf-embedded-shape-index:${sessionId}`,
-        operationPromise: Promise.resolve(),
-        lastTouchedAt: Date.now(),
-        canceled: false,
-        released: false,
-    };
-    sessions.set(sessionId, session);
-
-    const cancel = (reason: string) => cancelSession(session, reason);
-    let mainOperation: ReturnType<typeof registerMainOperation>;
-    try {
-        mainOperation = registerMainOperation({
-            kind: 'abortable-work',
-            ownerWebContentsId: context.senderId,
-            workingCopyPath: resolvedPath,
-            cancel,
-        });
-    } catch (error) {
-        await cleanupSession(session);
-        throw error;
-    }
-    session.cancelGroup = `pdf-embedded-shape-index:${mainOperation.id}`;
-    session.unregisterSenderCleanup = registerNativePdfSenderCleanup(
-        context.sender,
-        cancel,
-        'Renderer navigation canceled embedded shape indexing',
-    );
+        sessions,
+        ownerWebContentsId: context.senderId,
+        workingCopyPath: resolvedPath,
+        cleanup: cleanupSession,
+        cancelGroupForOperation: operationId => `pdf-embedded-shape-index:${operationId}`,
+        registerSenderCleanup: operationCancel => registerNativePdfSenderCleanup(
+            context.sender,
+            operationCancel,
+            'Renderer navigation canceled embedded shape indexing',
+        ),
+    });
+    const {abortController} = session;
+    const {sidecarPath} = session;
     const handleMainAbort = () => cancel('Embedded shape indexing canceled');
     mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
 
-    session.operationPromise = (async () => {
-        try {
+    await runPdfSidecarOperation(
+        session,
+        mainOperation,
+        handleMainAbort,
+        cleanupSession,
+        async () => {
             await runWithWorkingCopyReadBacking(
                 resolvedPath,
                 physicalPath => runEmbeddedShapeIndexNative(
@@ -458,40 +422,22 @@ export async function beginPdfEmbeddedShapeIndex(
             if (abortController.signal.aborted) {
                 throw abortErrorFromSignal(abortController.signal);
             }
-            await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
-            const sidecarSize = await assertPdfSidecarFitsSafeOffsetRange(
+            await scanPdfSidecarIntoSession(
+                session,
                 sidecarPath,
+                abortController.signal,
                 'Embedded shape index',
+                () => assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken),
+                signal => scanPdfSidecarLines(sidecarPath, {
+                    maxLineBytes: PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
+                    label: 'Embedded shape index',
+                    signal,
+                    decodeHeader,
+                    decodeDataLine,
+                }),
             );
-            session.index = await scanPdfSidecarLines(sidecarPath, {
-                maxLineBytes: PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
-                label: 'Embedded shape index',
-                signal: abortController.signal,
-                decodeHeader,
-                decodeDataLine,
-            });
-            if (session.index.dataBytes !== sidecarSize - session.index.dataStartOffset) {
-                throw new Error('Embedded shape index sidecar changed while it was being indexed');
-            }
-            session.lastTouchedAt = Date.now();
-        } catch (error) {
-            session.canceled = session.canceled || abortController.signal.aborted;
-            throw error;
-        } finally {
-            mainOperation.signal.removeEventListener('abort', handleMainAbort);
-            mainOperation.complete();
-            if (session.canceled || session.released) {
-                await cleanupSession(session);
-            }
-        }
-    })();
-
-    try {
-        await session.operationPromise;
-    } catch (error) {
-        await cleanupSession(session);
-        throw error;
-    }
+        },
+    );
     return {
         sessionId,
         documentRef: requireDocumentRef(filePath),
@@ -518,42 +464,16 @@ export async function readPdfEmbeddedShapeIndexChunk(
     }
     const requestedOffset = assertSafePdfSidecarOffset(offset, 'offset');
     const chunkBytes = parseChunkOptions(options);
-    if (requestedOffset === session.index.dataBytes) {
-        session.lastTouchedAt = Date.now();
-        return {
-            offset: requestedOffset,
-            nextOffset: null,
-            byteLength: 0,
-            done: true,
-            entries: [],
-        };
-    }
-    const lineIndex = findPdfSidecarLineIndex(session.index.lines, requestedOffset);
-    if (lineIndex < 0) {
-        throw new RangeError('Embedded shape index offset must point to the beginning of a chunk line');
-    }
-    const line = session.index.lines[lineIndex]!;
-    if (line.byteLength > chunkBytes) {
-        throw new RangeError(`Embedded shape index line requires a chunk of at least ${line.byteLength} bytes`);
-    }
-    const lineBytes = await readPdfSidecarLine(
-        session.sidecarPath,
-        session.index.dataStartOffset,
-        line,
-        'Embedded shape index',
-    );
-    const entries = decodeDataLine(parsePdfSidecarJsonLine(lineBytes, 'data'));
-    const nextOffset = lineIndex + 1 < session.index.lines.length
-        ? addSafePdfSidecarOffset(line.offset, line.byteLength, 'Embedded shape index offset')
-        : null;
-    session.lastTouchedAt = Date.now();
-    return {
+    const result = await readPdfSidecarChunk({
+        sidecarPath: session.sidecarPath,
+        index: session.index,
         offset: requestedOffset,
-        nextOffset,
-        byteLength: line.byteLength,
-        done: nextOffset === null,
-        entries,
-    };
+        chunkBytes,
+        label: 'Embedded shape index',
+        decodeDataLine,
+    });
+    session.lastTouchedAt = Date.now();
+    return result;
 }
 
 export async function releasePdfEmbeddedShapeIndex(
@@ -567,7 +487,7 @@ export async function releasePdfEmbeddedShapeIndex(
     assertSessionOwner(session, context);
     session.released = true;
     if (!session.abortController.signal.aborted) {
-        cancelSession(session, 'Embedded shape index released');
+        cancelPdfSidecarSession(session, 'Embedded shape index released');
     }
     await session.operationPromise.catch(() => undefined);
     await cleanupSession(session);
@@ -586,7 +506,7 @@ export function cancelPdfEmbeddedShapeIndex(
     if (session.canceled || session.released) {
         return Promise.resolve({canceled: false});
     }
-    cancelSession(session, 'Embedded shape index canceled');
+    cancelPdfSidecarSession(session, 'Embedded shape index canceled');
     cleanupWhenOperationSettles(session);
     return Promise.resolve({canceled: true});
 }
@@ -595,45 +515,25 @@ export async function sweepStalePdfEmbeddedShapeIndexArtifacts(
     maxAgeMs = SHAPE_INDEX_DEFAULT_TTL_MS,
     maxEntries = SHAPE_INDEX_SWEEP_MAX_ENTRIES,
 ) {
-    const tempDir = getAppTempDir();
-    const now = Date.now();
-    const activeDirectories = new Set([...sessions.values()].map(session => session.sidecarDirectory));
-    let entries: string[];
-    try {
-        entries = await readdir(tempDir);
-    } catch {
-        return 0;
-    }
-    let deletedCount = 0;
-    for (const entry of entries
-        .filter(name => name.startsWith(SHAPE_INDEX_DIRECTORY_PREFIX))
-        .slice(0, maxEntries)) {
-        const directoryPath = join(tempDir, entry);
-        if (activeDirectories.has(directoryPath)) continue;
-        try {
-            const directoryStat = await lstat(directoryPath);
-            if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) continue;
-            if (now - Math.floor(Math.max(directoryStat.mtimeMs, directoryStat.ctimeMs)) < maxAgeMs) continue;
-            await rm(directoryPath, {
-                force: true,
-                recursive: true,
-            });
-            deletedCount += 1;
-        } catch (error) {
+    return sweepStalePdfSidecarArtifacts({
+        tempDir: getAppTempDir(),
+        directoryPrefix: SHAPE_INDEX_DIRECTORY_PREFIX,
+        activeDirectories: new Set([...sessions.values()].map(session => session.sidecarDirectory)),
+        maxAgeMs,
+        maxEntries,
+        onError: (directoryPath, error) => {
             logger.warn(`Failed to sweep stale embedded shape index artifact "${directoryPath}": ${String(error)}`);
-        }
-    }
-    return deletedCount;
+        },
+    });
 }
 
 const shapeIndexTtlTimer = setInterval(() => {
     const cutoff = Date.now() - SHAPE_INDEX_DEFAULT_TTL_MS;
-    for (const session of sessions.values()) {
-        if (session.lastTouchedAt >= cutoff) continue;
+    expireStalePdfSidecarSessions(sessions.values(), cutoff, session => {
         session.released = true;
-        cancelSession(session, 'Embedded shape index session expired');
+        cancelPdfSidecarSession(session, 'Embedded shape index session expired');
         cleanupWhenOperationSettles(session);
-    }
+    });
     void sweepStalePdfEmbeddedShapeIndexArtifacts().catch((error: unknown) => {
         logger.debug(`Embedded shape index TTL sweep failed: ${String(error)}`);
     });

@@ -11,7 +11,7 @@ import {withRenderedPdfPage} from '@scripts/windows-test/oracles/withRenderedPdf
 
 export const RENDER_BLANK_ORACLE_ID = 'render-nonblank';
 
-export const RENDER_BLANK_ORACLE_VERSION = 'pdfjs-dist@5.7+napi-canvas';
+export const RENDER_BLANK_ORACLE_VERSION = 'pdfjs-dist@6.3.311+napi-canvas';
 
 export const RENDER_MASK_COLUMNS = 24;
 

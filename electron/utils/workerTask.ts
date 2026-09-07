@@ -396,7 +396,7 @@ async function terminateWorkerAfterTask(
             requestTermination(attempts);
             scheduleEscalation();
         }, WORKER_TERMINATION_ESCALATION_INTERVAL_MS);
-        escalationTimer.unref?.();
+        escalationTimer.unref();
     };
 
     requestTermination(attempts);
@@ -518,7 +518,7 @@ function attachWorkerHandlers<T>({
                 ));
             });
         }, cooperativeCancelDelayMs);
-        cooperativeCancelTimer.unref?.();
+        cooperativeCancelTimer.unref();
     };
 
     const handleAbort = () => {

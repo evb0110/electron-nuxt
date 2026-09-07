@@ -1,3 +1,4 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -8,13 +9,13 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { PDFPageProxy } from 'pdfjs-dist';
 import { cast } from '@tests/helpers/cast';
 import {
     requirePageIndex,
     requirePageNumber,
 } from '@contracts/pageNumbers';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 type THighlightPageMock = (
@@ -137,7 +138,7 @@ function domRectLike(options: {
 }
 
 function textLayerViewport(scale: number) {
-    return cast<ReturnType<PDFPageProxy['getViewport']>>({
+    return cast<ReturnType<IPdfPage['getViewport']>>({
         scale,
         rotation: 0,
         width: 100 * scale,
@@ -185,7 +186,7 @@ describe('usePdfTextLayerRenderer', () => {
             }],
             styles: {},
         };
-        const pdfPage = cast<PDFPageProxy>({
+        const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getTextContent: vi.fn(async () => nativeTextContent),
             streamTextContent: vi.fn(),
@@ -196,7 +197,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/ocr.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/ocr.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -235,7 +236,7 @@ describe('usePdfTextLayerRenderer', () => {
             }],
             styles: {},
         };
-        const pdfPage = cast<PDFPageProxy>({
+        const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getTextContent: vi.fn(async () => nativeTextContent),
             streamTextContent: vi.fn(),
@@ -246,7 +247,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/scanned.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/scanned.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -271,7 +272,7 @@ describe('usePdfTextLayerRenderer', () => {
             str: 'page text',
             hasEOL: false,
         }]}));
-        const pdfPage = cast<PDFPageProxy>({
+        const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getTextContent: vi.fn(),
             streamTextContent,
@@ -279,7 +280,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/book.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/book.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -308,7 +309,7 @@ describe('usePdfTextLayerRenderer', () => {
             str: 'page text',
             hasEOL: false,
         }]}));
-        const pdfPage = cast<PDFPageProxy>({
+        const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getTextContent: vi.fn(),
             streamTextContent,
@@ -317,7 +318,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/book.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/book.pdf')),
             documentRevisionToken,
             effectiveScale: ref(1),
         });
@@ -344,7 +345,7 @@ describe('usePdfTextLayerRenderer', () => {
             str: 'page text',
             hasEOL: false,
         }]}));
-        const pdfPage = cast<PDFPageProxy>({
+        const pdfPage = cast<IPdfPage>({
             pageNumber: 1,
             getTextContent: vi.fn(),
             streamTextContent,
@@ -352,7 +353,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/book.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/book.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -972,12 +973,12 @@ describe('usePdfTextLayerRenderer', () => {
         textLayerDiv.textContent = 'stale';
 
         await renderer.renderTextLayer(
-            cast<PDFPageProxy>({
+            cast<IPdfPage>({
                 pageNumber: 1,
                 getTextContent: vi.fn().mockResolvedValue({items: []}),
             }),
             textLayerDiv,
-            cast<ReturnType<PDFPageProxy['getViewport']>>({
+            cast<ReturnType<IPdfPage['getViewport']>>({
                 width: 100,
                 height: 100,
                 userUnit: 1,

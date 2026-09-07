@@ -9,7 +9,8 @@ import { ref } from 'vue';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
 import { workspaceExposeMenuCommandDescriptors } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
-import { cast } from '@tests/helpers/cast';
+import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 async function flushMicrotasks() {
     await Promise.resolve();
@@ -30,25 +31,25 @@ function createDeferred() {
 }
 
 function createDeps(overrides: Partial<Parameters<typeof registerTabsMenuBindings>[1]> = {}) {
-    return cast<Parameters<typeof registerTabsMenuBindings>[1]>({
-        activeWorkspace: ref(null),
-        activeTabId: ref(null),
+    return {
+        activeWorkspace: ref<IWorkspaceExpose | null>(null),
+        activeTabId: ref<string | null>(null),
         createTab: vi.fn(() => ({ id: 'tab-1' })),
         handleCloseTab: vi.fn(async (_tabId: string) => {}),
         handleFallbackToolbarOpenFile: vi.fn(async () => {}),
-        openPathInAppropriateTab: vi.fn(async (_path: string) => {}),
+        openPathInAppropriateTab: vi.fn(async (_path: string) => true),
         openPathsInAppropriateTab: vi.fn(async (_paths: string[]) => {}),
         clearRecentFiles: vi.fn(async () => {}),
         loadRecentFiles: vi.fn(async () => {}),
-        openSettings: vi.fn(),
         checkForUpdates: vi.fn(async () => {}),
         splitEditor: vi.fn(async (_direction) => {}),
         focusPane: vi.fn(),
         moveActiveTab: vi.fn(async (_direction) => {}),
         copyActiveTab: vi.fn(async (_direction) => {}),
         handleWindowTabsAction: vi.fn(async (_action) => {}),
+        toggleAssistant: vi.fn(),
         ...overrides,
-    });
+    } satisfies Parameters<typeof registerTabsMenuBindings>[1];
 }
 
 function createMenuApi() {
@@ -104,13 +105,15 @@ function createMenuApi() {
             };
         }),
     };
-    const api = cast<Parameters<typeof registerTabsMenuBindings>[0]>({
-        documentMenu: menuApi,
-        settings: {},
-        updates: {},
-        djvu: {},
-        windowTabs: {},
-    });
+    const platformApi = createElectronPlatformApiFixture();
+    Object.assign(platformApi.documentMenu, menuApi);
+    const api = {
+        documentMenu: platformApi.documentMenu,
+        settings: platformApi.settings,
+        updates: platformApi.updates,
+        djvu: platformApi.djvu,
+        windowTabs: platformApi.windowTabs,
+    } satisfies Parameters<typeof registerTabsMenuBindings>[0];
 
     return {
         api,
@@ -140,27 +143,31 @@ function createMenuApi() {
 
 function createRegistryMenuApi() {
     const callbacks = new Map<string, () => void>();
-    const documentMenu: Record<string, unknown> = {};
-    const djvu: Record<string, unknown> = {};
+    const platformApi = createElectronPlatformApiFixture();
+    const documentMenu = platformApi.documentMenu;
+    const djvu = platformApi.djvu;
 
     for (const descriptor of workspaceExposeMenuCommandDescriptors) {
         const target = descriptor.menu.source === 'djvu' ? djvu : documentMenu;
-        target[descriptor.menu.register] = vi.fn((callback: () => void) => {
-            callbacks.set(descriptor.name, callback);
-            return () => {
-                callbacks.delete(descriptor.name);
-            };
+        Object.defineProperty(target, descriptor.menu.register, {
+            configurable: true,
+            value: vi.fn((callback: () => void) => {
+                callbacks.set(descriptor.name, callback);
+                return () => {
+                    callbacks.delete(descriptor.name);
+                };
+            }),
         });
     }
 
     return {
-        api: cast<Parameters<typeof registerTabsMenuBindings>[0]>({
+        api: {
             documentMenu,
-            settings: {},
-            updates: {},
+            settings: platformApi.settings,
+            updates: platformApi.updates,
             djvu,
-            windowTabs: {},
-        }),
+            windowTabs: platformApi.windowTabs,
+        } satisfies Parameters<typeof registerTabsMenuBindings>[0],
         emit(commandName: string) {
             callbacks.get(commandName)?.();
         },
@@ -169,11 +176,8 @@ function createRegistryMenuApi() {
 
 describe('registerTabsMenuBindings', () => {
     it('routes every registry-backed menu command to the active workspace command surface', async () => {
-        const workspaceCommands: Record<string, unknown> = {hasPdf: true};
-        for (const descriptor of workspaceExposeMenuCommandDescriptors) {
-            workspaceCommands[descriptor.name] = vi.fn();
-        }
-        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(cast<IWorkspaceExpose>(workspaceCommands))});
+        const workspaceCommands = createWorkspaceExposeFixture({hasPdf: true});
+        const deps = createDeps({activeWorkspace: ref<IWorkspaceExpose | null>(workspaceCommands)});
         const menuApi = createRegistryMenuApi();
 
         registerTabsMenuBindings(menuApi.api, deps);

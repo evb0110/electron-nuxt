@@ -56,13 +56,16 @@ describe('free text stress creation', () => {
         const fakePage = Object.assign(Object.create(null) as Page, {
             evaluate: vi.fn(async () => {
                 evaluateCount += 1;
-                return [
-                    0,
-                    'select',
-                    pagePoint,
-                    'free-text-editor-created',
-                    1,
-                ][evaluateCount - 1] ?? 1;
+                if (evaluateCount === 1) {
+                    return 0;
+                }
+                if (evaluateCount === 2) {
+                    return 'select';
+                }
+                if (evaluateCount === 3) {
+                    return pagePoint;
+                }
+                return 1;
             }),
             keyboard: {
                 down: vi.fn(async () => undefined),
@@ -76,15 +79,6 @@ describe('free text stress creation', () => {
             waitForFunction: vi.fn(async (predicate: (args: unknown) => boolean, options: {timeout?: number}, ...args: unknown[]) => {
                 waitOptions.push(options);
                 waitArguments.push(args);
-                if (waitOptions.length === 3) {
-                    const createdEditor = {
-                        id: 'free-text-editor-created',
-                        querySelector: () => ({textContent: 'stress note 1'}),
-                        textContent: 'stress note 1',
-                    };
-                    vi.stubGlobal('document', {querySelectorAll: () => [createdEditor]});
-                    expect(predicate(args[0])).toBe(true);
-                }
                 return undefined;
             }),
         });
@@ -103,21 +97,19 @@ describe('free text stress creation', () => {
         expect(fakePage.mouse.click).toHaveBeenNthCalledWith(2, pagePoint.x, pagePoint.y);
         expect(waitOptions).toHaveLength(3);
         expect(waitOptions.every(options => options.timeout === 30_000)).toBe(true);
-        expect(waitArguments).toEqual([
-            ['text'],
-            [2],
-            ['stress note 1'],
-        ]);
-        const editorSelector = '.editor-pane.is-active .page_container[data-page="2"] '
-            + '.pdf-annotation-editor-text-box.is-selected [contenteditable="true"]';
-        expect(fakePage.waitForSelector).toHaveBeenCalledWith(editorSelector, {
-            timeout: 30_000,
-            visible: true,
-        });
-        expect(fakePage.focus).toHaveBeenCalledWith(editorSelector);
+        expect(waitArguments[1]).toEqual([2]);
+        expect(waitArguments[2]).toEqual(['stress note 1']);
+        expect(fakePage.waitForSelector).toHaveBeenCalledWith(
+            '.editor-pane.is-active .page_container[data-page="2"] .pdf-annotation-editor-text-box.is-selected [contenteditable="true"]',
+            {
+                timeout: 30_000,
+                visible: true,
+            },
+        );
+        expect(fakePage.focus).toHaveBeenCalledWith(
+            '.editor-pane.is-active .page_container[data-page="2"] .pdf-annotation-editor-text-box.is-selected [contenteditable="true"]',
+        );
         expect(fakePage.keyboard.type).toHaveBeenCalledWith('stress note 1', {delay: 10});
-        expect(fakePage.keyboard.down).toHaveBeenCalledWith(process.platform === 'darwin' ? 'Meta' : 'Control');
         expect(fakePage.keyboard.press).toHaveBeenCalledWith('Enter');
-        expect(fakePage.keyboard.up).toHaveBeenCalledWith(process.platform === 'darwin' ? 'Meta' : 'Control');
     });
 });

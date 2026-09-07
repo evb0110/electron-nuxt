@@ -11,7 +11,6 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import {requireEpochMs} from '@contracts/timestamps';
 import type {
     AnnotationEntity,
     AnnotationId,
@@ -24,7 +23,8 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {mintAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {nudgeMarkerRectByPdfPoints} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/nudgeMarkerRectByPdfPoints';
-import {requirePageIndex} from '@contracts/pageNumbers';
+import {createEpochMs} from '@contracts/timestamps';
+import { requirePageIndex } from '@contracts/pageNumbers';
 
 type TAnnotationHistoryAction = () => boolean | Promise<boolean>;
 
@@ -157,7 +157,7 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
 }
 
 function timestamp() {
-    return Date.now();
+    return createEpochMs();
 }
 
 function newIdentity(): IAnnotationIdentity {
@@ -165,7 +165,7 @@ function newIdentity(): IAnnotationIdentity {
 }
 
 function baseEntityFields() {
-    const now = requireEpochMs(timestamp());
+    const now = timestamp();
     return {
         revision: 0,
         persistedRevision: -1,
@@ -513,7 +513,11 @@ export const usePdfAnnotationEditorSurface = (
         position: IAnnotationMarkerRect,
         overrides: Partial<Omit<INoteEntity, 'kind' | 'identity' | 'pageIndex' | 'revision' | 'persistedRevision' | 'deleted'>> = {},
     ) {
-        return store().createNote({
+        const {
+            replies,
+            ...restOverrides
+        } = overrides;
+        const entity: Omit<INoteEntity, 'replies'> = {
             kind: 'note',
             identity: newIdentity(),
             pageIndex: requirePageIndex(pageIndex),
@@ -522,7 +526,11 @@ export const usePdfAnnotationEditorSurface = (
             position,
             color: options.settings.value?.textColor ?? null,
             open: false,
-            ...overrides,
+            ...restOverrides,
+        };
+        return store().createNote(replies === undefined ? entity : {
+            ...entity,
+            replies,
         });
     }
 
@@ -551,7 +559,11 @@ export const usePdfAnnotationEditorSurface = (
     ) {
         const subtype = overrides.subtype ?? 'Highlight' satisfies TMarkupSubtype;
         const style = textMarkupStyle(options.settings.value, subtype);
-        return store().createTextMarkup({
+        const {
+            selectedText,
+            ...restOverrides
+        } = overrides;
+        const entity: Omit<ITextMarkupEntity, 'selectedText'> = {
             kind: 'text-markup',
             identity: newIdentity(),
             pageIndex: requirePageIndex(pageIndex),
@@ -561,8 +573,14 @@ export const usePdfAnnotationEditorSurface = (
             quadPoints,
             color: style.color,
             opacity: style.opacity,
-            ...overrides,
-        });
+            ...restOverrides,
+        };
+        return store().createTextMarkup(
+            selectedText === undefined ? entity : {
+                ...entity,
+                selectedText,
+            },
+        );
     }
 
     function createShape(entity: IShapeEntity) {

@@ -123,7 +123,7 @@ describe('assert-packaged-app-contents', () => {
     it('rejects vendor packages and archives while allowing copied PDF assets', async () => {
         const { collectEntryViolations } = await loadPackagedContentsModule();
         const problems = collectEntryViolations([
-            '/vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz',
+            '/vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz',
             '/vendor/pdfjs-dist/package/build/pdf.mjs',
             '/dist-electron/pdfjs-dist-codex-preview/build/pdf.mjs',
             '/dist-electron/pdf.d.ts',
@@ -138,7 +138,7 @@ describe('assert-packaged-app-contents', () => {
             '/nuxt-output/public/pdf/cmaps/78-H.bcmap',
         ]);
         expect(problems).toEqual(expect.arrayContaining([
-            'forbidden entry present: /vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz',
+            'forbidden entry present: /vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz',
             'forbidden entry present: /vendor/pdfjs-dist/package/build/pdf.mjs',
             'complete or alternate PDF.js package content should not ship: /dist-electron/pdfjs-dist-codex-preview/build/pdf.mjs',
             'PDF.js declaration should not ship: /dist-electron/pdf.d.ts',

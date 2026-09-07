@@ -9,7 +9,7 @@ import {
     type IHighlightPageGeometry,
 } from '@app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildHighlightQuadsFromSelection';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import {requirePageNumber} from '@contracts/pageNumbers';
+import { requirePageNumber } from '@contracts/pageNumbers';
 
 export type TSelectionGeometryResolution =
     | {

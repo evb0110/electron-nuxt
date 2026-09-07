@@ -95,7 +95,7 @@ function refreshSessionTimeout(session: IDocxExportStreamSession) {
             void abortSession(session);
         }
     }, DOCX_EXPORT_STREAM_SESSION_TIMEOUT_MS);
-    session.timeout.unref?.();
+    session.timeout.unref();
 }
 
 function unregisterSessionSenderCleanup(session: IDocxExportStreamSession) {
@@ -179,7 +179,7 @@ export async function beginDocxExportStream(
     const handle = await open(tempPath, 'wx');
     const id = createSessionId('docx-export');
     const timeout = setTimeout(() => undefined, DOCX_EXPORT_STREAM_SESSION_TIMEOUT_MS);
-    timeout.unref?.();
+    timeout.unref();
     const session: IDocxExportStreamSession = {
         id,
         senderId,

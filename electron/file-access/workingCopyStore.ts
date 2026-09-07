@@ -176,7 +176,7 @@ function resolveWindowsDirectoryLookup(directoryPath: string): IWindowsDirectory
                     timeout: 1_000,
                 },
             );
-            const output = `${String(result.stdout ?? '')}\n${String(result.stderr ?? '')}`;
+            const output = `${String(result.stdout)}\n${String(result.stderr)}`;
             const caseSensitive = /case sensitive attribute .* is enabled/iu.test(output)
                 ? true
                 : /case sensitive attribute .* is disabled/iu.test(output)
@@ -513,7 +513,7 @@ function scheduleRetiredWorkingCopyPrune() {
         pruneRetiredWorkingCopyOriginals();
         scheduleRetiredWorkingCopyPrune();
     }, Math.max(0, nextExpiresAtMs - Date.now()));
-    retiredWorkingCopyPruneTimer.unref?.();
+    retiredWorkingCopyPruneTimer.unref();
 }
 
 export function getWorkingCopyOriginalPath(workingPath: string, senderWebContentsId?: number) {

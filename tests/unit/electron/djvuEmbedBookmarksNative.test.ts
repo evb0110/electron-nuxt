@@ -83,7 +83,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: vi.fn(),
 })}));
 
-const { embedBookmarksIntoPdfFile } = await import('@electron/djvu/embedBookmarksIntoPdfFile');
+const { embedBookmarksIntoPdfFile } = await import('@electron/features/djvu/main/embedBookmarksIntoPdfFile');
 
 const bookmarks: IPdfBookmarkEntry[] = [{
     title: 'Chapter 1',

@@ -317,7 +317,7 @@ const {
     isUpdateSupported,
 } = useAppUpdates();
 
-const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale] ?? LOCALE_FLAGS.en);
+const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale]);
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;
 const agentMcpStatus = ref<IAgentMcpIntegrationStatus | null>(null);
 const isAgentMcpBusy = ref(false);
@@ -373,7 +373,7 @@ const localeItems = computed(() => LOCALE_OPTION_DEFINITIONS.map(option => ({
 
 const zoomPresetItems = computed(() => ZOOM_PRESET_OPTION_DEFINITIONS.map(option => ({
     value: option.value,
-    label: option.labelKey ? t(option.labelKey) : option.label ?? '',
+    label: option.labelKey ? t(option.labelKey) : option.label,
 })));
 
 const viewModeItems = computed(() => VIEW_MODE_OPTION_DEFINITIONS.map(option => ({

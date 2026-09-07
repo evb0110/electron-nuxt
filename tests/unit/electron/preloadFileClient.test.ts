@@ -31,7 +31,6 @@ import {
 } from '@contracts/nativePdfMutations';
 import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
 import {requireDocumentRevisionToken} from '@contracts';
-import {cast} from '@tests/helpers/cast';
 import {
     requireLeaseId,
     requireRequestId,
@@ -40,6 +39,12 @@ import type {TRequestId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
+
+// These values deliberately violate their brands so the preload runtime guards are tested.
+const invalidDocumentRef = 'relative.pdf' as TDocumentRef;
+const invalidPageNumber = 0 as TPageNumber;
+const invalidEmptyRequestId = '' as TRequestId;
+const invalidWhitespaceRequestId = '   ' as TRequestId;
 
 class FakeMessagePort {
     readonly close = vi.fn();
@@ -252,7 +257,7 @@ describe('createDocumentsPreloadFileClient', () => {
         );
         expect(() => client.printPdfPath(requireDocumentRef('/tmp/document.pdf'), undefined, {
             ...options,
-            pageNumbers: [cast<TPageNumber>(0)],
+            pageNumbers: [invalidPageNumber],
         })).toThrow('printPdfPath.options.pageNumbers[0] must be a positive safe integer');
         expect(ipcRenderer.invoke).toHaveBeenCalledOnce();
     });
@@ -282,9 +287,9 @@ describe('createDocumentsPreloadFileClient', () => {
             DOCUMENTS_CHANNELS.pdfPrintCancel,
             'print-data-request-1',
         );
-        expect(() => client.printPdfData(data, 'document.pdf', {requestId: cast<TRequestId>('')}))
+        expect(() => client.printPdfData(data, 'document.pdf', {requestId: invalidEmptyRequestId}))
             .toThrow('printPdfData.options.requestId must be a non-empty bounded string');
-        expect(() => client.cancelPdfPrint?.(cast<TRequestId>('')))
+        expect(() => client.cancelPdfPrint?.(invalidEmptyRequestId))
             .toThrow('cancelPdfPrint.requestId must not be empty');
         expect(ipcRenderer.invoke).toHaveBeenCalledTimes(2);
     });
@@ -577,7 +582,7 @@ describe('createDocumentsPreloadFileClient', () => {
         await expect(client.parsePdfAnnotations(requireDocumentRef('/tmp/working.pdf'), {expectedDocumentRevisionToken: revision})).resolves.toEqual(parsed);
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.parsePdfAnnotations,
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {expectedDocumentRevisionToken: revision},
         );
     });
@@ -894,11 +899,11 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        expect(() => client.getPdfOpeningGeometry?.(cast<TDocumentRef>('relative.pdf')))
+        expect(() => client.getPdfOpeningGeometry?.(invalidDocumentRef))
             .toThrow('getPdfOpeningGeometry.path must be an absolute path');
-        expect(() => client.getPdfNativePageSizes?.(cast<TDocumentRef>('relative.pdf')))
+        expect(() => client.getPdfNativePageSizes?.(invalidDocumentRef))
             .toThrow('getPdfNativePageSizes.path must be an absolute path');
-        expect(() => client.renderPdfNativePagePreview?.(requireDocumentRef('/tmp/huge.pdf'), cast<TPageNumber>(0)))
+        expect(() => client.renderPdfNativePagePreview?.(requireDocumentRef('/tmp/huge.pdf'), invalidPageNumber))
             .toThrow('renderPdfNativePagePreview.pageNumber must be a positive integer');
         expect(() => client.renderPdfNativePagePreview?.(
             requireDocumentRef('/tmp/huge.pdf'),
@@ -908,9 +913,9 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(() => client.renderPdfNativePagePreview?.(
             requireDocumentRef('/tmp/huge.pdf'),
             requirePageNumber(1),
-            { previewRequestId: cast<TRequestId>('   ') },
+            { previewRequestId: invalidWhitespaceRequestId },
         )).toThrow('renderPdfNativePagePreview.options.previewRequestId must be a non-empty string');
-        expect(() => client.cancelPdfNativePagePreview?.(cast<TRequestId>('')))
+        expect(() => client.cancelPdfNativePagePreview?.(invalidEmptyRequestId))
             .toThrow('cancelPdfNativePagePreview.requestId must not be empty');
 
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();

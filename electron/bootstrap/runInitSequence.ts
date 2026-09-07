@@ -80,6 +80,7 @@ export interface IRunInitSequenceOptions {
         removedDirectories: number;
         removedOcrDirectories: number;
     }>;
+    cleanupStaleAppTempNamespaces?: () => Promise<number>;
     createWindow(options?: {
         showStartupPlaceholder?: boolean;
         waitForInitialRendererReady?: boolean;
@@ -162,7 +163,7 @@ function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOpt
         claim.timeout = setTimeout(() => {
             requeue(sender, 'claim timeout');
         }, STARTUP_EXTERNAL_OPEN_CLAIM_TIMEOUT_MS);
-        claim.timeout.unref?.();
+        claim.timeout.unref();
         claimsBySender.set(sender, claim);
     }
 
@@ -363,6 +364,7 @@ function createPostRendererReadyMaintenanceRunner(
 ): () => void {
     const {
         cleanupStaleWorkingCopyDirectories,
+        cleanupStaleAppTempNamespaces,
         logger,
         sweepStaleDefaultAppTempPdfs,
         sweepStalePdfAnnotationParseArtifacts,
@@ -375,6 +377,17 @@ function createPostRendererReadyMaintenanceRunner(
     } = options;
 
     const steps: IStartupMaintenanceStepDefinition[] = [
+        ...(cleanupStaleAppTempNamespaces
+            ? [{
+                label: 'EVB app temp namespaces',
+                run: async () => {
+                    const removed = await cleanupStaleAppTempNamespaces();
+                    if (removed > 0) {
+                        logger.info(`Removed stale EVB app temp namespaces: ${removed}`);
+                    }
+                },
+            }]
+            : []),
         {
             label: 'default-app temp PDFs',
             run: sweepStaleDefaultAppTempPdfs,

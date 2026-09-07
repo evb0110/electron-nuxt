@@ -28,16 +28,18 @@ import {
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
-    type IWorkspaceExpose,
     type IWorkspaceToolbarSnapshot,
 } from '@app/types/workspaceExpose';
 import {requireDocumentRevisionToken} from '@contracts';
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
+
+const asyncHelpersMock = vi.hoisted(() => ({waitForVisualFrames: vi.fn(async () => {})}));
+vi.mock('@app/utils/asyncHelpers', () => asyncHelpersMock);
 
 vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
 
@@ -122,6 +124,7 @@ function createReadyRecord(
 
 describe('useAppShellTabLifecycle', () => {
     it('keeps split close and retained-pane handoff inside the tab transition', async () => {
+        asyncHelpersMock.waitForVisualFrames.mockClear();
         const panes = ref<IEditorPaneState[]>([
             createPane('pane-left', 'tab-document', ['tab-document']),
             createPane('pane-right', 'tab-empty', ['tab-empty']),
@@ -214,6 +217,7 @@ describe('useAppShellTabLifecycle', () => {
         expect(activePaneId.value).toBe('pane-left');
         expect(activeTabId.value).toBe('tab-document');
         expect(lifecycle.isTabTransitionBusy.value).toBe(false);
+        expect(asyncHelpersMock.waitForVisualFrames).toHaveBeenCalledWith({frames: 2});
     });
 
     it('delegates workspace close commands to the document controller transaction', async () => {
@@ -231,9 +235,15 @@ describe('useAppShellTabLifecycle', () => {
             }}),
             createTransactionId: () => 'close-transaction-1',
         });
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: true,
-            getToolbarSnapshot: vi.fn(() => ({viewerCapabilities: {closeableDocument: true}})),
+            getToolbarSnapshot: vi.fn(() => ({
+                ...createDefaultWorkspaceToolbarSnapshot(),
+                viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
+                    closeableDocument: true,
+                },
+            })),
             handleCloseFileFromUi: vi.fn(async () => {
                 expect(session.snapshot.value.phase).toBe('closing');
                 expect(session.snapshot.value.activeTransaction).toMatchObject({
@@ -295,7 +305,7 @@ describe('useAppShellTabLifecycle', () => {
         const tabs = ref<ITab[]>([createTab('tab-1', 'sample.pdf', '/tmp/sample.pdf')]);
         const workspaceHasPdf = ref(true);
         let toolbarSnapshot = createReadyRecord('sample.pdf', '/tmp/sample.pdf', {canSave: false}).toolbarSnapshot;
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: workspaceHasPdf,
             getToolbarSnapshot: vi.fn(() => toolbarSnapshot),
             handleCloseFileFromUi: vi.fn(async () => {
@@ -370,7 +380,7 @@ describe('useAppShellTabLifecycle', () => {
         const emptyToolbarSnapshot = createDefaultWorkspaceToolbarSnapshot();
         let workspaceToolbarSnapshot = emptyToolbarSnapshot;
         const workspaceHasPdf = ref(false);
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             hasPdf: workspaceHasPdf,
             getToolbarSnapshot: vi.fn(() => workspaceToolbarSnapshot),
             handleCloseFileFromUi: vi.fn(async () => false),

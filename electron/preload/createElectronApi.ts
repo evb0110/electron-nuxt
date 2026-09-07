@@ -14,10 +14,7 @@ import type {
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
-import {
-    parseRequestId,
-    type TRequestId,
-} from '@contracts/shared';
+import type {TRequestId} from '@contracts/shared';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -28,7 +25,6 @@ import {
 } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import type { DiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
-import {isRecord} from '@contracts/runtimeGuards';
 import type {
     TWindowCloseDecision,
     TWindowCloseUnavailableReason,
@@ -73,6 +69,7 @@ import {
     CORE_IPC_SEND_CHANNELS,
     type IPreloadDiagnosticsApi,
     type ICoreEventMap,
+    type IShutdownSaveFlushRequest,
     type IShutdownSaveFlushResult,
     decodeWindowCloseRequest,
 } from '@electron/platform-ipc/coreContract';
@@ -323,9 +320,9 @@ export function createElectronApi(
         return allowed ? filePaths : [];
     };
 
-    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest, (_event, payload: unknown) => {
-        const requestId = parseRequestId(isRecord(payload) ? payload.requestId : undefined);
-        if (requestId === null) {
+    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest, (_event, payload: IShutdownSaveFlushRequest) => {
+        const requestId = typeof payload?.requestId === 'string' ? payload.requestId : '';
+        if (!requestId) {
             return;
         }
         void (async () => {
@@ -375,14 +372,14 @@ export function createElectronApi(
             const callbacks = Array.from(windowCloseCallbacks);
             const callback = callbacks.length === 1 ? callbacks[0] : undefined;
             let response: {
-                requestId: TRequestId;
+                requestId: string;
                 decision?: TWindowCloseDecision;
                 status?: 'unavailable';
                 reason?: TWindowCloseUnavailableReason;
             };
             if (callback) {
                 try {
-                    const candidate: unknown = await callback(request);
+                    const candidate = await callback(request);
                     if (candidate === 'save' || candidate === 'discard' || candidate === 'cancel') {
                         response = {
                             decision: candidate,

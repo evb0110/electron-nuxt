@@ -366,12 +366,24 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         // Vue has patched the page geometry. Reapply once that patch lands so
         // the semantic page never leaves the painted viewport while the
         // asynchronous authority hydrates/refines the canonical intent.
-        void nextTick(() => options.applyResizeAnchorPreview?.(anchor.semanticAnchor));
+        return nextTick(() => options.applyResizeAnchorPreview?.(anchor.semanticAnchor));
     }
 
     function restoreResizeAnchorAfterLayout(anchor: IResizeAnchorContext, source: string) {
-        reapplyResizeAnchorPreviewAfterLayout(anchor);
-        options.submitResizeIntent(anchor.semanticAnchor);
+        // The authority resolves its geometry asynchronously. Submitting in
+        // the same turn as the reactive fit-preview write lets it observe the
+        // preceding page track, then apply its scroll position against the
+        // next track. Submit after Vue has committed the preview instead.
+        void reapplyResizeAnchorPreviewAfterLayout(anchor).then(() => {
+            if (
+                isActive?.value === false
+                || isLoading.value
+                || !pdfDocument.value
+            ) {
+                return;
+            }
+            options.submitResizeIntent(anchor.semanticAnchor);
+        });
         BrowserLogger.diagnosticThrottled(
             'pdf-zoom-debug',
             'resize-anchor-authority-intent',
@@ -470,7 +482,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     }
 
     function handleResize() {
-        if (isActive?.value === false) {
+        if (isActive?.value === false && !isResizing.value) {
             return;
         }
         const activeTransactionKind = options.transactionController?.activeTransaction?.value?.kind;
@@ -523,7 +535,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         });
         const previousViewportSize = lastObservedViewportSize;
         const viewportGeometryChanged = consumeViewportGeometryChange();
-        const updated = computeFitWidthScale(viewerContainer.value);
+        const updated = computeFitWidthScale(viewerContainer.value, {page: preferredAnchorPage});
         if (!updated && !viewportGeometryChanged) {
             return;
         }
@@ -556,7 +568,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                     // and the viewport visibly jumps to a different row.
                     // The first packet already submitted the authoritative
                     // resize intent, so this is a preview-only correction.
-                    reapplyResizeAnchorPreviewAfterLayout(pendingResizeAnchor);
+                    void reapplyResizeAnchorPreviewAfterLayout(pendingResizeAnchor);
                 }
                 BrowserLogger.diagnosticThrottled('pdf-zoom-debug', 'resize-anchor-preserved', ZOOM_QUEUE_LOG_THROTTLE_MS, '[resize-anchor] preserved first anchor in resize burst', {
                     updated,

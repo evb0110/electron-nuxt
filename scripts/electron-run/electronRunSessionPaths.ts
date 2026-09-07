@@ -2,6 +2,11 @@ import {
     isAbsolute,
     join,
 } from 'node:path';
+import {tmpdir} from 'node:os';
+import {
+    getAppTempNamespacePath,
+    getAppTempUserId,
+} from '@contracts/appTempNamespace';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
 
 let currentSessionName = 'default';
@@ -66,6 +71,15 @@ export function sessionPreserveWorkspaceCheckpointMarkerPath(name = getCurrentSe
 
 export function electronUserDataPath(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'electron-user-data');
+}
+
+export function electronAppTempDirPath(name = getCurrentSessionName()) {
+    return getAppTempNamespacePath(
+        electronUserDataPath(name),
+        tmpdir(),
+        getAppTempUserId(),
+        process.platform === 'win32',
+    );
 }
 
 export function electronFileLogDir(name = getCurrentSessionName()) {

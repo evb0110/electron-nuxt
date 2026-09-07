@@ -74,6 +74,7 @@ describe('viewer analytics endpoint', () => {
             ok: true,
             persisted: false,
         });
+        expect(mocks.getOptionalAnalyticsDb).toHaveBeenCalledWith();
         expect(mocks.readBoundedAnalyticsJsonBody).not.toHaveBeenCalled();
         expect(mocks.hashVisitorIdentity).not.toHaveBeenCalled();
         expect(mocks.captureServerFailure).not.toHaveBeenCalled();
@@ -91,6 +92,7 @@ describe('viewer analytics endpoint', () => {
             ok: false,
             persisted: false,
         });
+        expect(mocks.getOptionalAnalyticsDb).toHaveBeenCalledWith();
         expect(mocks.readBoundedAnalyticsJsonBody).not.toHaveBeenCalled();
         expect(mocks.admitViewerAnalyticsEvents).not.toHaveBeenCalled();
         expect(mocks.captureServerFailure).toHaveBeenCalledWith({

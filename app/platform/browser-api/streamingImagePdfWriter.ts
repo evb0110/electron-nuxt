@@ -205,7 +205,7 @@ function flattenBookmarkLevel(
 
     for (const node of nodes) {
         const childBuild = flattenBookmarkLevel(
-            node.item.items ?? [],
+            node.item.items,
             node.ref,
             cursorRef,
         );

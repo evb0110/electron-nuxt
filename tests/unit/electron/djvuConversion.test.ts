@@ -192,8 +192,8 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfil
     performanceMode: 'auto',
     tier: 'medium',
 })}));
-vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({PATH: '/bin'})}));
-vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({
+vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({PATH: '/bin'})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({
     ddjvu: '/tools/ddjvu',
     djvused: '/tools/djvused',
 })}));

@@ -30,7 +30,7 @@ const runtimeMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({
-    default: { version: '5.7.284' },
+    default: { version: '6.3.311' },
     ...runtimeMocks,
 }));
 
@@ -122,7 +122,15 @@ describe('pdfViewerFacade', () => {
             annotationEditorUIManager: uiManager,
             linkService,
         }));
-        expect(annotationLayerRender).toHaveBeenCalledWith(expect.objectContaining({imageResourcesPath: '/pdfjs/images/'}));
+        expect(annotationLayerRender).toHaveBeenCalledWith({
+            annotations: [],
+            viewport,
+            div,
+            page,
+            linkService,
+            renderForms: false,
+            annotationStorage: undefined,
+        });
         expect(runtimeMocks.AnnotationEditorLayer).toHaveBeenCalledWith(expect.objectContaining({
             div,
             uiManager,
@@ -134,7 +142,7 @@ describe('pdfViewerFacade', () => {
         expect(runtimeMocks.DrawLayer).toHaveBeenCalledOnce();
         expect(runtimeMocks.TextLayer).toHaveBeenCalledWith({});
         expect(getPdfjsEditorCompatibilityRuntime()).toEqual({
-            version: '5.7.284',
+            version: '6.3.311',
             AnnotationEditorLayer: runtimeMocks.AnnotationEditorLayer,
             AnnotationEditorUIManager: runtimeMocks.AnnotationEditorUIManager,
         });

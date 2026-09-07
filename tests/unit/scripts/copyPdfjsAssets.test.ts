@@ -205,6 +205,10 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
             ]) {
                 await mkdir(path.join(pdfjsRoot, directory), {recursive: true});
             }
+            await writeFile(
+                path.join(pdfjsRoot, 'standard_fonts', 'LICENSE_LIBERATION'),
+                'license line with spaces   \nlicense line without spaces\n',
+            );
             await writeFile(path.join(pdfjsRoot, 'wasm', 'README.md'), 'documentation');
             await writeFile(path.join(pdfjsRoot, 'wasm', 'CHANGELOG.md'), 'documentation');
 
@@ -218,6 +222,10 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
                 'utf8',
             );
             expect(publicWorkerSource).toContain('ChunkedStreamClone');
+            expect(await readFile(
+                path.join(targetRoot, 'standard_fonts', 'LICENSE_LIBERATION'),
+                'utf8',
+            )).toBe('license line with spaces\nlicense line without spaces\n');
             expect(publicWorkerSource).toContain('_storedChunks');
             expect(publicWorkerSource).toContain('discardChunksBefore');
             expect(publicWorkerSource).toContain('indexObjectsBounded');

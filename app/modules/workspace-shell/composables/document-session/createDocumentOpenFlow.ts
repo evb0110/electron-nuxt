@@ -5,8 +5,10 @@ import type {
     useAnalytics,
 } from '@app/composables/useAnalytics';
 import type { TTranslateFn } from '@i18n-app';
-import {parseDocumentRef} from '@contracts/documentRef';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     getFailureReceipt,
     type ExpectedOutcome,
@@ -19,11 +21,11 @@ import type {
     IDocumentMutationRevisionOptions,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
-import {createRequestId} from '@contracts/shared';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
 import type { TPdfSource } from '@app/types/pdfUi';
+import { createRequestId } from '@contracts/shared';
 import type {
     createEpochGuard,
     IDocumentSessionState,
@@ -38,7 +40,7 @@ import {
     getLowercaseExtension,
 } from '@app/utils/analytics';
 import { readDocumentBytes } from '@app/utils/documentBytes';
-import {getDocumentRefBaseName} from '@app/utils/documentRef';
+import { getDocumentRefBaseName } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/openPathSecondaryPerformancePolicy';
@@ -598,7 +600,9 @@ export function createDocumentOpenFlow(
         try {
             const documentOpen = getDocumentOpenCapability();
             const normalizedPaths = paths
-                .map(path => parseDocumentRef(path.trim()))
+                .map((path) => path.trim())
+                .filter((path) => path.length > 0)
+                .map(path => parseDocumentRef(path))
                 .filter((path): path is TDocumentRef => path !== null);
 
             if (normalizedPaths.length === 0) {

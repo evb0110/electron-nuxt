@@ -1,4 +1,7 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import type {
+    IPdfPage,
+    IPdfRenderTask,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     afterEach,
     describe,
@@ -6,10 +9,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    PDFPageProxy,
-    RenderTask,
-} from 'pdfjs-dist';
 import {
     createPdfPageRasterScheduler,
     type IPdfRasterDemand,
@@ -28,6 +27,7 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { cast } from '@tests/helpers/cast';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 const documentFence = {
     documentRevision: null,
@@ -35,12 +35,8 @@ const documentFence = {
     loadToken: 1,
 } satisfies IPdfRasterDocumentFence;
 
-function createPageProxy(pageNumber: number) {
-    return cast<PDFPageProxy>({pageNumber});
-}
-
 function createTask(promise: Promise<unknown> = Promise.resolve()) {
-    return cast<RenderTask>({
+    return cast<IPdfRenderTask>({
         cancel: vi.fn(),
         promise,
     });
@@ -68,7 +64,7 @@ function createHarness(options: {
     prepare?: IPdfRasterRenderTarget<{pageNumber: number}>['prepare'];
     surfaceBudgetBytes?: number;
 } = {}) {
-    const pages = new Map<number, PDFPageProxy>();
+    const pages = new Map<number, IPdfPage>();
     const released: number[] = [];
     const committed: number[] = [];
     const discarded: number[] = [];
@@ -90,7 +86,7 @@ function createHarness(options: {
     const scheduler = createPdfPageRasterScheduler({
         documentFence,
         leasePage: async (pageNumber) => ({
-            page: pages.get(pageNumber) ?? createPageProxy(pageNumber),
+            page: pages.get(pageNumber) ?? cast<IPdfPage>({pageNumber}),
             release: vi.fn(),
         }),
         maxConcurrency: options.maxConcurrency ?? 1,
@@ -113,7 +109,7 @@ function createRetryingOneShotHarness() {
     const signals: AbortSignal[] = [];
     const prepare = vi.fn(async (
         _demand: IPdfRasterDemand,
-        _page: PDFPageProxy,
+        _page: IPdfPage,
         signal: AbortSignal,
     ) => {
         signals.push(signal);
@@ -125,7 +121,7 @@ function createRetryingOneShotHarness() {
     const scheduler = createPdfPageRasterScheduler({
         documentFence,
         leasePage: async pageNumber => ({
-            page: createPageProxy(pageNumber),
+            page: cast<IPdfPage>({pageNumber}),
             release: leaseRelease,
         }),
         surfaceBudget: budget,
@@ -233,7 +229,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
             maxConcurrency: 1,
@@ -298,7 +294,7 @@ describe('PdfPageRasterScheduler', () => {
     });
 
     it('preempts lower-priority same-page work and waits for its PDF.js task to settle', async () => {
-        const page = createPageProxy(7);
+        const page = cast<IPdfPage>({pageNumber: 7});
         const lowTask = Promise.withResolvers<undefined>();
         const highTask = Promise.withResolvers<undefined>();
         const cancelLow = vi.fn();
@@ -317,7 +313,7 @@ describe('PdfPageRasterScheduler', () => {
             prepare: async () => ({kind: 'low'}),
             start: () => {
                 starts.push('low');
-                return cast<RenderTask>({
+                return cast<IPdfRenderTask>({
                     cancel: cancelLow,
                     promise: lowTask.promise,
                 });
@@ -376,7 +372,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release,
             }),
             surfaceBudget: createWorkspaceSurfaceBudgetController(1_000),
@@ -416,7 +412,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release,
             }),
             surfaceBudget: createWorkspaceSurfaceBudgetController(1_000),
@@ -431,7 +427,7 @@ describe('PdfPageRasterScheduler', () => {
             target: {
                 id: 'cancel',
                 prepare: async () => ({}),
-                start: () => cast<RenderTask>({
+                start: () => cast<IPdfRenderTask>({
                     cancel,
                     promise: render.promise,
                 }),
@@ -457,7 +453,7 @@ describe('PdfPageRasterScheduler', () => {
         const release = vi.fn();
         const prepareStarted = vi.fn();
         const disposeSettled = vi.fn();
-        const page = cast<PDFPageProxy>({
+        const page = cast<IPdfPage>({
             pageNumber: 1,
             getOperatorList: vi.fn(() => operatorList.promise),
         });
@@ -480,7 +476,7 @@ describe('PdfPageRasterScheduler', () => {
                 id: 'cancelled-prepare',
                 prepare: async (_demand, leasedPage, signal, captureSettlement) => runCoordinatedPdfPageOperation({
                     owner: 'cancelled-prepare',
-                    pageNumber: requirePageNumber(leasedPage.pageNumber),
+                    pageNumber: leasedPage.pageNumber,
                     pdfPage: leasedPage,
                     priority: 100,
                     signal,
@@ -516,7 +512,7 @@ describe('PdfPageRasterScheduler', () => {
     });
 
     it('cancels source A without waiting for an active same-page successor from source B', async () => {
-        const page = createPageProxy(1);
+        const page = cast<IPdfPage>({pageNumber: 1});
         const operationA = Promise.withResolvers<string>();
         const operationB = Promise.withResolvers<string>();
         const operationAStarted = vi.fn();
@@ -543,7 +539,7 @@ describe('PdfPageRasterScheduler', () => {
             id,
             prepare: async (_demand, leasedPage, signal, captureSettlement) => runCoordinatedPdfPageOperation({
                 owner: id,
-                pageNumber: requirePageNumber(leasedPage.pageNumber),
+                pageNumber: leasedPage.pageNumber,
                 pdfPage: leasedPage,
                 priority: 100,
                 signal,
@@ -648,7 +644,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
             maxConcurrency: 1,
@@ -682,7 +678,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release,
             }),
             surfaceBudget: budget,
@@ -732,7 +728,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
             surfaceBudget: budget,
@@ -886,7 +882,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async (pageNumber) => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: leaseReleases[leaseCalls++]!,
             }),
             maxConcurrency: 2,
@@ -961,7 +957,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: leaseRelease,
             }),
             renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
@@ -973,7 +969,7 @@ describe('PdfPageRasterScheduler', () => {
             start: () => {
                 startCount += 1;
                 return startCount === 1
-                    ? cast<RenderTask>({
+                    ? cast<IPdfRenderTask>({
                         cancel: firstCancel,
                         promise: firstRender.promise,
                     })
@@ -1032,7 +1028,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: leaseRelease,
             }),
             surfaceBudget: budget,
@@ -1040,7 +1036,7 @@ describe('PdfPageRasterScheduler', () => {
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             id: 'watchdog-resource-ownership',
             prepare: async demand => ({pageNumber: demand.pageNumber}),
-            start: () => cast<RenderTask>({
+            start: () => cast<IPdfRenderTask>({
                 cancel,
                 promise: render.promise,
             }),
@@ -1088,7 +1084,7 @@ describe('PdfPageRasterScheduler', () => {
         vi.useFakeTimers();
         const budget = createWorkspaceSurfaceBudgetController(1_000);
         const retryLease = Promise.withResolvers<{
-            page: PDFPageProxy;
+            page: IPdfPage;
             release: () => void;
         }>();
         const firstLeaseRelease = vi.fn();
@@ -1103,7 +1099,7 @@ describe('PdfPageRasterScheduler', () => {
                     return retryLease.promise;
                 }
                 return Promise.resolve({
-                    page: createPageProxy(pageNumber),
+                    page: cast<IPdfPage>({pageNumber}),
                     release: firstLeaseRelease,
                 });
             },
@@ -1138,7 +1134,7 @@ describe('PdfPageRasterScheduler', () => {
         expect(cancellationSettled).not.toHaveBeenCalled();
 
         retryLease.resolve({
-            page: createPageProxy(1),
+            page: cast<IPdfPage>({pageNumber: 1}),
             release: retryLeaseRelease,
         });
         await cancellation;
@@ -1200,7 +1196,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
             maxConcurrency: 1,
@@ -1245,7 +1241,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
             maxConcurrency: 1,
@@ -1294,7 +1290,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
             maxConcurrency: 2,
@@ -1309,7 +1305,7 @@ describe('PdfPageRasterScheduler', () => {
                 }
                 const render = Promise.withResolvers<undefined>();
                 renders.set(pageNumber, render);
-                return cast<RenderTask>({
+                return cast<IPdfRenderTask>({
                     cancel: () => {
                         cancelled.push(pageNumber);
                         const error = new Error('replaced');
@@ -1365,7 +1361,7 @@ describe('PdfPageRasterScheduler', () => {
         const scheduler = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release,
             }),
             maxConcurrency: 1,
@@ -1383,7 +1379,7 @@ describe('PdfPageRasterScheduler', () => {
                 prepare: async demand => ({pageNumber: demand.pageNumber}),
                 start: ({pageNumber}) => {
                     started.push(pageNumber);
-                    return cast<RenderTask>({
+                    return cast<IPdfRenderTask>({
                         cancel,
                         promise: render.promise,
                     });
@@ -1435,7 +1431,7 @@ describe('PdfPageRasterScheduler', () => {
         const schedulerA = createPdfPageRasterScheduler({
             documentFence,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: releaseA,
             }),
             maxConcurrency: 1,
@@ -1477,7 +1473,7 @@ describe('PdfPageRasterScheduler', () => {
         const schedulerB = createPdfPageRasterScheduler({
             documentFence: fenceB,
             leasePage: async pageNumber => ({
-                page: createPageProxy(pageNumber),
+                page: cast<IPdfPage>({pageNumber}),
                 release: vi.fn(),
             }),
             maxConcurrency: 1,

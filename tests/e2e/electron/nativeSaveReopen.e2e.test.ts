@@ -75,7 +75,7 @@ interface IQpdfOutline {
     kids?: IQpdfOutline[];
 }
 
-interface IAutomationFileOpenGrantWindow extends IE2EWindow {__allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;}
+interface IAutomationFileOpenGrantWindow extends IE2EWindow {__allowRendererFileOpenForAutomation?: (value: TLegacyDocumentRef) => Promise<boolean>;}
 
 function flattenQpdfOutlines(outlines: IQpdfOutline[]): Array<{
     title: string;
@@ -1209,7 +1209,7 @@ describe('Electron E2E - native save and reopen', () => {
 
             if (sourcePath) {
                 const granted = await evaluateInPage(session.page, async path => {
-                    const grant = (window as typeof globalThis & IAutomationFileOpenGrantWindow)
+                    const grant = (window as IAutomationFileOpenGrantWindow)
                         .__allowRendererFileOpenForAutomation;
                     return typeof grant === 'function' && grant(path);
                 }, sourcePath);

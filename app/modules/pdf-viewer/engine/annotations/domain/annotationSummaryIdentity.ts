@@ -9,6 +9,7 @@ import {
     deriveAnnotationId,
     type AnnotationId,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { createEpochMs } from '@contracts/timestamps';
 
 export interface IComputeSummaryStableKeyParams {
     pageIndex: number;
@@ -151,7 +152,10 @@ function mergeCommentSummaries(existing: IAnnotationCommentSummary, incoming: IA
         uid: preferred.uid ?? fallback.uid,
         text: preferred.text.trim() ? preferred.text : fallback.text,
         author: preferred.author ?? fallback.author,
-        modifiedAt: Math.max(preferred.modifiedAt ?? 0, fallback.modifiedAt ?? 0) || null,
+        modifiedAt: (() => {
+            const value = Math.max(preferred.modifiedAt ?? 0, fallback.modifiedAt ?? 0);
+            return value > 0 ? createEpochMs(value) : null;
+        })(),
         color: preferred.color ?? fallback.color,
         hasNote: preferred.hasNote === true || fallback.hasNote === true,
         ...(appAnnotationId ? {appAnnotationId} : {}),

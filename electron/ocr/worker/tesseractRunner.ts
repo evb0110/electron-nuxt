@@ -249,7 +249,7 @@ export async function runOcrFileBased(
                 await cleanupTempOutputs();
                 finalize(createFailureResult(error));
             }, FILE_BASED_OCR_KILL_GRACE_MS + 1_000);
-            handles.forceFinalizeHandle.unref?.();
+            handles.forceFinalizeHandle.unref();
         };
 
         const getCloseFailureMessage = (
@@ -331,11 +331,11 @@ export async function runOcrFileBased(
                     // Process may have exited already.
                 }
             }, FILE_BASED_OCR_KILL_GRACE_MS);
-            handles.killHandle.unref?.();
+            handles.killHandle.unref();
 
             scheduleForceFinalizeAfterTermination(`Tesseract timed out after ${FILE_BASED_OCR_TIMEOUT_MS}ms`);
         }, FILE_BASED_OCR_TIMEOUT_MS);
-        handles.timeoutHandle.unref?.();
+        handles.timeoutHandle.unref();
 
         if (signal?.aborted) {
             abortHandler?.();
@@ -344,9 +344,9 @@ export async function runOcrFileBased(
         // File-output Tesseract jobs should not produce meaningful stdout, but
         // some builds still write progress text there. Drain it so the child
         // cannot block on a full pipe while stderr is the only captured stream.
-        proc.stdout?.resume();
+        proc.stdout.resume();
 
-        proc.stderr?.on('data', (data: Buffer) => {
+        proc.stderr.on('data', (data: Buffer) => {
             const appended = appendTextChunkWithByteCap(stderr, data, FILE_BASED_OCR_MAX_STDERR_BYTES);
             stderr = appended.text;
             stderrTruncated = stderrTruncated || appended.truncated;
@@ -567,7 +567,7 @@ function* iterateTsvRows(tsvContent: string, maxRows: number): Generator<{
         const lineEnd = nextLineEnd < 0 ? trimmed.length : nextLineEnd;
         const line = trimmed.slice(cursor, lineEnd).replace(/\r$/u, '');
         cursor = nextLineEnd < 0 ? trimmed.length + 1 : nextLineEnd + 1;
-        if (!line?.trim()) continue;
+        if (!line.trim()) continue;
         rowCount += 1;
         if (rowCount > maxRows) {
             throw new Error(`Tesseract TSV output exceeds the ${maxRows}-row limit`);

@@ -25,7 +25,19 @@ import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime
 import { createPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
-import { cast } from '@tests/helpers/cast';
+
+function createDomRect(shape: object): DOMRect {
+    // The rendering session reads only viewport geometry from these browser
+    // measurements.
+    return shape as DOMRect;
+}
+
+function createChassisAuthority(
+    openSurface: ReturnType<typeof createDocumentOpenSurfaceSession>,
+): IDocumentViewerChassisAuthority {
+    // The test enables only the open-surface authority path.
+    return {openSurface} as IDocumentViewerChassisAuthority;
+}
 
 const rendererFixture = vi.hoisted(() => {
     const api = {
@@ -394,7 +406,7 @@ function createRenderingFixture(fixtureOptions: {
         },
     };
     const viewerElement = document.createElement('div');
-    viewerElement.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+    viewerElement.getBoundingClientRect = vi.fn(() => createDomRect({
         top: 0,
         right: 1000,
         bottom: 800,
@@ -413,7 +425,7 @@ function createRenderingFixture(fixtureOptions: {
         const page = document.createElement('div');
         page.className = 'page_container';
         page.dataset.page = String(pageNumber);
-        page.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+        page.getBoundingClientRect = vi.fn(() => createDomRect({
             width: 100,
             height: 120,
         }));
@@ -441,7 +453,7 @@ function createRenderingFixture(fixtureOptions: {
         const canvas = document.createElement('canvas');
         canvas.width = 100;
         canvas.height = 120;
-        canvas.getBoundingClientRect = vi.fn(() => cast<DOMRect>({
+        canvas.getBoundingClientRect = vi.fn(() => createDomRect({
             top: 0,
             right: 100,
             bottom: 120,
@@ -471,9 +483,7 @@ function createRenderingFixture(fixtureOptions: {
         };
     });
     const emitInitialVisualReady = vi.fn();
-    const chassisAuthority = openSurface
-        ? cast<IDocumentViewerChassisAuthority>({openSurface})
-        : null;
+    const chassisAuthority = openSurface ? createChassisAuthority(openSurface) : null;
     let rendering: ReturnType<typeof createPdfRenderingSession> | undefined;
     const root = document.createElement('div');
     const app = createApp(defineComponent({
@@ -642,7 +652,7 @@ describe('PdfRenderingSession behavior', () => {
         }
     });
 
-    it('publishes queued work once, starts the actual RenderTask, and commits canvas before layers', async () => {
+    it('publishes queued work once, starts the actual render task, and commits canvas before layers', async () => {
         const fixture = createRenderingFixture({autoResolve: false});
         try {
             await vi.waitFor(() => expect(fixture.pdfPage.render).toHaveBeenCalledOnce());

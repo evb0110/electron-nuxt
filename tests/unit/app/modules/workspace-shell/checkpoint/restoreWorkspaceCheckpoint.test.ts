@@ -10,13 +10,20 @@ import { requireEpochMs } from '@contracts/timestamps';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import {
+    createDefaultWorkspaceToolbarSnapshot,
+    createDefaultWorkspaceViewerCapabilities,
+    type IWorkspaceExpose,
+} from '@app/types/workspaceExpose';
 import { restoreWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
-import { cast } from '@tests/helpers/cast';
+import {
+    createWorkspaceAutomationStateSnapshot,
+    createWorkspaceExposeFixture,
+} from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 describe('restoreWorkspaceCheckpoint', () => {
     it('reopens a working copy and restores the active page and zoom', async () => {
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             waitForDocumentOpenSettled: vi.fn().mockResolvedValue(undefined),
             handleGoToPage: vi.fn(),
             setCustomZoomFromDisplay: vi.fn(),
@@ -26,16 +33,18 @@ describe('restoreWorkspaceCheckpoint', () => {
             handleViewModeFacing: vi.fn(),
             setViewRotation: vi.fn(),
             getToolbarSnapshot: () => ({
+                ...createDefaultWorkspaceToolbarSnapshot(),
                 continuousScroll: true,
                 viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
                     continuousScroll: true,
                     viewMode: true,
                     viewRotation: true,
                 },
             }),
-            getAutomationStateSnapshot: () => ({
-                originalPath: '/documents/draft.pdf',
-                workingCopyPath: '/tmp/working/draft.pdf',
+            getAutomationStateSnapshot: () => createWorkspaceAutomationStateSnapshot({
+                originalPath: requireDocumentRef('/documents/draft.pdf'),
+                workingCopyPath: requireDocumentRef('/tmp/working/draft.pdf'),
             }),
         });
         const tabs = ref<ITab[]>([{
@@ -149,7 +158,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                 zoomMode: null,
             }],
         }, {
-            tabs: ref<ITab[]>([{
+            tabs: ref([{
                 id: requireTabId('tab-1'),
                 fileName: 'saved.pdf',
                 originalPath: requireDocumentRef('/documents/saved.pdf'),
@@ -166,7 +175,7 @@ describe('restoreWorkspaceCheckpoint', () => {
     });
 
     it('restores an unsaved generated PDF from its working copy without losing Save As semantics', async () => {
-        const workspace = cast<IWorkspaceExpose>({
+        const workspace = createWorkspaceExposeFixture({
             waitForDocumentOpenSettled: vi.fn().mockResolvedValue(undefined),
             handleGoToPage: vi.fn(),
             setCustomZoomFromDisplay: vi.fn(),
@@ -177,15 +186,17 @@ describe('restoreWorkspaceCheckpoint', () => {
             handleViewModeFacing: vi.fn(),
             handleViewModeFacingFirstSingle: vi.fn(),
             getToolbarSnapshot: () => ({
+                ...createDefaultWorkspaceToolbarSnapshot(),
                 continuousScroll: true,
                 viewerCapabilities: {
+                    ...createDefaultWorkspaceViewerCapabilities(),
                     continuousScroll: true,
                     viewMode: true,
                 },
             }),
-            getAutomationStateSnapshot: () => ({
-                originalPath: '/documents/Combined.pdf',
-                workingCopyPath: '/tmp/working/Combined.pdf',
+            getAutomationStateSnapshot: () => createWorkspaceAutomationStateSnapshot({
+                originalPath: requireDocumentRef('/documents/Combined.pdf'),
+                workingCopyPath: requireDocumentRef('/tmp/working/Combined.pdf'),
             }),
         });
         const openPathInReservedTab = vi.fn().mockResolvedValue(true);
@@ -286,10 +297,7 @@ describe('restoreWorkspaceCheckpoint', () => {
 
     it('restores a blank tab without waiting for document visual readiness', async () => {
         const waitForDocumentOpenSettled = vi.fn().mockResolvedValue(undefined);
-        const workspace = cast<IWorkspaceExpose>({
-            waitForDocumentOpenSettled,
-            getAutomationStateSnapshot: () => ({}),
-        });
+        const workspace = createWorkspaceExposeFixture({waitForDocumentOpenSettled});
         const activateTab = vi.fn();
 
         await restoreWorkspaceCheckpoint({

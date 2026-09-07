@@ -13,7 +13,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { RenderTask } from 'pdfjs-dist';
+import type {IPdfRenderTask} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const loggerError = vi.fn();
@@ -60,7 +60,7 @@ const pdfjsState: {
     getDocument: ReturnType<typeof vi.fn>;
     PDFDataRangeTransport?: typeof MockPdfDataRangeTransport;
 } = {
-    version: '5.7.284',
+    version: '6.3.311',
     GlobalWorkerOptions: { workerSrc: '' },
     VerbosityLevel: { ERRORS: 0 },
     getDocument: vi.fn(),
@@ -184,7 +184,6 @@ describe('PdfDocumentSession range loading', () => {
         expect(pdfjsState.getDocument).toHaveBeenCalledTimes(1);
         expect(pdfjsState.getDocument).toHaveBeenCalledWith(expect.objectContaining({
             range: expect.any(MockPdfDataRangeTransport),
-            length: size,
             rangeChunkSize: 1024 * 1024,
             disableAutoFetch: true,
             disableStream: true,
@@ -1159,7 +1158,6 @@ describe('PdfDocumentSession range loading', () => {
         expect(pdfjsState.getDocument).toHaveBeenCalledWith(expect.objectContaining({
             disableAutoFetch: true,
             disableStream: true,
-            length: size,
             range: expect.any(MockPdfDataRangeTransport),
             rangeChunkSize: 1024 * 1024,
         }));
@@ -1535,7 +1533,7 @@ describe('PdfDocumentSession range loading', () => {
         const cancel = vi.fn(() => {
             events.push('render-cancel');
         });
-        const renderTask: RenderTask = {
+        const renderTask: IPdfRenderTask = {
             _internalRenderTask: null,
             cancel,
             imageCoordinates: null,

@@ -33,8 +33,8 @@ vi.mock('electron', () => ({app: {
     getPath: () => tmpdir(),
     isPackaged: false,
 }}));
-vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: mocks.getDjvuNativeToolPaths}));
-vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: mocks.getDjvuNativeToolPaths}));
+vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({})}));
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
     renderDjvuPageToImage: mocks.renderDjvuPageToImage,
     runRegisteredDjvuProcess: mocks.runRegisteredDjvuProcess,

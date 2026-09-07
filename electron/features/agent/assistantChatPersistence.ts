@@ -822,7 +822,7 @@ export class AssistantChatPersistence {
             pending.ready = true;
             this.schedulePendingSnapshot(key);
         }, this.snapshotDebounceMs);
-        pending.timer.unref?.();
+        pending.timer.unref();
         this.pendingSnapshots.set(key, pending);
     }
 

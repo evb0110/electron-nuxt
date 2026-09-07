@@ -24,7 +24,7 @@ import {
 import { addRecentFile } from '@electron/recentFiles';
 import { updateRecentFilesMenu } from '@electron/menu';
 import { allowDocxWritePath } from '@electron/file-access/docxExportPaths';
-import { allowDjvuWritePath } from '@electron/djvu/exportPaths';
+import { allowDjvuWritePath } from '@electron/features/djvu/public';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import {
     getWorkingCopyOriginalPath,

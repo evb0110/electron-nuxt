@@ -456,7 +456,7 @@ export function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {})
     return {
         id: overrides.id ?? 'shape-1',
         type: overrides.type ?? 'rectangle',
-        pageIndex: overrides.pageIndex ?? 0,
+        pageIndex: overrides.pageIndex ?? requirePageIndex(0),
         x: overrides.x ?? 0.1,
         y: overrides.y ?? 0.2,
         width: overrides.width ?? 0.3,

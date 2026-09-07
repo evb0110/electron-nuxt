@@ -15,8 +15,9 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
-import { cast } from '@tests/helpers/cast';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+
+type TIpcRendererFixture = Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>;
 
 const channels = DJVU_PLATFORM_FEATURE.invokeChannels;
 const eventChannels = DJVU_PLATFORM_FEATURE.eventChannels;
@@ -86,18 +87,21 @@ describe('DjVu platform feature', () => {
     });
 
     it('rejects oversized preview request ids before invoking main', async () => {
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke: vi.fn(),
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             DJVU_PLATFORM_FEATURE,
         );
         const oversizedRequestId = 'x'.repeat(129);
 
-        expect(() => client.renderPagePreview(requireDocumentRef('/tmp/book.djvu'), requirePageNumber(1), {previewRequestId: cast<TRequestId>(oversizedRequestId)}))
+        // This deliberately invalid branded value reaches the client validator.
+        const invalidRequestId = oversizedRequestId as TRequestId;
+        expect(() => client.renderPagePreview(requireDocumentRef('/tmp/book.djvu'), requirePageNumber(1), {previewRequestId: invalidRequestId}))
             .toThrow('renderPagePreview.options.previewRequestId exceeds maximum length (128)');
         expect(() => DJVU_PLATFORM_FEATURE.methods.cancelPagePreview.ipc.args.decode([oversizedRequestId]))
             .toThrow('cancelPagePreview.requestId exceeds maximum length (128)');
@@ -106,16 +110,18 @@ describe('DjVu platform feature', () => {
 
     it('drops malformed DjVu events before callbacks', async () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const on = vi.fn();
+        on.mockImplementation((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
+            listeners.set(channel, handler);
+        });
+        const ipcRenderer = {
             invoke: vi.fn(),
-            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
-                listeners.set(channel, handler);
-                return cast<IpcRenderer>(ipcRenderer);
-            }),
+            on,
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             DJVU_PLATFORM_FEATURE,
         );
         const progressCallback = vi.fn();
@@ -175,13 +181,14 @@ describe('DjVu platform feature', () => {
             results: [],
             truncated: false,
         });
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke,
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             DJVU_PLATFORM_FEATURE,
         );
 
@@ -206,8 +213,10 @@ describe('DjVu platform feature', () => {
                 useRegex: false,
             },
         );
+        // This deliberately invalid branded value reaches the client validator.
+        const invalidRequestId = 'x'.repeat(129) as TRequestId;
         expect(() => client.searchText(requireDocumentRef('/tmp/book.djvu'), 'needle', {
-            requestId: cast<TRequestId>('x'.repeat(129)),
+            requestId: invalidRequestId,
             pageCount: 431,
         })).toThrow('searchText.options.requestId exceeds maximum length (128)');
         expect(() => client.searchText(requireDocumentRef('/tmp/book.djvu'), 'needle', {
@@ -223,13 +232,14 @@ describe('DjVu platform feature', () => {
             error: 'native conversion failed',
             failure: conversionFailure,
         });
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke,
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             DJVU_PLATFORM_FEATURE,
         );
 
@@ -268,13 +278,14 @@ describe('DjVu platform feature', () => {
             },
             updatedAtMs: 1,
         });
-        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+        const ipcRenderer = {
             invoke,
             on: vi.fn(),
             removeListener: vi.fn(),
-        };
+            send: vi.fn(),
+        } satisfies TIpcRendererFixture;
         const client = createPlatformFeaturePreloadClient(
-            cast<IpcRenderer>(ipcRenderer),
+            ipcRenderer,
             DJVU_PLATFORM_FEATURE,
         );
 

@@ -69,7 +69,7 @@ describe('embedBookmarksIntoPdfFile', () => {
             })
             .mockRejectedValueOnce(abortError);
 
-        const { embedBookmarksIntoPdfFile } = await import('@electron/djvu/embedBookmarksIntoPdfFile');
+        const { embedBookmarksIntoPdfFile } = await import('@electron/features/djvu/main/embedBookmarksIntoPdfFile');
 
         await expect(embedBookmarksIntoPdfFile(
             '/tmp/input.pdf',
@@ -92,7 +92,7 @@ describe('embedBookmarksIntoPdfFile', () => {
         const abortController = new AbortController();
         abortController.abort(new DOMException('Operation aborted', 'AbortError'));
 
-        const { embedBookmarksIntoPdfFile } = await import('@electron/djvu/embedBookmarksIntoPdfFile');
+        const { embedBookmarksIntoPdfFile } = await import('@electron/features/djvu/main/embedBookmarksIntoPdfFile');
 
         await expect(embedBookmarksIntoPdfFile(
             '/tmp/input.pdf',

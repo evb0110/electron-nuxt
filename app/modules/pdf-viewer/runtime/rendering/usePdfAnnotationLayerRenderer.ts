@@ -1,8 +1,9 @@
 import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
-import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/display/annotation_layer';
+    IPdfAnnotation,
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {AnnotationLayer as TAnnotationLayer} from 'pdfjs-dist/types/src/display/annotation_layer';
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -18,6 +19,9 @@ import { getShellCapability } from '@app/utils/getShellCapability';
 import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type { IAnnotationLayerRenderOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfAnnotationLayerRendererTypes';
+import type { ILinkAnnotation } from '@app/types/annotations';
+import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
+import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 
 // fallow-ignore-next-line unused-type -- compatibility type remains until #195 removes the dormant renderer bridge.
 export type { TAnnotationEditorLayerRenderResult } from '@app/modules/pdf-viewer/runtime/rendering/pdfAnnotationLayerRendererTypes';
@@ -27,11 +31,11 @@ export type { TAnnotationEditorLayerRenderResult } from '@app/modules/pdf-viewer
 // proxy is replaced whenever the document is reloaded, so it is the exact
 // lifetime of the parsed data.
 const parsedPageAnnotations = new WeakMap<
-    PDFPageProxy,
-    ReturnType<PDFPageProxy['getAnnotations']>
+    IPdfPage,
+    ReturnType<IPdfPage['getAnnotations']>
 >();
 
-function getParsedPageAnnotations(pdfPage: PDFPageProxy) {
+function getParsedPageAnnotations(pdfPage: IPdfPage) {
     const cached = parsedPageAnnotations.get(pdfPage);
     if (cached) {
         return cached;
@@ -45,24 +49,59 @@ function getParsedPageAnnotations(pdfPage: PDFPageProxy) {
     return pending;
 }
 
-function annotationIdOf(annotation: unknown) {
-    if (!annotation || typeof annotation !== 'object') {
-        return null;
-    }
-    const id = (annotation as {id?: unknown}).id;
-    return typeof id === 'string' ? normalizePdfJsAnnotationId(id) : null;
+function annotationIdOf(annotation: IPdfAnnotation) {
+    return typeof annotation.id === 'string'
+        ? normalizePdfJsAnnotationId(annotation.id)
+        : null;
 }
 
-function isLinkAnnotation(annotation: unknown) {
-    if (!annotation || typeof annotation !== 'object') {
-        return false;
-    }
-    const candidate = annotation as {
-        annotationType?: unknown;
-        subtype?: unknown;
-    };
-    return candidate.annotationType === 2
-        || (typeof candidate.subtype === 'string' && candidate.subtype.toLowerCase() === 'link');
+function isLinkAnnotation(annotation: IPdfAnnotation) {
+    return annotation.annotationType === 2
+        || (typeof annotation.subtype === 'string' && annotation.subtype.toLowerCase() === 'link');
+}
+
+type TPdfLinkAnnotation = IPdfAnnotation & {
+    readonly rect?: readonly number[];
+    readonly url?: unknown;
+    readonly dest?: unknown;
+};
+
+function isPdfDestination(value: unknown): value is string | unknown[] {
+    return (
+        (typeof value === 'string' && value.trim().length > 0)
+        || Array.isArray(value)
+    );
+}
+
+function extractPageLinkAnnotations(
+    annotations: readonly IPdfAnnotation[],
+    pageNumber: number,
+    pdfPage: IPdfPage,
+): ILinkAnnotation[] {
+    const pageView = [...pdfPage.view];
+    const pageRotation = normalizePageRotation(pdfPage.rotate);
+    return annotations.flatMap((candidate, annotationIndex) => {
+        if (!isLinkAnnotation(candidate)) {
+            return [];
+        }
+        const annotation = candidate as TPdfLinkAnnotation;
+        const url = typeof annotation.url === 'string' ? annotation.url : null;
+        const dest = annotation.dest;
+        if ((!url && !isPdfDestination(dest)) || !annotation.rect) {
+            return [];
+        }
+        const rect = toMarkerRectFromPdfRect([...annotation.rect], pageView, pageRotation);
+        if (!rect) {
+            return [];
+        }
+        return [{
+            id: annotation.id ?? `link-${pageNumber}-${annotationIndex}`,
+            pageNumber,
+            ...(url ? {url} : {}),
+            ...(isPdfDestination(dest) ? {dest} : {}),
+            rect,
+        }];
+    });
 }
 
 function normalizedIds(ids: ReadonlySet<string> | undefined) {
@@ -114,13 +153,14 @@ async function raceWithAnnotationAbort<T>(
 export const usePdfAnnotationLayerRenderer = (deps: {
     numPages: Ref<number>;
     currentPage: Ref<number>;
-    pdfDocument: Ref<PDFDocumentProxy | null>;
+    pdfDocument: Ref<IPdfDocument | null>;
     showAnnotations: MaybeRefOrGetter<boolean>;
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
     annotationProjectionReady?: MaybeRefOrGetter<boolean>;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
     getDocumentVersion?: (() => number) | undefined;
     scrollToPage?: (pageNumber: number) => void;
+    linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
 }) => {
     let annotationLayerRenderToken = 0;
     const annotationLayerPageRenderTokens = new Map<number, number>();
@@ -151,10 +191,20 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         });
     }
 
+    function replacePageLinkAnnotations(pageNumber: number, links: ILinkAnnotation[]) {
+        if (!deps.linkAnnotations) {
+            return;
+        }
+        deps.linkAnnotations.value = [
+            ...deps.linkAnnotations.value.filter(link => link.pageNumber !== pageNumber),
+            ...links,
+        ];
+    }
+
     async function renderAnnotationLayer(
-        pdfPage: PDFPageProxy,
+        pdfPage: IPdfPage,
         annotationLayerDiv: HTMLElement,
-        viewport: ReturnType<PDFPageProxy['getViewport']>,
+        viewport: ReturnType<IPdfPage['getViewport']>,
         pageNumber: number,
         annotationCanvasMap?: Map<string, HTMLCanvasElement> | null,
         options?: IAnnotationLayerRenderOptions,
@@ -285,12 +335,19 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             annotationLayerDiv.innerHTML = '';
         }
         removeHiddenAnnotationElements(annotationLayerDiv, hiddenIds);
+        replacePageLinkAnnotations(
+            pageNumber,
+            extractPageLinkAnnotations(visibleAnnotations, pageNumber, pdfPage),
+        );
         return annotationLayer;
     }
 
     function clearAllLayers() {
         annotationLayerRenderToken += 1;
         annotationLayerPageRenderTokens.clear();
+        if (deps.linkAnnotations) {
+            deps.linkAnnotations.value = [];
+        }
     }
 
     return {

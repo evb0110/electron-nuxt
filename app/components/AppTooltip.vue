@@ -94,7 +94,7 @@ function refreshReferenceElement() {
 }
 
 function hasUsefulText(element: HTMLElement) {
-    return (element.innerText ?? '').trim().length > 0;
+    return element.innerText.trim().length > 0;
 }
 
 function isElementOverflowing(element: Element) {

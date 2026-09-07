@@ -11,7 +11,6 @@ import {
 } from 'pdf-lib';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {requirePageIndex} from '@contracts/pageNumbers';
-import type {TPageIndex} from '@contracts/pageNumbers';
 
 export const PDF_COMBINE_CATALOG_POLICY = Object.freeze({
     pages: 'preserve',
@@ -105,7 +104,7 @@ function findNamedDestination(document: PDFDocument, name: string): PDFObject | 
     return root ? visit(root) : undefined;
 }
 
-function destinationPageIndex(document: PDFDocument, value: PDFObject | undefined, pageRefs: Map<string, number>): TPageIndex | null {
+function destinationPageIndex(document: PDFDocument, value: PDFObject | undefined, pageRefs: Map<string, number>): number | null {
     let destination = value;
     const named = textValue(destination) ?? nameValue(destination);
     if (named) destination = findNamedDestination(document, named);
@@ -114,8 +113,7 @@ function destinationPageIndex(document: PDFDocument, value: PDFObject | undefine
     if (!(destination instanceof PDFArray) || destination.size() === 0) {
         return null;
     }
-    const pageIndex = pageRefs.get(refKey(destination.get(0)) ?? '');
-    return pageIndex === undefined ? null : requirePageIndex(pageIndex);
+    return pageRefs.get(refKey(destination.get(0)) ?? '') ?? null;
 }
 
 function readOutlineItems(
@@ -133,11 +131,14 @@ function readOutlineItems(
         const flags = dict.lookupMaybe(PDFName.of('F'), PDFNumber)?.asNumber() ?? 0;
         output.push({
             title: textValue(dict.get(PDFName.of('Title'))) ?? 'Untitled',
-            pageIndex: destinationPageIndex(
-                document,
-                dict.get(PDFName.of('Dest')) ?? dict.lookupMaybe(PDFName.of('A'), PDFDict)?.get(PDFName.of('D')),
-                pageRefs,
-            ),
+            pageIndex: (() => {
+                const pageIndex = destinationPageIndex(
+                    document,
+                    dict.get(PDFName.of('Dest')) ?? dict.lookupMaybe(PDFName.of('A'), PDFDict)?.get(PDFName.of('D')),
+                    pageRefs,
+                );
+                return pageIndex === null ? null : requirePageIndex(pageIndex);
+            })(),
             namedDest: null,
             bold: (flags & 2) !== 0,
             italic: (flags & 1) !== 0,

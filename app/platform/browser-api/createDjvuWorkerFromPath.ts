@@ -158,7 +158,7 @@ function getDesktopDjvuPreviewCapability(path: TDocumentRef) {
     }
     const djvu = platform.djvu;
     if (
-        typeof djvu?.getInfo !== 'function'
+        typeof djvu.getInfo !== 'function'
         || typeof djvu.getPageSourceInfo !== 'function'
         || typeof djvu.getPageSizes !== 'function'
         || typeof djvu.renderPagePreview !== 'function'

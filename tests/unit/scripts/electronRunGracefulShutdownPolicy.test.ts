@@ -43,6 +43,7 @@ import {
 import {
     clearAutomationWorkspaceCrashCheckpointAfterSessionExit,
     shouldClearAutomationWorkspaceCrashCheckpointOnExit,
+    shouldPreserveWorkspaceRecoveryArtifacts,
 } from '@scripts/electron-run/sessionController';
 
 const processTree = vi.hoisted(() => ({isProcessAlive: vi.fn<(pid: number) => boolean>()}));
@@ -219,6 +220,13 @@ describe('Electron automation graceful shutdown policy', () => {
         }
     });
 
+    it('retains the temp namespace when a crash checkpoint survives the controller exit', () => {
+        expect(shouldPreserveWorkspaceRecoveryArtifacts(1, false, true)).toBe(true);
+        expect(shouldPreserveWorkspaceRecoveryArtifacts(0, false, true)).toBe(false);
+        expect(shouldPreserveWorkspaceRecoveryArtifacts(143, true, false)).toBe(true);
+        expect(shouldPreserveWorkspaceRecoveryArtifacts(1, false, false)).toBe(false);
+    });
+
     it('keeps the E2E browser attached until the controller initiates app shutdown', () => {
         const source = readProjectSource('tests/e2e/electron/helpers/startElectronE2ESession.ts');
         const stopStart = source.indexOf('const stop = async (');
@@ -232,7 +240,7 @@ describe('Electron automation graceful shutdown policy', () => {
         expect(stopBody).not.toContain('browser.disconnect()');
     });
 
-    it('retains session artifacts whenever any verified termination is refused', () => {
+    it('retains session artifacts whenever any verified termination is refused', async () => {
         expect(shouldRemoveSessionStopArtifacts([
             true,
             true,
@@ -254,13 +262,30 @@ describe('Electron automation graceful shutdown policy', () => {
             false,
         ])).toBe(false);
 
-        const stopSource = readProjectSource('scripts/electron-run/stopSession.ts');
-        const refusalBranch = stopSource.slice(
-            stopSource.indexOf('if (!shouldRemoveSessionStopArtifacts(outcomes))'),
-            stopSource.indexOf('removeSessionStopFiles(name);'),
-        );
-        expect(refusalBranch).toContain('retainSessionStopArtifacts(name, info)');
-        expect(refusalBranch).toContain('throw new Error');
+        const sessionName = `refused-stop-policy-${String(process.pid)}-${String(Date.now())}`;
+        processTree.isProcessAlive.mockReset();
+        processTree.isProcessAlive.mockImplementation(pid => pid === process.pid);
+        try {
+            mkdirSync(sessionDir(sessionName), {recursive: true});
+            writeFileSync(sessionFilePath(sessionName), JSON.stringify({
+                port: 45_001,
+                pid: process.pid,
+                cdpPort: 45_002,
+                electronPid: null,
+                nuxtPid: null,
+                nuxtPort: 45_003,
+            }), 'utf8');
+
+            await expect(stopSingleSession(sessionName)).rejects.toThrow(
+                'session artifacts were retained',
+            );
+            expect(existsSync(sessionFilePath(sessionName))).toBe(true);
+        } finally {
+            rmSync(sessionDir(sessionName), {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it('treats a process that exits while its identity is read as terminated, not refused', async () => {

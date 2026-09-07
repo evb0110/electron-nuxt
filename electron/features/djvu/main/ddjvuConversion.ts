@@ -6,8 +6,8 @@ import {
 import { limitAsync } from 'es-toolkit/promise';
 import { clamp } from 'es-toolkit/math';
 import { dirname } from 'node:path';
-import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
-import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
+import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
+import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -504,7 +504,7 @@ async function convertPageRangeToPdf(
     if (!result.success) {
         return {
             success: false,
-            error: result.error ?? `Failed to convert pages ${pages}`,
+            error: result.error,
         };
     }
 
@@ -550,7 +550,7 @@ async function mergePdfChunks(
 
     throw createDjvuNativeCapabilityError(
         'native-failure',
-        `DjVu PDF chunk merge failed: ${qpdfResult.error ?? 'qpdf failed without a diagnostic'}`,
+        `DjVu PDF chunk merge failed: ${qpdfResult.error}`,
         qpdfResult.cause,
     );
 }

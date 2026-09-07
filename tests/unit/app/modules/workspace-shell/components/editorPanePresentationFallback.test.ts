@@ -23,7 +23,6 @@ import type { ITab } from '@app/types/tabs';
 import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
-import { cast } from '@tests/helpers/cast';
 
 // What the pane owns is which tabs it presents and how it marks them. Its
 // children render an identifiable placeholder, with the sidebar element the
@@ -111,7 +110,7 @@ async function mountEditorPane({
         }),
     ]));
     const app = createApp(defineComponent({setup() {
-        return () => h(cast<never>(EditorPaneView), {
+        return () => h(EditorPaneView, {
             pane,
             paneCount: 1,
             tabs: tabIds.map(createTab),

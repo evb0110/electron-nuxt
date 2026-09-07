@@ -143,7 +143,7 @@ export function createDocumentAgentAnnotationNoteActions(
             parse: parseAgentUpdateNoteInput,
             async run(parsedInput: IAgentUpdateNoteInput, _actionId, context?: IWorkspaceAgentCommandContext) {
                 const comment = options.findAgentAnnotationComment(parsedInput.input);
-                const previousText = comment.text ?? '';
+                const previousText = comment.text;
                 const previousMarkerRect = comment.markerRect ?? null;
                 const commentForUpdate = parsedInput.markerRect
                     ? {

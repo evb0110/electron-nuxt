@@ -21,7 +21,6 @@ import {
     resolveScanCleanupMarginsMm,
 } from '@contracts/scanCleanupPageOverrides';
 import {
-    assertCanonicalPdfPageSizes,
     resolveSourceDpi,
     type IRunScanCleanupPipelineDependencies,
     type IRunScanCleanupPipelineRequest,
@@ -35,7 +34,6 @@ import {
     type TScanCleanupLog,
 } from '@scan-cleanup-core/types';
 import {
-    createArrayBackedPdfPageSizeStore,
     toCropBoxPageSize,
     type IPdfPageSizeStore,
 } from '@scan-cleanup-core/pdfPageSizes';
@@ -133,16 +131,6 @@ function resolveLosslessDpiSource(
     };
 }
 
-function resolveLosslessPageSizeStore(
-    pageSizeStoreOrSizes: IPdfPageSizeStore | readonly IPdfPageSize[],
-): IPdfPageSizeStore {
-    if (Array.isArray(pageSizeStoreOrSizes)) {
-        assertCanonicalPdfPageSizes(pageSizeStoreOrSizes, 'Scan cleanup lossless assembly');
-        return createArrayBackedPdfPageSizeStore(pageSizeStoreOrSizes);
-    }
-    return pageSizeStoreOrSizes as IPdfPageSizeStore;
-}
-
 async function readLosslessPageSizeBatch(
     pageSizeStore: IPdfPageSizeStore,
     pageNumbers: readonly number[],
@@ -181,7 +169,7 @@ export async function runLosslessScanCleanup(
     preparedPdfPath: string,
     preparedWarnings: string[],
     pageNumbers: TScanCleanupPageScope,
-    pageSizeStoreOrSizes: IPdfPageSizeStore | readonly IPdfPageSize[],
+    pageSizeStore: IPdfPageSizeStore,
     dpiDetails: TScanCleanupLosslessDpiSource,
     scratch: string,
     stagedPdfPath: string,
@@ -196,7 +184,6 @@ export async function runLosslessScanCleanup(
     // is handed another page's box writes a wrong document rather than a
     // failing one. This entry is reachable directly, not only through the
     // conversion run that already admitted its geometry.
-    const pageSizeStore = resolveLosslessPageSizeStore(pageSizeStoreOrSizes);
     const dpiSource = resolveLosslessDpiSource(dpiDetails);
     if (!paths.pdfPageOpsBinary) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');

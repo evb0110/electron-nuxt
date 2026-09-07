@@ -1,6 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type {Ref} from 'vue';
-import {requirePageNumber} from '@contracts/pageNumbers';
-import type {TPageNumber} from '@contracts/pageNumbers';
 import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
 import type {
     IPageRange,
@@ -86,9 +86,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         showAnnotations,
         hiddenAnnotationIds,
         annotationProjectionReady,
+        linkAnnotations: options.linkAnnotations,
         renderSupervisor,
         scrollToPage: pageNumber => {
-            viewport.singlePageScroll.scrollToPage(requirePageNumber(pageNumber, numPages.value));
+            viewport.singlePageScroll.scrollToPage(requirePageNumber(pageNumber));
         },
     });
     const pageRenderState = options.pageRenderState;
@@ -216,7 +217,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             viewport.singlePageScroll.beginSearchNavigation(pageNumber);
         },
         revealSearchNavigationTarget: (pageNumber, revealOptions) =>
-            viewport.singlePageScroll.revealSearchNavigationTarget(pageNumber, revealOptions),
+            viewport.singlePageScroll.revealSearchNavigationTarget(pageNumber, {
+                ...revealOptions,
+                searchNavigationId: toValue(currentSearchMatchNavigationId),
+            }),
         endSearchNavigation: () => viewport.singlePageScroll.endSearchNavigation(),
         beginSearchTransaction: (pageNumber, searchOptions) => (
             viewport.transactionController.beginTransaction({
@@ -587,9 +591,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
 
     function resolveLayerPromotionDemand(pages: readonly number[]) {
         const promotionPages = pages
-            .filter(page => page >= 1 && page <= numPages.value)
-            .filter(page => pageRenderState.isLayerPromotionEligible(requirePageNumber(page, numPages.value)))
-            .map(page => requirePageNumber(page, numPages.value));
+            .map(page => requirePageNumber(page, numPages.value))
+            .filter(page => pageRenderState.isLayerPromotionEligible(page));
         if (promotionPages.length === 0) {
             return null;
         }

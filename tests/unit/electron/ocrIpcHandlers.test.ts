@@ -14,7 +14,6 @@ import {
     snapshotMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
-import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     handlers: new Map<string, TRegisteredHandler>(),
@@ -89,11 +88,11 @@ vi.mock('@electron/ocr/documentTextCatalog', () => ({
 const { ocrMainBindings } = await import('@electron/features/ocr/mainBindings');
 
 function registerOcrFeatureHandlers() {
-    const registrar = {handle: (channel: string, handler: TRegisteredHandler) => {
-        mocks.handlers.set(channel, handler);
+    const registrar: Parameters<typeof registerPlatformFeatureHandlers>[0] = {handle: (channel, handler) => {
+        mocks.handlers.set(channel, (...args: unknown[]) => Reflect.apply(handler, undefined, args));
     }};
     registerPlatformFeatureHandlers(
-        cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
+        registrar,
         OCR_PLATFORM_FEATURE,
         ocrMainBindings,
     );

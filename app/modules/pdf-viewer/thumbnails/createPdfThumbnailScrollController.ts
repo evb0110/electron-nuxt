@@ -156,7 +156,7 @@ export function createPdfThumbnailScrollController(
     return {
         applyScrollTop,
         cancel() {
-            scrollRestorer?.cancel();
+            scrollRestorer.cancel();
             segmentScroll.cancel();
         },
         handleContainerScroll,

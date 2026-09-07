@@ -16,6 +16,11 @@
         @dblclick.stop="handleSurfaceDblClick"
         @keydown="handleKeydown"
     >
+        <div
+            v-if="isInteractive"
+            class="pdf-annotation-editor-surface__background"
+            aria-hidden="true"
+        />
         <svg
             class="pdf-annotation-editor-surface__svg"
             viewBox="0 0 1 1"
@@ -87,6 +92,7 @@
 
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     asAnnotationId,
     toLegacyShapeAnnotation,
@@ -99,7 +105,6 @@ import type {
     ITextBoxEntity,
     ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {requirePageIndex} from '@contracts/pageNumbers';
 import {parseEpochMs} from '@contracts/timestamps';
 import {
     annotationEditorSurfaceKey,

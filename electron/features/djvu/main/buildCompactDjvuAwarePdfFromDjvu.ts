@@ -26,8 +26,8 @@ import type {
     TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
 import { isRecord } from '@contracts/runtimeGuards';
-import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
-import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
+import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
+import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
 import {
     renderDjvuPageToImage,
     runRegisteredDjvuProcess,

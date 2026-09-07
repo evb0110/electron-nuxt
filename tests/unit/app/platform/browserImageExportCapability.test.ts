@@ -7,7 +7,6 @@ import {
 } from 'vitest';
 import type * as UTIFModule from 'utif';
 import type * as EsToolkitMathModule from 'es-toolkit/math';
-import {cast} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {
     requirePageNumber,
@@ -114,6 +113,43 @@ vi.mock('es-toolkit/math', async importOriginal => {
 });
 
 const UTIF = await vi.importActual<TUtifModule>('utif');
+
+function createFileSystemWritableFileStream(
+    write: FileSystemWritableFileStream['write'] = async (_chunk: FileSystemWriteChunkType) => {},
+): FileSystemWritableFileStream {
+    const writable = Object.assign(new WritableStream(), {
+        abort: vi.fn(async (_reason?: unknown) => {}),
+        close: vi.fn(async () => {}),
+        seek: vi.fn(async (_position: number) => {}),
+        truncate: vi.fn(async (_size: number) => {}),
+        write,
+    });
+    return writable satisfies FileSystemWritableFileStream;
+}
+
+function requireUint8ArrayChunk(chunk: FileSystemWriteChunkType): Uint8Array {
+    if (!(chunk instanceof Uint8Array)) {
+        throw new TypeError('Expected TIFF writer to receive a Uint8Array');
+    }
+    return chunk;
+}
+
+function createFileSystemFileHandle(
+    name: string,
+    writable: FileSystemWritableFileStream,
+): FileSystemFileHandle {
+    const handle = {
+        kind: 'file',
+        name,
+        isSameEntry: vi.fn(async (_other: FileSystemHandle) => false),
+        getFile: vi.fn(async () => new File([], name)),
+        createWritable: vi.fn(async () => writable),
+        createSyncAccessHandle: async () => {
+            throw new Error('Synchronous access is not part of this file handle fixture');
+        },
+    } satisfies FileSystemFileHandle;
+    return handle;
+}
 
 function countTiffDirectories(bytes: Uint8Array) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -447,21 +483,14 @@ describe('createBrowserImageExportCapability', () => {
         });
 
         const writableWrites: Uint8Array[] = [];
-        const writable = {
-            abort: vi.fn(async () => {}),
-            close: vi.fn(async () => {}),
-            write: vi.fn(async (chunk: Uint8Array) => {
-                writableWrites.push(chunk);
-                if (chunk.byteLength === 4) {
-                    pendingDecodedPages -= 1;
-                }
-            }),
-        };
-        const handle = {
-            createWritable: vi.fn(async () => writable),
-            name: 'sample.tiff',
-        };
-        const typedHandle = cast<FileSystemFileHandle>(handle);
+        const writable = createFileSystemWritableFileStream(vi.fn(async (chunk: FileSystemWriteChunkType) => {
+            const chunkBytes = requireUint8ArrayChunk(chunk);
+            writableWrites.push(chunkBytes);
+            if (chunkBytes.byteLength === 4) {
+                pendingDecodedPages -= 1;
+            }
+        }));
+        const typedHandle = createFileSystemFileHandle('sample.tiff', writable);
         pickSaveTargetMock.mockResolvedValueOnce({
             canceled: false,
             fileName: 'sample.tiff',
@@ -560,16 +589,8 @@ describe('createBrowserImageExportCapability', () => {
             terminate,
         });
 
-        const writable = {
-            abort: vi.fn(async () => {}),
-            close: vi.fn(async () => {}),
-            write: vi.fn(async () => {}),
-        };
-        const handle = {
-            createWritable: vi.fn(async () => writable),
-            name: 'sample.tiff',
-        };
-        const typedHandle = cast<FileSystemFileHandle>(handle);
+        const writable = createFileSystemWritableFileStream();
+        const typedHandle = createFileSystemFileHandle('sample.tiff', writable);
         pickSaveTargetMock.mockResolvedValueOnce({
             canceled: false,
             fileName: 'sample.tiff',
@@ -857,6 +878,7 @@ describe('createBrowserImageExportCapability', () => {
 
     it('fails image export when selected pages resolve to no valid PDF pages', async () => {
         const fakePdfDocument = createFakePdfDocument(2);
+        const getPage = fakePdfDocument.getPage;
         getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
 
         const { createBrowserImageExportCapability } = await import(
@@ -864,12 +886,18 @@ describe('createBrowserImageExportCapability', () => {
         );
         const capability = createBrowserImageExportCapability();
 
+        // The malformed value stays unknown until a runtime guard crosses the
+        // typed method boundary. The capability still validates its page bounds.
+        const pageNumbers: unknown[] = [
+            0,
+            requirePageNumber(3),
+        ];
+        const guardedPageNumbers = pageNumbers.filter(
+            (value): value is TPageNumber => typeof value === 'number',
+        );
         const result = await capability.exportPdfToImages(
             requireDocumentRef('browser://documents/work/sample.pdf'),
-            [
-                cast<TPageNumber>(0),
-                requirePageNumber(3),
-            ],
+            guardedPageNumbers,
         );
 
         expect(result).toEqual({
@@ -877,7 +905,7 @@ describe('createBrowserImageExportCapability', () => {
             canceled: true,
         });
         expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
-        expect(fakePdfDocument.getPage).not.toHaveBeenCalled();
+        expect(getPage).not.toHaveBeenCalled();
         expect(saveBlobToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
@@ -906,6 +934,7 @@ describe('createBrowserImageExportCapability', () => {
 
     it('refuses an oversized all-pages PDF image export before materializing the page range or rendering', async () => {
         const fakePdfDocument = createFakePdfDocument(OVERSIZED_PAGE_COUNT);
+        const getPage = fakePdfDocument.getPage;
         getDocumentMock.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
         // Keep a pre-fix run cheap: cancel the save picker after the first page.
         pickSaveTargetMock
@@ -942,7 +971,7 @@ describe('createBrowserImageExportCapability', () => {
         expect((rejection as Error).message).toContain('100,001 pages');
 
         expect(rangeSpy).not.toHaveBeenCalled();
-        expect(fakePdfDocument.getPage).not.toHaveBeenCalled();
+        expect(getPage).not.toHaveBeenCalled();
         expect(pickSaveTargetMock).not.toHaveBeenCalled();
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
@@ -991,6 +1020,7 @@ describe('createBrowserImageExportCapability', () => {
 
     it('keeps explicit page selections working on oversized documents', async () => {
         const fakePdfDocument = createFakePdfDocument(OVERSIZED_PAGE_COUNT);
+        const getPage = fakePdfDocument.getPage;
         getDocumentMock.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
         pickSaveTargetMock.mockResolvedValue({
             canceled: false,
@@ -1020,7 +1050,7 @@ describe('createBrowserImageExportCapability', () => {
             outputPaths: ['browser://documents/output/page-007.jpg'],
         });
         expect(rangeSpy).not.toHaveBeenCalled();
-        expect(fakePdfDocument.getPage).toHaveBeenCalledWith(7);
+        expect(getPage).toHaveBeenCalledWith(7);
         expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
     });
 });

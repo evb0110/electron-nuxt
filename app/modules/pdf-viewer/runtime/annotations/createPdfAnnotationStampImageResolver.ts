@@ -4,7 +4,7 @@ import {formatPdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
 import {resolvePdfJsStampImageDataUrl} from '@app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl';
-import {requirePageNumber} from '@contracts/pageNumbers';
+import {pageIndexToPageNumber} from '@contracts/pageNumbers';
 
 // Canvas data URLs contain ASCII base64, so their string length is their byte
 // length. Keep one document's resolved stamp images bounded while letting the
@@ -93,7 +93,7 @@ export function createPdfAnnotationStampImageResolver(documentSession: TPdfDocum
             let lease: Awaited<ReturnType<TPdfDocumentSession['leasePage']>> | null = null;
             try {
                 lease = await documentSession.leasePage(
-                    requirePageNumber(entity.pageIndex + 1),
+                    pageIndexToPageNumber(entity.pageIndex),
                     'transient-background',
                 );
                 if (documentSession.pdfDocument.value !== pdfDocument) {

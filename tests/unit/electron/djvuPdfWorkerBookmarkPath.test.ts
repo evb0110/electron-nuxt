@@ -14,7 +14,7 @@ describe('DjVu PDF worker bookmark path', () => {
         );
 
         expect(source).toContain('embedBookmarksIntoPdfFile');
-        expect(source).toContain('@electron/djvu/embedBookmarksIntoPdfFile');
+        expect(source).toContain('@electron/features/djvu/main/embedBookmarksIntoPdfFile');
         expect(source).not.toContain('embedBookmarksIntoPdfFileWithPdfLib');
     });
 });

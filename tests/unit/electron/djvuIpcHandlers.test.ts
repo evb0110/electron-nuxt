@@ -16,7 +16,7 @@ import {
     vi,
 } from 'vitest';
 import {requireRequestId} from '@contracts/shared';
-import type {ISearchDjvuTextOptions} from '@electron/djvu/textSearch';
+import type {ISearchDjvuTextOptions} from '@electron/features/djvu/main/textSearch';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import {
@@ -68,15 +68,15 @@ vi.mock('electron', () => ({
     }},
 }));
 
-vi.mock('@electron/djvu/estimateSizes', () => ({estimateSizes: mocks.estimateSizes}));
-vi.mock('@electron/djvu/metadata', () => ({
+vi.mock('@electron/features/djvu/main/estimateSizes', () => ({estimateSizes: mocks.estimateSizes}));
+vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuPageCount: mocks.getDjvuPageCount,
     getDjvuResolution: mocks.getDjvuResolution,
     getDjvuOutline: mocks.getDjvuOutline,
     getDjvuHasText: mocks.getDjvuHasText,
     getDjvuMetadata: mocks.getDjvuMetadata,
 }));
-vi.mock('@electron/djvu/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
+vi.mock('@electron/features/djvu/main/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
 vi.mock('@electron/features/djvu/main/pdfExport', () => ({
     handleDjvuConvertToPdf: mocks.handleDjvuConvertToPdf,
     handleDjvuCancel: mocks.handleDjvuCancel,
@@ -98,11 +98,11 @@ vi.mock('@electron/features/djvu/main/pagePreview', () => ({
     renderDjvuPagePreview: mocks.renderDjvuPagePreview,
 }));
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({cancelConversion: mocks.cancelConversion}));
-vi.mock('@electron/djvu/textSearch', () => ({
+vi.mock('@electron/features/djvu/main/textSearch', () => ({
     readDjvuPageText: mocks.readDjvuPageText,
     searchDjvuText: mocks.searchDjvuText,
 }));
-vi.mock('@electron/djvu/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
+vi.mock('@electron/features/djvu/main/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
     logicalCpus: 8,
     totalRamBytes: 16 * 1024 * 1024 * 1024,

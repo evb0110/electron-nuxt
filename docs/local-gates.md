@@ -42,6 +42,7 @@ so `build.strict` has the highest priority after preparation.
 | stage | script | weight | cacheable |
 | --- | --- | ---: | --- |
 | build.prepare | generate:build-artifacts | 1 | no |
+| scan-cleanup.line-budget | `node scripts/validation-gates.mjs scan-cleanup-lines` | 1 | yes |
 | build.strict | build:strict | 2 | no (records a build marker) |
 | native.test | test:rust | 4 | no |
 | test.coverage | test:coverage | 5 | no |
@@ -95,8 +96,9 @@ runs that slowed `unit-app` tests past their 5 s timeout and the blocking
 smoke lane past its 30 s waits. The heavy stages therefore bound themselves:
 `native.test` sets `CARGO_BUILD_JOBS=4` and `RUST_TEST_THREADS=4`,
 `native.lint` sets `CARGO_BUILD_JOBS=2`, and `test.coverage` sets
-`VITEST_MAX_WORKERS=6` (weight 5; a fork spends part of its time waiting on
-I/O and coverage merging).
+`VITEST_MAX_WORKERS=4` (weight 5; a fork spends part of its time waiting on
+I/O and coverage merging, and the cap leaves room for the concurrent
+typecheck and smoke stages on the 8-slot acceptance pool).
 
 `test.coverage` runs the same zero-execution tripwire scope as push CI. CI
 passes the push base and head; the local plan passes the merge base with
@@ -108,6 +110,50 @@ the stage locally before it fails on `main`.
 `check:static:assets` measures the tracked deploy source. The deploy script
 requires a clean snapshot; the local gate passes `--allow-dirty` because an
 uncommitted worktree measures the same tracked files.
+
+### Scan-cleanup line budget
+
+`node scripts/validation-gates.mjs scan-cleanup-lines` reports code lines for
+the six scan-cleanup production homes and reports matching scan-cleanup tests
+separately. It counts `.ts`, `.tsx`, `.vue`, and `.rs` files. Blank lines and
+comments do not count, including files that carry a local ESLint max-lines
+suppression. The committed
+[scan-cleanup-line-budget-baseline.json](../scan-cleanup-line-budget-baseline.json)
+stores one baseline per production home and the production total.
+
+The normal command fails when a home or the production total grows past its
+baseline. Test lines are informational and do not fail this gate. A normal
+commit may lower the baseline with:
+
+```text
+node scripts/validation-gates.mjs scan-cleanup-lines --update-baseline
+```
+
+Raising it requires the explicit consolidation-only override, which is printed
+in the job log and must name the consolidation reason:
+
+```text
+node scripts/validation-gates.mjs scan-cleanup-lines --update-baseline --allow-baseline-increase=consolidation:move-code-between-homes
+```
+
+Use the override only when a consolidation commit moves code between named
+homes. It is not a way to accept ordinary feature growth. The gate runs as
+`scan-cleanup.line-budget` in the same validation-gates acceptance and nightly
+job family as the coverage ratchet, and is designed to finish well under the
+30-second ticket limit.
+
+Push and pull-request CI runs this command in the `Quality Gates` job before
+coverage. It passes the event's base SHA through `EVB_SCAN_CLEANUP_BASE_REF`.
+The gate compares every current home baseline with the baseline file at that
+commit using `git show`. A missing baseline at a valid base commit is allowed
+only for the first landing commit. An invalid or unavailable base fails closed.
+Use `--base-ref=<commit>` locally to reproduce the CI comparison.
+
+Rust files are split at balanced `#[cfg(test)]` items. Their test code is
+reported separately even when it is inline in a production source file. The
+parser handles nested blocks, attributes, comments, strings, raw strings, and
+character literals. Files named as tests, including `*_tests.rs`, also go into
+the separate test report.
 
 ### Stage cache
 

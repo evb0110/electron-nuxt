@@ -20,15 +20,26 @@ import type {
     IAgentAssistantEvent,
 } from '@contracts/agent';
 import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
-import { cast } from '@tests/helpers/cast';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireTabId} from '@contracts/windowTabs';
 
+function createAssistantWindow(send: (channel: string, event: IAgentAssistantEvent) => void): BrowserWindow {
+    // The publisher only reads these lifecycle members; Electron types the mock as a full BrowserWindow.
+    return {
+        isDestroyed: () => false,
+        webContents: {
+            isDestroyed: () => false,
+            send,
+        },
+    } as BrowserWindow;
+}
+
 const mocks = vi.hoisted(() => ({
     loadSettings: vi.fn(async () => ({assistantPanelEnabled: false})),
     getCodexCliInfo: vi.fn(),
+    runCodexCli: vi.fn(async () => ({ok: true})),
     installManagedCodex: vi.fn(),
     spawn: vi.fn(),
     assistantDisabledMessage: 'Enable EVB Assistant in Settings to use assistant chat.',
@@ -56,6 +67,11 @@ const mocks = vi.hoisted(() => ({
         promise: Promise<void>;
         resolve: () => void;
     },
+    claudeRuntimeLoadGate: null as null | {
+        promise: Promise<void>;
+        resolve: () => void;
+    },
+    claudeSessionConstructor: vi.fn(),
     codexAccountReadMode: 'success',
     codexAuthStatusMode: 'signed-in',
     logger: {
@@ -334,8 +350,28 @@ vi.mock('@electron/features/agent/codexCli', () => ({
     CODEX_APP_INSTALL_URL: 'https://developers.openai.com/codex/app',
     CODEX_STANDALONE_INSTALL_URL: 'https://example.test/install-codex',
     getCodexCliInfo: mocks.getCodexCliInfo,
+    runCodexCli: mocks.runCodexCli,
     installManagedCodex: mocks.installManagedCodex,
 }));
+
+vi.mock('@electron/features/agent/claudeProviderMetadata', async (importOriginal) => {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+    const actual = await importOriginal<typeof import('@electron/features/agent/claudeProviderMetadata')>();
+    return {
+        ...actual,
+        getClaudeAgentSdkInfo: vi.fn(async () => ({
+            installed: true,
+            version: 'test',
+            executablePath: '/usr/bin/claude',
+        })),
+        detectClaudeAuthState: vi.fn(async () => 'signed-in'),
+    };
+});
+
+vi.mock('@electron/features/agent/claudeAgentSdkAssistant', async () => {
+    await mocks.claudeRuntimeLoadGate?.promise;
+    return {ClaudeAgentAssistantSession: mocks.claudeSessionConstructor};
+});
 
 vi.mock('@electron/features/agent/mcpServer', () => ({
     abortActiveEmbeddedMcpRequests: mocks.abortActiveEmbeddedMcpRequests,
@@ -463,8 +499,11 @@ describe('agent assistant opt-in gating', () => {
         mocks.threadStartGate = null;
         mocks.loginStartGate = null;
         mocks.processKillGate = null;
+        mocks.claudeRuntimeLoadGate = createInitializeGate();
+        mocks.claudeSessionConstructor.mockReset();
         mocks.codexAccountReadMode = 'success';
         mocks.codexAuthStatusMode = 'signed-in';
+        mocks.runCodexCli.mockResolvedValue({ok: true});
     });
 
     afterEach(async () => {
@@ -514,6 +553,27 @@ describe('agent assistant opt-in gating', () => {
         expect(mocks.spawn).not.toHaveBeenCalled();
     });
 
+    it('reports fresh installed Codex authentication without starting its runtime', async () => {
+        configureEnabledAssistantRuntime();
+        mocks.runCodexCli.mockResolvedValue({ok: true});
+        const {getAgentAssistantState}: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const state = await getAgentAssistantState({provider: 'codex'});
+
+        expect(state.status.authState).toBe('signed-in');
+        expect(state.status.runtimeState).toBe('ready');
+        expect(mocks.runCodexCli).toHaveBeenCalledWith(
+            '/Applications/Codex.app/Contents/Resources/codex',
+            [
+                'login',
+                'status',
+            ],
+            expect.objectContaining({env: expect.objectContaining({CODEX_HOME: join(mocks.userDataPath, 'assistant', 'codex-home')})}),
+        );
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        expect(mocks.startEmbeddedMcpServer).not.toHaveBeenCalled();
+    });
+
     it('rejects assistant chat actions while disabled', async () => {
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
@@ -537,8 +597,15 @@ describe('agent assistant opt-in gating', () => {
         mocks.codexAuthStatusMode = 'signed-in';
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 
-        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {
+            getAgentAssistantState,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
+        await sendAgentAssistantMessage({
+            text: 'Check auth',
+            scope: createDocumentScope('auth-error.pdf'),
+        });
         const state = await getAgentAssistantState();
 
         expect(state.status.authState).toBe('signed-in');
@@ -549,14 +616,21 @@ describe('agent assistant opt-in gating', () => {
         expect(mocks.logger.warn).not.toHaveBeenCalledWith(expect.stringContaining('falling back to auth status'));
     });
 
-    it('publishes an actionable auth error when Codex auth probes fail', async () => {
+    it('preserves signed-out Codex state and its error after a later state read', async () => {
         configureEnabledAssistantRuntime();
         mocks.codexAccountReadMode = 'error';
         mocks.codexAuthStatusMode = 'error';
         mocks.spawn.mockImplementation(() => new FakeCodexAppServerProcess());
 
-        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const {
+            getAgentAssistantState,
+            sendAgentAssistantMessage,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
+        await sendAgentAssistantMessage({
+            text: 'Check auth',
+            scope: createDocumentScope('auth-error.pdf'),
+        });
         const state = await getAgentAssistantState();
 
         expect(state.status.authState).toBe('signed-out');
@@ -564,6 +638,11 @@ describe('agent assistant opt-in gating', () => {
         expect(state.status.error).toContain('Could not verify Codex authentication');
         expect(state.status.error).toContain('account/read timed out');
         expect(state.status.error).toContain('getAuthStatus timed out');
+
+        const stateAfterRead = await getAgentAssistantState();
+        expect(stateAfterRead.status.authState).toBe('signed-out');
+        expect(stateAfterRead.status.runtimeState).toBe('stopped');
+        expect(stateAfterRead.status.error).toBe(state.status.error);
     });
 
     it('waits for in-flight Codex runtime startup before reusing the app-server client', async () => {
@@ -572,11 +651,17 @@ describe('agent assistant opt-in gating', () => {
         const process = new FakeCodexAppServerProcess();
         mocks.spawn.mockImplementation(() => process);
 
-        const { getAgentAssistantState }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
-        const firstState = getAgentAssistantState();
+        const firstState = sendAgentAssistantMessage({
+            text: 'Start runtime',
+            scope: createDocumentScope('startup-wait.pdf'),
+        });
         await waitForCodexRequest(process, 'initialize');
-        const secondState = getAgentAssistantState();
+        const secondState = sendAgentAssistantMessage({
+            text: 'Reuse runtime',
+            scope: createDocumentScope('startup-wait-2.pdf'),
+        });
         await settleAsyncTicks();
 
         expect(process.requestMethods).toEqual(['initialize']);
@@ -596,11 +681,14 @@ describe('agent assistant opt-in gating', () => {
         mocks.spawn.mockImplementation(() => process);
 
         const {
-            getAgentAssistantState,
+            sendAgentAssistantMessage,
             shutdownAgentAssistant,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
 
-        const statePromise = getAgentAssistantState();
+        const statePromise = sendAgentAssistantMessage({
+            text: 'Cancel startup',
+            scope: createDocumentScope('cancel-startup.pdf'),
+        });
         await waitForCodexRequest(process, 'initialize');
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
         await shutdownAgentAssistant();
@@ -634,14 +722,41 @@ describe('agent assistant opt-in gating', () => {
         expect(process.kill).toHaveBeenCalled();
     });
 
-    it('waits for an old client shutdown before starting again after rapid re-enable', async () => {
-        const process = enableAssistantRuntime();
+    it('does not create a Claude session when opt-out wins during adapter loading', async () => {
+        configureEnabledAssistantRuntime();
+        const documentScope = createDocumentScope('disable-during-claude-load.pdf');
         const {
-            getAgentAssistantState,
             sendAgentAssistantMessage,
             shutdownAgentAssistant,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
-        await getAgentAssistantState();
+
+        const sendPromise = sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Do not create this session',
+            scope: documentScope,
+        });
+        await settleAsyncTicks();
+        expect(mocks.claudeRuntimeLoadGate).toBeTruthy();
+        expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
+
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        await shutdownAgentAssistant();
+        mocks.claudeRuntimeLoadGate?.resolve();
+
+        await expect(sendPromise).resolves.toMatchObject({ok: false});
+        expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
+    });
+
+    it('waits for an old client shutdown before starting again after rapid re-enable', async () => {
+        const process = enableAssistantRuntime();
+        const {
+            sendAgentAssistantMessage,
+            shutdownAgentAssistant,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+        await sendAgentAssistantMessage({
+            text: 'Start runtime',
+            scope: createDocumentScope('rapid-reenable-start.pdf'),
+        });
         expect(mocks.spawn).toHaveBeenCalledOnce();
 
         mocks.processKillGate = createInitializeGate();
@@ -670,11 +785,13 @@ describe('agent assistant opt-in gating', () => {
         const oldProcess = enableAssistantRuntime();
         const newProcess = new FakeCodexAppServerProcess();
         const {
-            getAgentAssistantState,
-            installAgentAssistantCodex,
             sendAgentAssistantMessage,
+            installAgentAssistantCodex,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
-        await getAgentAssistantState();
+        await sendAgentAssistantMessage({
+            text: 'Start runtime',
+            scope: createDocumentScope('install-start.pdf'),
+        });
         expect(mocks.spawn).toHaveBeenCalledOnce();
 
         mocks.installManagedCodex.mockResolvedValue({
@@ -705,10 +822,13 @@ describe('agent assistant opt-in gating', () => {
     it('runs every shutdown cleanup request when shutdowns overlap', async () => {
         const process = enableAssistantRuntime();
         const {
-            getAgentAssistantState,
+            sendAgentAssistantMessage,
             shutdownAgentAssistant,
         }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
-        await getAgentAssistantState();
+        await sendAgentAssistantMessage({
+            text: 'Start runtime',
+            scope: createDocumentScope('shutdown-start.pdf'),
+        });
 
         mocks.processKillGate = createInitializeGate();
         mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
@@ -1173,13 +1293,7 @@ describe('agent assistant opt-in gating', () => {
     it('keeps streaming assistant deltas lean while boundary events carry state', async () => {
         enableAssistantRuntime();
         const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
-        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([cast<BrowserWindow>({
-            isDestroyed: () => false,
-            webContents: {
-                isDestroyed: () => false,
-                send,
-            },
-        })]);
+        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([createAssistantWindow(send)]);
         const documentScope = createDocumentScope('stream.pdf');
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
@@ -1203,13 +1317,7 @@ describe('agent assistant opt-in gating', () => {
     it('publishes safe assistant turn progress for non-message item notifications', async () => {
         const process = enableAssistantRuntime();
         const send = vi.fn<(channel: string, event: IAgentAssistantEvent) => void>();
-        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([cast<BrowserWindow>({
-            isDestroyed: () => false,
-            webContents: {
-                isDestroyed: () => false,
-                send,
-            },
-        })]);
+        vi.mocked(BrowserWindow.getAllWindows).mockReturnValue([createAssistantWindow(send)]);
         const documentScope = createDocumentScope('progress.pdf');
 
         const { sendAgentAssistantMessage }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');

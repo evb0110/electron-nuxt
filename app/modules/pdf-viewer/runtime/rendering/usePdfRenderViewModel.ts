@@ -1,5 +1,7 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
-
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     Ref,
@@ -7,8 +9,6 @@ import type {
 } from 'vue';
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
 import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
     TFitMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
@@ -22,8 +22,8 @@ import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/cha
 interface IUsePdfRenderViewModelOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
-    getPage: (pageNumber: TPageNumber) => Promise<PDFPageProxy>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
+    getPage: (pageNumber: number) => Promise<IPdfPage>;
     openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     isVisualReloadTransitionActive: Ref<boolean>;
     suppressLoadingOverlay: ComputedRef<boolean>;
@@ -104,6 +104,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         visibleLinksByPage,
         shouldShowPageSkeleton,
         isPageRenderFailed: options.isPageRenderFailed,
-        markPageRendered: (_pageNumber: TPageNumber) => {},
+        markPageRendered: (_pageNumber: number) => {},
     };
 };

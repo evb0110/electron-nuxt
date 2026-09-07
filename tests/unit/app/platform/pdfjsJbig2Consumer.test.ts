@@ -17,7 +17,22 @@ import {
     Path2D,
     createCanvas,
 } from '@napi-rs/canvas';
-import {cast} from '@tests/helpers/cast';
+import {isRecord} from '@contracts/runtimeGuards';
+import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
+
+function isPdfjsCanvas(value: unknown): value is HTMLCanvasElement {
+    return isRecord(value)
+        && typeof value.width === 'number'
+        && typeof value.height === 'number'
+        && typeof value.getContext === 'function';
+}
+
+function isPdfjsCanvasRenderingContext(value: unknown): value is CanvasRenderingContext2D {
+    return isRecord(value)
+        && typeof value.getImageData === 'function'
+        && typeof value.save === 'function'
+        && typeof value.restore === 'function';
+}
 
 function decodePbm(bytes: Uint8Array) {
     let offset = 0;
@@ -100,21 +115,32 @@ describe('pdf.js JBIG2 consumer compatibility', () => {
         expect(new TextDecoder('latin1').decode(combined.data)).toContain('/JBIG2Decode');
 
         const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-        const documentParameters = cast<Parameters<typeof pdfjs.getDocument>[0]>({
+        const documentParameters = {
             data: combined.data,
             disableWorker: true,
             useWorkerFetch: false,
             wasmUrl: `${resolve(process.cwd(), 'node_modules/pdfjs-dist/wasm')}${sep}`,
-        });
-        const document = await pdfjs.getDocument(documentParameters).promise;
+        } satisfies {
+            data: Uint8Array;
+            disableWorker: boolean;
+            useWorkerFetch: boolean;
+            wasmUrl: string;
+        };
+        const task = pdfjs.getDocument(documentParameters);
+        const document = adaptPdfjsDocument(await task.promise, () => task.destroy());
         try {
             const page = await document.getPage(1);
             const viewport = page.getViewport({scale: 1});
             const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
             const context = canvas.getContext('2d');
+            // @napi-rs/canvas supplies the pixel APIs PDF.js needs, but its
+            // Node types are separate from the DOM canvas types PDF.js declares.
+            if (!isPdfjsCanvas(canvas) || !isPdfjsCanvasRenderingContext(context)) {
+                throw new Error('The canvas fixture does not provide PDF.js rendering APIs');
+            }
             await page.render({
-                canvas: cast<HTMLCanvasElement>(canvas),
-                canvasContext: cast<CanvasRenderingContext2D>(context),
+                canvas,
+                canvasContext: context,
                 viewport,
             }).promise;
             const rendered = context.getImageData(0, 0, canvas.width, canvas.height).data;

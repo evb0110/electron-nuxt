@@ -1,4 +1,5 @@
 import { requireEpochMs } from '@contracts/timestamps';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     afterEach,
     beforeEach,
@@ -17,7 +18,7 @@ import type * as TimeoutConstants from '@app/constants/timeouts';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts';
-import { cast } from '@tests/helpers/cast';
+import type { usePdfSearch as TUsePdfSearch } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearch';
 
 interface IPdfSearchTestExcerpt {
     after: string;
@@ -56,47 +57,6 @@ interface IPdfSearchRunResult {
     canceled?: boolean;
 }
 
-interface IPdfSearchTestResult {
-    endOffset: number;
-    matchIndex: number;
-    pageIndex: number;
-    pageMatchIndex: number;
-    startOffset: number;
-}
-
-interface IPdfSearchPageMatches {
-    matches: Array<{
-        end: number;
-        matchIndex: number;
-        start: number;
-    }>;
-    searchQuery: string;
-}
-
-interface IPdfSearchTestApi {
-    cancelSearch: () => void;
-    clearSearch: () => void;
-    currentMatch: Ref<number>;
-    currentResult: Ref<IPdfSearchTestResult | null>;
-    currentResultIndex: Ref<number>;
-    currentResultNavigationId: Ref<number>;
-    getMatchesForPage: (pageIndex: number) => IPdfSearchPageMatches | null;
-    goToResult: (direction: 'next' | 'previous' | 1 | -1) => void;
-    hasPartialResults: Ref<boolean>;
-    isSearching: Ref<boolean>;
-    isTruncated: Ref<boolean>;
-    resetSearchCache: (pdfPath?: string) => void;
-    results: Ref<IPdfSearchTestResult[]>;
-    search: (query: string, pdfPath: string, totalPages?: number) => Promise<boolean>;
-    searchError: Ref<string | null>;
-    searchProgress: Ref<IPdfSearchTestProgress | undefined>;
-    searchQuery: Ref<string>;
-    submittedSearchQuery: Ref<string>;
-    setResultIndex: (index: number) => void;
-    totalMatches: Ref<number>;
-    wasSearchCanceled: Ref<boolean>;
-}
-
 const mockSearch = {
     onProgress: vi.fn<(listener: (progress: IPdfSearchTestProgress) => void) => () => void>(),
     run: vi.fn<(pdfPath: string, query: string, options: IPdfSearchRunOptions) => Promise<IPdfSearchRunResult>>(),
@@ -113,9 +73,15 @@ async function flushToScheduledSearch() {
     }
 }
 
-async function createPdfSearch(options?: { documentRevisionToken?: Ref<TDocumentRevisionToken | null> }): Promise<IPdfSearchTestApi> {
+type TPdfSearchApi = ReturnType<typeof TUsePdfSearch>;
+
+async function createPdfSearch(options?: { documentRevisionToken?: Ref<TDocumentRevisionToken | null> }): Promise<Omit<TPdfSearchApi, 'getMatchesForPage'> & {getMatchesForPage: (pageIndex: number) => ReturnType<TPdfSearchApi['getMatchesForPage']>;}> {
     const { usePdfSearch } = await import('@app/modules/pdf-viewer/runtime/composables/usePdfSearch');
-    return cast<IPdfSearchTestApi>(usePdfSearch(options));
+    const search = usePdfSearch(options);
+    return {
+        ...search,
+        getMatchesForPage: (pageIndex: number) => search.getMatchesForPage(requirePageIndex(pageIndex)),
+    };
 }
 
 describe('usePdfSearch', () => {

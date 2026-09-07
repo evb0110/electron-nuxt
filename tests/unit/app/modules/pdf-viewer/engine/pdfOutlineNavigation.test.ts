@@ -8,7 +8,6 @@ import {
 } from 'vitest';
 import { navigateToBookmarkDestination } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
-import { cast } from '@tests/helpers/cast';
 
 function createBookmark(overrides: Partial<IBookmarkItem>): IBookmarkItem {
     return {
@@ -82,7 +81,9 @@ describe('navigateToBookmarkDestination', () => {
         });
         navigateToBookmarkDestination({
             ...common,
-            item: createBookmark({pageIndex: cast<TPageIndex>(Number.NaN)}),
+            // Invalid persisted page indexes are a runtime input case, not a
+            // valid page-number fixture.
+            item: createBookmark({pageIndex: Number.NaN as TPageIndex}),
             isBookmarkNavigationRequestCurrent: () => true,
         });
         expect(emitGoToPage).not.toHaveBeenCalled();

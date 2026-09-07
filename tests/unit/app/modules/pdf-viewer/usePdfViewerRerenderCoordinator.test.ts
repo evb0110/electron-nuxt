@@ -1,5 +1,5 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
-    beforeEach,
     describe,
     expect,
     it,
@@ -18,11 +18,7 @@ import type { IBuildResizeAnchorContextOptions } from '@app/modules/pdf-viewer/r
 import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import { PDF_RERENDER_SOURCE } from '@app/modules/pdf-viewer/runtime/rerender-protocol/pdfRerenderProtocol';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { cast } from '@tests/helpers/cast';
-
-const waitForVisualFrames = vi.hoisted(() => vi.fn(async () => {}));
-vi.mock('@app/utils/asyncHelpers', () => ({waitForVisualFrames}));
 
 /**
  * The anchor a fit change re-projects onto: the top of the preserved page.
@@ -138,7 +134,7 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
 
     const deps = {
         viewerContainer: ref(null),
-        pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+        pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
         isLoading: ref(false),
         numPages: ref(10),
         currentPage,
@@ -198,10 +194,6 @@ function createDeps(overrides: Partial<TCoordinatorDeps> = {}): TCoordinatorDeps
 }
 
 describe('usePdfViewerRerenderCoordinator', () => {
-    beforeEach(() => {
-        waitForVisualFrames.mockClear();
-    });
-
     it('does not overwrite view-mode snapshot restoration with a bare page snap', async () => {
         const viewMode = ref<'single' | 'facing'>('single');
         const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
@@ -293,7 +285,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
     it('uses the visible current page as a trusted toolbar zoom anchor', async () => {
         const zoom = ref(1);
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({}));
         const currentPage = ref(157);
         const visibleRange = ref({
             start: 156,
@@ -378,7 +370,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
 
     it('keeps the visible page owner while gesture geometry changes', async () => {
         const zoom = ref(1);
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({}));
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast({}));
         const currentPage = ref(157);
         const visibleRange = ref({
             start: 156,
@@ -501,7 +493,7 @@ describe('usePdfViewerRerenderCoordinator', () => {
         vi.useFakeTimers();
         try {
             const zoom = ref(1);
-            const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({id: 'old'}));
+            const pdfDocument = shallowRef<IPdfDocument | null>(cast({id: 'old'}));
             const submitZoomViewportStateIntent = vi.fn();
             const enqueueZoomSync = vi.fn();
             usePdfViewerRerenderCoordinator(createDeps({
@@ -1199,93 +1191,6 @@ describe('usePdfViewerRerenderCoordinator', () => {
         );
         expect(applyResizeAnchorPreview).toHaveBeenCalledWith(fitTopAnchor(4));
         expect(scrollToPage).not.toHaveBeenCalled();
-    });
-
-    it('waits for a painted frame before replacing fit geometry', async () => {
-        const fitMode = ref<'width' | 'height'>('width');
-        const visualFrame = createDeferred();
-        waitForVisualFrames.mockImplementationOnce(() => visualFrame.promise);
-        const computeFitWidthScale = vi.fn(() => true);
-        const setupPagePlaceholders = vi.fn();
-        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
-
-        usePdfViewerRerenderCoordinator(createDeps({
-            fitMode: computed(() => fitMode.value),
-            zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
-            computeFitWidthScale,
-            setupPagePlaceholders,
-            reRenderAllVisiblePages,
-        }));
-
-        fitMode.value = 'height';
-        await nextTick();
-        await Promise.resolve();
-
-        expect(waitForVisualFrames).toHaveBeenCalledWith({frames: 2});
-        expect(setupPagePlaceholders).not.toHaveBeenCalled();
-        expect(reRenderAllVisiblePages).not.toHaveBeenCalled();
-
-        visualFrame.resolve();
-        await flushFitModeReplacementStart();
-
-        expect(setupPagePlaceholders).toHaveBeenCalledOnce();
-        expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
-    });
-
-    it('abandons a fit run when physical navigation occurs during the paint wait', async () => {
-        const fitMode = ref<'width' | 'height'>('width');
-        const physicalNavigationEpoch = ref(0);
-        const visualFrame = createDeferred();
-        waitForVisualFrames.mockImplementationOnce(() => visualFrame.promise);
-        const setupPagePlaceholders = vi.fn();
-        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
-
-        usePdfViewerRerenderCoordinator(createDeps({
-            fitMode: computed(() => fitMode.value),
-            zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
-            computeFitWidthScale: vi.fn(() => true),
-            setupPagePlaceholders,
-            reRenderAllVisiblePages,
-            getUserPhysicalNavigationEpoch: () => physicalNavigationEpoch.value,
-        }));
-
-        fitMode.value = 'height';
-        await nextTick();
-        await Promise.resolve();
-        physicalNavigationEpoch.value += 1;
-        visualFrame.resolve();
-        await flushFitModeReplacementStart();
-
-        expect(setupPagePlaceholders).not.toHaveBeenCalled();
-        expect(reRenderAllVisiblePages).not.toHaveBeenCalled();
-    });
-
-    it('does not start a superseded fit run after the paint wait', async () => {
-        const fitMode = ref<'width' | 'height'>('width');
-        const pdfDocument = shallowRef<PDFDocumentProxy | null>(cast({id: 'original'}));
-        const visualFrame = createDeferred();
-        waitForVisualFrames.mockImplementationOnce(() => visualFrame.promise);
-        const setupPagePlaceholders = vi.fn();
-        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
-
-        usePdfViewerRerenderCoordinator(createDeps({
-            fitMode: computed(() => fitMode.value),
-            zoomMode: computed(() => fitMode.value === 'height' ? 'fit-height' as const : 'fit-width' as const),
-            pdfDocument,
-            computeFitWidthScale: vi.fn(() => true),
-            setupPagePlaceholders,
-            reRenderAllVisiblePages,
-        }));
-
-        fitMode.value = 'height';
-        await nextTick();
-        await Promise.resolve();
-        pdfDocument.value = null;
-        visualFrame.resolve();
-        await flushFitModeReplacementStart();
-
-        expect(setupPagePlaceholders).not.toHaveBeenCalled();
-        expect(reRenderAllVisiblePages).not.toHaveBeenCalled();
     });
 
     it('rerenders when zoom mode switches from custom 100% to fit-height without zoom or fit-mode changes', async () => {

@@ -98,6 +98,52 @@ async function prepareThumbnailRail(
         documentKind,
         targetPageNumber,
     });
+
+    // A ResizeObserver delivery can follow the first centered-ready result
+    // when the page track finishes settling. Recheck after two painted frames
+    // so the continuity probe never starts from a transient neighboring-page
+    // anchor.
+    await page.evaluate(async () => {
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+    await page.waitForFunction((payload: {
+        documentKind: TSplitPaneCloseDocumentKind;
+        targetPageNumber: number;
+    }) => {
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const surface = payload.documentKind === 'pdf'
+            ? host?.querySelector<HTMLElement>('#pdf-viewer') ?? null
+            : host?.querySelector<HTMLElement>('[data-testid="document-page-source-viewer"]') ?? null;
+        const viewport = payload.documentKind === 'pdf'
+            ? surface
+            : surface?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+        const pageElement = surface?.querySelector<HTMLElement>(
+            payload.documentKind === 'pdf'
+                ? `.page_container[data-page="${String(payload.targetPageNumber)}"]`
+                : `[data-testid="document-page-source-page"][data-page-number="${String(payload.targetPageNumber)}"]`,
+        ) ?? null;
+        if (!viewport || !pageElement) {
+            return false;
+        }
+        const viewportRect = viewport.getBoundingClientRect();
+        const pageRect = pageElement.getBoundingClientRect();
+        const centerY = viewportRect.top + (viewportRect.height / 2);
+        const canvas = payload.documentKind === 'pdf'
+            ? pageElement.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas')
+            : null;
+        const image = payload.documentKind === 'djvu'
+            ? pageElement.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]')
+            : null;
+        return pageRect.top <= centerY
+            && pageRect.bottom >= centerY
+            && Boolean(
+                (canvas && canvas.width > 0 && canvas.height > 0)
+                || (image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0),
+            );
+    }, {timeout: CONTINUITY_TIMEOUT_MS}, {
+        documentKind,
+        targetPageNumber,
+    });
 }
 
 async function centerTargetPage(

@@ -3,7 +3,6 @@ import {
     expect,
     it,
 } from 'vitest';
-import { cast } from '@tests/helpers/cast';
 import { createPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
 
@@ -12,7 +11,9 @@ describe('PDF viewport write port ownership tags', () => {
         const port = createPdfViewportWritePort();
         let scrollTop = 0;
         let consumedDuringSetter: boolean | null = null;
-        const container = cast<HTMLElement>({
+        // The port only observes scroll geometry and the scrollTop setter in
+        // this unit. Keep the rest of HTMLElement out of the fixture.
+        const container = {
             scrollLeft: 0,
             scrollHeight: 1_000,
             clientHeight: 100,
@@ -21,9 +22,9 @@ describe('PDF viewport write port ownership tags', () => {
             },
             set scrollTop(value: number) {
                 scrollTop = value;
-                consumedDuringSetter = port.consumeAuthorityScroll(cast<HTMLElement>(this));
+                consumedDuringSetter = port.consumeAuthorityScroll(container);
             },
-        });
+        } as HTMLElement;
         const intent = port.beginIntent('synchronous-navigation');
 
         expect(port.apply(container, {
@@ -46,10 +47,10 @@ describe('PDF viewport write port ownership tags', () => {
     });
 
     it('consumes an authority-authored scroll burst and rejects drift as user input', () => {
-        const container = cast<HTMLElement>({
+        const container = {
             scrollLeft: 0,
             scrollTop: 0,
-        });
+        } as HTMLElement;
         const port = createPdfViewportWritePort();
         expect(port.getInteractionEpoch()).toBe(0);
         const firstIntent = port.beginIntent('navigation-1');

@@ -17,7 +17,7 @@ import {tmpdir} from 'node:os';
 
 const mocks = vi.hoisted(() => ({detectDjvuHasText: vi.fn()}));
 
-vi.mock('@electron/djvu/textSearch', () => ({detectDjvuHasText: mocks.detectDjvuHasText}));
+vi.mock('@electron/features/djvu/main/textSearch', () => ({detectDjvuHasText: mocks.detectDjvuHasText}));
 
 const originalCacheLimit = process.env.EVB_DJVU_TEXT_CAPABILITY_CACHE_MAX_ENTRIES;
 const temporaryDirectories: string[] = [];
@@ -47,7 +47,7 @@ async function createSource(name: string, contents = 'djvu') {
 async function loadCacheModule(maxEntries = 2) {
     process.env.EVB_DJVU_TEXT_CAPABILITY_CACHE_MAX_ENTRIES = String(maxEntries);
     vi.resetModules();
-    return import('@electron/djvu/getCachedDjvuHasText');
+    return import('@electron/features/djvu/main/getCachedDjvuHasText');
 }
 
 describe('DjVu text capability cache', () => {

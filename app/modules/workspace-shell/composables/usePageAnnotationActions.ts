@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TDocumentRef } from '@contracts/documentRef';
-import {parsePageNumber} from '@contracts/pageNumbers';
 import * as VueUse from '@vueuse/core';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -815,13 +815,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             if (!file) {
                 return;
             }
-            const normalizedPageNumber = pageNumber === undefined
-                ? undefined
-                : pageNumber === null
-                    ? null
-                    : parsePageNumber(pageNumber);
             await viewer.startImagePlacement(file, {
-                ...(normalizedPageNumber === undefined ? {} : {pageNumber: normalizedPageNumber}),
+                ...(pageNumber === undefined || pageNumber === null
+                    ? {}
+                    : {pageNumber: requirePageNumber(pageNumber)}),
                 ...(pageX !== undefined ? { pageX } : {}),
                 ...(pageY !== undefined ? { pageY } : {}),
                 ...(existingImage ?? {}),
@@ -852,10 +849,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             if (!file) {
                 return false;
             }
-            const targetPage = parsePageNumber(pageNumber ?? viewer.getCurrentPage?.() ?? deps.currentPage.value);
-            if (targetPage === null) {
-                return false;
-            }
+            const targetPage = requirePageNumber(
+                pageNumber ?? viewer.getCurrentPage?.() ?? deps.currentPage.value,
+            );
             return await viewer.startImagePlacement(file, {
                 pageNumber: targetPage,
                 ...(pageX !== undefined ? { pageX } : {}),
@@ -1002,7 +998,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
 
         const contextMenu = annotationContextMenu.value;
-        const pageNumber = parsePageNumber(contextMenu.pageNumber ?? 0);
+        const pageNumber = typeof contextMenu.pageNumber === 'number' && Number.isFinite(contextMenu.pageNumber) ? contextMenu.pageNumber : null;
         const pageX = typeof contextMenu.pageX === 'number' && Number.isFinite(contextMenu.pageX) ? contextMenu.pageX : null;
         const pageY = typeof contextMenu.pageY === 'number' && Number.isFinite(contextMenu.pageY) ? contextMenu.pageY : null;
         if (
@@ -1018,7 +1014,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
         try {
             await pdfViewerRef.value.commentAtPoint(
-                pageNumber,
+                requirePageNumber(pageNumber),
                 pageX,
                 pageY,
                 { preferTextAnchor: false },

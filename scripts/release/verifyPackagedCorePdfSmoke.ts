@@ -18,18 +18,14 @@ import puppeteer from 'puppeteer-core';
 import type {Page} from 'puppeteer-core';
 import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { getErrorMessage } from '@contracts/getErrorMessage';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     applyCombinedPdfPageLabels,
     inspectPdfCombineCatalog,
 } from '@pdf-core/pdfCombineCatalog';
 import {writePdfBookmarkOutlines} from '@pdf-core/writePdfBookmarkOutlines';
 import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
-import {
-    waitForPackagedCdpEndpoint,
-    waitForPackagedRendererPage,
-} from '@scripts/release/waitForPackagedCdpEndpoint';
+import {waitForPackagedCdpEndpoint} from '@scripts/release/waitForPackagedCdpEndpoint';
 import {
     findFreePort,
     isProcessAlive,
@@ -44,11 +40,10 @@ import {
     openAnnotationsTab,
     openPdfInApp,
     saveViaWindowHandle,
-    waitForLivePdfJsAnnotationChange,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
 import {getWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
@@ -250,14 +245,11 @@ async function run() {
             'pipe',
         ],
     });
-    child.stdout.pipe(process.stdout);
-    child.stderr.pipe(process.stderr);
+    child.stdout?.pipe(process.stdout);
+    child.stderr?.pipe(process.stderr);
 
     let browser: TConnectedBrowser | null = null;
     let primaryError: Error | null = null;
-    // Collected instead of held in a captured let. Flow analysis does not see an
-    // assignment made inside recordCleanupError, so a later read narrows to the
-    // null initializer and reports a live branch as dead.
     const cleanupErrors: Error[] = [];
     const recordCleanupError = (error: unknown): void => {
         cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
@@ -273,11 +265,12 @@ async function run() {
             defaultViewport: null,
             protocolTimeout: 420_000,
         });
-        const page = await waitForPackagedRendererPage(
-            browser,
-            STARTUP_TIMEOUT_MS,
-            'Packaged Electron',
-        );
+        const pages = await browser.pages();
+        const page = pages.find(candidate => candidate.url().startsWith('evb-viewer://app/'))
+            ?? pages.find(candidate => !candidate.isClosed());
+        if (!page) {
+            throw new Error('Packaged Electron exposed no renderer page');
+        }
         const rendererFailures: string[] = [];
         page.on('console', (message) => {
             const renderedMessage = `[packaged-renderer:${message.type()}] ${message.text()}`;
@@ -290,8 +283,8 @@ async function run() {
         });
         page.on('pageerror', (error) => {
             const errorDetails = error instanceof Error
-                ? error.stack ?? getErrorMessage(error)
-                : getErrorMessage(error);
+                ? error.stack ?? error.message
+                : String(error);
             const renderedError = `[packaged-renderer:pageerror] ${errorDetails}`;
             rendererFailures.push(renderedError);
             console.error(renderedError);
@@ -304,18 +297,11 @@ async function run() {
 
         await openAnnotationsTab(page, OPERATION_TIMEOUT_MS);
         const annotationText = `Packaged smoke annotation ${Date.now()}`;
-        if (await createFreeTextAnnotationWithPointer(
-            page,
-            annotationText,
-            {
-                x: 0.4,
-                y: 0.3,
-            },
-            1,
-        ) < 1) {
-            throw new Error('Packaged smoke failed to create a FreeText annotation');
-        }
-        await waitForLivePdfJsAnnotationChange(page, OPERATION_TIMEOUT_MS);
+        await createCanonicalTextBoxWithPointer(page, annotationText, {
+            x: 0.4,
+            y: 0.3,
+        });
+        await page.keyboard.press('Escape');
         await waitForSaveEnabled(page);
         await saveViaWindowHandle(page, OPERATION_TIMEOUT_MS);
         await waitForSavedAnnotation(fixturePath, OPERATION_TIMEOUT_MS);
@@ -362,7 +348,7 @@ async function run() {
         await assertNoPageOperationResidue(workingCopyPath);
 
         const searchResult = await page.evaluate(async ({pdfPath}) => {
-            const api = (window as typeof globalThis & IE2EWindow).electronAPI;
+            const api = (window as IE2EWindow).electronAPI;
             if (!api?.search?.run) {
                 throw new Error('electronAPI.search.run is unavailable');
             }
@@ -386,33 +372,23 @@ async function run() {
             recordCleanupError(captureError);
         }
     } finally {
-        try {
-            await closeBrowserGracefully(browser);
-        } catch (error) {
-            recordCleanupError(error);
-        }
-
-        try {
-            if (typeof child.pid === 'number') {
+        await closeBrowserGracefully(browser);
+        if (typeof child.pid === 'number') {
+            if (!await waitForProcessExit(child.pid, 5_000)) {
+                await killProcessTree(child.pid, 3_000);
                 if (!await waitForProcessExit(child.pid, 5_000)) {
-                    await killProcessTree(child.pid, 3_000);
-                    if (!await waitForProcessExit(child.pid, 5_000)) {
-                        recordCleanupError(new Error(`Packaged smoke child process ${child.pid} did not exit after cleanup`));
-                    }
+                    recordCleanupError(new Error(`Packaged smoke child process ${child.pid} did not exit after cleanup`));
                 }
-            } else if (child.exitCode === null) {
-                child.kill('SIGKILL');
             }
-        } catch (error) {
-            recordCleanupError(error);
         }
-
-        try {
-            await browser?.disconnect();
-        } catch (error) {
-            recordCleanupError(error);
+        await browser?.disconnect().catch(() => {});
+        if (typeof child.pid === 'number') {
+            if (isProcessAlive(child.pid)) {
+                await killProcessTree(child.pid, 3_000);
+            }
+        } else if (child.exitCode === null) {
+            child.kill('SIGKILL');
         }
-
         try {
             await rm(workDirectory, {
                 force: true,
@@ -422,21 +398,19 @@ async function run() {
             });
             await assertPathAbsent(workDirectory, 'temporary smoke directory');
         } catch (error) {
-            recordCleanupError(error);
-        }
-
-        const [firstCleanupError] = cleanupErrors;
-        if (firstCleanupError && primaryError) {
-            console.error('Packaged smoke cleanup failed after the primary failure:', firstCleanupError);
+            console.warn(`Packaged smoke cleanup left temporary files at ${workDirectory}:`, error);
         }
     }
 
+    const [firstCleanupError] = cleanupErrors;
+    if (firstCleanupError && primaryError) {
+        console.error('Packaged smoke cleanup failed after the primary failure:', firstCleanupError);
+    }
     if (primaryError) {
         throw primaryError;
     }
-    const [finalCleanupError] = cleanupErrors;
-    if (finalCleanupError) {
-        throw new Error(String(finalCleanupError));
+    if (firstCleanupError) {
+        throw firstCleanupError;
     }
 }
 

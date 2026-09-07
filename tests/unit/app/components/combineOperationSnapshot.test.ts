@@ -3,18 +3,9 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    canMutateCombineFiles,
-    removeCompletedCombineSnapshot,
-} from '@app/services/pdf/combineOperationSnapshot';
+import {removeCompletedCombineSnapshot} from '@app/services/pdf/removeCompletedCombineSnapshot';
 
 describe('combine operation snapshots', () => {
-    it('rejects picker additions and drops while a combine is in flight', () => {
-        expect(canMutateCombineFiles(true)).toBe(false);
-        expect(canMutateCombineFiles(true)).toBe(false);
-        expect(canMutateCombineFiles(false)).toBe(true);
-    });
-
     it('removes only the completed immutable snapshot after success', () => {
         const first = {id: 'first'};
         const second = {id: 'second'};

@@ -191,7 +191,7 @@ export function createOcrJobStorageBudget(options: IOcrJobStorageBudgetOptions) 
             });
     };
     const interval = setInterval(checkContinuously, pollIntervalMs);
-    interval.unref?.();
+    interval.unref();
 
     const reserve = async (bytes: number) => {
         if (!Number.isSafeInteger(bytes) || bytes < 0) {

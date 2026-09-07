@@ -563,6 +563,20 @@ describe('menu per-window document state', () => {
         expect(disabledViewItems.find(item => item.label === 'menu.newPaneDown')?.enabled).toBe(false);
     });
 
+    it('keeps developer tools in the View menu after pane commands', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        const viewItems = getViewMenuSubmenu(getLastMenuTemplate());
+        const devToolsIndex = viewItems.findIndex(item => item.role === 'toggleDevTools');
+
+        expect(devToolsIndex).toBeGreaterThan(0);
+        expect(viewItems[devToolsIndex - 2]?.label).toBe('menu.newPaneDown');
+        expect(viewItems[devToolsIndex - 1]).toMatchObject({type: 'separator'});
+    });
+
     it('shows Pages only for mutable PDFs and requires a valid selection', () => {
         const window = mocks.createWindow(1, 'Window');
         mocks.windows.push(window);

@@ -5,11 +5,8 @@ import {
     vi,
 } from 'vitest';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type {
-    ICloseFileFromUiOptions,
-    IWorkspaceExpose,
-} from '@app/types/workspaceExpose';
-import { cast } from '@tests/helpers/cast';
+import type {ICloseFileFromUiOptions} from '@app/types/workspaceExpose';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 describe('WorkspaceDocumentController transaction queue', () => {
     it('starts an idle open synchronously and serializes later opens', async () => {
@@ -92,7 +89,7 @@ describe('WorkspaceDocumentController transaction queue', () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         const openGate = Promise.withResolvers<undefined>();
         const events: string[] = [];
-        controller.attachWorkspace(cast<IWorkspaceExpose>({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
+        controller.attachWorkspace(createWorkspaceExposeFixture({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
             options?.onCloseCommit?.();
             events.push('close');
             return true;
@@ -129,7 +126,7 @@ describe('WorkspaceDocumentController transaction queue', () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         const firstGate = Promise.withResolvers<undefined>();
         const secondRun = vi.fn(async () => true);
-        controller.attachWorkspace(cast<IWorkspaceExpose>({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
+        controller.attachWorkspace(createWorkspaceExposeFixture({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
             options?.onCloseCommit?.();
             return true;
         }}));
@@ -162,7 +159,7 @@ describe('WorkspaceDocumentController transaction queue', () => {
     it('does not cancel an active open when close fails its persistence gate', async () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         const openGate = Promise.withResolvers<undefined>();
-        controller.attachWorkspace(cast<IWorkspaceExpose>({handleCloseFileFromUi: async () => false}));
+        controller.attachWorkspace(createWorkspaceExposeFixture({handleCloseFileFromUi: async () => false}));
 
         const open = controller.open({
             action: 'open-recent',
@@ -185,7 +182,7 @@ describe('WorkspaceDocumentController transaction queue', () => {
         const openGate = Promise.withResolvers<undefined>();
         const persistenceGate = Promise.withResolvers<undefined>();
         const events: string[] = [];
-        controller.attachWorkspace(cast<IWorkspaceExpose>({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
+        controller.attachWorkspace(createWorkspaceExposeFixture({handleCloseFileFromUi: async (options?: ICloseFileFromUiOptions) => {
             events.push('persistence-start');
             expect(options?.persist).toBe(true);
             expect(controller.snapshot.value.phase).toBe('opening');

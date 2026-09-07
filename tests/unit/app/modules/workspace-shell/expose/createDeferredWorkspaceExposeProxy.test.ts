@@ -6,38 +6,46 @@ import {
 } from 'vitest';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
+import {cast} from '@tests/helpers/cast';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import {
-    workspaceExposeRequiredMethodNames,
-    WorkspaceExposeCommandUnavailableError,
-} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
+import {WorkspaceExposeCommandUnavailableError} from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
+import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type { IDocumentOpenIntent } from '@app/modules/workspace-shell/document-sessions/documentOpenIntent';
 
-function createWorkspace(overrides: Partial<IWorkspaceExpose> = {}) {
-    const workspace: Record<string, unknown> = {hasPdf: true};
-    for (const method of workspaceExposeRequiredMethodNames) {
-        workspace[method] = vi.fn(async () => true);
-    }
-    return cast<IWorkspaceExpose>({
-        ...workspace,
-        ...overrides,
-    });
+interface IEnqueueDocumentOpenCall {
+    intent: IDocumentOpenIntent;
+    run: (signal: AbortSignal) => Promise<unknown>;
 }
 
-function createDeps(workspace: IWorkspaceExpose | null) {
+type TDeferredWorkspaceExposeTestDeps = Parameters<typeof createDeferredWorkspaceExposeProxy>[0] & {enqueueDocumentOpenCalls: IEnqueueDocumentOpenCall[];};
+
+function createWorkspace(overrides: Partial<IWorkspaceExpose> = {}) {
+    return createWorkspaceExposeFixture(overrides);
+}
+
+function createDeps(workspace: IWorkspaceExpose | null): TDeferredWorkspaceExposeTestDeps {
     const log = vi.fn();
-    const enqueueDocumentOpen = vi.fn(async (
-        _intent,
-        run: (signal: AbortSignal) => Promise<unknown>,
-    ) => run(new AbortController().signal));
-    return cast<Parameters<typeof createDeferredWorkspaceExposeProxy>[0]>({
+    const enqueueDocumentOpenCalls: IEnqueueDocumentOpenCall[] = [];
+    const enqueueDocumentOpen: TDeferredWorkspaceExposeTestDeps['enqueueDocumentOpen'] = async <T>(
+        intent: IDocumentOpenIntent,
+        run: (signal: AbortSignal) => Promise<T>,
+    ) => {
+        enqueueDocumentOpenCalls.push({
+            intent,
+            run,
+        });
+        return run(new AbortController().signal);
+    };
+    return {
         enqueueDocumentOpen,
+        enqueueDocumentOpenCalls,
         getMounted: () => workspace,
         log,
         withLoadedWorkspace: vi.fn(async (_action, run) => (
@@ -52,7 +60,15 @@ function createDeps(workspace: IWorkspaceExpose | null) {
         withWorkspace: vi.fn(async (_action, run) => (
             workspace ? await run(workspace) !== false : false
         )),
-    });
+    };
+}
+
+function createOpenResult(path: string): TOpenFileResult {
+    return {
+        kind: 'pdf',
+        originalPath: requireDocumentRef(path),
+        workingPath: requireDocumentRef(path),
+    };
 }
 
 function createSession(path = '/tmp/a.pdf') {
@@ -223,15 +239,11 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         const deps = createDeps(workspace);
         const proxy = createDeferredWorkspaceExposeProxy(deps);
 
-        await expect(proxy.handleOpenFileWithResult(cast({
-            kind: 'pdf',
-            path: '/tmp/a.pdf',
-        }))).resolves.toBe(true);
+        await expect(proxy.handleOpenFileWithResult(createOpenResult('/tmp/a.pdf'))).resolves.toBe(true);
 
-        expect(deps.enqueueDocumentOpen).toHaveBeenCalledWith(
-            expect.objectContaining({action: 'handleOpenFileWithResult'}),
-            expect.any(Function),
-        );
+        expect(deps.enqueueDocumentOpenCalls).toHaveLength(1);
+        expect(deps.enqueueDocumentOpenCalls[0]?.intent).toEqual(expect.objectContaining({action: 'handleOpenFileWithResult'}));
+        expect(deps.enqueueDocumentOpenCalls[0]?.run).toEqual(expect.any(Function));
         expect(workspace.handleOpenFileWithResult).toHaveBeenCalledOnce();
     });
 
@@ -242,23 +254,19 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         deps.documentSession = session;
         const proxy = createDeferredWorkspaceExposeProxy(deps);
 
-        await proxy.handleOpenFileWithResult(cast({
-            kind: 'pdf',
-            path: '/tmp/b.pdf',
-        }));
+        await proxy.handleOpenFileWithResult(createOpenResult('/tmp/b.pdf'));
 
-        expect(deps.enqueueDocumentOpen).toHaveBeenCalledWith(
-            expect.objectContaining({
-                action: 'handleOpenFileWithResult',
-                commandTarget: expect.objectContaining({
-                    kind: 'revision',
-                    tabId: 'tab-1',
-                    sessionId: 'session-1',
-                    documentRef: '/tmp/a.pdf',
-                }),
+        expect(deps.enqueueDocumentOpenCalls).toHaveLength(1);
+        expect(deps.enqueueDocumentOpenCalls[0]?.intent).toEqual(expect.objectContaining({
+            action: 'handleOpenFileWithResult',
+            commandTarget: expect.objectContaining({
+                kind: 'revision',
+                tabId: 'tab-1',
+                sessionId: 'session-1',
+                documentRef: '/tmp/a.pdf',
             }),
-            expect.any(Function),
-        );
+        }));
+        expect(deps.enqueueDocumentOpenCalls[0]?.run).toEqual(expect.any(Function));
     });
 
     it('drops mount-wait commands whose captured target goes stale before workspace invocation', async () => {

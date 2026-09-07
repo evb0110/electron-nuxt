@@ -31,13 +31,16 @@ import {
 import { installManagedCodex } from '@electron/features/agent/codexCli';
 import {
     CLAUDE_AGENT_MODELS,
-    ClaudeAgentAssistantSession,
-    detectClaudeAuthState,
-    getClaudeAgentSdkInfo,
     isClaudeAuthErrorMessage,
+    getClaudeAgentSdkInfo,
+    detectClaudeAuthState,
     shouldUseClaudeAssistantFastMode,
     normalizeClaudeAssistantModel,
-    type IClaudeAgentAssistantInit,
+} from '@electron/features/agent/claudeProviderMetadata';
+import type { IClaudeAssistantProviderInfo } from '@electron/features/agent/claudeProviderMetadata';
+import type {
+    IClaudeAgentAssistantInit,
+    IClaudeAgentAssistantSessionOptions,
 } from '@electron/features/agent/claudeAgentSdkAssistant';
 import { createClaudeTurnPresentationCallbacks } from '@electron/features/agent/createClaudeTurnPresentationCallbacks';
 import {
@@ -54,7 +57,6 @@ import {
     resolveAssistantSelection,
     resolveCodexServiceTier,
     type IAssistantSelection,
-    type IClaudeAssistantProviderInfo,
 } from '@electron/features/agent/assistantProviderStatus';
 import {
     createAssistantProviderRuntimeStates,
@@ -115,6 +117,13 @@ let claudeInfoCache: IClaudeAssistantProviderInfo | null = null;
 let pendingLoginId: string | null = null;
 let authReturnWindow: TAssistantReturnWindow = null;
 let installPromise: Promise<IAgentAssistantInstallResult> | null = null;
+interface IClaudeRuntimeModule {ClaudeAgentAssistantSession: new (options: IClaudeAgentAssistantSessionOptions) => NonNullable<IAssistantChatSession['claudeSession']>;}
+let claudeRuntimeModulePromise: Promise<IClaudeRuntimeModule> | null = null;
+async function loadClaudeRuntimeModule() {
+    claudeRuntimeModulePromise ??= import('@electron/features/agent/claudeAgentSdkAssistant') as Promise<IClaudeRuntimeModule>;
+    return claudeRuntimeModulePromise;
+}
+
 const sessionStore = createAssistantChatSessionStore({
     onSessionDeleted: (session: IAssistantChatSession, reason: string) => {
         const currentRuntime = runtimeLifecycle.getRuntime();
@@ -235,11 +244,9 @@ function getChatSession(
     }
     return sessionStore.getSession(scope, selection);
 }
-
 function getAssistantTurnBusyError() {
     return te('dialogs.agentAssistant.turnBusy');
 }
-
 function createAssistantBusyResult(session: IAssistantChatSession) {
     const error = getAssistantTurnBusyError();
     return withAssistantErrorEnvelope({
@@ -248,19 +255,16 @@ function createAssistantBusyResult(session: IAssistantChatSession) {
         error,
     });
 }
-
 function hasConflictingAssistantMcpSessionScope(session: IAssistantChatSession) {
     const activeScope = getActiveAssistantMcpSessionScope();
     return activeScope !== null && activeScope.sessionKey !== sessionStore.keyForSession(session);
 }
-
 function getRequestChatSession(request?: IAgentAssistantStateRequest | IAgentAssistantScopedRequest | null) {
     const scope = sessionStore.resolveRequestedScope(request);
     const selection = resolveAssistantSelection(codexAssistantModels, request);
     rememberStateScope(scope, selection);
     return scope ? getChatSession(scope, selection, { create: true }) : null;
 }
-
 function decodeRecordResponse(value: unknown): Record<PropertyKey, unknown> | null {
     return isRecord(value) ? value : null;
 }
@@ -738,6 +742,8 @@ async function ensureClaudeAssistantSession(
     session.effort = normalizedEffort;
     session.speedMode = normalizedSpeedMode;
     sessionStore.recordSessionSnapshot(session);
+    const {ClaudeAgentAssistantSession} = await loadClaudeRuntimeModule();
+    await assistantFeatureLifecycle.assertEnabled(generation);
     session.claudeSession = new ClaudeAgentAssistantSession({
         cwd,
         model: session.model,
@@ -764,24 +770,19 @@ export async function getAgentAssistantState(
         await shutdownAgentAssistant();
         return currentState(scope, selection);
     }
-
-    if (selection.provider === 'claude') {
-        await refreshClaudeInfo();
-        return currentState(scope, selection);
-    }
-
-    const codexInfo = await runtimeLifecycle.refreshCodexInfo();
-    if (codexInfo.installed && codexInfo.isVersionSupported) {
-        try {
-            await runtimeLifecycle.ensureRuntime();
-            await refreshAuthStateAndRuntimeAvailability();
-        } catch (error) {
-            logger.warn(`Assistant runtime is not ready: ${getErrorMessage(error)}`);
+    // State reads may inspect cached provider metadata, but never start a
+    // provider runtime. A first send/login/install operation owns startup.
+    if (selection.provider === 'codex') {
+        await runtimeLifecycle.refreshCodexInfo();
+        await runtimeLifecycle.refreshCodexAuthStateWithoutRuntime();
+        if (codexProviderRuntime.authState === 'signed-out' && codexProviderRuntime.runtimeState === 'error') {
+            codexProviderRuntime.runtimeState = 'stopped';
         }
+    } else {
+        await refreshClaudeInfo();
     }
     return currentState(scope, selection);
 }
-
 export async function installAgentAssistantCodex(): Promise<IAgentAssistantInstallResult> {
     await assistantFeatureLifecycle.waitForShutdown();
     if (!(await isAssistantFeatureEnabled())) {
@@ -792,7 +793,6 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
             error,
         });
     }
-
     if (installPromise) {
         return installPromise;
     }
@@ -836,7 +836,6 @@ export async function installAgentAssistantCodex(): Promise<IAgentAssistantInsta
     })();
     return installPromise;
 }
-
 export async function startAgentAssistantLogin(
     request: IAgentAssistantLoginRequest,
     parentWindow?: BrowserWindow | null,
@@ -1051,7 +1050,6 @@ export async function sendAgentAssistantMessage(
                 });
             }
         }
-
         let currentThreadId: string | null = null;
         const turnGeneration = claimedTurnGeneration;
         try {
@@ -1141,7 +1139,10 @@ export async function sendAgentAssistantMessage(
                     error: getErrorMessage(error),
                 });
             }
-            codexProviderRuntime.lastError = getErrorMessage(error);
+            const providerError = codexProviderRuntime.lastError;
+            codexProviderRuntime.lastError = providerError?.startsWith('Could not verify Codex authentication')
+                ? providerError
+                : getErrorMessage(error);
             session.lastError = codexProviderRuntime.lastError;
             const cleanupRuntime = runtimeLifecycle.getRuntime();
             if (
@@ -1170,7 +1171,7 @@ export async function sendAgentAssistantMessage(
             codexProviderRuntime.runtimeState = 'error';
             errorSessionTurn(
                 session,
-                turnGeneration ?? session.turnOwner.generation,
+                turnGeneration,
                 codexProviderRuntime.lastError,
             );
             addMessage(session, {

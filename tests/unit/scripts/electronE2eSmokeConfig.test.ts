@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {resolvePackageScript} from '@tests/helpers/packageScriptCommands';
 import type {
     PackageJson,
     SetRequired,
@@ -93,6 +94,8 @@ const electronE2ERegressionTestFiles = [
     'tests/e2e/electron/inactivePdfTabs.e2e.test.ts',
     'tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts',
     'tests/e2e/electron/annotationLifecycle.e2e.test.ts',
+    'tests/e2e/electron/legacyNote350.e2e.test.ts',
+    'tests/e2e/electron/interopVpsAcceptance.e2e.test.ts',
     'tests/e2e/electron/stampPicker.e2e.test.ts',
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
 ];
@@ -260,22 +263,17 @@ describe('electron e2e Vitest project topology', () => {
 
         for (const projectName of ordinaryProjects) {
             if (projectName === 'e2e-quarantine') {
-                expect(packageScripts['test:e2e:electron:quarantine'])
+                expect(resolvePackageScript(packageScripts, 'test:e2e:electron:quarantine'))
                     .toContain('pnpm exec tsx scripts/ci/runElectronQuarantine.ts');
                 continue;
             }
-            const routes = Object.entries(packageScripts)
-                .filter((entry): entry is [
-                    string,
-                    string,
-                ] => (
-                    typeof entry[1] === 'string'
-                    && entry[1].includes(`--no-build ${projectName}`)
-                ));
+            const routes = Object.keys(packageScripts)
+                .map(scriptName => resolvePackageScript(packageScripts, scriptName))
+                .filter(command => command.includes(`--no-build ${projectName}`));
 
             expect(routes, `missing shared headless runner route for ${projectName}`).not.toEqual([]);
-            expect(routes.every(entry => (
-                entry[1].includes('bash scripts/test-electron-e2e-headless.sh')
+            expect(routes.every(command => (
+                command.includes('bash scripts/test-electron-e2e-headless.sh')
             ))).toBe(true);
         }
 
@@ -379,13 +377,13 @@ describe('electron e2e Vitest project topology', () => {
             .toBe('pnpm run build:electron && bash scripts/test-electron-e2e-headless.sh --no-build e2e-rapid-navigation --reporter verbose');
         expect(packageScripts['test:e2e:electron:visible-window'])
             .toBe('pnpm run build:electron && vitest run --project e2e-visible-window --reporter verbose');
-        expect(packageScripts['test:e2e:electron'])
+        expect(resolvePackageScript(packageScripts, 'test:e2e:electron'))
             .toContain('pnpm run build:native:e2e');
-        expect(packageScripts['test:e2e:electron'])
+        expect(resolvePackageScript(packageScripts, 'test:e2e:electron'))
             .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression');
-        expect(packageScripts['test:e2e:electron:regression'])
+        expect(resolvePackageScript(packageScripts, 'test:e2e:electron:regression'))
             .toContain('pnpm run build:native:e2e');
-        expect(packageScripts['test:e2e:electron:regression'])
+        expect(resolvePackageScript(packageScripts, 'test:e2e:electron:regression'))
             .toContain('EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression');
         expect(packageScripts['test:e2e:electron:smoke:no-build']).toBeUndefined();
         expect(packageScripts['test:e2e:electron:watch'])
@@ -429,10 +427,14 @@ describe('electron e2e quarantine Vitest project', () => {
             .toEqual(expect.arrayContaining(electronE2EQuarantineOperatorDiagnosticFiles));
         expect(quarantineProject.test?.exclude)
             .toHaveLength(electronE2EQuarantineOperatorDiagnosticFiles.length);
-        expect(packageScripts['test:e2e:electron:quarantine'])
-            .toContain('pnpm exec tsx scripts/ci/runElectronQuarantine.ts');
-        expect(packageScripts['test:e2e:electron:quarantine'])
-            .not.toContain('--passWithNoTests');
+        for (const scriptName of [
+            'test:e2e:electron:quarantine',
+            'test:e2e:electron:quarantine:headless',
+        ]) {
+            const command = resolvePackageScript(packageScripts, scriptName);
+            expect(command).toContain('pnpm exec tsx scripts/ci/runElectronQuarantine.ts');
+            expect(command).not.toContain('--passWithNoTests');
+        }
     });
 
 });

@@ -476,7 +476,7 @@ useHead(() => ({
         'data-platform': uiHostSnapshot.value.platform,
         style: `--app-ui-scale: ${uiEffectiveScale.value}; --app-toast-stack-max: ${APP_TOAST_STACK_MAX};`,
         class: [
-            localeHead.value.htmlAttrs?.class,
+            localeHead.value.htmlAttrs.class,
             settings.value.theme,
         ].filter(Boolean).join(' '),
     },

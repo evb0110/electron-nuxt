@@ -193,14 +193,36 @@ export type {
     TReaderCommandPlacement,
 } from '@contracts/readerCommands';
 
-export type { TDocumentRef } from '@contracts/documentRef';
+export type {TBrand} from '@contracts/brand';
+export type {
+    TEpochMs,
+    TIsoTimestamp,
+} from '@contracts/timestamps';
+export {
+    createEpochMs,
+    createIsoTimestamp,
+    isEpochMs,
+    isIsoTimestamp,
+    parseEpochMs,
+    parseIsoTimestamp,
+    requireEpochMs,
+    requireIsoTimestamp,
+} from '@contracts/timestamps';
+export type {TDocumentRef} from '@contracts/documentRef';
 export type * from '@contracts/documentRef';
 export {
+    isBrowserLegacyDocumentRef,
+    isBrowserStructuredDocumentRef,
+    isNativeLegacyDocumentRef,
+    isNativeStructuredDocumentRef,
+    isStructuredDocumentRef,
     parseDocumentRef,
     requireDocumentRef,
 } from '@contracts/documentRef';
 export type { TDocumentInstanceId } from '@contracts/documentInstanceId';
 export {
+    createDocumentInstanceId,
+    isDocumentInstanceId,
     parseDocumentInstanceId,
     requireDocumentInstanceId,
 } from '@contracts/documentInstanceId';
@@ -353,25 +375,6 @@ export type {
     TPageSelection,
     TPageSelectionPredicate,
 } from '@contracts/pageNumbers';
-
-export {
-    createJobId,
-    createLeaseId,
-    createRequestId,
-    createSessionId,
-    isJobId,
-    isLeaseId,
-    isRequestId,
-    isSessionId,
-    parseJobId,
-    parseLeaseId,
-    parseRequestId,
-    parseSessionId,
-    requireJobId,
-    requireLeaseId,
-    requireRequestId,
-    requireSessionId,
-} from '@contracts/shared';
 export {
     buildPageMoveOrder,
     buildPageMoveRangesOrder,
@@ -432,9 +435,14 @@ export type {
 } from '@contracts/annotations';
 
 export {
+    PDF_NATIVE_DATE_PATTERN,
+    isPdfDateString,
+    requirePdfDateString,
+} from '@contracts/pdfDateString';
+export type {TPdfDateString} from '@contracts/pdfDateString';
+export {
     normalizePdfNativeAnnotationIdentityBindings,
     collectExpectedNativeIdentityIds,
-    PDF_NATIVE_DATE_PATTERN,
     PDF_NATIVE_MUTATION_ENUM_VALUES,
     PDF_NATIVE_MUTATION_LIMITS,
     normalizePdfNativeModifiedAt,
@@ -550,6 +558,7 @@ export {
 } from '@contracts/runtimeGuards';
 
 export { safeJsonParse } from '@contracts/safeJsonParse';
+export { stringifyJson } from '@contracts/stringifyJson';
 
 export { isTimeoutError } from '@contracts/isTimeoutError';
 
@@ -576,8 +585,30 @@ export type {
     TFitMode,
     TZoomMode,
     TPdfViewMode,
+    TJobId,
+    TLeaseId,
+    TRequestId,
+    TSessionId,
 } from '@contracts/shared';
-export { isOcrWord } from '@contracts/shared';
+export {
+    createJobId,
+    createLeaseId,
+    createRequestId,
+    createSessionId,
+    isJobId,
+    isLeaseId,
+    isOcrWord,
+    isRequestId,
+    isSessionId,
+    parseJobId,
+    parseLeaseId,
+    parseRequestId,
+    parseSessionId,
+    requireJobId,
+    requireLeaseId,
+    requireRequestId,
+    requireSessionId,
+} from '@contracts/shared';
 
 export { parseClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
 export type { TClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
@@ -652,7 +683,21 @@ export type {
     TSplitPayload,
     TWindowTabsAction,
     TWindowTabTransferTarget,
+    TTabId,
 } from '@contracts/windowTabs';
+export {
+    createTabId,
+    isTabId,
+    parseTabId,
+    requireTabId,
+} from '@contracts/windowTabs';
+export type {TPaneId} from '@contracts/editorPanes';
+export {
+    createPaneId,
+    isPaneId,
+    parsePaneId,
+    requirePaneId,
+} from '@contracts/editorPanes';
 export type {
     IWorkspaceCheckpoint,
     IWorkspaceCheckpointPane,

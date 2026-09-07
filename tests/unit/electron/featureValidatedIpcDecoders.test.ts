@@ -4,9 +4,7 @@ import {
     vi,
 } from 'vitest';
 import { PLATFORM_FEATURE_REGISTRY } from '@contracts/platformApiDescriptor';
-import type { TAnyDefinedPlatformFeature } from '@contracts/platformFeature';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
-import { cast } from '@tests/helpers/cast';
 import {
     assertValidatedRegistrarCases,
     createFeatureRegistrarCases,
@@ -26,25 +24,31 @@ vi.mock('electron', () => ({
 vi.mock('@electron/platform-ipc/trustedIpcSender', () => mocks);
 
 function createServiceDouble() {
-    return new Proxy({}, {get(target, property) {
-        const record = target as Record<PropertyKey, unknown>;
-        record[property] ??= vi.fn(async () => undefined);
-        return record[property];
+    type TServiceMethod = ReturnType<typeof vi.fn>;
+    const methods: Record<string, TServiceMethod> = {};
+    return new Proxy(methods, {get(target, property) {
+        const key = typeof property === 'symbol' ? property.toString() : property;
+        target[key] ??= vi.fn(async () => undefined);
+        return target[key];
     }});
 }
 
 describe('feature validated IPC decoders', () => {
     it('exhaustively validates every generated feature registrar tuple', async () => {
         for (const registeredFeature of PLATFORM_FEATURE_REGISTRY) {
-            const feature = cast<TAnyDefinedPlatformFeature>(registeredFeature);
+            const feature = registeredFeature;
             const handlers = createValidatedRegistrarHarness({
                 channels: feature.invokeChannels,
                 codecs: feature.ipcCodecs,
-                register: (registrar, service) => registerPlatformFeatureHandlers(
-                    cast<Parameters<typeof registerPlatformFeatureHandlers>[0]>(registrar),
-                    feature,
-                    cast<never>(service),
-                ),
+                register: (registrar, service) => {
+                    const registrarAdapter: Parameters<typeof registerPlatformFeatureHandlers>[0] = {handle: (channel, handler) => {
+                        Reflect.apply(registrar.handle, registrar, [
+                            channel,
+                            handler,
+                        ]);
+                    }};
+                    registerPlatformFeatureHandlers(registrarAdapter, feature, service);
+                },
                 service: createServiceDouble(),
             });
             await assertValidatedRegistrarCases({
@@ -58,7 +62,7 @@ describe('feature validated IPC decoders', () => {
 
     it('keeps sync and direct methods outside the async registrar', () => {
         for (const registeredFeature of PLATFORM_FEATURE_REGISTRY) {
-            const feature = cast<TAnyDefinedPlatformFeature>(registeredFeature);
+            const feature = registeredFeature;
             const registeredChannels = new Set(Object.values(feature.invokeChannels));
             for (const spec of Object.values(feature.methods)) {
                 if (spec.kind === 'sync' || 'local' in spec) {

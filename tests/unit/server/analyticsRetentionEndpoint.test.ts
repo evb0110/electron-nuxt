@@ -74,6 +74,7 @@ describe('root analytics retention endpoint', () => {
                 visitorQuota: '1',
             },
         });
+        expect(mocks.getAnalyticsDb).toHaveBeenCalledWith();
         expect(mocks.execute).toHaveBeenCalledTimes(3);
         expect(mocks.batch).toHaveBeenCalledOnce();
     });

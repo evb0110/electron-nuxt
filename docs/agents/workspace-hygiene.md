@@ -31,6 +31,10 @@ that works in this repository, including orchestrators that drive other agents.
 
 ## Electron automation
 
+- The complete entry, exit, failed-start, interruption, and recovery contract
+  is in [Electron session lifecycle](electron-session-lifecycle.md). Follow it
+  when starting an agent or E2E session so app-temp namespaces have a known
+  owner and a matching teardown path.
 - The hidden macOS launcher bundle is shared per installed Electron version at
   `.devkit/tmp/electron-e2e-hidden-app/electron-<version>/` and is created with
   an APFS clone, so it costs kilobytes, not 280 MiB. Every launch removes the

@@ -272,7 +272,7 @@ function sweepExpiredLeases() {
 
 function ensureLeaseSweep() {
     leaseSweepTimer ??= setInterval(sweepExpiredLeases, 30_000);
-    leaseSweepTimer.unref?.();
+    leaseSweepTimer.unref();
 }
 
 export async function createManagedTempFileHandle(

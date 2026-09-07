@@ -52,9 +52,9 @@ vi.mock('@electron/features/djvu/main/pdfWorkerClient', () => ({
     DjvuPdfWorkerStartupError: mocks.StartupError,
 }));
 
-vi.mock('@electron/djvu/metadata', () => ({getDjvuResolution: mocks.getDjvuResolution}));
+vi.mock('@electron/features/djvu/main/metadata', () => ({getDjvuResolution: mocks.getDjvuResolution}));
 vi.mock('@electron/features/djvu/main/pagePreview', () => ({getDjvuPageSizeForViewing: mocks.getDjvuPageSizeForViewing}));
-vi.mock('@electron/djvu/buildOptimizedPdf', () => ({buildOptimizedPdf: mocks.buildOptimizedPdf}));
+vi.mock('@electron/features/djvu/main/buildOptimizedPdf', () => ({buildOptimizedPdf: mocks.buildOptimizedPdf}));
 vi.mock('@electron/te', () => ({te: mocks.te}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: mocks.loggerWarn,
@@ -63,7 +63,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     error: vi.fn(),
 })}));
 
-const { estimateSizes } = await import('@electron/djvu/estimateSizes');
+const { estimateSizes } = await import('@electron/features/djvu/main/estimateSizes');
 
 function createDeferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;

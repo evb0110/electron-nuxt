@@ -4,11 +4,11 @@ import {
     expect,
     it,
 } from 'vitest';
-import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
+import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import {
     getDjvuNativeToolsBase,
     resolveDjvuNativeToolPaths,
-} from '@electron/djvu/nativeToolPaths';
+} from '@electron/features/djvu/main/nativeToolPaths';
 
 describe('DjVu native tool path boundary', () => {
     it('resolves ddjvu, djvudump, and djvused from the DjVuLibre resource root', () => {
@@ -56,13 +56,12 @@ describe('DjVu native tool path boundary', () => {
     it('keeps the previous development DjVuLibre resource lookup order', () => {
         const currentDirectoryResource = path.join('/worktree/resources/djvulibre');
         const repoResource = path.join('/repo/resources/djvulibre');
-        const skippedElectronResource = path.join('/repo/electron/resources/djvulibre');
 
-        expect(getDjvuNativeToolsBase('/repo/electron/djvu', false, {
+        expect(getDjvuNativeToolsBase('/repo/electron/features/djvu/main', false, {
             cwd: '/worktree',
-            exists: candidate => candidate === skippedElectronResource || candidate === repoResource,
+            exists: candidate => candidate === repoResource,
         })).toBe(path.join('/repo/resources'));
-        expect(getDjvuNativeToolsBase('/repo/electron/djvu', false, {
+        expect(getDjvuNativeToolsBase('/repo/electron/features/djvu/main', false, {
             cwd: '/worktree',
             exists: candidate => candidate === currentDirectoryResource,
         })).toBe(path.join('/worktree/resources'));

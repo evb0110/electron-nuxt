@@ -21,10 +21,9 @@ import {createTabViewSessionState} from '@app/modules/workspace-shell/tabs/creat
 import {
     createDefaultWorkspaceToolbarSnapshot,
     createDefaultWorkspaceViewerCapabilities,
-    type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
-import { cast } from '@tests/helpers/cast';
 import {requireDocumentRevisionToken} from '@contracts';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 function createDocumentRevision(token = 'revision-1', documentRef = '/tmp/working.pdf'): IDocumentRevisionInfo {
     return {
@@ -38,7 +37,7 @@ function createDocumentRevision(token = 'revision-1', documentRef = '/tmp/workin
 }
 
 function createWorkspace() {
-    return cast<IWorkspaceExpose>({hasPdf: true});
+    return createWorkspaceExposeFixture({hasPdf: true});
 }
 
 describe('WorkspaceDocumentController', () => {

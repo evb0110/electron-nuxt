@@ -156,7 +156,7 @@ function eventPayload({
         tags: [
             {
                 key: 'evb_canary',
-                value: 'sourcemap-v6',
+                value: 'sourcemap-v7',
             },
             {
                 key: 'bundle_role',

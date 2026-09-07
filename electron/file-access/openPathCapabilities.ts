@@ -114,9 +114,9 @@ function registerOwnerCleanup(owner: number | WebContents, ownerId: number) {
 
     ownerCleanupRegistered.add(ownerId);
     const cleanup = () => {
-        owner.removeListener?.('destroyed', cleanup);
-        owner.removeListener?.('render-process-gone', cleanup);
-        owner.removeListener?.('did-start-navigation', handleNavigation);
+        owner.removeListener('destroyed', cleanup);
+        owner.removeListener('render-process-gone', cleanup);
+        owner.removeListener('did-start-navigation', handleNavigation);
         removeAllowedPathsForOwner(ownerId);
     };
     const handleNavigation = (
@@ -131,7 +131,7 @@ function registerOwnerCleanup(owner: number | WebContents, ownerId: number) {
     };
     owner.once('destroyed', cleanup);
     owner.once('render-process-gone', cleanup);
-    owner.on?.('did-start-navigation', handleNavigation);
+    owner.on('did-start-navigation', handleNavigation);
 }
 
 function isDestroyedOwner(owner: number | WebContents) {

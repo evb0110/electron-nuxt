@@ -56,7 +56,10 @@ describe('workspace save failure surfacing', () => {
             height: 0.4,
             rotationDegrees: 0,
         }];
-        const trySavePdfNativeMutations: TPdfNativeMutationSave = vi.fn(async () => ({
+        const trySavePdfNativeMutations: TPdfNativeMutationSave = vi.fn(async (
+            _mutations: Parameters<TPdfNativeMutationSave>[0],
+            _options: Parameters<TPdfNativeMutationSave>[1],
+        ) => ({
             success: true,
             outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,

@@ -47,6 +47,7 @@ import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/e
 import {applyCombinedPdfPageLabels} from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import { getAnnotationAuthor } from '@app/services/pdf/getAnnotationAuthor';
+import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
@@ -661,7 +662,11 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     return filePath;
 }
 
-/** Creates the fifth-page link and persisted-note fixture used by close-tab tests. */
+/**
+ * Creates a small multi-page PDF whose fifth page has both a link and a
+ * persisted annotation. The close-tab regression opens that page so the
+ * viewer has populated its page-scoped link cache before teardown.
+ */
 export async function createAnnotatedLinkFixturePdf(filename: string, pageCount = 6) {
     if (pageCount < 5) {
         throw new Error('Annotated link fixture requires at least five pages');
@@ -671,6 +676,7 @@ export async function createAnnotatedLinkFixturePdf(filename: string, pageCount 
     const filePath = join(getFixtureDir(), filename);
     const doc = await PDFDocument.create();
     const font = await doc.embedFont(StandardFonts.Helvetica);
+
     for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
         const page = doc.addPage([
             612,
@@ -693,7 +699,7 @@ export async function createAnnotatedLinkFixturePdf(filename: string, pageCount 
     }
 
     const page = doc.getPage(4);
-    const linkRef = doc.context.register(doc.context.obj({
+    const link = doc.context.obj({
         Type: PDFName.of('Annot'),
         Subtype: PDFName.of('Link'),
         Rect: [
@@ -717,7 +723,9 @@ export async function createAnnotatedLinkFixturePdf(filename: string, pageCount 
             S: PDFName.of('URI'),
             URI: PDFString.of('https://example.com/evb-close-tab-regression'),
         }),
-    }));
+    });
+    const linkRef = doc.context.register(link);
+
     const annotationRef = doc.context.nextRef();
     const popupRef = doc.context.nextRef();
     const noteText = 'EVB close-tab regression note';
@@ -758,6 +766,7 @@ export async function createAnnotatedLinkFixturePdf(filename: string, pageCount 
         F: 4,
         M: PDFString.of('D:20260905000000Z'),
     }));
+
     page.node.set(PDFName.of('Annots'), doc.context.obj([
         linkRef,
         annotationRef,
@@ -1082,7 +1091,7 @@ export async function createOutlinePageLabelFixturePdf(filename: string) {
             start: 1,
         },
         {
-            pageIndex: 2,
+            pageIndex: requirePageIndex(2),
             style: 'D',
             prefix: 'chapter-',
             start: 1,
@@ -2724,8 +2733,10 @@ function hasDjvuExtension(path: string) {
 
 async function openPdfWithLowVerbosity(filePath: string) {
     const data = new Uint8Array(readFileSync(filePath));
-    return pdfjs.getDocument({
+    const task = pdfjs.getDocument({
         data,
         ...createPdfjsNodeDocumentOptions(pdfjs),
-    }).promise;
+    });
+    const document = await task.promise;
+    return adaptPdfjsDocument(document, () => task.destroy());
 }

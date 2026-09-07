@@ -249,7 +249,6 @@ import { formatBytes } from '@app/utils/formatters';
 import {getCombinePdfCapabilities} from '@app/services/pdf/combinePdfFiles';
 import {getDocumentKindFromPath} from '@app/utils/supportedDocumentPaths';
 import { createBrowserSafeId } from '@app/utils/browserSafe';
-import {canMutateCombineFiles} from '@app/services/pdf/combineOperationSnapshot';
 
 type TCombineFileKind = 'pdf' | 'djvu' | 'image' | 'document';
 
@@ -344,7 +343,7 @@ function addFiles(fileList: FileList | File[]) {
 }
 
 function openFileInput() {
-    if (!canMutateCombineFiles(queueMutationLocked.value)) {
+    if (queueMutationLocked.value) {
         return;
     }
     fileInputRef.value?.click();
@@ -452,7 +451,7 @@ function announceReorder(position: number) {
 }
 
 function moveFile(index: number, delta: -1 | 1) {
-    if (!canMutateCombineFiles(queueMutationLocked.value)) {
+    if (queueMutationLocked.value) {
         return;
     }
     const targetIndex = index + delta;
@@ -467,7 +466,7 @@ function moveFile(index: number, delta: -1 | 1) {
 }
 
 function handleReorder(fromIndex: number, toIndex: number) {
-    if (!canMutateCombineFiles(queueMutationLocked.value)) {
+    if (queueMutationLocked.value) {
         return;
     }
     if (!queue.moveFile(fromIndex, toIndex)) {

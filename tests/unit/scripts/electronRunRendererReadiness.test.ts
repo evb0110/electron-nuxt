@@ -1,4 +1,3 @@
-import {cast} from '@tests/helpers/cast';
 import type {
     Browser,
     Page,
@@ -26,10 +25,12 @@ describe('Electron renderer readiness', () => {
                 vi.stubGlobal('document', {body: hasBody ? {} : null});
                 return probe();
             });
-            const page = cast<Pick<Page, 'evaluate'>>({
+            // Puppeteer's overloaded evaluate method is DOM-bound, but this
+            // test exercises only its zero-argument boolean probe.
+            const page = {
                 evaluate,
                 $: query,
-            });
+            } as Pick<Page, 'evaluate'>;
 
             await expect(probeRendererBody(page)).resolves.toBe(hasBody ? 'ready' : 'waiting');
             expect(query).not.toHaveBeenCalled();
@@ -41,7 +42,7 @@ describe('Electron renderer readiness', () => {
     });
 
     it('bounds CDP page discovery when a target attach never responds', async () => {
-        const browser = {pages: () => new Promise<never>(() => {})} as Pick<Browser, 'pages'>;
+        const browser = {pages: () => new Promise<never>(() => {})} satisfies Pick<Browser, 'pages'>;
 
         await expect(findAppPage(browser, 5)).rejects.toThrow(
             'Puppeteer page discovery did not respond within 5ms',
@@ -51,7 +52,7 @@ describe('Electron renderer readiness', () => {
     it('clears the discovery timer after CDP page discovery resolves', async () => {
         vi.useFakeTimers();
         try {
-            const browser = {pages: async () => []} as Pick<Browser, 'pages'>;
+            const browser = {pages: async () => []} satisfies Pick<Browser, 'pages'>;
 
             await expect(findAppPage(browser, 5_000)).resolves.toBeNull();
             expect(vi.getTimerCount()).toBe(0);

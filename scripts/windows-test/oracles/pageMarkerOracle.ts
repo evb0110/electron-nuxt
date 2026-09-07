@@ -14,7 +14,7 @@ import {collectMarkerFailures} from '@scripts/windows-test/oracles/collectMarker
 
 export const PAGE_MARKER_ORACLE_ID = 'page-markers';
 
-export const PAGE_MARKER_ORACLE_VERSION = 'pdfjs-dist@5.7-text-content';
+export const PAGE_MARKER_ORACLE_VERSION = 'pdfjs-dist@6.3.311-text-content';
 
 export interface IPageMarkerExpectation {
     repositoryRoot: string;

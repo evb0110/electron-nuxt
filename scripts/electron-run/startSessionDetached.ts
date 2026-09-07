@@ -19,6 +19,10 @@ import {
     waitForSessionReady,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
+    cleanupSessionAppTempIfUnowned,
+    hasWorkspaceRecoveryEvidence,
+} from '@scripts/electron-run/electronRunSessionCleanup';
+import {
     getCurrentSessionName,
     sessionDir,
     sessionLogFilePath,
@@ -190,6 +194,9 @@ export async function startSessionDetached(options: {
         }
         try {
             await cleanupSessionStartingAttempt();
+            if (!hasWorkspaceRecoveryEvidence() && !cleanupSessionAppTempIfUnowned()) {
+                throw new Error('Detached session app temp cleanup was refused because a session-owned Electron process is still alive.');
+            }
         } catch (error) {
             cleanupErrors.push(error);
         }

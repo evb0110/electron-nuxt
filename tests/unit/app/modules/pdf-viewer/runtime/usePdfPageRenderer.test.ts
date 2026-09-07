@@ -8,10 +8,15 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
-import { cast } from '@tests/helpers/cast';
+import {
+    computed,
+    ref,
+} from 'vue';
 import { createPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { IUsePdfPageRendererOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 const rendererFixture = vi.hoisted(() => ({
     renderTextLayer: vi.fn(),
@@ -60,6 +65,76 @@ function createDeferred() {
     };
 }
 
+type TPdfLeasedPage = Awaited<
+    ReturnType<IUsePdfPageRendererOptions['document']['leasePage']>
+>['page'];
+
+function createPage(): TPdfLeasedPage {
+    const page = {
+        rotate: 0,
+        getViewport: () => ({
+            width: 600,
+            height: 800,
+            userUnit: 1,
+            rawDims: {
+                pageWidth: 600,
+                pageHeight: 800,
+            },
+        }),
+    };
+    // PDF.js supplies the remaining page proxy methods outside this layer test.
+    return Object.assign(Object.create(null), page);
+}
+
+function createDocumentFixture(page: TPdfLeasedPage, release: () => void): TPdfDocumentSession {
+    const fixture = {
+        pdfDocument: computed(() => createPdfDocumentProxy()),
+        numPages: ref(1),
+        isLoading: ref(false),
+        captureFence: () => ({
+            loadToken: 1,
+            documentVersion: 1,
+            documentRevision: null,
+            openSurfaceGeneration: 0,
+        }),
+        isCurrent: () => true,
+        leasePage: vi.fn(async () => ({
+            page,
+            release,
+        })),
+    };
+    // Rendering owns the page lease; this fixture omits unrelated session APIs.
+    return Object.assign(Object.create(null), fixture);
+}
+
+function createViewportFixture(): TPdfViewportSession {
+    const fixture = {
+        scale: {effectiveScale: ref(1)},
+        currentPage: ref(1),
+        cancelPendingSearchRevision: ref(0),
+        viewportWritePort: {},
+        singlePageScroll: {
+            viewportAuthority: {
+                phase: ref('idle'),
+                activeIntent: ref(null),
+            },
+            scrollToPage: vi.fn(),
+            beginSearchNavigation: vi.fn(),
+            revealSearchNavigationTarget: vi.fn(),
+            endSearchNavigation: vi.fn(),
+        },
+        markUserViewportInteraction: vi.fn(),
+        transactionController: {
+            beginTransaction: vi.fn(() => null),
+            isTransactionCurrent: vi.fn(() => false),
+            advanceTransaction: vi.fn(),
+            cancelActiveTransaction: vi.fn(),
+        },
+    };
+    // The page renderer reads only these viewport controls.
+    return Object.assign(Object.create(null), fixture);
+}
+
 function createHarness() {
     const root = document.createElement('div');
     const pageContainer = document.createElement('div');
@@ -72,57 +147,14 @@ function createHarness() {
     root.append(pageContainer);
     document.body.append(root);
 
-    const page = cast<Awaited<ReturnType<IUsePdfPageRendererOptions['document']['leasePage']>>['page']>({
-        rotate: 0,
-        getViewport: () => ({
-            width: 600,
-            height: 800,
-            userUnit: 1,
-            rawDims: {
-                pageWidth: 600,
-                pageHeight: 800,
-            },
-        }),
-    });
+    const page = createPage();
     const release = vi.fn();
     const pageRenderState = createPdfPageRenderState();
     const onRenderedPageStateChanged = vi.fn();
-    const renderer = usePdfPageRenderer(cast<IUsePdfPageRendererOptions>({
+    const rendererOptions: IUsePdfPageRendererOptions = {
         container: ref(root),
-        document: {
-            pdfDocument: ref({}),
-            numPages: ref(1),
-            isLoading: ref(false),
-            captureFence: () => ({token: 1}),
-            isCurrent: () => true,
-            leasePage: vi.fn(async () => ({
-                page,
-                release,
-            })),
-        },
-        viewport: {
-            scale: {effectiveScale: ref(1)},
-            currentPage: ref(1),
-            cancelPendingSearchRevision: ref(0),
-            viewportWritePort: {},
-            singlePageScroll: {
-                viewportAuthority: {
-                    phase: ref('idle'),
-                    activeIntent: ref(null),
-                },
-                scrollToPage: vi.fn(),
-                beginSearchNavigation: vi.fn(),
-                revealSearchNavigationTarget: vi.fn(),
-                endSearchNavigation: vi.fn(),
-            },
-            markUserViewportInteraction: vi.fn(),
-            transactionController: {
-                beginTransaction: vi.fn(() => null),
-                isTransactionCurrent: vi.fn(() => false),
-                advanceTransaction: vi.fn(),
-                cancelActiveTransaction: vi.fn(),
-            },
-        },
+        document: createDocumentFixture(page, release),
+        viewport: createViewportFixture(),
         pageRenderState,
         outputScale: ref(1),
         showAnnotations: false,
@@ -131,7 +163,8 @@ function createHarness() {
         getCommittedCanvas: () => canvas,
         onRenderedPageStateChanged,
         requestSearchPageRaster: vi.fn(async () => undefined),
-    }));
+    };
+    const renderer = usePdfPageRenderer(rendererOptions);
     const renderResult = {
         canvas,
         viewport: page.getViewport({scale: 1}),

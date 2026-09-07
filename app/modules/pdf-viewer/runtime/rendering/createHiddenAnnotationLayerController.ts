@@ -73,7 +73,7 @@ export function createHiddenAnnotationLayerController(options: {
         const setActiveEditor = getOptionalFunction<[unknown | null]>(annotationUiManager, 'setActiveEditor');
         const activeEditor = getActive?.call(annotationUiManager) ?? null;
         targetPageNumbers.forEach((targetPageNumber) => {
-            const editors = Array.from(getEditors.call(annotationUiManager, targetPageNumber - 1) ?? []);
+            const editors = Array.from(getEditors.call(annotationUiManager, targetPageNumber - 1));
             editors.forEach((editor) => {
                 const annotationElementId = editor && typeof editor === 'object'
                     ? (editor as { annotationElementId?: unknown }).annotationElementId

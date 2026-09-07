@@ -1,6 +1,5 @@
+import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TPageNumber } from '@contracts/pageNumbers';
-
-import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IOcrWord } from '@contracts/shared';
@@ -21,7 +20,7 @@ export const usePdfWordBoxes = () => {
 
     function renderPageWordBoxes(
         pageContainer: HTMLElement,
-        words: IOcrWord[],
+        words: readonly IOcrWord[],
         pdfPageWidth: number | undefined,
         pdfPageHeight: number | undefined,
         currentMatchWords?: Set<string>,
@@ -35,7 +34,7 @@ export const usePdfWordBoxes = () => {
         const renderedPageWidth = canvas.offsetWidth;
         const renderedPageHeight = canvas.offsetHeight;
 
-        if (words.length > 0 && pdfPageWidth && pdfPageHeight) {
+        if (words && words.length > 0 && pdfPageWidth && pdfPageHeight) {
             const scaleX = renderedPageWidth / pdfPageWidth;
             const scaleY = renderedPageHeight / pdfPageHeight;
             const diff = Math.abs(scaleX - scaleY);
@@ -66,7 +65,7 @@ export const usePdfWordBoxes = () => {
         clearWordBoxes(pageContainer);
 
         const boxes = createWordBoxOverlays(
-            words,
+            [...words],
             pdfPageWidth,
             pdfPageHeight,
             renderedPageWidth,
@@ -108,7 +107,7 @@ export const usePdfWordBoxes = () => {
         pageNumber: TPageNumber,
         workingCopyPath: TDocumentRef | null,
         documentRevisionToken: TDocumentRevisionToken | null,
-        viewport: PageViewport,
+        viewport: IPdfViewport,
         pageWidth: number,
         pageHeight: number,
     ) {

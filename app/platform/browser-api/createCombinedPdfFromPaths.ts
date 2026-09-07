@@ -20,17 +20,19 @@ import { browserDjvuCapability } from '@app/platform/browser-api/browserDjvuCapa
 import { runBrowserDjvuConversion } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 import { emitBrowserOpenDocumentDirectBatchProgress } from '@app/platform/browser-api/documentsMenuCapability';
 import type { TOpenBatchProgressOperation } from '@contracts/electronApiDocuments';
-import {requireDocumentRef} from '@contracts/documentRef';
-import {
-    createJobId,
-    type TRequestId,
-} from '@contracts/shared';
 import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
-import { isNativeDocumentRef } from '@app/utils/documentRef';
+import {
+    isNativeLegacyDocumentRef,
+    parseDocumentRef,
+} from '@contracts/documentRef';
+import {
+    createJobId,
+    parseRequestId,
+} from '@contracts/shared';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {createBrowserPdfCombineOutputError} from '@app/platform/browser-api/browserPdfCombineLimits';
 
@@ -43,7 +45,7 @@ export interface IBrowserBatchOpenProgress {
 }
 
 export interface IBrowserBatchOpenProgressOptions {
-    requestId?: TRequestId;
+    requestId?: string;
     operation?: TOpenBatchProgressOperation;
     onProgress?: (progress: IBrowserBatchOpenProgress) => void;
     signal?: AbortSignal;
@@ -58,7 +60,7 @@ function throwIfCombineAborted(signal: AbortSignal | undefined) {
 }
 
 function assertBrowserCombineSources(paths: string[]) {
-    const nativePath = paths.find(path => isNativeDocumentRef(requireDocumentRef(path)));
+    const nativePath = paths.find(path => isNativeLegacyDocumentRef(path));
     if (!nativePath) {
         return;
     }
@@ -120,7 +122,7 @@ export function emitBatchOpenProgress(
     startedAt: number,
     percentCap = 100,
 ) {
-    const requestId = options?.requestId;
+    const requestId = options?.requestId ? parseRequestId(options.requestId) : null;
     const safeTotal = Math.max(total, 0);
     const safeProcessed = safeTotal > 0
         ? clamp(processed, 0, safeTotal)
@@ -194,7 +196,7 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
     throwIfCombineAborted(signal);
     const fileName = getBrowserDocumentFileName(path);
     const outputName = ensurePdfExtension(fileName.replace(/\.[^.]+$/u, ''));
-    const outputRef = requireDocumentRef(await browserDocumentStore.createStoredDocument(
+    const outputRef = await browserDocumentStore.createStoredDocument(
         outputName,
         new Uint8Array(),
         {
@@ -203,7 +205,7 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
             kind: 'output',
             retention: 'transient',
         },
-    ));
+    );
     const jobId = createJobId('browser-pdf-combine-djvu');
     const cancel = () => { void browserDjvuCapability.cancel(jobId); };
     signal?.addEventListener('abort', cancel, {once: true});
@@ -211,9 +213,12 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
         let result;
         try {
             throwIfCombineAborted(signal);
-            const inputRef = requireDocumentRef(path);
+            const documentRef = parseDocumentRef(path);
+            if (!documentRef) {
+                throw new Error(`Invalid browser document reference: ${path}`);
+            }
             result = await runBrowserDjvuConversion(
-                inputRef,
+                documentRef,
                 outputRef,
                 {
                     jobId,

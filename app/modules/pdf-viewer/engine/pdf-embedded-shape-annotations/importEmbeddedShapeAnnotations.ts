@@ -26,6 +26,7 @@ import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { getAllShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
 import { readPdfRectFromDict } from '@pdf-core';
 import { parsePdfDateStringTimestamp } from '@app/utils/pdfDate';
+import { createEpochMs } from '@contracts/timestamps';
 import { computePointsMinMax } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/computePointsMinMax';
 import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/iterateAnnotationRefDicts';
 import { resolvePageAnnotationContext } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/resolvePageAnnotationContext';
@@ -247,7 +248,10 @@ function readPdfTextValue(value: unknown) {
 }
 
 function readAnnotationTimestamp(dict: PDFDict, key: PDFName) {
-    return parsePdfDateStringTimestamp(readPdfTextValue(dict.get(key)) || null);
+    const value = parsePdfDateStringTimestamp(readPdfTextValue(dict.get(key)) || null);
+    return value !== null && Number.isSafeInteger(value) && value >= 0
+        ? createEpochMs(value)
+        : null;
 }
 
 function readShapeDates(dict: PDFDict) {

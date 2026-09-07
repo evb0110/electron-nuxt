@@ -1,10 +1,16 @@
 # EVB PDF.js artifact
 
-This directory contains the complete generated `pdfjs-dist@5.7.304` package
+This directory contains the complete generated `pdfjs-dist@6.3.311` package
 from the public EVB fork at
 `https://github.com/evb0110/pdf.js`, commit
-`f029c04600ed3d851491c0d70eafe7caa1557d36`, tree
-`b4653b1e48fcb781ffeafed8efcdceb1a0b986fe`, branch `evb/5.7.284`.
+`6922bee2b3dd047c954d5717a533a2d701559c17`, tree
+`0fc8b8db395e8ab30ddec61a78bb9ad72d82512b`, branch
+`ticket/168-fork-rebase`. The fork rebases the EVB changes onto upstream
+`v6.3.289`.
+
+The generated fork metadata keeps `sourceVersion: 5.7.284` to identify the
+original EVB fork base. The upstream rebase is identified separately by the
+receipt in `provenance.json` and the generated source commit and tree fields.
 
 The tarball is installed only through the `file:` dependency in the root
 `package.json`. It is not published to npm. The complete package stays here so

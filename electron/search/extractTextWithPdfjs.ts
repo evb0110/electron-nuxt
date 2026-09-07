@@ -64,6 +64,19 @@ const log = createLogger('pdfjsTextExtractor');
 const PDFJS_COMPATIBILITY_MAX_INPUT_BYTES = 16 * 1024 * 1024;
 const PDFJS_RANGE_CHUNK_SIZE = 1 * 1024 * 1024;
 
+interface IPdfjsDocumentLifecycle {
+    cleanup?: () => Promise<void>;
+    destroy?: () => Promise<void>;
+}
+
+async function destroyPdfjsDocument(document: IPdfjsDocumentLifecycle) {
+    if (document.destroy) {
+        await document.destroy();
+        return;
+    }
+    await document.cleanup?.();
+}
+
 export interface IExtractPdfjsTextOptions {
     signal?: AbortSignal;
     onPageText?: (page: IPageText) => void;
@@ -189,12 +202,12 @@ export async function extractTextWithPdfjsWordBoxes(
         for (const pageNumber of pagesToExtract) {
             throwIfAborted(signal);
             const page = await withAbortSignal(doc.getPage(pageNumber), signal, () => {
-                void doc.destroy();
+                void destroyPdfjsDocument(doc);
             });
             try {
                 const pageBox = getPdfjsPageViewBox(page);
                 const operatorList = await withAbortSignal(page.getOperatorList(), signal, () => {
-                    void doc.destroy();
+                    void destroyPdfjsDocument(doc);
                 });
                 throwIfAborted(signal);
 
@@ -224,14 +237,15 @@ export async function extractTextWithPdfjsWordBoxes(
                 }
                 onPageText?.(pageWithGeometry);
             } finally {
-                page.cleanup?.();
+                page.cleanup();
             }
         }
 
         log.debug(`Extracted ${extractedPageCount} pages with pdfjs-dist geometry`);
         return pages;
     } finally {
-        await doc.destroy();
+        await destroyPdfjsDocument(doc);
+        await loadingTask.destroy();
     }
 }
 
@@ -273,7 +287,7 @@ export async function extractTextWithPdfjs(
             for (const pageNumber of pagesToExtract) {
                 throwIfAborted(signal);
                 const page = await withAbortSignal(doc.getPage(pageNumber), signal, () => {
-                    void doc.destroy();
+                    void destroyPdfjsDocument(doc);
                 });
                 try {
                     const content = await withAbortSignal(
@@ -283,7 +297,7 @@ export async function extractTextWithPdfjs(
                         }),
                         signal,
                         () => {
-                            void doc.destroy();
+                            void destroyPdfjsDocument(doc);
                         },
                     );
                     throwIfAborted(signal);
@@ -313,14 +327,15 @@ export async function extractTextWithPdfjs(
                     }
                     onPageText?.(pageText);
                 } finally {
-                    page.cleanup?.();
+                    page.cleanup();
                 }
             }
 
             log.debug(`Extracted ${extractedPageCount} pages with pdfjs-dist path ranges`);
             return pages;
         } finally {
-            await doc.destroy();
+            await destroyPdfjsDocument(doc);
+            await loadingTask.destroy();
         }
     } catch (error) {
         if (isPdfTextExtractionCapabilityError(error) || isAbortError(error)) {

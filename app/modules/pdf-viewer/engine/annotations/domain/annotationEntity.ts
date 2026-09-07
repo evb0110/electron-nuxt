@@ -330,9 +330,9 @@ function normalizeColor(color: string | null | undefined) {
         const digits = hex[1]!;
         if (digits.length === 3 || digits.length === 4) {
             return byteColor(
-                Number.parseInt(`${digits[0]!}${digits[0]!}`, 16),
-                Number.parseInt(`${digits[1]!}${digits[1]!}`, 16),
-                Number.parseInt(`${digits[2]!}${digits[2]!}`, 16),
+                Number.parseInt(`${digits.charAt(0)}${digits.charAt(0)}`, 16),
+                Number.parseInt(`${digits.charAt(1)}${digits.charAt(1)}`, 16),
+                Number.parseInt(`${digits.charAt(2)}${digits.charAt(2)}`, 16),
             );
         }
         return byteColor(

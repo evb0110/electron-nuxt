@@ -10,11 +10,11 @@ import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceExpose,
 } from '@app/types/workspaceExpose';
-import { cast } from '@tests/helpers/cast';
+import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 function createWorkspace() {
     let continuousScroll = true;
-    return cast<IWorkspaceExpose>({
+    return createWorkspaceExposeFixture({
         getToolbarSnapshot: () => ({
             ...createDefaultWorkspaceToolbarSnapshot(),
             continuousScroll,

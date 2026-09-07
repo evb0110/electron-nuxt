@@ -5,9 +5,6 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[features]
-experimental-auto-dewarp = []
-
 [dependencies]
 crc32fast = "1.5.0"
 evb-raster-io = { version = "0.1.0", path = "../evb-raster-io" }

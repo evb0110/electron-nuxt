@@ -106,7 +106,7 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
                 retainedByKey.delete(key);
                 notifyIdleIfEmpty();
             }, terminalRetentionMs);
-            timer.unref?.();
+            timer.unref();
         }
 
         retainedByKey.set(key, {
@@ -144,7 +144,7 @@ export function createIpcProgressPump<TPayload>(options: IIpcProgressPumpOptions
         const timer = setTimeout(() => {
             flush(key);
         }, intervalMs);
-        timer.unref?.();
+        timer.unref();
         timersByKey.set(key, timer);
     }
 

@@ -100,7 +100,7 @@ async function runUnderCapFlow() {
             applied.stagedOutput,
             {
                 expectedDocumentRevisionToken: openedRevision.token,
-                ...(applied.identityBindings ? {identityBindings: applied.identityBindings} : {}),
+                ...(applied.identityBindings ? {identityBindings: [...applied.identityBindings]} : {}),
             },
         );
         if (!committed.applied || !committed.nativeMutationPostconditionsVerified) {

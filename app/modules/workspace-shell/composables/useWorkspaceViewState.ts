@@ -40,7 +40,9 @@ interface IWorkspaceViewStateDeps {
     ) => void) | undefined;
     requestPageNavigation?: ((page: number) => number) | undefined;
     documentViewerRef: Ref<(
-        IDocumentViewerExpose & {applyFitWidthToCurrentPage?: () => Promise<boolean>;}
+        IDocumentViewerExpose & {applyFitWidthToCurrentPage?: (
+            options?: {page?: number | null | undefined},
+        ) => Promise<boolean>;}
     ) | null>;
 }
 
@@ -103,9 +105,11 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         deps.zoomMode.value = mode === 'height' ? 'fit-height' : 'fit-width';
 
         if (mode === 'width') {
+            const fitPage = deps.documentViewerRef.value?.getPendingNavigationTargetPage?.()
+                ?? deps.currentPage.value;
             void nextTick(async () => {
                 try {
-                    await deps.documentViewerRef.value?.applyFitWidthToCurrentPage?.();
+                    await deps.documentViewerRef.value?.applyFitWidthToCurrentPage?.({page: fitPage});
                 } catch (error) {
                     BrowserLogger.warn('workspace', 'Failed to apply fit-width to the current page', { error });
                 }

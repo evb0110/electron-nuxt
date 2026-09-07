@@ -1,4 +1,4 @@
-import {clamp} from 'es-toolkit/math';
+import { clamp } from 'es-toolkit/math';
 
 function isWhitespaceAt(text: string, offset: number) {
     return /\s/.test(text[offset] ?? '');

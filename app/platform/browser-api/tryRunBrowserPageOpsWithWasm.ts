@@ -320,9 +320,9 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'getPageGeometry':
         case 'decrypt':
         case 'parseAnnotations':
-        case 'saveMutations':
         case 'readCatalog':
         case 'conformance':
+        case 'saveMutations':
             return request.payload.data;
         case 'mergePages':
             return new Uint8Array();

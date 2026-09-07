@@ -130,6 +130,7 @@ describe('useWorkspaceViewState', () => {
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage: () => {},
+                getPendingNavigationTargetPage: () => 6,
                 applyFitWidthToCurrentPage,
             }),
         }});
@@ -139,7 +140,7 @@ describe('useWorkspaceViewState', () => {
         await Promise.resolve();
 
         expect(state.isFitWidthActive.value).toBe(true);
-        expect(applyFitWidthToCurrentPage).toHaveBeenCalledOnce();
+        expect(applyFitWidthToCurrentPage).toHaveBeenCalledWith({page: 6});
     });
 
     it('disables annotation cursor when drag mode is enabled', () => {

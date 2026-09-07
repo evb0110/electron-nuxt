@@ -53,7 +53,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import { registerPlatformFeatureHandlers } from '@electron/platform-ipc/validatedIpcRegistrar';
 import type { IWorkingCopyBackingStatus } from '@contracts/electronApiDocuments';
-import {requireDocumentRef} from '@contracts/documentRef';
+import {parseDocumentRef} from '@contracts/documentRef';
 import {revokeManagedTempFileHandlesForSender} from '@electron/features/documents/main/managedTempFileHandles';
 import {cancelMainOperationsForOwner} from '@electron/operation-lifecycle/mainOperationLifecycle';
 
@@ -70,6 +70,14 @@ const RENDERER_FILE_OPEN_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]
 const logger = createLogger('documents-ipc-adapter');
 const rendererFileOpenTokens = new Map<number, Map<string, IRendererFileOpenToken>>();
 const rendererFileOpenTokenCleanupSenders = new Set<number>();
+
+function requireDocumentRef(value: unknown) {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
+}
 
 function getDistinctDocumentsChannelValues() {
     return [...new Set<string>([
@@ -306,7 +314,7 @@ export function registerDocumentsIpcAdapter(
             logger.debug(`Failed to send working-copy backing status: ${getErrorMessage(error)}`);
         },
     });
-    service.onWorkingCopyBackingStatusChanged?.((statusEvent) => {
+    service.onWorkingCopyBackingStatusChanged((statusEvent) => {
         const windows = BrowserWindow.getAllWindows().filter(window => (
             statusEvent.ownerWebContentsId === undefined
             || window.webContents.id === statusEvent.ownerWebContentsId
@@ -382,12 +390,8 @@ export function registerDocumentsIpcAdapter(
                 .then(result => requireDocumentRef(result)),
         createWorkingCopyFromPath: async (context, sourcePath, originalPath, password) => {
             const trustedSourcePath = await requireWorkingCopySourcePath(context, sourcePath);
-            return requireDocumentRef(await service.createWorkingCopyFromPath(
-                context,
-                trustedSourcePath,
-                originalPath,
-                password,
-            ));
+            return service.createWorkingCopyFromPath(context, trustedSourcePath, originalPath, password)
+                .then(result => requireDocumentRef(result));
         },
         parsePdfAnnotations: (context, filePath, options) =>
             service.parsePdfAnnotations(context, filePath, options),

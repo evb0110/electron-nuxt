@@ -126,12 +126,12 @@ import {
 } from '@electron/menu';
 import { createLogger } from '@electron/utils/createLogger';
 import type { IDocumentsService } from '@electron/features/documents/documentsService';
-import {parseDocumentRef} from '@contracts/documentRef';
 import type {
     IWorkingCopyBackingFailure,
     IWorkingCopyBackingStatus,
     TWorkingCopyBackingStatusState,
 } from '@contracts/electronApiDocuments';
+import {parseDocumentRef} from '@contracts/documentRef';
 import {
     createManagedTempFileHandle,
     releaseManagedTempFileHandle,
@@ -189,6 +189,14 @@ function toProgressStatus(
                 ? 'materializing'
                 : 'lazy-original',
     };
+}
+
+function requireDocumentRef(value: unknown) {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
 }
 
 export function createDocumentsService(): IDocumentsService {
@@ -316,9 +324,7 @@ export function createDocumentsService(): IDocumentsService {
             const key = normalizePathForLookup(filePath) || filePath;
             const latestStatus = latestBackingStatus.get(key);
             return {
-                documentRef: parseDocumentRef(filePath) ?? (() => {
-                    throw new Error('Working-copy backing status has an invalid document ref');
-                })(),
+                documentRef: requireDocumentRef(filePath),
                 failure: toBackingFailure(entry.sourceBackingErrorCode),
                 progress: state === 'materialized'
                     ? 1

@@ -51,6 +51,18 @@ export function createAllGatesValidationStages({
 } = {}) {
     return [
         pnpmStage('build.prepare', 'generate:build-artifacts', {priority: 100}),
+        {
+            args: [
+                'scripts/validation-gates.mjs',
+                'scan-cleanup-lines',
+            ],
+            cacheable: true,
+            command: 'node',
+            dependsOn: ['build.prepare'],
+            inputScope: 'build',
+            priority: 85,
+            id: 'scan-cleanup.line-budget',
+        },
         pnpmStage('lint.full', cold ? 'lint:clean' : 'lint', {
             cacheable: true,
             dependsOn: ['build.prepare'],
@@ -71,7 +83,9 @@ export function createAllGatesValidationStages({
             dependsOn: ['build.prepare'],
             env: {
                 ...coverageChangeScope,
-                VITEST_MAX_WORKERS: '6',
+                // Keep the 5 s unit-test contract reliable while coverage
+                // shares the 8-slot acceptance pool with typecheck and smoke.
+                VITEST_MAX_WORKERS: '4',
             },
             heavyWeight: 5,
             priority: 90,

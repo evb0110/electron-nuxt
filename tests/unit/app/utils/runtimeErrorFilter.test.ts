@@ -4,7 +4,8 @@ import {
     it,
 } from 'vitest';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
-import {cast} from '@tests/helpers/cast';
+import {requireDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
+import {isRecord} from '@contracts/runtimeGuards';
 import {requireIsoTimestamp} from '@contracts/timestamps';
 import {
     createDebugLogRuntimeErrorReport,
@@ -14,17 +15,31 @@ import {
     isUiReportableDebugLog,
 } from '@app/utils/runtimeErrorFilter';
 
+function isLegacyDebugLogEntry(value: unknown): value is IDebugLogEntry {
+    return isRecord(value)
+        && typeof value.source === 'string'
+        && typeof value.message === 'string'
+        && typeof value.timestamp === 'string'
+        && (value.level === undefined || value.level === 'DEBUG' || value.level === 'INFO' || value.level === 'WARN' || value.level === 'ERROR');
+}
+
 function legacyDebugLogEntry(
     source: string,
     level: IDebugLogEntry['level'],
     message: string,
 ): IDebugLogEntry {
-    return cast<IDebugLogEntry>({
+    const fixture = {
         source,
         message: level === undefined ? message : `[${level}] ${message}`,
         timestamp: requireIsoTimestamp('2026-08-23T08:57:36.046Z'),
         ...(level === undefined ? {} : {level}),
-    });
+    };
+    // Legacy ERROR entries predate the mandatory failure reference. The
+    // runtime guard preserves that wire fixture without an unchecked cast.
+    if (!isLegacyDebugLogEntry(fixture)) {
+        throw new TypeError('Invalid legacy debug log fixture');
+    }
+    return fixture;
 }
 
 describe('runtime error filter', () => {
@@ -99,9 +114,9 @@ describe('runtime error filter', () => {
             timestamp: requireIsoTimestamp('2026-08-23T08:57:36.046Z'),
             level: 'ERROR',
             failureRef: {
-                eventId: 'c'.repeat(32) as never,
-                code: 'UNCLASSIFIED_MAIN_ERROR' as const,
-                severity: 'fatal' as const,
+                eventId: requireDiagnosticEventId('c'.repeat(32)),
+                code: 'UNCLASSIFIED_MAIN_ERROR',
+                severity: 'fatal',
             },
         };
 

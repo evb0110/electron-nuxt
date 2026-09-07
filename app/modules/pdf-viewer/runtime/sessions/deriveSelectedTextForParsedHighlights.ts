@@ -7,11 +7,13 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
-import {requirePageNumber} from '@contracts/pageNumbers';
-import type {TPageIndex} from '@contracts/pageNumbers';
+import {
+    pageIndexToPageNumber,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
 
 type TParsedHighlight = Extract<IPdfAnnotationParseResult['entities'][number], {kind: 'highlight'}>;
-type TParsedHighlightPage = [TPageIndex, TParsedHighlight[]];
+type TParsedHighlightPage = [number, TParsedHighlight[]];
 
 const PARSED_HIGHLIGHT_TEXT_CONCURRENCY = 4;
 
@@ -26,7 +28,7 @@ export async function deriveSelectedTextForParsedHighlights({
     transition: Pick<IPdfDocumentTransition, 'isCurrent'>;
     signal?: AbortSignal;
 }) {
-    const highlightsByPage = new Map<TPageIndex, TParsedHighlight[]>();
+    const highlightsByPage = new Map<number, TParsedHighlight[]>();
     result.entities.forEach((entry) => {
         if (entry.kind !== 'highlight') {
             return;
@@ -50,7 +52,7 @@ export async function deriveSelectedTextForParsedHighlights({
         }
         let lease: Awaited<ReturnType<TPdfDocumentSession['leasePage']>> | null = null;
         try {
-            lease = await documentSession.leasePage(requirePageNumber(pageIndex + 1), 'transient-background');
+            lease = await documentSession.leasePage(pageIndexToPageNumber(requirePageIndex(pageIndex)), 'transient-background');
             if (signal?.aborted || !transition.isCurrent()) {
                 stale = true;
                 return false;

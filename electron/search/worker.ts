@@ -59,6 +59,7 @@ interface ISearchRequestContext extends IResolvedSearchMatchOptions {
 interface ISearchExecutionResult {
     results: readonly ISearchMatch[];
     truncated: boolean;
+    canceled?: boolean;
 }
 
 interface ISearchProgressResultBatch extends ISearchExecutionResult { resultsStartIndex?: number; }
@@ -201,17 +202,19 @@ function sendProgress(
     }
 
     progressSentAt.set(requestId, now);
-    const progress = {
+    const progress: Extract<TSearchWorkerOutboundMessage, {type: 'progress'}> = {
         type: 'progress',
         requestId,
         processed,
         total,
-        ...(partialResult === undefined ? {} : {
-            results: partialResult.results,
-            ...(partialResult.resultsStartIndex === undefined ? {} : {resultsStartIndex: partialResult.resultsStartIndex}),
-            truncated: partialResult.truncated,
-        }),
-    } as const;
+    };
+    if (partialResult !== undefined) {
+        progress.results = partialResult.results;
+        if (partialResult.resultsStartIndex !== undefined) {
+            progress.resultsStartIndex = partialResult.resultsStartIndex;
+        }
+        progress.truncated = partialResult.truncated;
+    }
     postMessage(progress);
 }
 

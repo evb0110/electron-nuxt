@@ -161,8 +161,6 @@ async function handleRequest(
             return handleConformanceRequest(request);
         case 'mergePages':
             return handleMergePagesRequest(request);
-        default:
-            throw new Error(`Unsupported browser page operation request: ${(request as {type: string}).type}`);
     }
 }
 

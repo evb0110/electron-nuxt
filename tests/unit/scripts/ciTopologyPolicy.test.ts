@@ -1382,7 +1382,7 @@ describe('CI topology policy', () => {
         const packagedDiagnostics = await readProjectFile('scripts/release/verifyPackagedDiagnosticsSmoke.ts');
         const packagedScanCleanup = await readProjectFile('scripts/release/verifyPackagedScanCleanup.ts');
 
-        expect(packagedSmoke).toContain('createFreeTextAnnotationWithPointer(');
+        expect(packagedSmoke).toContain('createCanonicalTextBoxWithPointer(');
         expect(packagedSmoke).not.toContain('createFreeTextAnnotation(page,');
         for (const verifier of [
             packagedSmoke,
@@ -1854,6 +1854,10 @@ describe('CI topology policy', () => {
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
         expect(workflow).toContain('run: pnpm run test:coverage');
+        const qualityGates = workflowJob(workflow, 'pr_quality');
+        expect(qualityGates).toContain('- name: Scan-cleanup line budget');
+        expect(qualityGates).toContain('EVB_SCAN_CLEANUP_BASE_REF: ${{ github.event_name == \'pull_request\' && github.event.pull_request.base.sha || github.event.before }}');
+        expect(qualityGates.indexOf('name: Scan-cleanup line budget')).toBeLessThan(qualityGates.indexOf('name: Unit tests (coverage)'));
         expectNoExactRunStep(workflowJob(workflow, 'manual_quality'), 'pnpm run test:unit');
         expectNoExactRunStep(workflowJob(workflow, 'nightly_maintenance'), 'pnpm run test:unit');
         expect(packageJson).toContain('"test:coverage": "vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --project unit-static-architecture --project unit-landing && pnpm exec tsx scripts/checkCoverageRatchet.ts && pnpm exec tsx scripts/checkZeroExecutionCoverage.ts"');

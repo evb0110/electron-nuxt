@@ -758,7 +758,7 @@ const rawLayerVisible = computed(() => props.rawResult?.pageNumber === props.pag
     effectiveViewMode.value === 'original'
     || (
         props.result?.pageNumber === props.pageNumber
-        && props.rawResult?.pageNumber === props.pageNumber
+        && props.rawResult.pageNumber === props.pageNumber
     )
 ) || Boolean(props.lossless && props.result));
 const originalLayerVisible = computed(() => rawLayerVisible.value

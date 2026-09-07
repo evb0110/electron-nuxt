@@ -6,6 +6,10 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    resolvePackageScript,
+    scriptCommands,
+} from '@tests/helpers/packageScriptCommands';
 
 // Documented commands must be runnable. Only pnpm invocations inside code spans
 // or fenced blocks count, so prose that merely mentions pnpm is never treated as
@@ -132,14 +136,6 @@ async function readPackageScripts() {
     return packageJson.scripts;
 }
 
-function scriptCommands(scripts: Record<string, string>, scriptName: string) {
-    const script = scripts[scriptName];
-    if (!script) {
-        throw new Error(`Missing package script: ${scriptName}`);
-    }
-    return script.split(/\s*&&\s*/u).map(command => command.trim()).filter(Boolean);
-}
-
 function vitestProjects(command: string) {
     return Array.from(command.matchAll(/(?:^|\s)--project(?:=|\s+)([^\s]+)/gu))
         .flatMap(match => match[1] === undefined ? [] : [match[1]]);
@@ -176,8 +172,9 @@ describe('package scripts', () => {
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
         // Keep the public surface bounded while retaining explicit operator
         // entry points for the affected scan-cleanup, canonical-identity,
-        // OCR-quality, xlarge-PDF gates, and Windows lab input preparation.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(120);
+        // OCR-quality, xlarge-PDF gates, Windows lab input preparation, and
+        // the documented pinned pdf.js provenance check.
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(121);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);
@@ -369,6 +366,35 @@ describe('package scripts', () => {
 
     it('keeps E2E preparation before each project and routes headless runs through the isolated wrapper', async () => {
         const scripts = await readPackageScripts();
+        const canonicalLaneAliases = [
+            [
+                'test:e2e:electron',
+                'test:e2e:electron:regression',
+            ],
+            [
+                'test:e2e:electron:headless',
+                'test:e2e:electron:regression',
+            ],
+            [
+                'test:e2e:electron:blocking-smoke:headless',
+                'test:e2e:electron:blocking-smoke',
+            ],
+            [
+                'test:e2e:electron:quarantine:headless',
+                'test:e2e:electron:quarantine',
+            ],
+        ] as const;
+
+        for (const [
+            alias,
+            canonical,
+        ] of canonicalLaneAliases) {
+            expect(scripts[alias]).toBe(`pnpm run ${canonical}`);
+            expect(resolvePackageScript(scripts, alias)).toBe(
+                resolvePackageScript(scripts, canonical),
+            );
+        }
+
         for (const scriptName of [
             'test:e2e:electron',
             'test:e2e:electron:blocking-smoke',
@@ -383,7 +409,7 @@ describe('package scripts', () => {
         ]) {
             const commands = scriptCommands(scripts, scriptName);
             if (scriptName === 'test:e2e:electron:quarantine') {
-                expect(scripts[scriptName]).toContain('scripts/ci/runElectronQuarantine.ts');
+                expect(resolvePackageScript(scripts, scriptName)).toContain('scripts/ci/runElectronQuarantine.ts');
                 continue;
             }
             const buildIndex = commands.findIndex(command => command.includes('build:electron'));
@@ -432,7 +458,7 @@ describe('package scripts', () => {
         expect(scripts['test:e2e:electron:watch']).toBe(
             'bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression --watch --reporter verbose',
         );
-        expect(scripts['test:e2e:electron:headless']).toContain(
+        expect(resolvePackageScript(scripts, 'test:e2e:electron:headless')).toContain(
             'bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression',
         );
         expect(scripts['test:e2e:electron:xlarge']).toContain(
@@ -445,7 +471,7 @@ describe('package scripts', () => {
         ]);
         expect((scripts['test:e2e:electron:save-pipeline'] ?? '')
             .match(/e2e-native-save-reopen/gu) ?? []).toHaveLength(1);
-        expect(scripts['test:e2e:electron:blocking-smoke:headless']).toContain(
+        expect(resolvePackageScript(scripts, 'test:e2e:electron:blocking-smoke:headless')).toContain(
             'bash scripts/test-electron-e2e-headless.sh --no-build e2e-blocking-smoke',
         );
 
@@ -464,10 +490,8 @@ describe('package scripts', () => {
         expect(launcher).toContain('The visible-window project cannot run through the headless runner.');
         expect(launcher).toContain('validation-gates.mjs heavy');
 
-        for (const [
-            scriptName,
-            command,
-        ] of Object.entries(scripts)) {
+        for (const [scriptName] of Object.entries(scripts)) {
+            const command = resolvePackageScript(scripts, scriptName);
             if (scriptName === 'test:e2e:electron:visible-window') {
                 continue;
             }

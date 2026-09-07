@@ -806,7 +806,7 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
     source: {
         currentPage: computed(() => currentPage),
         invalidationRequest: computed(() => invalidationRequest),
-        isActive: computed(() => isActive ?? true),
+        isActive: computed(() => isActive),
         pdfDocument: computed(() => pdfDocument),
         rasterScheduler: computed(() => rasterScheduler),
         totalPages: computed(() => totalPages),

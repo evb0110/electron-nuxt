@@ -35,6 +35,7 @@ import {
     sessionKeepNuxtMarkerPath,
     sessionPreserveWorkspaceCheckpointMarkerPath,
 } from '@scripts/electron-run/electronRunSessionPaths';
+import {cleanupSessionAppTempIfUnowned} from '@scripts/electron-run/electronRunSessionCleanup';
 import type { ISessionInfo } from '@scripts/electron-run/electronRunSessionTypes';
 import { sendCommandToSession } from '@scripts/electron-run/sendCommand';
 import { clearAutomationWorkspaceCrashCheckpoint } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
@@ -193,10 +194,12 @@ async function stopNuxtForSessionInfo(info: ISessionInfo, name: string, keepNuxt
     });
 }
 
-function removeSessionStopFiles(name: string) {
+function removeSessionStopFiles(name: string, preserveWorkspaceCheckpoint: boolean) {
     try { unlinkSync(sessionFilePath(name)); } catch {}
     try { unlinkSync(sessionKeepNuxtMarkerPath(name)); } catch {}
-    try { unlinkSync(sessionPreserveWorkspaceCheckpointMarkerPath(name)); } catch {}
+    if (!preserveWorkspaceCheckpoint) {
+        try { unlinkSync(sessionPreserveWorkspaceCheckpointMarkerPath(name)); } catch {}
+    }
 }
 
 function sessionElectronExpectation(name: string) {
@@ -243,8 +246,14 @@ export async function stopSingleSession(
             console.log(`No session '${name}' running.`);
         }
         if (!preserveWorkspaceCheckpoint) {
+            if (!cleanupSessionAppTempIfUnowned(name)) {
+                throw new Error(
+                    `Session '${name}' app temp cleanup was refused because a session-owned Electron process is still alive.`,
+                );
+            }
             clearAutomationWorkspaceCrashCheckpoint(name);
         }
+        removeSessionStopFiles(name, preserveWorkspaceCheckpoint);
         return;
     }
     if (info) {
@@ -286,10 +295,6 @@ export async function stopSingleSession(
                 `Session '${name}' stop left ${String(survivors.length)} session-owned Electron process(es) alive (pid ${survivors.join(', ')}); session artifacts were retained, run stop again.`,
             );
         }
-        if (!preserveWorkspaceCheckpoint) {
-            clearAutomationWorkspaceCrashCheckpoint(name);
-        }
-        removeSessionStopFiles(name);
     }
     if (starting?.pid && isProcessAlive(starting.pid)) {
         const didTerminateStartingController = await killVerifiedSessionProcess({
@@ -312,8 +317,17 @@ export async function stopSingleSession(
     await cleanupSessionStartingAttempt(name, {killNuxt: options.keepNuxt !== true});
     clearSessionStarting(name);
     if (!preserveWorkspaceCheckpoint) {
+        if (!cleanupSessionAppTempIfUnowned(name)) {
+            if (info) {
+                retainSessionStopArtifacts(name, info);
+            }
+            throw new Error(
+                `Session '${name}' app temp cleanup was refused because a session-owned Electron process is still alive.`,
+            );
+        }
         clearAutomationWorkspaceCrashCheckpoint(name);
     }
+    removeSessionStopFiles(name, preserveWorkspaceCheckpoint);
     console.log(`Session '${name}' stopped.`);
 }
 

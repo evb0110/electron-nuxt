@@ -11,7 +11,7 @@
 
 <script setup lang="ts">
 import { useMutationObserver } from '@vueuse/core';
-import {requirePageNumber} from '@contracts/pageNumbers';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import PdfLinkOverlayLayer from '@app/modules/pdf-viewer/components/annotations/PdfLinkOverlayLayer.vue';
 import { resolvePdfViewerPortalTargets } from '@app/modules/pdf-viewer/runtime/portal/resolvePdfViewerPortalTargets';
 import type { ILinkAnnotation } from '@app/types/annotations';
@@ -33,7 +33,10 @@ let portalTargetRefreshFrame: number | null = null;
 
 const linkLayerTargets = computed(() => {
     void portalTargetRefreshTick.value;
-    return resolvePdfViewerPortalTargets(viewerContainer, Object.keys(linksByPage).map(page => requirePageNumber(Number(page))));
+    return resolvePdfViewerPortalTargets(
+        viewerContainer,
+        Object.keys(linksByPage).map(page => requirePageNumber(Number(page))),
+    );
 });
 
 function handleLinkDestination(dest: NonNullable<ILinkAnnotation['dest']>) {

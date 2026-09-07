@@ -1,6 +1,5 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
-
-import type { PageViewport } from 'pdfjs-dist';
+import type { IPdfViewport } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfRawDims } from '@app/types/pdfUi';
@@ -77,7 +76,7 @@ function normalizeWordsToLineHeights(words: readonly IOcrWord[]): IOcrWord[] {
 }
 
 /**
- * Composable for loading OCR index data and converting it to PDF.js TextContent format.
+ * Composable for loading OCR index data and converting it to PDF.js text content format.
  *
  * This enables the PDF viewer to use OCR-derived text positioning for text selection
  * and search highlighting, ensuring accurate alignment between visual content and
@@ -115,7 +114,7 @@ export const useOcrTextContent = () => {
     }
 
     /**
-     * Transforms an OCR word (in pixel coordinates) to a PDF.js TextItem
+     * Transforms an OCR word (in pixel coordinates) to a PDF.js text item
      * for use in the TextLayer.
      *
      * Coordinate conversion:
@@ -130,7 +129,7 @@ export const useOcrTextContent = () => {
     function transformWordToTextItem(
         word: IOcrWord,
         ocrPage: IDocumentTextCatalogPage,
-        viewport: PageViewport,
+        viewport: IPdfViewport,
         isLastInLine: boolean,
         textDir: TOcrTextDirection,
         ascentRatio: number,
@@ -192,18 +191,18 @@ export const useOcrTextContent = () => {
     }
 
     /**
-     * Gets OCR-derived TextContent for a page, suitable for PDF.js TextLayer.
+     * Gets OCR-derived text content for a page, suitable for PDF.js TextLayer.
      *
      * @param workingCopyPath - Path to the PDF working copy
      * @param pageNumber - 1-based page number
      * @param viewport - PDF.js viewport for coordinate transformation
-     * @returns TextContent object or null if no OCR data available
+     * @returns Text content or null if no OCR data is available
      */
     async function getOcrTextContent(
         workingCopyPath: TDocumentRef,
         documentRevisionToken: TDocumentRevisionToken,
         pageNumber: TPageNumber,
-        viewport: PageViewport,
+        viewport: IPdfViewport,
     ) {
         const pageData = await loadSharedDocumentOcrPage(
             workingCopyPath,

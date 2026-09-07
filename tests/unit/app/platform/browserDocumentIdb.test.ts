@@ -15,7 +15,12 @@ import {
     loadAllChunkKeys,
     loadAllChunkKeysAvailability,
 } from '@app/platform/browser/browserDocumentChunks';
-import { cast } from '@tests/helpers/cast';
+
+interface IFakeOpenRequest {
+    onblocked?: (event: Event) => void;
+    onsuccess?: (event: Event) => void;
+    result?: {close: () => void};
+}
 
 describe('browserDocumentIdb', () => {
     beforeEach(() => {
@@ -47,14 +52,11 @@ describe('browserDocumentIdb', () => {
     it('bounds blocked opens and closes a database connection that succeeds after timeout', async () => {
         vi.useFakeTimers();
         const close = vi.fn();
-        const request: Partial<IDBOpenDBRequest> = {};
+        const request: IFakeOpenRequest = {};
         vi.stubGlobal('indexedDB', {open: () => request});
 
         const pending = loadRecordAvailability('browser://documents/example/file.pdf');
-        request.onblocked?.call(
-            cast<IDBOpenDBRequest>(request),
-            new Event('blocked') as IDBVersionChangeEvent,
-        );
+        request.onblocked?.(new Event('blocked'));
         await vi.advanceTimersByTimeAsync(4_000);
 
         await expect(pending).resolves.toEqual({
@@ -62,14 +64,12 @@ describe('browserDocumentIdb', () => {
             value: null,
         });
 
+        const database = {close} satisfies Pick<IDBDatabase, 'close'>;
         Object.defineProperty(request, 'result', {
             configurable: true,
-            value: cast<IDBDatabase>({close}),
+            value: database,
         });
-        request.onsuccess?.call(
-            cast<IDBOpenDBRequest>(request),
-            new Event('success'),
-        );
+        request.onsuccess?.(new Event('success'));
         expect(close).toHaveBeenCalledOnce();
         vi.useRealTimers();
     });

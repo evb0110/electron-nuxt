@@ -15,17 +15,20 @@ import type {
 import { createWorkspaceExpose } from '@app/modules/workspace-shell/expose/createWorkspaceExpose';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentViewerNavigationPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import { cast } from '@tests/helpers/cast';
-import { createRangePageSelection } from '@contracts/pageNumbers';
+import {
+    createRangePageSelection,
+    type TPageMoveOperation,
+    type TPageSelection,
+} from '@contracts/pageNumbers';
 import { requireDocumentRef } from '@contracts/documentRef';
 import type { TPdfSource } from '@app/types/pdfUi';
 
 function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[0]> = {}) {
-    return cast<Parameters<typeof createWorkspaceExpose>[0]>({
-        handleSave: vi.fn(async () => {}),
-        handleRepairSave: vi.fn(async () => {}),
-        handleOptimizePdfForInteraction: vi.fn(async () => {}),
-        handleSaveAs: vi.fn(async () => {}),
+    return {
+        handleSave: vi.fn(async () => true),
+        handleRepairSave: vi.fn(async () => true),
+        handleOptimizePdfForInteraction: vi.fn(async () => true),
+        handleSaveAs: vi.fn(async () => true),
         handlePrint: vi.fn(async () => {}),
         handlePrintCurrentPage: vi.fn(async () => {}),
         handleUndo: vi.fn(),
@@ -35,7 +38,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         handleOpenFileDirectWithPersist: vi.fn(async (_path: string) => true),
         handleOpenFileDirectBatchWithPersist: vi.fn(async (_paths: string[]) => true),
         handleOpenFileWithResult: vi.fn(async () => true),
-        handleCloseFileFromUi: vi.fn(async () => {}),
+        handleCloseFileFromUi: vi.fn(async () => true),
         handleExportDocx: vi.fn(async () => {}),
         handleExportImages: vi.fn(async () => {}),
         handleExportMultiPageTiff: vi.fn(async () => {}),
@@ -83,14 +86,20 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         handleInsertImageFromFile: vi.fn(async () => {}),
         handlePasteImageFromClipboard: vi.fn(async () => {}),
         selectedThumbnailPages: ref<number[]>([]),
-        pageOpsDelete: vi.fn(async (_pages: number[], _totalPages: number) => {}),
-        pageOpsExtract: vi.fn(async (_pages: number[]) => {}),
-        handlePageRotate: vi.fn(async (_pages: number[], _angle: 90 | 270) => {}),
-        pageOpsInsert: vi.fn(async (_totalPages: number, _afterPage: number) => {}),
+        pageOpsDelete: vi.fn(async (_pages: number[] | TPageSelection, _totalPages: number) => true),
+        pageOpsExtract: vi.fn(async (_pages: number[] | TPageSelection) => true),
+        handlePageRotate: vi.fn(async (_pages: number[] | TPageSelection, _angle: 90 | 270) => true),
+        pageOpsInsert: vi.fn(async (_totalPages: number, _afterPage: number) => true),
+        pageOpsReorder: vi.fn(async (_order: number[]) => true),
+        pageOpsMove: vi.fn(async (_move: TPageMoveOperation) => true),
+        handleCropPages: vi.fn(async (_pages: number[], _margins) => true),
+        handlePageDelete: vi.fn(),
+        handlePageReorder: vi.fn(),
+        handlePageMove: vi.fn(),
         totalPages: ref(7),
         isDjvuMode: ref(false),
         openConvertDialog: vi.fn(),
-        captureSplitPayload: vi.fn(async () => ({})),
+        captureSplitPayload: vi.fn(async () => ({kind: 'empty' as const})),
         restoreSplitPayload: vi.fn(async () => {}),
         waitForDocumentOpenSettled: vi.fn(async () => {}),
         runAgentAction: vi.fn(async () => ({})),
@@ -106,7 +115,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         sortedAnnotationNoteWindows: ref([]),
         handleOcrComplete: vi.fn(async () => {}),
         ...overrides,
-    });
+    } satisfies Parameters<typeof createWorkspaceExpose>[0];
 }
 
 describe('createWorkspaceExpose', () => {

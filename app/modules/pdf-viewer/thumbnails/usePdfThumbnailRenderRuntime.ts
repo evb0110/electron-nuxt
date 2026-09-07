@@ -1,11 +1,11 @@
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import { groupBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
-import {requirePageNumber} from '@contracts/pageNumbers';
-import type {TPageNumber} from '@contracts/pageNumbers';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
@@ -50,7 +50,7 @@ interface IPdfThumbnailDemandInput {
     active: boolean;
     currentPage: number;
     documentFence: IPdfPageRasterScheduler['documentFence'];
-    estimatedPixels: (pageNumber: TPageNumber) => number;
+    estimatedPixels: (pageNumber: number) => number;
     generation: number;
     mountedPages: readonly number[];
     totalPages: number;
@@ -66,10 +66,10 @@ interface IPreparedThumbnailRaster {
         pixelWidth: number;
         scaleX: number;
         scaleY: number;
-        scaledViewport: ReturnType<PDFPageProxy['getViewport']>;
+        scaledViewport: ReturnType<IPdfPage['getViewport']>;
     };
-    page: PDFPageProxy;
-    pageNumber: TPageNumber;
+    page: IPdfPage;
+    pageNumber: number;
     renderCanvas: HTMLCanvasElement;
     renderKey: string;
 }
@@ -79,7 +79,7 @@ function normalizeThumbnailPage(page: number, totalPages: number) {
 }
 
 function resolveThumbnailDemandLane(
-    pageNumber: TPageNumber,
+    pageNumber: number,
     currentPage: number,
     visiblePages: ReadonlySet<number>,
 ) {
@@ -122,16 +122,16 @@ export function expandPdfThumbnailRasterDemand(
     return [...candidates]
         .filter(pageNumber => pageNumber > 0 && mountedPages.has(pageNumber))
         .map((pageNumber) => {
-            const brandedPageNumber = requirePageNumber(pageNumber, input.totalPages);
+            const brandedPageNumber: TPageNumber = requirePageNumber(pageNumber, input.totalPages);
             return {
                 consumerGeneration: input.generation,
                 documentFence: input.documentFence,
-                estimatedPixels: input.estimatedPixels(brandedPageNumber),
-                lane: resolveThumbnailDemandLane(brandedPageNumber, currentPage, visiblePages),
+                estimatedPixels: input.estimatedPixels(pageNumber),
+                lane: resolveThumbnailDemandLane(pageNumber, currentPage, visiblePages),
                 ordinal: Math.abs(pageNumber - currentPage) * 2 + (pageNumber < currentPage ? 0 : 1),
                 pageNumber: brandedPageNumber,
                 renderKey: `${String(input.generation)}:${String(pageNumber)}`,
-                retention: 'render-cache' as const,
+                retention: 'render-cache',
             };
         });
 }
@@ -190,7 +190,7 @@ export const usePdfThumbnailRenderRuntime = (
     const pageRenderEpochs = new Map<number, number>();
     const renderedCanvases = new Map<number, HTMLCanvasElement>();
     let activeScheduler: IPdfPageRasterScheduler | null = null;
-    let activeDocument: PDFDocumentProxy | null = null;
+    let activeDocument: IPdfDocument | null = null;
     let reloadTransition = false;
     let pendingInvalidation: number[] | null = null;
 
@@ -324,7 +324,7 @@ export const usePdfThumbnailRenderRuntime = (
         return true;
     }
 
-    function resolveThumbnailRenderMetrics(page: PDFPageProxy, pageNumber: TPageNumber) {
+    function resolveThumbnailRenderMetrics(page: IPdfPage, pageNumber: number) {
         const viewport = page.getViewport({scale: 1});
         updateThumbnailAspectRatioForPage(
             pageNumber,
@@ -489,7 +489,7 @@ export const usePdfThumbnailRenderRuntime = (
         },
     };
 
-    function estimateThumbnailPixels(pageNumber: TPageNumber) {
+    function estimateThumbnailPixels(pageNumber: number) {
         const width = Math.max(1, layout.thumbnailRenderWidth.value);
         const aspectRatio = layout.thumbnailAspectRatios.value.get(pageNumber) ?? 1.3;
         const outputScale = resolveThumbnailOutputScale();
@@ -583,14 +583,14 @@ export const usePdfThumbnailRenderRuntime = (
     const scheduleVisibleThumbnailRender = visibleThumbnailRenderScheduler.schedule;
 
     async function preloadThumbnailAspectRatio(
-        pdfDocument: PDFDocumentProxy,
+        pdfDocument: IPdfDocument,
         generation: number,
     ) {
-        const pageNumber = requirePageNumber(clamp(
+        const pageNumber = clamp(
             source.currentPage.value || 1,
             1,
             Math.max(1, source.totalPages.value),
-        ), Math.max(1, source.totalPages.value));
+        );
         try {
             const pageLease = await leasePdfDocumentPage(
                 pdfDocument,

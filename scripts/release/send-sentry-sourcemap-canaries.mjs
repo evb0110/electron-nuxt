@@ -19,7 +19,7 @@ import {getPrivateSourcemapManifestPath} from './stage-private-sourcemaps.mjs';
 
 const {SourceMapConsumer} = sourceMap;
 export const CANARY_RECEIPT_SCHEMA_VERSION = 2;
-export const CANARY_EVENT_VERSION = 'sourcemap-v6';
+export const CANARY_EVENT_VERSION = 'sourcemap-v7';
 const DEBUG_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 const EU_SENTRY_INGEST_HOST_PATTERN = /(?:^|\.)ingest\.de\.sentry\.io$/u;
 const SENTRY_INGEST_ATTEMPTS = 5;
@@ -157,9 +157,15 @@ function readDebugId(mapPayload) {
 
 /** @param {TSentryBuildIdentity} identity @param {string} bundlePath @returns {string} */
 function canaryCodeFile(identity, bundlePath) {
-    const vercelStaticPrefix = '.vercel/output/static/';
-    if (identity.target === 'web' && bundlePath.startsWith(vercelStaticPrefix)) {
-        return `https://evb-viewer.invalid/${bundlePath.slice(vercelStaticPrefix.length)}`;
+    if (identity.target === 'web') {
+        for (const prefix of [
+            '.vercel/output/static/',
+            '.vercel/output/functions/',
+        ]) {
+            if (bundlePath.startsWith(prefix)) {
+                return `https://evb-viewer.invalid/${bundlePath.slice(prefix.length)}`;
+            }
+        }
     }
     return bundlePath;
 }

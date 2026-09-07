@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import {
     cp,
     lstat,
+    mkdir,
     readdir,
     realpath,
     statfs,
@@ -28,6 +29,7 @@ const IMPORT_CLONE_SCRIPT = [
     'end tell',
     'end run',
 ].join('\n');
+
 const INPUT_MEDIA_FILE_NAME = 'evb-test-inputs.iso';
 
 async function validateInputMediaPath(inputMediaPath: string | undefined) {
@@ -147,12 +149,26 @@ export async function createTestClone(options: {
     if (await lstat(destination).catch(() => null)) {
         throw new Error('The clone destination already exists; preserved it without replacement.');
     }
-    await cp(source, destination, {
-        recursive: true,
-        force: false,
-        errorOnExist: true,
-        mode: constants.COPYFILE_FICLONE,
-    });
+    await mkdir(destination);
+    for (const entry of await readdir(source)) {
+        await cp(path.join(source, entry), path.join(destination, entry), {
+            recursive: true,
+            force: false,
+            errorOnExist: true,
+            mode: constants.COPYFILE_FICLONE,
+        });
+    }
+    if (inputMediaPath !== null) {
+        const inputMediaDestination = path.join(destination, 'Data', INPUT_MEDIA_FILE_NAME);
+        if (await lstat(inputMediaDestination).catch(() => null)) {
+            throw new Error(`The clone input media destination already exists at ${inputMediaDestination}.`);
+        }
+        await cp(inputMediaPath, inputMediaDestination, {
+            force: false,
+            errorOnExist: true,
+            mode: constants.COPYFILE_FICLONE,
+        });
+    }
     if (await utmctl.status(config.goldenVmId) !== 'stopped') {
         throw new Error('The golden image started during copying; the incomplete clone was preserved without importing it.');
     }
@@ -185,15 +201,6 @@ export async function createTestClone(options: {
         ]);
     }
     if (inputMediaPath !== null) {
-        const inputMediaDestination = path.join(destination, 'Data', INPUT_MEDIA_FILE_NAME);
-        if (await lstat(inputMediaDestination).catch(() => null)) {
-            throw new Error(`The clone input media destination already exists at ${inputMediaDestination}.`);
-        }
-        await cp(inputMediaPath, inputMediaDestination, {
-            force: false,
-            errorOnExist: true,
-            mode: constants.COPYFILE_FICLONE,
-        });
         const inputMediaDrive = {
             Identifier: randomUUID(),
             ImageName: INPUT_MEDIA_FILE_NAME,

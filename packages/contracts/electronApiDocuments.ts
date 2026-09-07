@@ -1,4 +1,9 @@
 /* eslint-disable max-lines -- This file is the public desktop document protocol contract. */
+import type {
+    TPageNumber,
+    TPageIndex,
+} from '@contracts/pageNumbers';
+
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -25,10 +30,6 @@ import type {
     TPdfPageLabelStyle,
 } from '@contracts/pdfPageLabels';
 import type {
-    TPageIndex,
-    TPageNumber,
-} from '@contracts/pageNumbers';
-import type {
     TPdfAnnotationLineEndStyle,
     TPdfAnnotationMarkupSubtype,
     TPdfAnnotationShapePdfSubtype,
@@ -41,19 +42,21 @@ import {
 } from '@contracts/runtimeGuards';
 import type {
     IRecentFile,
-    TLeaseId,
-    TRequestId,
-    TSessionId,
     TPdfViewRotation,
     TPdfViewMode,
     TPrintOrientation,
+    TLeaseId,
+    TRequestId,
+    TSessionId,
 } from '@contracts/shared';
 import {
     parseLeaseId,
     parseRequestId,
 } from '@contracts/shared';
-import type {TEpochMs} from '@contracts/timestamps';
-import {parseEpochMs} from '@contracts/timestamps';
+import {
+    parseEpochMs,
+    type TEpochMs,
+} from '@contracts/timestamps';
 import type {TPdfDateString} from '@contracts/pdfDateString';
 import type {
     IPdfConformanceAnalysisOptions,
@@ -78,9 +81,9 @@ export interface IDocumentChunkReadOptions {
     signal?: AbortSignal;
 }
 export interface IDocumentChunkReadResult {
-    size: number;
-    bytesRead: number;
-    chunks: number;
+    readonly size: number;
+    readonly bytesRead: number;
+    readonly chunks: number;
 }
 export interface IPdfPathPrintOptions {
     pageNumbers?: TPageNumber[];
@@ -89,25 +92,25 @@ export interface IPdfPathPrintOptions {
     orientation: TPrintOrientation;
 }
 export interface IPdfDataPrintOptions {requestId?: TRequestId;}
-export interface IPdfNativePrintDialogOpenedEvent {requestId: TRequestId;}
+export interface IPdfNativePrintDialogOpenedEvent {readonly requestId: TRequestId;}
 /** A PDF indirect-object reference returned by the native annotation index. */
 export interface IPdfAnnotationIndexObjectRef {
-    objectNumber: number;
-    generationNumber: number;
+    readonly objectNumber: number;
+    readonly generationNumber: number;
 }
 
 export const PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 
 /** One page-addressed annotation entry in a PDF annotation index. */
 export interface IPdfAnnotationIndexEntry {
-    pageIndex: TPageIndex;
+    readonly pageIndex: TPageIndex;
     /** Zero is reserved for a direct-dictionary page-presence marker. */
-    objectNumber: number;
-    generationNumber: number;
-    subtype: string;
-    name: string | null;
-    popupRef: IPdfAnnotationIndexObjectRef | null;
-    parentRef: IPdfAnnotationIndexObjectRef | null;
+    readonly objectNumber: number;
+    readonly generationNumber: number;
+    readonly subtype: string;
+    readonly name: string | null;
+    readonly popupRef: IPdfAnnotationIndexObjectRef | null;
+    readonly parentRef: IPdfAnnotationIndexObjectRef | null;
 }
 
 export interface IPdfAnnotationIndexOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
@@ -115,20 +118,20 @@ export interface IPdfAnnotationIndexOptions {expectedDocumentRevisionToken: TDoc
 export interface IPdfAnnotationIndexChunkOptions extends PdfAnnotationParse.IPdfSidecarChunkOptions {}
 
 export interface IPdfAnnotationIndexSession {
-    sessionId: TSessionId;
-    documentRef: TDocumentRef;
-    documentRevisionToken: TDocumentRevisionToken;
-    pageCount: number;
-    entryCount: number;
-    totalBytes: number;
+    readonly sessionId: TSessionId;
+    readonly documentRef: TDocumentRef;
+    readonly documentRevisionToken: TDocumentRevisionToken;
+    readonly pageCount: number;
+    readonly entryCount: number;
+    readonly totalBytes: number;
 }
 
 export interface IPdfAnnotationIndexChunk {
-    offset: number;
-    nextOffset: number | null;
-    byteLength: number;
-    done: boolean;
-    entries: IPdfAnnotationIndexEntry[];
+    readonly offset: number;
+    readonly nextOffset: number | null;
+    readonly byteLength: number;
+    readonly done: boolean;
+    readonly entries: readonly IPdfAnnotationIndexEntry[];
 }
 
 export {
@@ -140,34 +143,34 @@ export type {
 } from '@contracts/pdfDecryptSchemas';
 /** A normalized point returned by the private embedded-shape index. */
 export interface IPdfEmbeddedShapeIndexPoint {
-    x: number;
-    y: number;
+    readonly x: number;
+    readonly y: number;
 }
 
 /** A typed structural shape entry returned by the private embedded-shape index. */
 export interface IPdfEmbeddedShapeIndexEntry {
-    pageIndex: TPageIndex;
-    objectNumber: number;
-    generationNumber: number;
-    stableKey: string | null;
-    pdfSubtype: TPdfNativeShapePdfSubtype;
-    type: TPdfNativeShapeType;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    x2: number | null;
-    y2: number | null;
-    color: string;
-    fillColor: string | null;
-    opacity: number;
-    strokeWidth: number;
-    points: IPdfEmbeddedShapeIndexPoint[] | null;
-    strokes: IPdfEmbeddedShapeIndexPoint[][] | null;
-    lineStartStyle: TPdfNativeShapeLineEndStyle | null;
-    lineEndStyle: TPdfNativeShapeLineEndStyle | null;
-    createdAt: TEpochMs | null;
-    modifiedAt: TEpochMs | null;
+    readonly pageIndex: TPageIndex;
+    readonly objectNumber: number;
+    readonly generationNumber: number;
+    readonly stableKey: string | null;
+    readonly pdfSubtype: TPdfNativeShapePdfSubtype;
+    readonly type: TPdfNativeShapeType;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+    readonly x2: number | null;
+    readonly y2: number | null;
+    readonly color: string;
+    readonly fillColor: string | null;
+    readonly opacity: number;
+    readonly strokeWidth: number;
+    readonly points: readonly IPdfEmbeddedShapeIndexPoint[] | null;
+    readonly strokes: ReadonlyArray<readonly IPdfEmbeddedShapeIndexPoint[]> | null;
+    readonly lineStartStyle: TPdfNativeShapeLineEndStyle | null;
+    readonly lineEndStyle: TPdfNativeShapeLineEndStyle | null;
+    readonly createdAt: TEpochMs | null;
+    readonly modifiedAt: TEpochMs | null;
 }
 
 /** The renderer requests at most 512 KiB of decoded shape-index data. */
@@ -180,30 +183,30 @@ export interface IPdfEmbeddedShapeIndexOptions {expectedDocumentRevisionToken: T
 export interface IPdfEmbeddedShapeIndexChunkOptions extends PdfAnnotationParse.IPdfSidecarChunkOptions {}
 
 export interface IPdfEmbeddedShapeIndexSession {
-    sessionId: TSessionId;
-    documentRef: TDocumentRef;
-    documentRevisionToken: TDocumentRevisionToken;
-    pageCount: number;
-    entryCount: number;
-    totalBytes: number;
+    readonly sessionId: TSessionId;
+    readonly documentRef: TDocumentRef;
+    readonly documentRevisionToken: TDocumentRevisionToken;
+    readonly pageCount: number;
+    readonly entryCount: number;
+    readonly totalBytes: number;
 }
 
 export interface IPdfEmbeddedShapeIndexChunk {
-    offset: number;
-    nextOffset: number | null;
-    byteLength: number;
-    done: boolean;
-    entries: IPdfEmbeddedShapeIndexEntry[];
+    readonly offset: number;
+    readonly nextOffset: number | null;
+    readonly byteLength: number;
+    readonly done: boolean;
+    readonly entries: readonly IPdfEmbeddedShapeIndexEntry[];
 }
 
 export const IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES = 16 * 1024 * 1024;
 
 export interface IManagedTempFileHandle {
-    path: TDocumentRef;
-    size: number;
-    sha256: string;
-    leaseId: TLeaseId;
-    revision: TDocumentRevisionToken | null;
+    readonly path: TDocumentRef;
+    readonly size: number;
+    readonly sha256: string;
+    readonly leaseId: TLeaseId;
+    readonly revision: TDocumentRevisionToken | null;
 }
 
 export const WORKING_COPY_BACKING_STATUS_STATES = [
@@ -227,22 +230,24 @@ export const WORKING_COPY_BACKING_FAILURE_CODES = [
 export type TWorkingCopyBackingFailureCode = typeof WORKING_COPY_BACKING_FAILURE_CODES[number];
 
 export interface IWorkingCopyBackingFailure {
-    code: TWorkingCopyBackingFailureCode;
-    retryable: boolean;
+    readonly code: TWorkingCopyBackingFailureCode;
+    readonly retryable: boolean;
 }
 
 export interface IWorkingCopyBackingStatus {
-    documentRef: TDocumentRef;
-    failure: IWorkingCopyBackingFailure | null;
-    progress: number;
-    state: TWorkingCopyBackingStatusState;
+    readonly documentRef: TDocumentRef;
+    readonly failure: IWorkingCopyBackingFailure | null;
+    readonly progress: number;
+    readonly state: TWorkingCopyBackingStatusState;
 }
 
 export function decodeWorkingCopyBackingStatus(value: unknown): IWorkingCopyBackingStatus | null {
-    const documentRef = isRecord(value) ? parseDocumentRef(value.documentRef) : null;
+    if (!isRecord(value)) {
+        return null;
+    }
+    const documentRef = parseDocumentRef(value.documentRef);
     if (
-        !isRecord(value)
-        || documentRef === null
+        documentRef === null
         || !isFiniteNumber(value.progress)
         || value.progress < 0
         || value.progress > 1
@@ -251,35 +256,36 @@ export function decodeWorkingCopyBackingStatus(value: unknown): IWorkingCopyBack
         return null;
     }
     const failure = value.failure;
-    if (
-        failure !== null
-        && (
+    let decodedFailure: IWorkingCopyBackingFailure | null = null;
+    if (failure !== null) {
+        if (
             !isRecord(failure)
             || !isOneOf(WORKING_COPY_BACKING_FAILURE_CODES, failure.code)
             || typeof failure.retryable !== 'boolean'
-        )
-    ) {
-        return null;
+        ) {
+            return null;
+        }
+        decodedFailure = {
+            code: failure.code,
+            retryable: failure.retryable,
+        };
     }
     return {
         documentRef,
-        failure: failure === null
-            ? null
-            : {
-                code: failure.code as TWorkingCopyBackingFailureCode,
-                retryable: failure.retryable as boolean,
-            },
+        failure: decodedFailure,
         progress: value.progress,
         state: value.state,
     };
 }
 
 export function decodeManagedTempFileHandle(value: unknown): IManagedTempFileHandle | null {
-    const path = isRecord(value) ? parseDocumentRef(value.path) : null;
-    const leaseId = isRecord(value) ? parseLeaseId(value.leaseId) : null;
+    if (!isRecord(value)) {
+        return null;
+    }
+    const path = parseDocumentRef(value.path);
+    const leaseId = parseLeaseId(value.leaseId);
     if (
-        !isRecord(value)
-        || path === null
+        path === null
         || typeof value.size !== 'number'
         || !Number.isSafeInteger(value.size)
         || value.size < 0
@@ -345,23 +351,23 @@ export function assertDocumentAllocationSize(
 export type TDocumentChunkSource = Iterable<Uint8Array> | AsyncIterable<Uint8Array>;
 
 export interface IOpenPdfDirectBatchProgress {
-    operation: TOpenBatchProgressOperation;
-    requestId: TRequestId;
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
+    readonly operation: TOpenBatchProgressOperation;
+    readonly requestId: TRequestId;
+    readonly processed: number;
+    readonly total: number;
+    readonly percent: number;
+    readonly elapsedMs: number;
+    readonly estimatedRemainingMs: number | null;
 }
 
 export type TOpenDocumentDirectBatchProgress = IOpenPdfDirectBatchProgress;
 
 export interface IDocumentsBatchProgress {
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
+    readonly processed: number;
+    readonly total: number;
+    readonly percent: number;
+    readonly elapsedMs: number;
+    readonly estimatedRemainingMs: number | null;
 }
 
 export interface ICreateCombinedPdfFromFilesOptions {
@@ -370,33 +376,33 @@ export interface ICreateCombinedPdfFromFilesOptions {
 }
 
 export interface IOpenPdfResult {
-    kind: 'pdf';
-    workingPath: TDocumentRef;
-    originalPath: TDocumentRef;
-    isGenerated?: boolean;
-    wasEncrypted?: true;
+    readonly kind: 'pdf';
+    readonly workingPath: TDocumentRef;
+    readonly originalPath: TDocumentRef;
+    readonly isGenerated?: boolean;
+    readonly wasEncrypted?: true;
     /**
      * Authoritative first-page metadata discovered by the main process from
      * the admitted working copy. The workspace host can therefore publish
      * the exact opening frame in the same transaction that claims the file.
      */
-    openingGeometry?: IPdfOpeningGeometry;
+    readonly openingGeometry?: IPdfOpeningGeometry;
 }
 export interface IOpenDjvuResult {
-    kind: 'djvu';
-    workingPath: '';
-    originalPath: TDocumentRef;
+    readonly kind: 'djvu';
+    readonly workingPath: '';
+    readonly originalPath: TDocumentRef;
 }
 
 export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult | TPdfOpenFileFailureResult;
 export type TOpenFolderDialogResult =
     | {
-        ok: true;
-        value: TOpenFileResult | null
+        readonly ok: true;
+        readonly value: TOpenFileResult | null
     }
     | IPlatformUnsupportedResult;
 export type TShowItemInFolderResult =
-    | {ok: true}
+    | {readonly ok: true}
     | IPlatformUnsupportedResult;
 
 export interface IPdfSaveAsOptions { optimizeLossless?: boolean; }
@@ -440,9 +446,9 @@ export interface IPdfSerializedCommitCallbacks {
 
 export interface IPdfNativeAnnotationIdentityBinding {
     /** Canonical application annotation identity from the save frontier. */
-    annotationId: string;
+    readonly annotationId: string;
     /** Canonical indirect PDF object reference, formatted as `N G R`. */
-    pdfRef: string;
+    readonly pdfRef: string;
 }
 
 export interface IPdfNativeStagedCommitOptions extends IDocumentMutationRevisionOptions {
@@ -452,12 +458,12 @@ export interface IPdfNativeStagedCommitOptions extends IDocumentMutationRevision
 }
 
 export interface IPdfOptimizeProgress {
-    requestId: TRequestId;
-    preset: TPdfOptimizePreset;
-    phase: TPdfOptimizeProgressPhase;
-    processed: number;
-    total: number;
-    percent: number;
+    readonly requestId: TRequestId;
+    readonly preset: TPdfOptimizePreset;
+    readonly phase: TPdfOptimizeProgressPhase;
+    readonly processed: number;
+    readonly total: number;
+    readonly percent: number;
 }
 
 const PDF_OPTIMIZE_PROGRESS_PHASES = [
@@ -530,20 +536,20 @@ export function decodeOpenBatchProgress(value: unknown): TOpenDocumentDirectBatc
 }
 
 export interface IPdfOptimizeResult {
-    path: TDocumentRef | null;
-    validation: IPdfValidationResult | null;
-    preset: TPdfOptimizePreset;
-    originalBytes: number | null;
-    optimizedBytes: number | null;
-    pageCount: number | null;
+    readonly path: TDocumentRef | null;
+    readonly validation: IPdfValidationResult | null;
+    readonly preset: TPdfOptimizePreset;
+    readonly originalBytes: number | null;
+    readonly optimizedBytes: number | null;
+    readonly pageCount: number | null;
 }
 
 export interface IPdfNativePageSize {
-    width: number;
-    height: number;
+    readonly width: number;
+    readonly height: number;
 }
 
-export interface IPdfNativePageSizeOverride extends IPdfNativePageSize {pageNumber: TPageNumber;}
+export interface IPdfNativePageSizeOverride extends IPdfNativePageSize {readonly pageNumber: TPageNumber;}
 
 /** Compact native page metadata carries only bounded early/late overrides. */
 export const PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT = 256;
@@ -553,22 +559,22 @@ export const PDF_NATIVE_PAGE_SIZE_OVERRIDE_LIMIT = 256;
  * represented by a materialized JavaScript array.
  */
 export interface IPdfNativePageSizes {
-    pageCount: number;
-    defaultPageSize: IPdfNativePageSize;
-    overrides: readonly IPdfNativePageSizeOverride[];
+    readonly pageCount: number;
+    readonly defaultPageSize: IPdfNativePageSize;
+    readonly overrides: readonly IPdfNativePageSizeOverride[];
 }
 
 export type TPdfNativePageSizes = readonly IPdfNativePageSize[] | IPdfNativePageSizes;
 
 export interface IPdfOpeningGeometry {
-    pageNumber: TPageNumber;
-    pageCount: number;
-    width: number;
-    height: number;
-    rotation: 0 | 90 | 180 | 270;
-    size: number;
-    modifiedAt: TEpochMs;
-    linearized?: boolean;
+    readonly pageNumber: TPageNumber;
+    readonly pageCount: number;
+    readonly width: number;
+    readonly height: number;
+    readonly rotation: 0 | 90 | 180 | 270;
+    readonly size: number;
+    readonly modifiedAt: TEpochMs;
+    readonly linearized?: boolean;
 }
 
 export interface IPdfNativePagePreviewOptions {
@@ -579,10 +585,10 @@ export interface IPdfNativePagePreviewOptions {
 export const PDF_NATIVE_PAGE_PREVIEW_RASTER_WIDTH_CEILING_PX = 4_096;
 
 export interface IPdfNativePagePreview {
-    bytes: Uint8Array;
-    width: number;
-    height: number;
-    rasterWidthCeilingPx?: number;
+    readonly bytes: Uint8Array;
+    readonly width: number;
+    readonly height: number;
+    readonly rasterWidthCeilingPx?: number;
 }
 
 export interface IPdfNoteTextUpdate {
@@ -622,8 +628,8 @@ export interface IPdfNativeTextBoxMutation {
     fontSize: number;
     color: [number, number, number];
     author?: string | null;
-    createdAt?: TEpochMs | null;
-    modifiedAt?: TEpochMs | null;
+    createdAt?: number | null;
+    modifiedAt?: number | null;
 }
 export type IPdfNativeFreeTextEditor = IPdfNativeTextBoxMutation;
 export interface IPdfNativeAnnotationDelete {
@@ -742,21 +748,21 @@ export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
 }
 
 export interface IPdfNativeNoteTextSaveResult {
-    applied: boolean;
-    validation: IPdfValidationResult | null;
+    readonly applied: boolean;
+    readonly validation: IPdfValidationResult | null;
     /**
      * The native mutation writer checked every projected mutation against the
      * staged appended revision before returning it. An affirmative proof lets
      * the renderer avoid reopening a multi-gigabyte PDF in PDF.js merely to
      * repeat the same semantic checks.
      */
-    nativeMutationPostconditionsVerified?: true;
+    readonly nativeMutationPostconditionsVerified?: true;
     /** Exact canonical identities and indirect refs created by the native mutation. */
-    identityBindings?: IPdfNativeAnnotationIdentityBinding[];
-    error?: INativeErrorEnvelope;
-    syncError?: string;
+    readonly identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[];
+    readonly error?: INativeErrorEnvelope;
+    readonly syncError?: string;
     /** Immutable native output. It is not visible as document state until committed. */
-    stagedOutput?: ITypedStagedArtifact;
+    readonly stagedOutput?: ITypedStagedArtifact;
 }
 
 export type IPdfNativeSaveResult = IPdfNativeNoteTextSaveResult;
@@ -773,24 +779,24 @@ export type TDocumentSaveFailureReason =
     | 'unknown';
 
 export interface IDocumentSaveSuccessResult {
-    ok: true;
-    externalWriteCommitted: boolean;
-    workingCopyRefreshed: boolean;
-    validation?: IPdfValidationResult | null;
-    warning?: {
-        reason: Extract<TDocumentSaveFailureReason, 'refresh-failed'>;
-        message: string;
+    readonly ok: true;
+    readonly externalWriteCommitted: boolean;
+    readonly workingCopyRefreshed: boolean;
+    readonly validation?: IPdfValidationResult | null;
+    readonly warning?: {
+        readonly reason: Extract<TDocumentSaveFailureReason, 'refresh-failed'>;
+        readonly message: string;
     };
 }
 
 export interface IDocumentSaveFailureResult {
-    ok: false;
-    reason: TDocumentSaveFailureReason;
-    message?: string;
+    readonly ok: false;
+    readonly reason: TDocumentSaveFailureReason;
+    readonly message?: string;
     /** null means a timed-out browser writer may still commit later. */
-    externalWriteCommitted?: boolean | null;
-    workingCopySyncRequired?: boolean;
-    validation?: IPdfValidationResult | null;
+    readonly externalWriteCommitted?: boolean | null;
+    readonly workingCopySyncRequired?: boolean;
+    readonly validation?: IPdfValidationResult | null;
 }
 
 export type TDocumentSaveResult =
@@ -802,14 +808,14 @@ export type TImageExportProgressPhase = 'rendering' | 'combining';
 export type TImageExportProgressStatus = 'running' | 'success' | 'canceled' | 'failed';
 
 export interface IImageExportProgress {
-    requestId: string;
-    format: TImageExportProgressFormat;
-    phase: TImageExportProgressPhase;
-    processed: number;
-    total: number;
-    percent: number;
-    status?: TImageExportProgressStatus;
-    error?: string;
+    readonly requestId: TRequestId;
+    readonly format: TImageExportProgressFormat;
+    readonly phase: TImageExportProgressPhase;
+    readonly processed: number;
+    readonly total: number;
+    readonly percent: number;
+    readonly status?: TImageExportProgressStatus;
+    readonly error?: string;
 }
 
 export type TDocumentImageExportSourceKind = 'pdf' | 'djvu';

@@ -33,7 +33,7 @@ import { addRecentInputs } from '@electron/features/documents/main/addRecentInpu
 import {getErrorMessage} from '@electron/utils/error';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
-import {requireDocumentRef} from '@contracts/documentRef';
+import {parseDocumentRef} from '@contracts/documentRef';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { abortErrorFromSignal } from '@electron/utils/abort';
@@ -47,6 +47,14 @@ import {
 const PDF_OPEN_ADMISSION_TIMEOUT_MS = 15_000;
 
 const logger = createLogger('documents-open-service');
+
+function requireDocumentRef(value: unknown) {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
+}
 
 interface IOpenInputPathsOptions {
     onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;

@@ -177,7 +177,7 @@ function updateStatus(next: Partial<IAppUpdateStatus>) {
             }
             broadcastProgressStatus();
         }, delay);
-        progressBroadcastTimer.unref?.();
+        progressBroadcastTimer.unref();
     }
 }
 
@@ -1158,7 +1158,7 @@ export async function shutdownUpdates() {
                 currentCheckPromise,
                 new Promise<void>((resolve) => {
                     timeoutHandle = setTimeout(resolve, UPDATER_SHUTDOWN_CHECK_WAIT_TIMEOUT_MS);
-                    timeoutHandle.unref?.();
+                    timeoutHandle.unref();
                 }),
             ]);
         } catch {
@@ -1177,7 +1177,7 @@ export async function shutdownUpdates() {
                 currentDownloadPromise,
                 new Promise<void>((resolve) => {
                     timeoutHandle = setTimeout(resolve, UPDATER_SHUTDOWN_DOWNLOAD_WAIT_TIMEOUT_MS);
-                    timeoutHandle.unref?.();
+                    timeoutHandle.unref();
                 }),
             ]);
         } catch {

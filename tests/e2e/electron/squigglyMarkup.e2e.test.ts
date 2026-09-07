@@ -316,6 +316,7 @@ async function updateSelectedMarkupProperties(page: Page) {
 describe('Electron E2E - EVB text markup', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
+        extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
         sessionName: () => `e2e-evb-text-markup-${Date.now()}`,
     });
 

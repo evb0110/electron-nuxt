@@ -97,9 +97,9 @@ function registerOwnerCleanup(owner: TDocxWritePathOwner, senderWebContentsId: n
     }
 
     const cleanup = () => {
-        owner.removeListener?.('destroyed', cleanup);
-        owner.removeListener?.('render-process-gone', cleanup);
-        owner.removeListener?.('did-start-navigation', handleNavigation);
+        owner.removeListener('destroyed', cleanup);
+        owner.removeListener('render-process-gone', cleanup);
+        owner.removeListener('did-start-navigation', handleNavigation);
         removeAllowedDocxWritePathsForOwner(senderWebContentsId);
     };
     function handleNavigation(
@@ -116,7 +116,7 @@ function registerOwnerCleanup(owner: TDocxWritePathOwner, senderWebContentsId: n
     ownerCleanupRegistered.add(senderWebContentsId);
     owner.once('destroyed', cleanup);
     owner.once('render-process-gone', cleanup);
-    owner.on?.('did-start-navigation', handleNavigation);
+    owner.on('did-start-navigation', handleNavigation);
 }
 
 export function allowDocxWritePath(filePath: string, owner: TDocxWritePathOwner) {

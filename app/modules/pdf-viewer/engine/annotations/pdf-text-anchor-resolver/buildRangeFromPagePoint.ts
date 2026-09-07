@@ -1,7 +1,7 @@
-import type {IPagePointTarget} from '@app/modules/pdf-viewer/engine/annotations/types';
-import {clamp01} from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
-import {findClosestTextSpanInPage} from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/findClosestTextSpanInPage';
-import {resolveWordOffsets} from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/resolveWordOffsets';
+import type { IPagePointTarget } from '@app/modules/pdf-viewer/engine/annotations/pagePointTarget';
+import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
+import { findClosestTextSpanInPage } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/findClosestTextSpanInPage';
+import { resolveWordOffsets } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/resolveWordOffsets';
 
 export function buildRangeFromPagePoint(target: IPagePointTarget) {
     const pageRect = target.pageContainer.getBoundingClientRect();

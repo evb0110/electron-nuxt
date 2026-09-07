@@ -5,7 +5,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import { cast } from '@tests/helpers/cast';
 import {BROWSER_MAX_FULL_READ_BYTES} from '@app/platform/browser/browserDocumentConstants';
 
 const pdfjsModule = vi.hoisted(() => {
@@ -21,7 +20,7 @@ const pdfjsModule = vi.hoisted(() => {
     }
 
     return {
-        version: '5.7.284',
+        version: '6.3.311',
         GlobalWorkerOptions: { workerSrc: undefined as string | undefined },
         VerbosityLevel: {ERRORS: 3},
         getDocument: vi.fn(),
@@ -84,7 +83,7 @@ describe('browserPdfjsDocumentInit', () => {
             iccUrl: getPdfjsAssetDir('iccs'),
             useSystemFonts: false,
         });
-        const initData = (init as { data: Uint8Array }).data;
+        const initData = init.data;
         expect(initData).not.toBe(input);
         expect(Array.from(initData)).toEqual(Array.from(input));
         expect(Array.from(input)).toEqual([
@@ -105,7 +104,10 @@ describe('browserPdfjsDocumentInit', () => {
             pdfjsLib,
             'browser://documents/test.pdf',
         );
-        const range = cast<{ range: InstanceType<typeof pdfjsModule.PDFDataRangeTransport> }>(init).range;
+        const range = 'range' in init ? init.range : undefined;
+        if (!range) {
+            throw new Error('Expected a PDF.js range transport for the large browser document');
+        }
 
         browserDocumentStoreMock.readRange.mockImplementation(async (_path: string, offset: number, length: number) => {
             if (offset === 1024 * 1024) {
@@ -140,7 +142,10 @@ describe('browserPdfjsDocumentInit', () => {
             'browser://documents/test.pdf',
             { onRangeReadFailure },
         );
-        const range = cast<{ range: InstanceType<typeof pdfjsModule.PDFDataRangeTransport> }>(init).range;
+        const range = 'range' in init ? init.range : undefined;
+        if (!range) {
+            throw new Error('Expected a PDF.js range transport for the large browser document');
+        }
 
         browserDocumentStoreMock.getContentSignature.mockResolvedValue('content-token-2');
         range.requestDataRange?.(1024 * 1024, (1024 * 1024) + 12);
@@ -164,7 +169,10 @@ describe('browserPdfjsDocumentInit', () => {
             'browser://documents/large.pdf',
             {onRangeReadFailure},
         );
-        const range = cast<{ range: InstanceType<typeof pdfjsModule.PDFDataRangeTransport> }>(init).range;
+        const range = 'range' in init ? init.range : undefined;
+        if (!range) {
+            throw new Error('Expected a PDF.js range transport for the large browser document');
+        }
 
         range.requestDataRange?.(0, BROWSER_MAX_FULL_READ_BYTES + 1);
 
