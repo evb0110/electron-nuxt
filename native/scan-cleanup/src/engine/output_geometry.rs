@@ -1,6 +1,8 @@
 //! Matched-canvas planning and raster placement geometry.
-#[cfg(test)]
+use crate::bw::binary_to_gray;
 use crate::bw::paper_reference;
+use crate::domain::geometry::PageHalf;
+use crate::domain::options::OutputMode;
 #[cfg(test)]
 use crate::engine::render::CleanupRaster;
 use crate::png::RgbImage;
@@ -8,6 +10,7 @@ use crate::{CleanupOptions, OrthogonalRotation};
 use evb_native_support::{NativeError, NativeErrorCode};
 use rayon::prelude::*;
 use scan_primitives::{BinaryImage, GrayImage};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 pub(crate) const FOLD_TAIL_NEAR_PAPER_FLOOR: u8 = 250;
@@ -109,7 +112,7 @@ pub(crate) struct NearPaperEdgeRuns {
 pub(crate) struct GeometryOutput {
     pub(crate) options: CleanupOptions,
     pub(crate) source_page_index: usize,
-    pub(crate) half: crate::pipeline::PageHalf,
+    pub(crate) half: PageHalf,
     pub(crate) width: usize,
     pub(crate) height: usize,
     pub(crate) paper_width: f64,
@@ -119,6 +122,443 @@ pub(crate) struct GeometryOutput {
     pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
     pub(crate) fold_side_near_paper_run: usize,
     pub(crate) outer_near_paper_edge_runs: NearPaperEdgeRuns,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum GeometryRaster {
+    Gray(GrayImage),
+    Bilevel(BinaryImage),
+}
+
+impl GeometryRaster {
+    fn to_gray(&self) -> Cow<'_, GrayImage> {
+        match self {
+            Self::Gray(image) => Cow::Borrowed(image),
+            Self::Bilevel(image) => Cow::Owned(binary_to_gray(image)),
+        }
+    }
+}
+
+pub(crate) struct GeometryMixedLayers {
+    pub(crate) foreground_mask: BinaryImage,
+    pub(crate) foreground_alpha: Option<GrayImage>,
+    pub(crate) background: GrayImage,
+    pub(crate) color_background: Option<RgbImage>,
+    pub(crate) source_mrc: bool,
+}
+
+pub(crate) struct GeometryPlanes {
+    pub(crate) image: GeometryRaster,
+    pub(crate) color_image: Option<RgbImage>,
+    pub(crate) picture_mask: Option<BinaryImage>,
+    pub(crate) tone_preservation_alpha: Option<GrayImage>,
+    pub(crate) mixed_layers: Option<GeometryMixedLayers>,
+    pub(crate) output_mode: OutputMode,
+    pub(crate) half: PageHalf,
+    pub(crate) fallback_content_top: Option<f64>,
+}
+
+pub(crate) fn compose_primary_raster(
+    planes: &mut GeometryPlanes,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    planes.image = match &planes.image {
+        GeometryRaster::Gray(image) => {
+            GeometryRaster::Gray(materialize_gray_primary_on_canvas(image, placement, canvas))
+        }
+        GeometryRaster::Bilevel(image) => {
+            let gray = binary_to_gray(image);
+            let canvas_image = place_on_white_canvas_with_source_window(
+                &resample_bilevel(&gray, placement.content_width, placement.content_height),
+                canvas.width_px,
+                canvas.height_px,
+                placement.materialization_left,
+                placement.top,
+                placement.materialization_source_offset_left,
+                placement.materialization_source_offset_right,
+                placement.intrinsic_overflow_top,
+            );
+            GeometryRaster::Bilevel(BinaryImage::from_fn_parallel(
+                canvas.width_px,
+                canvas.height_px,
+                |x, y| canvas_image.get(x, y) < 128,
+            ))
+        }
+    };
+    if let Some(color) = planes.color_image.take() {
+        planes.color_image = Some(place_rgb_on_white_canvas_with_source_window(
+            &resample_rgb_if_needed(&color, placement.content_width, placement.content_height),
+            canvas.width_px,
+            canvas.height_px,
+            placement.materialization_left,
+            placement.top,
+            placement.materialization_source_offset_left,
+            placement.materialization_source_offset_right,
+            placement.intrinsic_overflow_top,
+        ));
+    }
+}
+
+pub(crate) fn compose_picture_mask(
+    planes: &mut GeometryPlanes,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    let Some(picture_mask) = planes.picture_mask.as_ref() else {
+        return;
+    };
+    let gray = binary_to_gray(picture_mask);
+    let placed = place_on_white_canvas_with_source_window(
+        &resample_bilevel(&gray, placement.content_width, placement.content_height),
+        canvas.width_px,
+        canvas.height_px,
+        placement.materialization_left,
+        placement.top,
+        placement.materialization_source_offset_left,
+        placement.materialization_source_offset_right,
+        placement.intrinsic_overflow_top,
+    );
+    planes.picture_mask = Some(BinaryImage::from_fn_parallel(
+        canvas.width_px,
+        canvas.height_px,
+        |x, y| placed.get(x, y) < 128,
+    ));
+}
+
+pub(crate) fn compose_tone_preservation_alpha(
+    planes: &mut GeometryPlanes,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    let Some(alpha) = planes.tone_preservation_alpha.as_ref() else {
+        return;
+    };
+    planes.tone_preservation_alpha = Some(place_on_gray_canvas_with_source_window(
+        &resample_gray_if_needed(alpha, placement.content_width, placement.content_height),
+        canvas.width_px,
+        canvas.height_px,
+        placement.materialization_left,
+        placement.top,
+        0,
+        placement.materialization_source_offset_left,
+        placement.intrinsic_overflow_top,
+        placement.materialization_source_offset_right,
+    ));
+}
+
+pub(crate) fn restore_mixed_composite(planes: &mut GeometryPlanes) {
+    let Some(layers) = planes.mixed_layers.as_ref() else {
+        return;
+    };
+    let mask = &layers.foreground_mask;
+    let mut image = resample_gray_if_needed(&layers.background, mask.width(), mask.height());
+    let alpha = layers
+        .foreground_alpha
+        .as_ref()
+        .map(|alpha| resample_gray_if_needed(alpha, mask.width(), mask.height()));
+    let width = image.width();
+    image
+        .data_mut()
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                if let Some(alpha) = alpha.as_ref() {
+                    let opacity = alpha.get(x, y);
+                    if opacity > 0 {
+                        *target =
+                            ((u16::from(*target) * u16::from(255 - opacity) + 127) / 255) as u8;
+                    }
+                } else if mask.get(x, y) {
+                    *target = 0;
+                }
+            }
+        });
+    planes.image = GeometryRaster::Gray(image);
+    planes.color_image = layers.color_background.as_ref().map(|background| {
+        let mut color = resample_rgb_if_needed(background, mask.width(), mask.height());
+        let row_bytes = color.width() * 3;
+        color
+            .data_mut()
+            .par_chunks_mut(row_bytes)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                    if let Some(alpha) = alpha.as_ref() {
+                        let opacity = alpha.get(x, y);
+                        if opacity > 0 {
+                            for channel in target {
+                                *channel = ((u16::from(*channel) * u16::from(255 - opacity) + 127)
+                                    / 255) as u8;
+                            }
+                        }
+                    } else if mask.get(x, y) {
+                        target.fill(0);
+                    }
+                }
+            });
+        color
+    });
+}
+
+pub(crate) fn compose_layers(
+    planes: &mut GeometryPlanes,
+    options: &CleanupOptions,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) {
+    let confirmed_picture = planes
+        .picture_mask
+        .as_ref()
+        .is_some_and(|mask| mask.count_black() > 0)
+        && !planes
+            .mixed_layers
+            .as_ref()
+            .is_some_and(|layers| layers.source_mrc);
+    let Some(layers) = planes.mixed_layers.as_mut() else {
+        return;
+    };
+    let foreground = place_on_white_canvas_with_source_window(
+        &resample_bilevel(
+            &binary_to_gray(&layers.foreground_mask),
+            placement.content_width,
+            placement.content_height,
+        ),
+        canvas.width_px,
+        canvas.height_px,
+        placement.materialization_left,
+        placement.top,
+        placement.materialization_source_offset_left,
+        placement.materialization_source_offset_right,
+        placement.intrinsic_overflow_top,
+    );
+    layers.foreground_mask =
+        BinaryImage::from_fn_parallel(canvas.width_px, canvas.height_px, |x, y| {
+            foreground.get(x, y) < 128
+        });
+    if let Some(alpha) = layers.foreground_alpha.as_ref() {
+        layers.foreground_alpha = Some(place_on_gray_canvas_with_source_window(
+            &resample_gray_if_needed(alpha, placement.content_width, placement.content_height),
+            canvas.width_px,
+            canvas.height_px,
+            placement.materialization_left,
+            placement.top,
+            0,
+            placement.materialization_source_offset_left,
+            placement.intrinsic_overflow_top,
+            placement.materialization_source_offset_right,
+        ));
+    }
+    let background_dpi = layered_background_dpi(options, confirmed_picture);
+    let (background_width, background_height) =
+        background_canvas_dimensions(canvas, background_dpi);
+    let scale_x = background_width as f64 / canvas.width_px.max(1) as f64;
+    let scale_y = background_height as f64 / canvas.height_px.max(1) as f64;
+    let content_width = ((placement.content_width as f64 * scale_x).round() as usize).max(1);
+    let content_height = ((placement.content_height as f64 * scale_y).round() as usize)
+        .max(1)
+        .min(background_height);
+    let left = (placement.materialization_left as f64 * scale_x).round() as usize;
+    let source_offset_left = ((placement.materialization_source_offset_left as f64 * scale_x)
+        .round() as usize)
+        .min(content_width);
+    let source_offset_right = ((placement.materialization_source_offset_right as f64 * scale_x)
+        .round() as usize)
+        .min(content_width.saturating_sub(source_offset_left));
+    let top =
+        ((placement.top as f64 * scale_y).round() as usize).min(background_height - content_height);
+    layers.background = place_on_white_canvas_with_source_window(
+        &resample_gray_if_needed(&layers.background, content_width, content_height),
+        background_width,
+        background_height,
+        left,
+        top,
+        source_offset_left,
+        source_offset_right,
+        (placement.intrinsic_overflow_top as f64 * scale_y).round() as usize,
+    );
+    if let Some(color) = layers.color_background.as_ref() {
+        layers.color_background = Some(place_rgb_on_white_canvas_with_source_window(
+            &resample_rgb_if_needed(color, content_width, content_height),
+            background_width,
+            background_height,
+            left,
+            top,
+            source_offset_left,
+            source_offset_right,
+            (placement.intrinsic_overflow_top as f64 * scale_y).round() as usize,
+        ));
+    }
+}
+
+pub(crate) fn edge_near_paper_run(planes: &GeometryPlanes, edge: HorizontalEdge) -> usize {
+    let gray = planes.image.to_gray();
+    let width = gray.width();
+    let near_paper_threshold = paper_reference(&gray).min(FOLD_TAIL_NEAR_PAPER_FLOOR);
+    edge_column_order(width, edge)
+        .take_while(|&x| {
+            if !(0..gray.height()).all(|y| gray.get(x, y) >= near_paper_threshold) {
+                return false;
+            }
+            if planes.output_mode == OutputMode::Bw {
+                return true;
+            }
+            if let Some(color) = planes.color_image.as_ref() {
+                let (start, end) = mapped_column_range(x, width, color.width());
+                if (0..color.height()).any(|y| {
+                    (start..end).any(|plane_x| {
+                        color
+                            .get(plane_x, y)
+                            .iter()
+                            .any(|&sample| sample < near_paper_threshold)
+                    })
+                }) {
+                    return false;
+                }
+            }
+            if let Some(layers) = planes.mixed_layers.as_ref() {
+                let (start, end) = mapped_column_range(x, width, layers.foreground_mask.width());
+                if (0..layers.foreground_mask.height())
+                    .any(|y| (start..end).any(|plane_x| layers.foreground_mask.get(plane_x, y)))
+                {
+                    return false;
+                }
+                if let Some(alpha) = layers.foreground_alpha.as_ref() {
+                    let (start, end) = mapped_column_range(x, width, alpha.width());
+                    if (0..alpha.height())
+                        .any(|y| (start..end).any(|plane_x| alpha.get(plane_x, y) > 0))
+                    {
+                        return false;
+                    }
+                }
+                let (start, end) = mapped_column_range(x, width, layers.background.width());
+                if (0..layers.background.height()).any(|y| {
+                    (start..end)
+                        .any(|plane_x| layers.background.get(plane_x, y) < near_paper_threshold)
+                }) {
+                    return false;
+                }
+                if let Some(color) = layers.color_background.as_ref() {
+                    let (start, end) = mapped_column_range(x, width, color.width());
+                    if (0..color.height()).any(|y| {
+                        (start..end).any(|plane_x| {
+                            color
+                                .get(plane_x, y)
+                                .iter()
+                                .any(|&sample| sample < near_paper_threshold)
+                        })
+                    }) {
+                        return false;
+                    }
+                }
+            }
+            if let Some(mask) = planes.picture_mask.as_ref() {
+                let (start, end) = mapped_column_range(x, width, mask.width());
+                if (0..mask.height()).any(|y| (start..end).any(|plane_x| mask.get(plane_x, y))) {
+                    return false;
+                }
+            }
+            if let Some(alpha) = planes.tone_preservation_alpha.as_ref() {
+                let (start, end) = mapped_column_range(x, width, alpha.width());
+                if (0..alpha.height())
+                    .any(|y| (start..end).any(|plane_x| alpha.get(plane_x, y) > 0))
+                {
+                    return false;
+                }
+            }
+            true
+        })
+        .count()
+}
+
+pub(crate) fn outer_near_paper_edge_runs(planes: &GeometryPlanes) -> NearPaperEdgeRuns {
+    match planes.half {
+        PageHalf::Left => NearPaperEdgeRuns {
+            left: edge_near_paper_run(planes, HorizontalEdge::Left),
+            right: 0,
+        },
+        PageHalf::Right => NearPaperEdgeRuns {
+            left: 0,
+            right: edge_near_paper_run(planes, HorizontalEdge::Right),
+        },
+        PageHalf::Full => NearPaperEdgeRuns {
+            left: edge_near_paper_run(planes, HorizontalEdge::Left),
+            right: edge_near_paper_run(planes, HorizontalEdge::Right),
+        },
+    }
+}
+
+pub(crate) fn fold_side_near_paper_run(planes: &GeometryPlanes) -> usize {
+    match planes.half {
+        PageHalf::Left => edge_near_paper_run(planes, HorizontalEdge::Right),
+        PageHalf::Right => edge_near_paper_run(planes, HorizontalEdge::Left),
+        PageHalf::Full => 0,
+    }
+}
+
+pub(crate) fn placement_near_paper_edge_runs(planes: &GeometryPlanes) -> NearPaperEdgeRuns {
+    near_paper_edge_runs_with_fold_side(
+        outer_near_paper_edge_runs(planes),
+        planes.half,
+        fold_side_near_paper_run(planes),
+    )
+}
+
+pub(crate) fn content_ownership(planes: &GeometryPlanes) -> Option<BinaryImage> {
+    let mut ownership = match &planes.image {
+        GeometryRaster::Gray(_) => None,
+        GeometryRaster::Bilevel(image) => Some(image.clone()),
+    };
+    if planes.output_mode == OutputMode::Bw {
+        return ownership;
+    }
+    if let Some(picture_mask) = planes.picture_mask.as_ref() {
+        ownership = Some(match ownership {
+            Some(existing) => existing.or(picture_mask),
+            None => picture_mask.clone(),
+        });
+    }
+    if let Some(foreground_mask) = planes
+        .mixed_layers
+        .as_ref()
+        .map(|layers| &layers.foreground_mask)
+    {
+        ownership = Some(match ownership {
+            Some(existing) => existing.or(foreground_mask),
+            None => foreground_mask.clone(),
+        });
+    }
+    if let Some(tone_alpha) = planes.tone_preservation_alpha.as_ref() {
+        let tone_owner =
+            BinaryImage::from_fn_parallel(tone_alpha.width(), tone_alpha.height(), |x, y| {
+                tone_alpha.get(x, y) > 0
+            });
+        ownership = Some(match ownership {
+            Some(existing) => existing.or(&tone_owner),
+            None => tone_owner,
+        });
+    }
+    ownership
+}
+
+pub(crate) fn planes_optical_content_bounds_x(planes: &GeometryPlanes) -> Option<(f64, f64)> {
+    content_ownership(planes)
+        .as_ref()
+        .and_then(optical_binary_bounds_x)
+}
+
+pub(crate) fn spread_content_top(planes: &GeometryPlanes) -> Option<f64> {
+    let raster_top = gray_content_bounds_y(&planes.image.to_gray()).map(|(top, _)| top);
+    let layered_top = planes
+        .mixed_layers
+        .as_ref()
+        .and_then(|layers| gray_content_bounds_y(&layers.background).map(|(top, _)| top));
+    [raster_top, layered_top]
+        .into_iter()
+        .flatten()
+        .min_by(f64::total_cmp)
+        .or(planes.fallback_content_top)
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CanvasPlacement {
@@ -177,6 +617,57 @@ pub(crate) struct CanvasPlacement {
     /// and every neighbouring page stay exactly as they were.
     pub(crate) undersized_paper: bool,
 }
+
+pub(crate) struct CanvasMetadataFacts {
+    pub(crate) soft_margins_pixels: [usize; 4],
+    pub(crate) requested_margins: [usize; 4],
+    pub(crate) canvas_overflow: bool,
+    pub(crate) optical_content_centered: bool,
+    pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
+    pub(crate) intrinsic_overflow_left: usize,
+    pub(crate) intrinsic_overflow_right: usize,
+    pub(crate) intrinsic_overflow_top: usize,
+    pub(crate) fold_clip_left: usize,
+    pub(crate) fold_clip_right: usize,
+    pub(crate) content_width: usize,
+    pub(crate) content_height: usize,
+    pub(crate) left: usize,
+    pub(crate) top: usize,
+}
+
+pub(crate) fn canvas_metadata_facts(
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) -> CanvasMetadataFacts {
+    let effective_left = placement.left as isize - placement.intrinsic_overflow_left as isize;
+    let effective_right = effective_left + placement.content_width as isize;
+    let effective_top = placement.top as isize - placement.intrinsic_overflow_top as isize;
+    let effective_bottom = effective_top + placement.content_height as isize;
+    CanvasMetadataFacts {
+        soft_margins_pixels: [
+            effective_left.max(0) as usize,
+            effective_top.max(0) as usize,
+            (canvas.width_px as isize - effective_right).max(0) as usize,
+            (canvas.height_px as isize - effective_bottom).max(0) as usize,
+        ],
+        requested_margins: placement.requested_margins,
+        canvas_overflow: placement.overflow
+            || placement.intrinsic_overflow_left > 0
+            || placement.intrinsic_overflow_right > 0
+            || placement.intrinsic_overflow_top > 0,
+        optical_content_centered: placement.optical_content_centered,
+        optical_content_bounds_x: placement.optical_content_bounds_x,
+        intrinsic_overflow_left: placement.intrinsic_overflow_left,
+        intrinsic_overflow_right: placement.intrinsic_overflow_right,
+        intrinsic_overflow_top: placement.intrinsic_overflow_top,
+        fold_clip_left: placement.fold_clip_left,
+        fold_clip_right: placement.fold_clip_right,
+        content_width: placement.content_width,
+        content_height: placement.content_height,
+        left: placement.left,
+        top: placement.top,
+    }
+}
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct CanvasFit {
     requested_margins: [usize; 4],
@@ -218,7 +709,7 @@ pub(crate) struct SharedSpreadOverflowPlan {
 #[derive(Clone, Copy)]
 pub(crate) struct DeferredSpreadVerticalPlacement {
     pub(crate) source_page_index: usize,
-    pub(crate) half: crate::pipeline::PageHalf,
+    pub(crate) half: PageHalf,
     pub(crate) intrinsic_height: usize,
     pub(crate) content_top: Option<f64>,
 }
@@ -226,7 +717,7 @@ pub(crate) fn matched_output_paper_dimensions_for(
     input_width: usize,
     input_height: usize,
     rotation: OrthogonalRotation,
-    half: crate::pipeline::PageHalf,
+    half: PageHalf,
 ) -> (f64, f64) {
     let swaps_axes = matches!(
         rotation,
@@ -237,11 +728,7 @@ pub(crate) fn matched_output_paper_dimensions_for(
     } else {
         (input_width, input_height)
     };
-    let shares = if half == crate::pipeline::PageHalf::Full {
-        1.0
-    } else {
-        2.0
-    };
+    let shares = if half == PageHalf::Full { 1.0 } else { 2.0 };
     (oriented_width as f64 / shares, oriented_height as f64)
 }
 pub(crate) fn canvas_fit_for(
@@ -350,18 +837,11 @@ pub(crate) fn edge_near_paper_run_in_gray(image: &GrayImage, edge: HorizontalEdg
         .count()
 }
 #[cfg(test)]
-pub(crate) fn fold_side_near_paper_run_in_gray(
-    image: &GrayImage,
-    half: crate::pipeline::PageHalf,
-) -> usize {
+pub(crate) fn fold_side_near_paper_run_in_gray(image: &GrayImage, half: PageHalf) -> usize {
     match half {
-        crate::pipeline::PageHalf::Left => {
-            edge_near_paper_run_in_gray(image, HorizontalEdge::Right)
-        }
-        crate::pipeline::PageHalf::Right => {
-            edge_near_paper_run_in_gray(image, HorizontalEdge::Left)
-        }
-        crate::pipeline::PageHalf::Full => 0,
+        PageHalf::Left => edge_near_paper_run_in_gray(image, HorizontalEdge::Right),
+        PageHalf::Right => edge_near_paper_run_in_gray(image, HorizontalEdge::Left),
+        PageHalf::Full => 0,
     }
 }
 pub(crate) fn mapped_column_range(
@@ -379,19 +859,19 @@ pub(crate) fn mapped_column_range(
 }
 pub(crate) fn near_paper_edge_runs_with_fold_side(
     mut runs: NearPaperEdgeRuns,
-    half: crate::pipeline::PageHalf,
+    half: PageHalf,
     fold_side_run: usize,
 ) -> NearPaperEdgeRuns {
     match half {
-        crate::pipeline::PageHalf::Left => runs.right = runs.right.max(fold_side_run),
-        crate::pipeline::PageHalf::Right => runs.left = runs.left.max(fold_side_run),
-        crate::pipeline::PageHalf::Full => {}
+        PageHalf::Left => runs.right = runs.right.max(fold_side_run),
+        PageHalf::Right => runs.left = runs.left.max(fold_side_run),
+        PageHalf::Full => {}
     }
     runs
 }
 pub(crate) fn fold_trim_for(
     width: usize,
-    half: crate::pipeline::PageHalf,
+    half: PageHalf,
     near_paper_run: usize,
     fit: CanvasFit,
 ) -> FoldSideTrim {
@@ -405,26 +885,24 @@ pub(crate) fn fold_trim_for(
     let needed = width.saturating_sub(maximum_fitting_width).min(width - 1);
     let trim = needed.min(near_paper_run).min(width - 1);
     match half {
-        crate::pipeline::PageHalf::Left => FoldSideTrim {
+        PageHalf::Left => FoldSideTrim {
             left: 0,
             right: trim,
         },
-        crate::pipeline::PageHalf::Right => FoldSideTrim {
+        PageHalf::Right => FoldSideTrim {
             left: trim,
             right: 0,
         },
-        crate::pipeline::PageHalf::Full => FoldSideTrim::default(),
+        PageHalf::Full => FoldSideTrim::default(),
     }
 }
 pub(crate) fn horizontal_overflow_requires_fold_scan(
     width: usize,
-    half: crate::pipeline::PageHalf,
+    half: PageHalf,
     fit: CanvasFit,
 ) -> bool {
-    matches!(
-        half,
-        crate::pipeline::PageHalf::Left | crate::pipeline::PageHalf::Right
-    ) && width as f64 * fit.pixel_scale > fit.inner_width as f64 + CANVAS_GRID_TOLERANCE_PX
+    matches!(half, PageHalf::Left | PageHalf::Right)
+        && width as f64 * fit.pixel_scale > fit.inner_width as f64 + CANVAS_GRID_TOLERANCE_PX
 }
 pub(crate) fn shared_spread_overflow_fit_for_outputs(
     outputs: &[GeometryOutput],
@@ -432,12 +910,8 @@ pub(crate) fn shared_spread_overflow_fit_for_outputs(
     canvas: &GeometryCanvas,
 ) -> Option<SharedSpreadOverflowPlan> {
     if outputs.len() != 2
-        || !outputs
-            .iter()
-            .any(|output| output.half == crate::pipeline::PageHalf::Left)
-        || !outputs
-            .iter()
-            .any(|output| output.half == crate::pipeline::PageHalf::Right)
+        || !outputs.iter().any(|output| output.half == PageHalf::Left)
+        || !outputs.iter().any(|output| output.half == PageHalf::Right)
     {
         return None;
     }
@@ -497,12 +971,8 @@ pub(crate) fn shared_spread_overflow_fits_for_geometry_outputs(
         .into_iter()
         .filter_map(|(source_page_index, pair)| {
             if pair.len() != 2
-                || !pair
-                    .iter()
-                    .any(|output| output.half == crate::pipeline::PageHalf::Left)
-                || !pair
-                    .iter()
-                    .any(|output| output.half == crate::pipeline::PageHalf::Right)
+                || !pair.iter().any(|output| output.half == PageHalf::Left)
+                || !pair.iter().any(|output| output.half == PageHalf::Right)
             {
                 return None;
             }
@@ -616,7 +1086,7 @@ pub(crate) fn plan_canvas_placement_for(
     paper_height: f64,
     content_detected: bool,
     options: &CleanupOptions,
-    half: crate::pipeline::PageHalf,
+    half: PageHalf,
     canvas: &GeometryCanvas,
 ) -> CanvasPlacement {
     plan_canvas_placement_for_with_optical_center(
@@ -639,7 +1109,7 @@ pub(crate) fn plan_canvas_placement_for_with_optical_center(
     paper_height: f64,
     content_detected: bool,
     options: &CleanupOptions,
-    half: crate::pipeline::PageHalf,
+    half: PageHalf,
     canvas: &GeometryCanvas,
     optical_content_bounds_x: Option<(f64, f64)>,
 ) -> CanvasPlacement {
@@ -664,7 +1134,7 @@ pub(crate) fn plan_canvas_placement_for_with_optical_center_and_fit(
     paper_height: f64,
     content_detected: bool,
     options: &CleanupOptions,
-    half: crate::pipeline::PageHalf,
+    half: PageHalf,
     canvas: &GeometryCanvas,
     optical_content_bounds_x: Option<(f64, f64)>,
     shared_overflow_fit: Option<f64>,
@@ -693,7 +1163,7 @@ pub(crate) struct CanvasPlacementRequest<'a> {
     pub(crate) paper_height: f64,
     pub(crate) content_detected: bool,
     pub(crate) options: &'a CleanupOptions,
-    pub(crate) half: crate::pipeline::PageHalf,
+    pub(crate) half: PageHalf,
     pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
     pub(crate) shared_overflow_fit: Option<f64>,
     pub(crate) fold_trim: FoldSideTrim,
@@ -1002,12 +1472,10 @@ pub(crate) fn align_deferred_spread_vertical_placements<T>(
             .filter(|(_, output)| output.source_page_index == *source_page_index)
             .collect::<Vec<_>>();
         if pair.len() != 2
+            || !pair.iter().any(|(_, output)| output.half == PageHalf::Left)
             || !pair
                 .iter()
-                .any(|(_, output)| output.half == crate::pipeline::PageHalf::Left)
-            || !pair
-                .iter()
-                .any(|(_, output)| output.half == crate::pipeline::PageHalf::Right)
+                .any(|(_, output)| output.half == PageHalf::Right)
         {
             continue;
         }
@@ -3045,5 +3513,54 @@ mod tests {
                 paper_height: None,
             }]
         );
+    }
+
+    #[test]
+    fn plain_geometry_planes_drive_ownership_and_mask_composition() {
+        let canvas = warning_event_canvas();
+        let placement = warning_event_placement();
+        let mut mask = BinaryImage::new(8, 6);
+        mask.set(2, 3, true);
+        let mut planes = GeometryPlanes {
+            image: GeometryRaster::Bilevel(mask.clone()),
+            color_image: None,
+            picture_mask: Some(mask.clone()),
+            tone_preservation_alpha: None,
+            mixed_layers: None,
+            output_mode: OutputMode::Mixed,
+            half: PageHalf::Full,
+            fallback_content_top: None,
+        };
+
+        let ownership = content_ownership(&planes).unwrap();
+        assert!(ownership.get(2, 3));
+        assert_eq!(planes_optical_content_bounds_x(&planes), Some((2.0, 3.0)));
+
+        compose_picture_mask(&mut planes, placement, &canvas);
+        assert_eq!(
+            planes.picture_mask.as_ref().unwrap().width(),
+            canvas.width_px
+        );
+        assert_eq!(
+            planes.picture_mask.as_ref().unwrap().height(),
+            canvas.height_px
+        );
+    }
+
+    #[test]
+    fn canvas_metadata_facts_keep_margin_and_overflow_math_plain() {
+        let mut placement = warning_event_placement();
+        placement.content_width = 900;
+        placement.content_height = 700;
+        placement.left = 10;
+        placement.top = 20;
+        placement.intrinsic_overflow_left = 15;
+        placement.intrinsic_overflow_top = 5;
+        let facts = canvas_metadata_facts(placement, &warning_event_canvas());
+
+        assert_eq!(facts.soft_margins_pixels, [0, 15, 105, 285]);
+        assert!(facts.canvas_overflow);
+        assert_eq!(facts.content_width, 900);
+        assert_eq!(facts.top, 20);
     }
 }
