@@ -73,21 +73,26 @@ describe('native tool smoke policy', () => {
             protocol => protocol.binaryName === 'evb-scan-cleanup',
         );
         const policy = getPackagedToolSmokePolicy('evb-scan-cleanup-protocol');
+        const releaseFamily = RELEASE_TARGET_MANIFEST.families.find(
+            family => family.binaryName === scanCleanup?.binaryName,
+        );
+        const expectedCapabilities: readonly string[] = releaseFamily?.protocolCapabilities ?? [];
+        const expectedVersion = releaseFamily?.protocolVersion;
 
-        expect(scanCleanup?.capabilities?.map(capability => `"${capability.name}"`)).toEqual([
-            '"manifest-v3"',
-            '"structured-warning-events"',
-        ]);
+        expect(scanCleanup?.capabilities?.map(capability => capability.name)).toEqual(expectedCapabilities);
         expect(policy.requiredOutputTokens).toEqual([
-            '"protocolVersion":10',
+            `"protocolVersion":${String(expectedVersion)}`,
             '"capabilities"',
-            '"manifest-v3"',
-            '"structured-warning-events"',
+            ...expectedCapabilities.map(capability => `"${capability}"`),
         ]);
+        const structuredOutput = JSON.stringify({
+            protocolVersion: expectedVersion,
+            capabilities: expectedCapabilities,
+        });
         expect(() => assertPackagedToolSmoke(
             'evb-scan-cleanup-protocol',
             0,
-            '{"protocolVersion":10,"capabilities":["manifest-v3","structured-warning-events"]}\n',
+            structuredOutput,
         )).not.toThrow();
         expect(() => assertPackagedToolSmoke(
             'evb-scan-cleanup-protocol',

@@ -38,6 +38,7 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
+            "protocolCapabilities": null,
             "protocolVersion": null,
             "sourceRootSegments": [
                 "resources",
@@ -140,6 +141,7 @@ const manifest = JSON.parse(String.raw`{
                     "!share/poppler/poppler-data.pc.in"
                 ]
             },
+            "protocolCapabilities": null,
             "protocolVersion": null,
             "sourceRootSegments": [
                 "resources",
@@ -164,6 +166,7 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
+            "protocolCapabilities": null,
             "protocolVersion": null,
             "sourceRootSegments": [
                 "resources",
@@ -206,6 +209,7 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
+            "protocolCapabilities": null,
             "protocolVersion": null,
             "sourceRootSegments": [
                 "resources",
@@ -233,6 +237,7 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
+            "protocolCapabilities": null,
             "protocolVersion": null,
             "sourceRootSegments": [
                 ".tmp",
@@ -257,6 +262,7 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
+            "protocolCapabilities": null,
             "protocolVersion": 4,
             "sourceRootSegments": [
                 ".tmp",
@@ -281,6 +287,7 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
+            "protocolCapabilities": null,
             "protocolVersion": 1,
             "sourceRootSegments": [
                 ".tmp",
@@ -305,6 +312,7 @@ const manifest = JSON.parse(String.raw`{
                     "type": "file"
                 }
             ],
+            "protocolCapabilities": null,
             "protocolVersion": 1,
             "sourceRootSegments": [
                 ".tmp",
@@ -328,6 +336,10 @@ const manifest = JSON.parse(String.raw`{
                     ],
                     "type": "file"
                 }
+            ],
+            "protocolCapabilities": [
+                "manifest-v3",
+                "structured-warning-events"
             ],
             "protocolVersion": 10,
             "sourceRootSegments": [

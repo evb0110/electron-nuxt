@@ -5219,7 +5219,7 @@ describe('scan cleanup pipeline', () => {
     // reporting its conditions as the sentences it stored.
     async function runRasterWarningEventPipeline(
         metadataByPage: (pageNumber: number) => Record<string, unknown>,
-        structuredWarningEventsSupported = false,
+        structuredWarningEventsSupported = true,
     ) {
         const fixture = await setup();
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
@@ -5343,9 +5343,34 @@ describe('scan cleanup pipeline', () => {
             + 'requested margin box on the 1000x1000 px document canvas, below the document\'s scale';
         const summary = await runRasterWarningEventPipeline(pageNumber => (pageNumber === 1
             ? {warnings: [legacySentence]}
-            : {warnings: []}));
+            : {warnings: []}), false);
 
         expect(summary.warnings).toEqual([`Page 1: ${legacySentence}`]);
+    });
+
+    it('does not consume structured warning events from a revision 9 sidecar', async () => {
+        const warning = 'Crop was skipped because no content box was detected';
+        const summary = await runRasterWarningEventPipeline(
+            pageNumber => (pageNumber === 1
+                ? {
+                    warnings: [warning],
+                    warningEvents: [{
+                        code: 'matched-canvas-content-fitted',
+                        unit: 'px',
+                        contentWidth: 600,
+                        contentHeight: 500,
+                        innerWidth: 952,
+                        innerHeight: 952,
+                        documentCanvasWidth: 1000,
+                        documentCanvasHeight: 1000,
+                    }],
+                }
+                : {warnings: []}),
+            false,
+        );
+
+        expect(summary.warnings).toEqual([`Page 1: ${warning}`]);
+        expect(summary.warningEvents).toEqual([]);
     });
 
     it('keeps native warning strings reportable on the structured-events path', async () => {

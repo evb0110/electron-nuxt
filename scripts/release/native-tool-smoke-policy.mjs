@@ -23,6 +23,15 @@ function getGeneratedProtocolVersion(binaryName) {
     return protocolVersion;
 }
 
+/** @param {string} binaryName @returns {string[]} */
+function getGeneratedProtocolCapabilities(binaryName) {
+    const family = RELEASE_TARGET_MANIFEST.families.find(item => item.binaryName === binaryName);
+    if (family?.protocolCapabilities === null || family?.protocolCapabilities === undefined) {
+        throw new Error(`Missing generated native tool capabilities for "${binaryName}"`);
+    }
+    return family.protocolCapabilities;
+}
+
 // One exit-code and output-signature policy for every host that can execute the
 // packaged tools it verifies: macOS arm64, linux-x64, linux-arm64, win-x64, and
 // the native win-arm64 release lane. The verifier retains a named fallback gap
@@ -60,10 +69,9 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: [String(getGeneratedProtocolVersion('evb-scan-cleanup'))],
         requiredOutputTokens: [
-            '"protocolVersion":10',
+            `"protocolVersion":${String(getGeneratedProtocolVersion('evb-scan-cleanup'))}`,
             '"capabilities"',
-            '"manifest-v3"',
-            '"structured-warning-events"',
+            ...getGeneratedProtocolCapabilities('evb-scan-cleanup').map(capability => `"${capability}"`),
         ],
     },
     ddjvu: {

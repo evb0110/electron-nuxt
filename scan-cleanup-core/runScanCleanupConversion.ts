@@ -63,6 +63,7 @@ import {
     type IDetectedPageRaster,
     type IScanCleanupRasterRenderLimits,
     type IScanCleanupPageRasterSource,
+    type IScanCleanupSidecarProtocolCapabilities,
     type ISourceDpiDetectionResult,
     type IPdfPageSizeChunk,
     type TScanCleanupLog,
@@ -2621,7 +2622,7 @@ export async function runScanCleanupConversion(
                 }
                 emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
             };
-            await runRasterProducerConsumer({
+            const sidecarCapabilities = await runRasterProducerConsumer<IScanCleanupSidecarProtocolCapabilities | undefined>({
                 signal,
                 stream: canStreamRasters,
                 ...(canStreamRasters ? {createStreams: () => dependencies.createRasterPipes!(
@@ -2891,18 +2892,20 @@ export async function runScanCleanupConversion(
                     });
                     if (!metadata.skewApplied) summary.deskewSkipped += 1;
                     if (request.options.crop && metadata.contentBox == null) summary.cropSkipped += 1;
-                    for (const event of metadata.warningEvents ?? []) {
-                    // One aggregate names every page the document's scale could
-                    // not hold; per-page lines would bury it.
-                        if (event.code === 'matched-canvas-content-fitted') {
-                            fittedMarginBoxPages.add(pageNumber);
-                            continue;
+                    if (sidecarCapabilities?.structuredWarningEventsSupported === true) {
+                        for (const event of metadata.warningEvents ?? []) {
+                        // One aggregate names every page the document's scale could
+                        // not hold; per-page lines would bury it.
+                            if (event.code === 'matched-canvas-content-fitted') {
+                                fittedMarginBoxPages.add(pageNumber);
+                                continue;
+                            }
+                            reportScanCleanupSummaryWarningEvent(summary, {
+                                event,
+                                pageNumber: requirePageNumber(pageNumber),
+                                ...(metadata.half === undefined ? {} : {half: metadata.half}),
+                            }, report);
                         }
-                        reportScanCleanupSummaryWarningEvent(summary, {
-                            event,
-                            pageNumber: requirePageNumber(pageNumber),
-                            ...(metadata.half === undefined ? {} : {half: metadata.half}),
-                        }, report);
                     }
                     // Diagnostics the engine carries no structure for. An artifact
                     // written before runtime revision 10 also left its conditions

@@ -1124,6 +1124,22 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_known_keys_use_materialized_last_value_and_remain_validation_visible() {
+        let duplicate_version = r#"{
+            "version":3,"version":2,"operation":"analyze","renderMode":"preview",
+            "canvasScope":"page","pages":[]
+        }"#;
+        let manifest: ManifestV3 = serde_json::from_str(duplicate_version).unwrap();
+
+        assert_eq!(manifest.version, 2);
+        let error = manifest.validate().unwrap_err();
+        assert_eq!(error.code, NativeErrorCode::InvalidRequest);
+        assert!(error
+            .message
+            .contains("Unsupported scan-cleanup manifest version 2"));
+    }
+
+    #[test]
     fn diagnostics_are_opt_in_and_deduplicate_unknown_paths_per_run() {
         let json = r#"{
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",

@@ -186,10 +186,9 @@ describe('native tool smoke source policy', () => {
                 if (family.binaryName === 'evb-scan-cleanup') {
                     expect(policy.expectedOutputTokens).toEqual([String(family.protocolVersion)]);
                     expect(policy.requiredOutputTokens).toEqual([
-                        '"protocolVersion":10',
+                        `"protocolVersion":${String(family.protocolVersion)}`,
                         '"capabilities"',
-                        '"manifest-v3"',
-                        '"structured-warning-events"',
+                        ...(family.protocolCapabilities ?? []).map((capability: string) => `"${capability}"`),
                     ]);
                 } else {
                     expect(policy.expectedOutputTokens).toEqual([String(family.protocolVersion)]);
