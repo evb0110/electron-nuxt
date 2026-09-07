@@ -20,7 +20,7 @@ const pdfjsModule = vi.hoisted(() => {
     }
 
     return {
-        version: '5.7.284',
+        version: '6.3.311',
         GlobalWorkerOptions: { workerSrc: undefined as string | undefined },
         VerbosityLevel: {ERRORS: 3},
         getDocument: vi.fn(),

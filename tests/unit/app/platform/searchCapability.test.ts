@@ -78,7 +78,7 @@ const browserSearchWorkerClientMock = vi.hoisted(() => ({
     BrowserSearchWorkerUnavailableError: class BrowserSearchWorkerUnavailableError extends Error {},
 }));
 const pdfjsModule = vi.hoisted(() => ({
-    version: '5.7.284',
+    version: '6.3.311',
     GlobalWorkerOptions: { workerSrc: undefined as string | undefined },
     PDFDataRangeTransport: function MockPdfDataRangeTransport() {},
     OPS: {
@@ -354,6 +354,8 @@ describe('createBrowserSearchCapability', () => {
             })),
             destroy: vi.fn(async () => {}),
         };
+        const firstDocumentGetPage = firstDocument.getPage;
+        const secondDocumentGetPage = secondDocument.getPage;
 
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
@@ -382,8 +384,8 @@ describe('createBrowserSearchCapability', () => {
         });
 
         expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
-        expect(firstDocument.getPage).toHaveBeenCalledTimes(1);
-        expect(secondDocument.getPage).toHaveBeenCalledTimes(1);
+        expect(firstDocumentGetPage).toHaveBeenCalledTimes(1);
+        expect(secondDocumentGetPage).toHaveBeenCalledTimes(1);
     });
 
     it('invalidates browser page text caches when only document revision changes', async () => {
@@ -403,6 +405,8 @@ describe('createBrowserSearchCapability', () => {
             })),
             destroy: vi.fn(async () => {}),
         };
+        const firstDocumentGetPage = firstDocument.getPage;
+        const secondDocumentGetPage = secondDocument.getPage;
 
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
@@ -432,8 +436,8 @@ describe('createBrowserSearchCapability', () => {
         });
 
         expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
-        expect(firstDocument.getPage).toHaveBeenCalledTimes(1);
-        expect(secondDocument.getPage).toHaveBeenCalledTimes(1);
+        expect(firstDocumentGetPage).toHaveBeenCalledTimes(1);
+        expect(secondDocumentGetPage).toHaveBeenCalledTimes(1);
     });
 
     it.each([
@@ -472,6 +476,7 @@ describe('createBrowserSearchCapability', () => {
             })),
             destroy: vi.fn(async () => {}),
         };
+        const secondDocumentGetPage = secondDocument.getPage;
 
         browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
         browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
@@ -501,7 +506,7 @@ describe('createBrowserSearchCapability', () => {
         });
 
         expect(pdfjsModule.getDocument).toHaveBeenCalledTimes(2);
-        expect(secondDocument.getPage).toHaveBeenCalledTimes(1);
+        expect(secondDocumentGetPage).toHaveBeenCalledTimes(1);
     });
 
     it('clears persisted browser page text indexes on resetCache', async () => {

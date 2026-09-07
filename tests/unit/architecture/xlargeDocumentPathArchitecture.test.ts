@@ -552,7 +552,7 @@ describe('xlarge document path architecture', () => {
         const assetCopySource = readSource('scripts/copy-pdfjs-assets.mjs');
         const provenance = readSource('vendor/pdfjs-dist/provenance.json');
 
-        expect(provenance).toContain('f029c04600ed3d851491c0d70eafe7caa1557d36');
+        expect(provenance).toContain('6922bee2b3dd047c954d5717a533a2d701559c17');
         expect(provenance).toContain('forbiddenStreamBytesWorkerMaterializations');
         expect(assetCopySource).toContain('join(root, \'build\', \'pdf.worker.mjs\')');
         expect(assetCopySource).not.toContain(

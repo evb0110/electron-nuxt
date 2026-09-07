@@ -75,4 +75,40 @@ describe('resolveDocumentPageSourceRenderQueue', () => {
             pagesToRender: [],
         });
     });
+
+    it('prioritizes the visible band when an untrusted scroll leaves the semantic page behind it', () => {
+        expect(resolveDocumentPageSourceRenderQueue({
+            bufferPages: [],
+            concurrency: 2,
+            currentPage: 27,
+            guardRadius: 12,
+            inFlightPages: [],
+            mountedPages: [
+                27,
+                31,
+                32,
+                33,
+            ],
+            needsRender: () => true,
+            preferredDirection: 1,
+            residentPages: [
+                27,
+                31,
+                32,
+                33,
+            ],
+            visiblePages: [
+                27,
+                31,
+                32,
+                33,
+            ],
+        })).toEqual({
+            pagesToAbort: [],
+            pagesToRender: [
+                31,
+                32,
+            ],
+        });
+    });
 });

@@ -191,15 +191,18 @@ const projectConfig = withNuxt(
         // document lifecycle cleanup in one session owner.
         ['app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts', 1215],
         ['electron/ocr/jobManager.ts', 1067],
-        ['packages/contracts/agentPlatformFeature.ts', 1813],
+        ['packages/contracts/agentPlatformFeature.ts', 1831],
         ['app/modules/workspace-shell/components/AppShellRoot.vue', 900],
         ['app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts', 1083],
         ['electron/features/agent/mcp/mcpServerCore.ts', 979],
         ['scripts/architecture/boundary-check.mjs', 1650],
         ['app/platform/browser-api/browserDjvuCapability.ts', 1202],
         ['electron/features/djvu/main/pdfExport.ts', 1288],
-        ['packages/contracts/djvuPlatformFeature.ts', 1328],
+        ['app/modules/workspace-shell/agent/createDocumentAgentBookmarks.ts', 1211],
+        ['packages/contracts/djvuPlatformFeature.ts', 1490],
         ['packages/contracts/ocrPlatformFeature.ts', 1368],
+        ['packages/contracts/scan-cleanup/ipcRequestCodecs.ts', 1210],
+        ['packages/contracts/scan-cleanup/ipcResultCodecs.ts', 1213],
         // The documents feature keeps its method codecs and result schemas
         // together so the Electron and browser implementations cannot drift.
         // Print, decrypt, and annotation capabilities account for this

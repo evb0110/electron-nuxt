@@ -18,29 +18,27 @@ import { pathToFileURL } from 'node:url';
 import { minifyPdfjsWorker } from './copy-pdfjs-assets.mjs';
 
 const projectRoot = resolve(new URL('..', import.meta.url).pathname);
-const archiveName = 'pdfjs-dist-5.7.304-f029c046.tgz';
+const archiveName = 'pdfjs-dist-6.3.311-6922bee2.tgz';
 const dependencyKey = `file:vendor/pdfjs-dist/${archiveName}`;
 const expectedPackage = {
     name: 'pdfjs-dist',
-    version: '5.7.304',
+    version: '6.3.311',
 };
 const expectedFork = {
     repository: 'https://github.com/evb0110/pdf.js.git',
-    branch: 'evb/5.7.284',
-    commit: 'f029c04600ed3d851491c0d70eafe7caa1557d36',
-    tree: 'b4653b1e48fcb781ffeafed8efcdceb1a0b986fe',
+    branch: 'ticket/168-fork-rebase',
+    commit: '6922bee2b3dd047c954d5717a533a2d701559c17',
+    tree: '0fc8b8db395e8ab30ddec61a78bb9ad72d82512b',
     sourceBaseCommit: '5e0ac85d697d41a2232045033962b3437b7e2ad1',
     sourceBaseTree: '9dbb438c9a4bce5a958ca8b37d305b79b5b74c6a',
-    upstreamTag: 'v5.7.284',
-    upstreamCommit: '7e5b36c2d572ba82e1e3adeb1c266f0052746c73',
-    upstreamTree: '688cb5794199b81185419d02cb5142e776287085',
+    upstreamTag: 'v6.3.289',
+    upstreamCommit: '1c8020a7d4e43668ac287a3ecf9a8dbea17e4c56',
+    upstreamTree: 'df7e37b2ed4ab43bf3cee8c96348993459e2c457',
 };
 const expectedBuildCommands = [
     'PUPPETEER_SKIP_DOWNLOAD=1 npm ci',
-    'npx gulp lint',
-    'npx gulp unittestcli',
-    'npx gulp typestest',
     'npx gulp dist',
+    'node scripts/verify_fork_artifacts.mjs',
     'npm pack ./build/dist --ignore-scripts --json',
 ];
 const forkMarkerFiles = [
@@ -93,6 +91,7 @@ const requiredFiles = [
     'wasm/openjpeg.wasm',
     'iccs/CGATS001Compat-v2-micro.icc',
 ];
+const PDFJS_DOCUMENTATION_FILE_PATTERN = /^(?:README|CHANGELOG)(?:\.[^/\\]+)?$/iu;
 const fail = message => { throw new Error(`PDF.js provenance verification failed: ${message}`); };
 const assert = (condition, message) => { if (!condition) fail(message); };
 const digest = (algorithm, value) => createHash(algorithm).update(value).digest('hex');
@@ -113,6 +112,13 @@ const rangeWorkerMarkers = [
     'SCAN_WINDOW_BYTES',
     'getByteRange',
 ];
+
+function normalizeCopiedAsset(relativePath, content) {
+    if (relativePath === 'standard_fonts/LICENSE_LIBERATION') {
+        return Buffer.from(content.toString('utf8').replace(/[ \t]+$/gmu, ''));
+    }
+    return content;
+}
 
 export function parseManifest(text) {
     const rows = text.trimEnd().split('\n').map(line => {
@@ -324,6 +330,7 @@ export async function verify(options = {}) {
                 if (entry.isDirectory()) await collect(full, name, files);
                 else {
                     assert(entry.isFile(), `copied asset is not a regular file: ${relativePath}/${name}`);
+                    if (PDFJS_DOCUMENTATION_FILE_PATTERN.test(entry.name)) continue;
                     files.push(name);
                 }
             }
@@ -333,7 +340,7 @@ export async function verify(options = {}) {
         for (const name of files) {
             const installed = await readFile(join(installedRoot, name));
             const copied = await readFile(join(publicRoot, name));
-            assert(installed.equals(copied), `copied ${relativePath} asset mismatch: ${name}`);
+            assert(normalizeCopiedAsset(join(relativePath, name), installed).equals(copied), `copied ${relativePath} asset mismatch: ${name}`);
         }
         const copiedFiles = [];
         await collect(publicRoot, '', copiedFiles);

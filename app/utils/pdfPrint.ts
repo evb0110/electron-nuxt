@@ -2,6 +2,7 @@ import type {
     IPdfDocument,
     IPdfPage,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import { range } from 'es-toolkit/math';
 import pdfjsLib, {
     createPdfjsDocumentOptions,
@@ -181,7 +182,7 @@ export async function renderPdfPagesForBrowserPrint(
     let pdfDocument: IPdfDocument;
     try {
         throwIfBrowserPrintAborted(options.signal);
-        pdfDocument = await loadingTask.promise;
+        pdfDocument = adaptPdfjsDocument(await loadingTask.promise);
         throwIfBrowserPrintAborted(options.signal);
     } catch (error) {
         await loadingTask.destroy();

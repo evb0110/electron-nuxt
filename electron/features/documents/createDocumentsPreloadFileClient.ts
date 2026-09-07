@@ -79,7 +79,7 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import * as workingCopyPassword from '@electron/features/documents/appendWorkingCopyPassword';
+import {assertOptionalPdfDecryptPassword} from '@electron/features/documents/assertOptionalPdfDecryptPassword';
 import {
     createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
@@ -1011,7 +1011,7 @@ export function createDocumentsPreloadFileClient(
             const checkedFileName = assertWorkingCopyFileName(fileName, 'createWorkingCopyFromData.fileName');
             const checkedData = assertWriteData(data, 'createWorkingCopyFromData.data');
             const checkedOriginalPath = assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath');
-            const checkedPassword = workingCopyPassword.assertOptionalPdfDecryptPassword(password);
+            const checkedPassword = assertOptionalPdfDecryptPassword(password);
             return checkedOriginalPath === undefined && checkedPassword === undefined
                 ? invokeWorkingCopy(
                     DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
@@ -1029,7 +1029,7 @@ export function createDocumentsPreloadFileClient(
         createWorkingCopyFromPath: (sourcePath, originalPath?: string, password?: string) => {
             const checkedSourcePath = assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath');
             const checkedOriginalPath = assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath');
-            const checkedPassword = workingCopyPassword.assertOptionalPdfDecryptPassword(password);
+            const checkedPassword = assertOptionalPdfDecryptPassword(password);
             return checkedOriginalPath === undefined && checkedPassword === undefined
                 ? invokeWorkingCopy(
                     DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,

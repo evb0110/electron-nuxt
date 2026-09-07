@@ -12,15 +12,3 @@ export function assertOptionalPdfDecryptPassword(value: unknown): string | undef
     }
     return value;
 }
-
-export function appendWorkingCopyPassword(
-    originalPath: string | undefined,
-    password: string | undefined,
-) {
-    return originalPath === undefined && password === undefined
-        ? []
-        : [
-            originalPath,
-            password,
-        ];
-}

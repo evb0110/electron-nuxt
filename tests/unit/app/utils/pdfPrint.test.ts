@@ -32,7 +32,7 @@ const pdfjsModule = vi.hoisted((): {
     VerbosityLevel: { ERRORS: number; };
     getDocument: ReturnType<typeof vi.fn>;
 } => ({
-    version: '5.7.284',
+    version: '6.3.311',
     GlobalWorkerOptions: {},
     PDFDataRangeTransport: function MockPdfDataRangeTransport() {},
     VerbosityLevel: { ERRORS: 0 },

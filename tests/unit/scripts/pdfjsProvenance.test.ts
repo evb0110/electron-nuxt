@@ -38,12 +38,12 @@ const {
 describe('PDF.js package path classification', () => {
     it.each([
         'node_modules/pdfjs-dist/build/pdf.mjs',
-        'node_modules/.pnpm/pdfjs-dist@5.7.304/node_modules/pdfjs-dist/legacy/build/pdf.mjs',
-        'node_modules/.pnpm/file+vendor+pdfjs-dist+pdfjs-dist-5.7.304-f029c046.tgz/node_modules/pdfjs-dist/build/pdf.mjs',
+        'node_modules/.pnpm/pdfjs-dist@6.3.311/node_modules/pdfjs-dist/legacy/build/pdf.mjs',
+        'node_modules/.pnpm/file+vendor+pdfjs-dist+pdfjs-dist-6.3.311-6922bee2.tgz/node_modules/pdfjs-dist/build/pdf.mjs',
         'node_modules/@evb0110/pdfjs-dist/build/pdf.mjs',
         'node_modules/@pdfjs-dist/pdfjs-dist/build/pdf.mjs',
         '/real/path/to/pdfjs-dist/build/pdf.mjs',
-        'C:\\repo\\node_modules\\.pnpm\\pdfjs-dist@5.7.304\\node_modules\\pdfjs-dist\\build\\pdf.mjs',
+        'C:\\repo\\node_modules\\.pnpm\\pdfjs-dist@6.3.311\\node_modules\\pdfjs-dist\\build\\pdf.mjs',
     ])('recognizes %s', (filePath) => {
         expect(isPdfjsPackagePath(filePath)).toBe(true);
     });
@@ -153,8 +153,8 @@ describe('PDF.js provenance attack fixtures', () => {
         const sourceVendor = resolve(process.cwd(), 'vendor/pdfjs-dist');
         try {
             await Promise.all([
-                copyFile(join(sourceVendor, 'pdfjs-dist-5.7.304-f029c046.tgz'), join(vendor, 'pdfjs-dist-5.7.304-f029c046.tgz')),
-                copyFile(join(sourceVendor, 'pdfjs-dist-5.7.304-f029c046.files.sha256'), join(vendor, 'pdfjs-dist-5.7.304-f029c046.files.sha256')),
+                copyFile(join(sourceVendor, 'pdfjs-dist-6.3.311-6922bee2.tgz'), join(vendor, 'pdfjs-dist-6.3.311-6922bee2.tgz')),
+                copyFile(join(sourceVendor, 'pdfjs-dist-6.3.311-6922bee2.files.sha256'), join(vendor, 'pdfjs-dist-6.3.311-6922bee2.files.sha256')),
                 copyFile(join(sourceVendor, 'provenance.json'), join(vendor, 'provenance.json')),
             ]);
             const receiptPath = join(vendor, 'provenance.json');
@@ -168,8 +168,8 @@ describe('PDF.js provenance attack fixtures', () => {
             await writeFile(receiptPath, JSON.stringify(receipt));
             await expect(verify({
                 projectRoot: process.cwd(),
-                archivePath: join(vendor, 'pdfjs-dist-5.7.304-f029c046.tgz'),
-                manifestPath: join(vendor, 'pdfjs-dist-5.7.304-f029c046.files.sha256'),
+                archivePath: join(vendor, 'pdfjs-dist-6.3.311-6922bee2.tgz'),
+                manifestPath: join(vendor, 'pdfjs-dist-6.3.311-6922bee2.files.sha256'),
                 receiptPath,
             })).rejects.toThrow(/verifier source hash mismatch/u);
             receipt.verifier.sourceSha256 = verifierSourceSha256;
@@ -177,8 +177,8 @@ describe('PDF.js provenance attack fixtures', () => {
             await writeFile(receiptPath, JSON.stringify(receipt));
             await expect(verify({
                 projectRoot: process.cwd(),
-                archivePath: join(vendor, 'pdfjs-dist-5.7.304-f029c046.tgz'),
-                manifestPath: join(vendor, 'pdfjs-dist-5.7.304-f029c046.files.sha256'),
+                archivePath: join(vendor, 'pdfjs-dist-6.3.311-6922bee2.tgz'),
+                manifestPath: join(vendor, 'pdfjs-dist-6.3.311-6922bee2.files.sha256'),
                 receiptPath,
             })).rejects.toThrow(/archive SHA-256 mismatch/u);
         } finally {

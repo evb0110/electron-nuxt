@@ -1,6 +1,7 @@
 import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
+    access,
     mkdtemp,
     readFile,
     readdir,
@@ -202,6 +203,19 @@ async function closeBrowserGracefully(browser: TConnectedBrowser | null) {
     ]);
 }
 
+async function assertPathAbsent(pathToCheck: string, description: string): Promise<void> {
+    try {
+        await access(pathToCheck);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return;
+        }
+        throw error;
+    }
+
+    throw new Error(`Packaged smoke cleanup left ${description} at ${pathToCheck}`);
+}
+
 async function run() {
     const executablePath = parseExecutablePath(process.argv.slice(2));
     const workDirectory = await mkdtemp(path.join(tmpdir(), 'evb-packaged-core-smoke-'));
@@ -219,8 +233,8 @@ async function run() {
         env: {
             ...process.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
-            EVB_AUTOMATION_HIDE_WINDOW: '0',
-            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_SESSION_NAME: 'packaged-core-pdf-smoke',
             EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
             EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
@@ -235,6 +249,11 @@ async function run() {
     child.stderr?.pipe(process.stderr);
 
     let browser: TConnectedBrowser | null = null;
+    let primaryError: Error | null = null;
+    const cleanupErrors: Error[] = [];
+    const recordCleanupError = (error: unknown): void => {
+        cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
+    };
     try {
         const browserWSEndpoint = await waitForPackagedCdpEndpoint(
             cdpPort,
@@ -346,12 +365,21 @@ async function run() {
 
         console.log('Packaged core-PDF smoke passed: open, annotation save, metadata-preserving rotate, source isolation, and search.');
     } catch (error) {
-        await capturePackagedCorePdfFailureArtifacts(browser, error);
-        throw error;
+        primaryError = error instanceof Error ? error : new Error(String(error));
+        try {
+            await capturePackagedCorePdfFailureArtifacts(browser, error);
+        } catch (captureError) {
+            recordCleanupError(captureError);
+        }
     } finally {
         await closeBrowserGracefully(browser);
         if (typeof child.pid === 'number') {
-            await waitForProcessExit(child.pid, 5_000);
+            if (!await waitForProcessExit(child.pid, 5_000)) {
+                await killProcessTree(child.pid, 3_000);
+                if (!await waitForProcessExit(child.pid, 5_000)) {
+                    recordCleanupError(new Error(`Packaged smoke child process ${child.pid} did not exit after cleanup`));
+                }
+            }
         }
         await browser?.disconnect().catch(() => {});
         if (typeof child.pid === 'number') {
@@ -368,9 +396,21 @@ async function run() {
                 recursive: true,
                 retryDelay: 200,
             });
+            await assertPathAbsent(workDirectory, 'temporary smoke directory');
         } catch (error) {
             console.warn(`Packaged smoke cleanup left temporary files at ${workDirectory}:`, error);
         }
+    }
+
+    const [firstCleanupError] = cleanupErrors;
+    if (firstCleanupError && primaryError) {
+        console.error('Packaged smoke cleanup failed after the primary failure:', firstCleanupError);
+    }
+    if (primaryError) {
+        throw primaryError;
+    }
+    if (firstCleanupError) {
+        throw firstCleanupError;
     }
 }
 

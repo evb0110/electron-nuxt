@@ -1,4 +1,5 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import type * as UTIFModule from 'utif';
 import {
     range,
@@ -18,10 +19,7 @@ import {
     browserDocumentStore,
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
-import {
-    createPdfjsDocumentInitFromBrowserDocument,
-    getPdfjsLib,
-} from '@app/platform/browser-api/browserPdfjsDocumentInit';
+import {getPdfjsLib} from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import { EXPORT_RENDER_SCALE } from '@app/platform/browser-api/browserImageExportConfig';
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
@@ -551,27 +549,7 @@ async function storeTiffAtHandle(
 
 async function loadPdfDocument(path: string) {
     const pdfjsLib = await getPdfjsLib();
-    let rejectRangeReadFailure: ((error: Error) => void) | null = null;
-    const rangeReadFailure = new Promise<never>((_resolve, reject) => {
-        rejectRangeReadFailure = reject;
-    });
-    const loadingTask = pdfjsLib.getDocument(await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, path, {onRangeReadFailure: (error) => {
-        const reject = rejectRangeReadFailure;
-        rejectRangeReadFailure = null;
-        reject?.(error);
-    }}));
-    let pdfDocument: Awaited<typeof loadingTask.promise>;
-    try {
-        pdfDocument = await Promise.race([
-            loadingTask.promise,
-            rangeReadFailure,
-        ]);
-    } catch (error) {
-        await loadingTask.destroy();
-        throw error;
-    } finally {
-        rejectRangeReadFailure = null;
-    }
+    const pdfDocument = await loadBrowserPdfjsDocument(pdfjsLib, path);
     return {
         pdfDocument,
         destroy: async () => {

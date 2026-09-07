@@ -1,33 +1,30 @@
-import {
-    decodeDiagnosticContext,
-    DIAGNOSTIC_DEFINITIONS,
-    isDiagnosticCode,
-    isDiagnosticOperation,
-    type DiagnosticCode,
-    type DiagnosticContext,
-    type DiagnosticOperation,
-    type DiagnosticStackPolicy,
-} from '@contracts/diagnostics/diagnosticCodes';
+import type {DiagnosticCode} from '@contracts/diagnostics/diagnosticCodes';
 import {
     createDiagnosticEventId,
-    isDiagnosticEventId,
     type DiagnosticEventId,
 } from '@contracts/diagnostics/diagnosticEventId';
+import {
+    createDiagnosticFallbackEventId,
+    createSafeDiagnosticEventId,
+    safeDiagnosticNow,
+} from '@contracts/diagnostics/diagnosticReporterIdentity';
 import {
     decodeDiagnosticRecord,
     type DiagnosticRecord,
     type DiagnosticRuntime,
-    type FailureSeverity,
 } from '@contracts/diagnostics/diagnosticRecord';
 import type {
     CaptureFailureInput,
     FailureReceipt,
     LocalFailureDetail,
 } from '@contracts/diagnostics/failureReceipt';
+import {buildDiagnosticRecord} from '@contracts/diagnostics/buildDiagnosticRecord';
 import {
-    normalizeCanonicalApplicationFrames,
-    type CanonicalAppFrame,
-} from '@contracts/diagnostics/canonicalAppFrames';
+    createDiagnosticBurstAdmissionReserver,
+    createDiagnosticFailureReceipt,
+    createDiagnosticBurstDecider,
+    getDiagnosticBurstKey,
+} from '@contracts/diagnostics/diagnosticReporterShared';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { parseClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
 import { DIAGNOSTICS_MAX_SUPPRESSED_COUNT } from '@contracts/diagnostics/diagnosticsCapability';
@@ -137,12 +134,6 @@ interface IBurstState {
     suppressedCount: number;
 }
 
-interface IBurstDecision {
-    key: string;
-    send: boolean;
-    suppressedCount: number;
-}
-
 interface IHealthState extends IRendererDiagnosticsHealthSnapshot {}
 
 let fallbackEventIdCounter = 0;
@@ -183,170 +174,25 @@ function increment(value: number) {
         : value + 1;
 }
 
-function safeNow(now: () => number) {
-    try {
-        const value = now();
-        return Number.isSafeInteger(value) && value >= 0 ? value : 0;
-    } catch {
-        return 0;
-    }
-}
-
-function createFallbackEventId(): DiagnosticEventId {
+function nextFallbackEventIdCounter() {
     fallbackEventIdCounter = (fallbackEventIdCounter + 1) >>> 0;
-    let timestamp = 0;
-    try {
-        timestamp = Date.now();
-    } catch {
-        // Keep the fallback receipt valid even if the system clock is unavailable.
-    }
-    const value = `${timestamp.toString(16)}${fallbackEventIdCounter.toString(16)}`;
-    return value.slice(-32).padStart(32, '0') as DiagnosticEventId;
+    return fallbackEventIdCounter;
 }
 
-function createSafeEventId(factory: () => DiagnosticEventId) {
-    try {
-        const eventId = factory();
-        return isDiagnosticEventId(eventId) ? eventId : createFallbackEventId();
-    } catch {
-        try {
-            return createDiagnosticEventId();
-        } catch {
-            return createFallbackEventId();
-        }
-    }
-}
+const createFallbackEventId = () => createDiagnosticFallbackEventId(nextFallbackEventIdCounter);
 
-function readStack(value: unknown): string | undefined {
-    if (typeof value === 'string') {
-        return value;
-    }
-    if (typeof value !== 'object' || value === null) {
-        return undefined;
-    }
-    try {
-        const stack = (value as {stack?: unknown}).stack;
-        return typeof stack === 'string' ? stack : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-function captureCallSiteStack() {
-    try {
-        return new Error().stack ?? '';
-    } catch {
-        return '';
-    }
-}
-
-function removeReporterFrames(frames: readonly CanonicalAppFrame[]) {
-    return frames.filter(frame => !RENDERER_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES.some(suffix => (
-        frame.module === suffix || frame.module.endsWith(`/${suffix}`)
-    )));
-}
-
-function buildFrames(input: CaptureFailureInput, stackPolicy: DiagnosticStackPolicy) {
-    const stack = stackPolicy === 'source'
-        ? readStack(input.local.cause) ?? captureCallSiteStack()
-        : captureCallSiteStack();
-
-    try {
-        return removeReporterFrames(normalizeCanonicalApplicationFrames(stack).frames);
-    } catch {
-        return [];
-    }
-}
-
-function fallbackContext(code: DiagnosticCode): DiagnosticContext<DiagnosticCode> {
-    return decodeDiagnosticContext(code, {}) ?? {};
-}
-
-function buildClosedRecord(
+function buildRendererDiagnosticRecord(
     input: CaptureFailureInput,
     runtime: DiagnosticRuntime,
     eventId: DiagnosticEventId,
     occurredAt: number,
-): DiagnosticRecord {
-    let code: DiagnosticCode = 'UNCLASSIFIED_RENDERER_ERROR';
-    let severity: FailureSeverity = DIAGNOSTIC_DEFINITIONS.UNCLASSIFIED_RENDERER_ERROR.defaultSeverity;
-    let operation: DiagnosticOperation = DIAGNOSTIC_DEFINITIONS.UNCLASSIFIED_RENDERER_ERROR.operation;
-    let context: DiagnosticContext<DiagnosticCode> = fallbackContext(code);
-    let frames: readonly CanonicalAppFrame[] = [];
-
-    try {
-        if (isDiagnosticCode(input.code)) {
-            code = input.code;
-        }
-        const definition = DIAGNOSTIC_DEFINITIONS[code];
-        severity = input.severity === 'fatal' || input.severity === 'error'
-            ? input.severity
-            : definition.defaultSeverity;
-        operation = isDiagnosticOperation(input.operation)
-            ? input.operation
-            : definition.operation;
-        context = decodeDiagnosticContext(code, input.context) ?? fallbackContext(code);
-        frames = buildFrames(input, definition.stackPolicy);
-    } catch {
-        // A reporter failure must reduce to the closed fallback record below.
-    }
-
-    const decoded = decodeDiagnosticRecord({
-        schemaVersion: 1,
-        eventId,
-        code,
-        severity,
+) {
+    return buildDiagnosticRecord(input, eventId, occurredAt, {
+        fallbackCode: 'UNCLASSIFIED_RENDERER_ERROR',
+        fallbackOperation: 'renderer-error',
+        internalFrameSuffixes: RENDERER_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES,
         runtime,
-        operation,
-        occurredAt,
-        frames,
-        context,
     });
-    if (decoded !== null) {
-        return decoded;
-    }
-
-    const fallback = decodeDiagnosticRecord({
-        schemaVersion: 1,
-        eventId,
-        code: 'UNCLASSIFIED_RENDERER_ERROR',
-        severity: 'error',
-        runtime,
-        operation: 'renderer-error',
-        occurredAt,
-        frames: [],
-        context: {},
-    });
-    if (fallback === null) {
-        throw new Error('Unable to create an unclassified renderer failure record');
-    }
-    return fallback;
-}
-
-function createReceipt(record: DiagnosticRecord): FailureReceipt {
-    return {
-        eventId: record.eventId,
-        code: record.code,
-        occurredAt: record.occurredAt,
-        severity: record.severity,
-    };
-}
-
-function getTopFrameKey(record: DiagnosticRecord) {
-    const frame = record.frames[0];
-    if (!frame) {
-        return '<none>';
-    }
-    return [
-        frame.module,
-        frame.function ?? '',
-        frame.line === undefined ? '' : String(frame.line),
-        frame.column === undefined ? '' : String(frame.column),
-    ].join('|');
-}
-
-function getBurstKey(record: DiagnosticRecord) {
-    return `${record.code}|${getTopFrameKey(record)}`;
 }
 
 function createHealthState(): IHealthState {
@@ -577,56 +423,24 @@ export function createRendererFailureReporter(
         }
     }
 
-    function decideBurst(record: DiagnosticRecord, currentTime: number): IBurstDecision {
-        const key = getBurstKey(record);
-        const previous = burstStates.get(key);
-        if (!previous || currentTime - previous.startedAt >= burstWindowMs) {
-            burstStates.set(key, {
-                sentCount: 0,
-                startedAt: currentTime,
-                suppressedCount: 0,
-            });
-            pruneBurstStates();
-            return {
-                key,
-                send: true,
-                suppressedCount: Math.min(
-                    previous?.suppressedCount ?? 0,
-                    RENDERER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
-                ),
-            };
-        }
-
-        if (previous.sentCount >= burstLimit) {
-            previous.suppressedCount = Math.min(
-                RENDERER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
-                increment(previous.suppressedCount),
-            );
+    const decideBurst = createDiagnosticBurstDecider({
+        burstStates,
+        burstLimit,
+        burstWindowMs,
+        maxSuppressedCount: RENDERER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
+        pruneBurstStates,
+        onSuppressed: () => {
             health.burstSuppressed = increment(health.burstSuppressed);
             setDropReason('burst-suppressed');
-            return {
-                key,
-                send: false,
-                suppressedCount: 0,
-            };
-        }
+        },
+    });
 
-        return {
-            key,
-            send: true,
-            suppressedCount: 0,
-        };
-    }
-
-    function reserveAdmission(record: DiagnosticRecord, currentTime: number, decision: IBurstDecision) {
-        const state = burstStates.get(decision.key);
-        if (state) {
-            state.sentCount = increment(state.sentCount);
-            state.suppressedCount = 0;
-        }
-        recentIds.set(record.eventId, currentTime);
-        pruneRecentIds(currentTime);
-    }
+    const reserveAdmission = createDiagnosticBurstAdmissionReserver({
+        burstStates,
+        recentIds,
+        pruneRecentIds,
+        increment,
+    });
 
     function markAccepted() {
         health.accepted = increment(health.accepted);
@@ -762,7 +576,7 @@ export function createRendererFailureReporter(
     }
 
     function reserveResend(record: DiagnosticRecord, currentTime: number) {
-        const key = getBurstKey(record);
+        const key = getDiagnosticBurstKey(record);
         if (!burstStates.has(key)) {
             burstStates.set(key, {
                 sentCount: 0,
@@ -771,11 +585,7 @@ export function createRendererFailureReporter(
             });
             pruneBurstStates();
         }
-        reserveAdmission(record, currentTime, {
-            key,
-            send: true,
-            suppressedCount: 0,
-        });
+        reserveAdmission(record, currentTime, {key});
     }
 
     function resendClosedRecord(record: DiagnosticRecord, generationAtCapture: number) {
@@ -788,7 +598,7 @@ export function createRendererFailureReporter(
         }
 
         health.attempted = increment(health.attempted);
-        const currentTime = safeNow(now);
+        const currentTime = safeDiagnosticNow(now);
         pruneRecentIds(currentTime);
         reserveResend(record, currentTime);
         const result = liveSender(record);
@@ -806,7 +616,7 @@ export function createRendererFailureReporter(
         detail: LocalFailureDetail,
         captureOptions: IRendererFailureCaptureOptions = {},
     ): FailureReceipt {
-        const receipt = createReceipt(record);
+        const receipt = createDiagnosticFailureReceipt(record);
         if (suppressionDepth > 0) {
             health.ownedProjection = increment(health.ownedProjection);
             setDropReason('owned-projection');
@@ -828,7 +638,7 @@ export function createRendererFailureReporter(
             return receipt;
         }
 
-        const currentTime = safeNow(now);
+        const currentTime = safeDiagnosticNow(now);
         pruneRecentIds(currentTime);
         if (recentIds.has(record.eventId)) {
             health.duplicate = increment(health.duplicate);
@@ -863,11 +673,11 @@ export function createRendererFailureReporter(
         try {
             return {
                 detail: input.local,
-                record: buildClosedRecord(
+                record: buildRendererDiagnosticRecord(
                     input,
                     runtime,
-                    createSafeEventId(createEventId),
-                    safeNow(now),
+                    createSafeDiagnosticEventId(createEventId, createFallbackEventId),
+                    safeDiagnosticNow(now),
                 ),
             };
         } catch {
@@ -876,11 +686,11 @@ export function createRendererFailureReporter(
                     source: 'failure-reporter',
                     message: 'Renderer failure reporter fallback',
                 },
-                record: buildClosedRecord(
+                record: buildRendererDiagnosticRecord(
                     {} as CaptureFailureInput,
                     runtime,
                     createFallbackEventId(),
-                    safeNow(now),
+                    safeDiagnosticNow(now),
                 ),
             };
         }
@@ -972,13 +782,13 @@ export function createRendererFailureReporter(
             health.attempted = increment(health.attempted);
             health.schemaDropped = increment(health.schemaDropped);
             setDropReason('schema-dropped');
-            const record = buildClosedRecord(
+            const record = buildRendererDiagnosticRecord(
                 {} as CaptureFailureInput,
                 resolveRuntime(host),
-                createSafeEventId(createEventId),
-                safeNow(now),
+                createSafeDiagnosticEventId(createEventId, createFallbackEventId),
+                safeDiagnosticNow(now),
             );
-            return createReceipt(record);
+            return createDiagnosticFailureReceipt(record);
         },
         getHealthSnapshot: () => serializeHealthState(health),
         getPreference: () => preference,

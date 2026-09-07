@@ -436,10 +436,7 @@ describe('Electron bundle static integrity', () => {
             }
         }
 
-        expect([...justifications].sort()).toEqual([
-            'core-js Node built-in module fallback',
-            'core-js/whatwg globalThis polyfill',
-        ]);
+        expect([...justifications].sort()).toEqual(['core-js/whatwg globalThis polyfill']);
     });
 
     describe('split ESM main graph', () => {

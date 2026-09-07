@@ -878,6 +878,7 @@ describe('createBrowserImageExportCapability', () => {
 
     it('fails image export when selected pages resolve to no valid PDF pages', async () => {
         const fakePdfDocument = createFakePdfDocument(2);
+        const getPage = fakePdfDocument.getPage;
         getDocumentMock.mockReturnValue({ promise: Promise.resolve(fakePdfDocument) });
 
         const { createBrowserImageExportCapability } = await import(
@@ -904,7 +905,7 @@ describe('createBrowserImageExportCapability', () => {
             canceled: true,
         });
         expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
-        expect(fakePdfDocument.getPage).not.toHaveBeenCalled();
+        expect(getPage).not.toHaveBeenCalled();
         expect(saveBlobToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
@@ -933,6 +934,7 @@ describe('createBrowserImageExportCapability', () => {
 
     it('refuses an oversized all-pages PDF image export before materializing the page range or rendering', async () => {
         const fakePdfDocument = createFakePdfDocument(OVERSIZED_PAGE_COUNT);
+        const getPage = fakePdfDocument.getPage;
         getDocumentMock.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
         // Keep a pre-fix run cheap: cancel the save picker after the first page.
         pickSaveTargetMock
@@ -969,7 +971,7 @@ describe('createBrowserImageExportCapability', () => {
         expect((rejection as Error).message).toContain('100,001 pages');
 
         expect(rangeSpy).not.toHaveBeenCalled();
-        expect(fakePdfDocument.getPage).not.toHaveBeenCalled();
+        expect(getPage).not.toHaveBeenCalled();
         expect(pickSaveTargetMock).not.toHaveBeenCalled();
         expect(saveBytesToPickerOrDownloadMock).not.toHaveBeenCalled();
         expect(browserDocumentStoreMock.createStoredDocument).not.toHaveBeenCalled();
@@ -1018,6 +1020,7 @@ describe('createBrowserImageExportCapability', () => {
 
     it('keeps explicit page selections working on oversized documents', async () => {
         const fakePdfDocument = createFakePdfDocument(OVERSIZED_PAGE_COUNT);
+        const getPage = fakePdfDocument.getPage;
         getDocumentMock.mockReturnValue({promise: Promise.resolve(fakePdfDocument)});
         pickSaveTargetMock.mockResolvedValue({
             canceled: false,
@@ -1047,7 +1050,7 @@ describe('createBrowserImageExportCapability', () => {
             outputPaths: ['browser://documents/output/page-007.jpg'],
         });
         expect(rangeSpy).not.toHaveBeenCalled();
-        expect(fakePdfDocument.getPage).toHaveBeenCalledWith(7);
+        expect(getPage).toHaveBeenCalledWith(7);
         expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
     });
 });

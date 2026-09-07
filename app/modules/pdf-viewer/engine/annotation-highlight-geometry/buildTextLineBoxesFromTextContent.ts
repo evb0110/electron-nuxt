@@ -88,6 +88,11 @@ function markerPointFromPdfPoint(
     const normX = (point.x - xMin) / width;
     const normY = (point.y - yMin) / height;
     switch (normalizePageRotation(pageRotation)) {
+        case 0:
+            return {
+                x: normX,
+                y: 1 - normY,
+            };
         case 90:
             return {
                 x: normY,
@@ -102,11 +107,6 @@ function markerPointFromPdfPoint(
             return {
                 x: 1 - normY,
                 y: 1 - normX,
-            };
-        default:
-            return {
-                x: normX,
-                y: 1 - normY,
             };
     }
 }

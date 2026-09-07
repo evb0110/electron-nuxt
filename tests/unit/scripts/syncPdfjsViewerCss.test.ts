@@ -52,6 +52,25 @@ describe('PDF.js viewer CSS sync', () => {
             .toThrow('PDF.js viewer CSS removal pattern(s) no longer match upstream css');
     });
 
+    it('removes the nested views-manager container block emitted by PDF.js 6.x', () => {
+        const sanitized = removeUnusedUiBlocks(`
+.dialog.newAltText { color: red; }
+
+#viewsManager { color: red; }
+
+#outerContainer {
+  &.viewsManagerOpen {
+    #viewsManager { color: red; }
+  }
+}
+
+.keptRule { color: green; }
+`);
+
+        expect(sanitized).not.toContain('#outerContainer');
+        expect(sanitized).toContain('.keptRule');
+    });
+
     it('rewrites referenced PDF.js images and removes declarations for missing assets', () => {
         const rewritten = rewriteImageUrls(`
 .toolbarButton {

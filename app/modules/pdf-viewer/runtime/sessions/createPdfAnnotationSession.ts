@@ -113,6 +113,8 @@ export interface ICreatePdfAnnotationSessionOptions {
     emitAnnotationCommentClick: (comment: IAnnotationCommentSummary) => void;
     reportAnnotationFailure?: (failure: IAnnotationCreationFailureReport) => void;
     emitShapeContextMenu: Parameters<typeof usePdfShapeTool>[0]['emitShapeContextMenu'];
+    /** Renderer-owned PDF link state consumed by the portal overlay. */
+    linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
     // Temporary command seam. #193 removes the legacy workspace persistence
     // route once the writer owns stamp byte storage end to end.
     // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
@@ -286,7 +288,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     });
     onScopeDispose(() => stopAnnotationApplicationProjection());
 
-    const linkAnnotations = ref<ILinkAnnotation[]>([]);
+    const linkAnnotations = options.linkAnnotations ?? ref<ILinkAnnotation[]>([]);
     const linksByPage = computed<Record<number, ILinkAnnotation[]>>(() =>
         groupBy(linkAnnotations.value, link => link.pageNumber),
     );

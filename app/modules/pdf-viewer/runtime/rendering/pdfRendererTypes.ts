@@ -23,6 +23,7 @@ import type { TPdfViewRotation } from '@contracts/shared';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type { ILinkAnnotation } from '@app/types/annotations';
 export type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 
 export interface IPdfRendererSearchNavigationOptions {
@@ -68,6 +69,8 @@ export interface IUsePdfPageRendererOptions {
     renderSupervisor?: IPdfRenderSupervisor | undefined;
     /** RenderingSession owns this state; the post-canvas runtime only derives from it. */
     pageRenderState: TPdfPageRenderState;
+    /** Shared with the annotation session so link overlays follow renderer page lifetime. */
+    linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
     getRenderVersion: () => number;
     getRenderDocumentToken: () => string;
     getCommittedCanvas: (pageNumber: TPageNumber) => HTMLCanvasElement | null;

@@ -3,7 +3,10 @@ import type {
     IPdfPage,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { clamp } from 'es-toolkit/math';
-import {requirePageIndex} from '@contracts/pageNumbers';
+import {
+    parsePageIndex,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
 import type {
     IBookmarkItem,
     IBookmarkLocation,
@@ -570,7 +573,9 @@ export function buildOutlineFromBookmarkEntries(
             break;
         }
         const children: IBookmarkItem[] = [];
-        const pageIndex = frame.entry.pageIndex;
+        const pageIndex = typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
+            ? parsePageIndex(Math.max(0, Math.trunc(frame.entry.pageIndex)))
+            : null;
         const id = createId({
             parentId: frame.parentId,
             title: frame.entry.title,

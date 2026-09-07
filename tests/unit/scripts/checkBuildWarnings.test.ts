@@ -129,6 +129,17 @@ describe('check-build-warnings', () => {
         expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
     });
 
+    it('allows the exact upstream PDF.js fillable-field SVG fragment warning', async () => {
+        const result = await runWarningCheck([
+            '[warn] [vite:css][postcss] SvgoParserError: <input>:1:291: Text data outside of root node.',
+            '> 1 | ... </filter></svg>#pdfjsFillableField',
+            '    |                                                       ^',
+            '',
+        ].join('\\n'));
+
+        expect(result.stdout).toContain('Build warning check passed: 1 known warning(s).');
+    });
+
     it('allows the known Nuxt Nitro unused H3 type imports', async () => {
         const result = await runWarningCheck([
             'WARN "H3Error" and "H3Event" are imported from external module "file:///home/runner/work/evb-viewer/evb-viewer/node_modules/.pnpm/h3@1.15.11/node_modules/h3/dist/index.mjs" but never used in "node_modules/.pnpm/@nuxt+nitro-server@4.5.1_hash/node_modules/@nuxt/nitro-server/dist/h3.mjs".',

@@ -47,6 +47,7 @@ import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/e
 import {applyCombinedPdfPageLabels} from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import { getAnnotationAuthor } from '@app/services/pdf/getAnnotationAuthor';
+import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
@@ -2732,8 +2733,10 @@ function hasDjvuExtension(path: string) {
 
 async function openPdfWithLowVerbosity(filePath: string) {
     const data = new Uint8Array(readFileSync(filePath));
-    return pdfjs.getDocument({
+    const task = pdfjs.getDocument({
         data,
         ...createPdfjsNodeDocumentOptions(pdfjs),
-    }).promise;
+    });
+    const document = await task.promise;
+    return adaptPdfjsDocument(document, () => task.destroy());
 }

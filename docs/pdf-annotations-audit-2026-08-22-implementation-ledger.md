@@ -4,7 +4,75 @@ Date: 2026-08-23
 
 Source audit: `docs/pdf-annotations-feature-audit-2026-08-22.md`.
 
-## Current checkpoint, refreshed 2026-09-06 18:21 UTC
+## CURRENT checkpoint, refreshed 2026-09-07 05:01 UTC
+
+- The candidate tree is based at `72f411b388026348b4f1619f649d3fecd2b1e2c2`
+  on `ticket/196-renderer-interface`, with intentional uncommitted coordinator
+  changes for the pinned PDF.js 6.3.311 migration, the renderer-owned link
+  overlay, projected-scroll queue, diagnostics, and their tests. `origin/main`
+  is `b4b6b44135dce544489989caebc9250ab8078359`. The tree has not been
+  committed or published after the migration work.
+- No gate or Electron session is active in this worktree. The repaired
+  canonical validate run tested this SHA plus the frozen migration tree at
+  `.devkit/gates/2026-09-07T034313Z`, coordinator session `49820`, and
+  finished at `03:55:42 UTC` with exit 0. Its consolidated evidence is
+  `.devkit/analysis/gates/2026-09-07T03-43-14-494Z-2218244-210e0443.ndjson`.
+  It passed 1,304 test files with one skipped file, 11,050 tests with eight
+  skipped tests, coverage and type-coverage floors, the zero-execution
+  tripwire, strict build, native matrix, bundle integrity, and blocking smoke.
+  The prior `02:57:04`, `03:10:18`, and `03:38:04` failures remain historical.
+  The unrelated Electron session at
+  `/home/ubuntu/projects/evb-viewer/.devkit/sessions/default` remains outside
+  this worktree and must not be stopped or cleaned.
+- The two reds from that gate are now repaired with focused checks. Full ESLint
+  is green after converting the PDF.js lifecycle shape to the repository's
+  interface convention and formatting the renderer fixtures. The static bundle
+  integrity selector passes 58/58 after shrinking its expected allowance set to
+  the one runtime idiom PDF.js 6 actually emits. The repository-native
+  tests-as-never check passes 380 assertions in 94 files, typecheck passes,
+  Fallow duplication passes, and `git diff --check` passes. These checks do not
+  replace the required canonical validation gate.
+- Coordinator owns shared helpers, launchers, configuration, interop scripts,
+  generated WASM, the PDF.js artifact and verifier, this ledger, integration,
+  publication, and GitHub state. Native child lanes are terminal. The delayed-
+  toolbar worktree remains separate and untouched.
+- The pinned #168 artifact is now present at
+  `vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz`, SHA-256
+  `f1db91efda7463d099e238acc296a78e2dc66889660190136ba5c44a8536f00a`, with
+  source commit `6922bee2b3dd047c954d5717a533a2d701559c17`, source tree
+  `0fc8b8db395e8ab30ddec61a78bb9ad72d82512b`, and reproducible two-pack
+  evidence. `node scripts/verify-pdfjs-provenance.mjs` passes, including the
+  normalized public Liberation license copy. The app dependency, lockfile,
+  copied assets, CSS seam, runtime compatibility adapter, and version-coupled
+  tests are migrated but still uncommitted.
+- Current focused evidence on this migrated tree is typecheck green, app
+  migration selectors `182 passed, 4 skipped`, Electron migration selectors
+  `16/16`, script selectors `49/49`, compatibility adapter `3/3`,
+  `git diff --check`, Electron install verification, and provenance
+  verification. The post-migration canonical validation now passes. The
+  post-migration #350 legacy-note gate passes `4/4` with the verified private
+  fixtures. The post-migration #167 gate passes `2/2`, the annotation
+  lifecycle slice passes `7` tests with its documented `9` skips, and the full
+  Viewer Smoke file passes `25/25` across PDF and DjVu. The save pipeline passes
+  five exercised tests with one intentional skip, native save/reopen passes
+  `4/4`, exact 882 annotation save passes `8/8`, the exact 882 native matrix
+  passes `2/2`, exact 882 native preview passes `3/3`, the native split-pane
+  lifecycle passes `1/1`, draw-shapes passes `17/17`, and exact 2646 passes
+  `2/2`.
+- The historical mixed-size broad red remains visible as a failed artifact, but
+  the post-migration Viewer Smoke run passed its mixed-size fitting case and
+  provides current topology evidence. It is no longer an unresolved candidate
+  failure. Earlier pre-migration greens remain historical and do not prove the
+  migrated tree.
+- Halley, Pasteur, and Pauli completed their read-only reviews with no source
+  edits. The coordinator retains all shared and production file ownership. No
+  heavy run is active. The next queue is final review and tree reconciliation.
+  After that, commit and reconcile
+  #196/#206/#349 with current main, complete #168's pinned migration and
+  integrated verification, run final review and validation, and close the
+  project only after integrated evidence matches the final tree.
+
+## Historical checkpoint, refreshed 2026-09-06 18:21 UTC
 
 - Candidate commit: `d66433d2801df25b33769e616a41292cc51e3` on
   `ticket/196-renderer-interface`, with uncommitted helper, corpus, renderer,
@@ -1460,3 +1528,157 @@ It covered corpus import, text-box edit and save, two reopen cycles, generated
 encrypted input, password-free save, independent rendering, and reopening the
 saved output. The named Electron session stopped normally. This evidence is
 candidate-only until integrated-main verification passes.
+
+### 2026-09-07, migrated-tree validation correction
+
+The corrected canonical validate run at `.devkit/gates/2026-09-07T025807Z`
+tested candidate base `72f411b388026348b4f1619f649d3fecd2b1e2c2` plus the
+frozen dirty PDF.js 6.3.311 migration tree. It finished at
+`2026-09-07T03:10:18Z` with exit 1 after exercising 1,305 test files and
+11,057 tests. The first attempt at `.devkit/gates/2026-09-07T025704Z` failed
+before tests because its shell could not find nvm `pnpm`; that environment
+failure is separate from the four validation reds below.
+
+Halley's read-only Fallow review confirmed a real migration duplicate in the
+browser search and image-export loaders. The coordinator extracted
+`app/platform/browser-api/loadBrowserPdfjsDocument.ts`, preserving the
+range-read rejection race, PDF.js compatibility adaptation, loading-task
+destruction, and rejecter cleanup. The duplicate regression check passed.
+
+Pasteur's read-only image-export review confirmed that PDF.js 6.3 adaptation
+correctly wraps `getPage`; three assertions were stale because they inspected
+the replaced property instead of the original Vitest spy. The tests now retain
+the original spy before adaptation. The focused image-export file passed 19/19.
+
+The renderer link-geometry test intentionally adds two `as never` typed-boundary
+assertions. Its baseline was updated from 13 to 15, and the tests-as-never
+ratchet passed with 380 assertions in 94 files. Pauli's read-only CSS review
+confirmed that `#pdfjsFillableField` is valid upstream PDF.js v6 SVG fragment
+syntax and that postcss-svgo emits a harmless parser warning. A narrow,
+test-backed warning allowlist entry matches only this Vite/SVGO warning and
+fragment. The warning checker passed 14/14, and the real build log is accepted
+as five known warnings.
+
+The migrated-tree focused repair set is green: typecheck, targeted ESLint,
+Fallow duplicate regression, diff check, browser search and search capability,
+image export, PDF.js compatibility, renderer link geometry, and build-warning
+policy. No heavy or Electron gate is active. The next canonical validate run
+must be performed after this focused repair set, then all post-migration
+acceptance and integrated-main evidence remains required.
+
+The follow-up canonical validate gate at `.devkit/gates/2026-09-07T032355Z`
+finished at `2026-09-07T03:38:04Z` with exit 1. Coverage, type coverage, strict
+build, native tests, Fallow, warning policy, tests-as-never, and zero-execution
+coverage passed. It left only full ESLint and the stale bundle-integrity
+expectation red. After the gate became terminal, the coordinator corrected
+those two issues and verified targeted ESLint, bundle integrity 58/58,
+tests-as-never, typecheck, Fallow duplication, and diff check. The next full
+validation is therefore justified and must run against the unchanged repaired
+tree.
+
+The repaired canonical validation ran at `.devkit/gates/2026-09-07T034313Z`
+with coordinator session `49820` and finished at `2026-09-07T03:55:42Z` with
+exit 0. It passed the full selected validation set, including 1,304 test files
+with one skipped, 11,050 tests with eight skipped, coverage ratchet,
+zero-execution coverage for 672 production files including 492 changed files,
+native/resource checks, strict build, bundle integrity, and blocking Electron
+smoke. The smoke log also contains a refused probe to `127.0.0.1:3000` while
+the isolated Nuxt session was using port `38209`; the selected smoke tests
+still passed and the parent gate recorded success. This diagnostic is retained
+for runner follow-up, not treated as a product acceptance failure.
+
+The first post-migration #350 attempt at
+`.devkit/analysis/gates/2026-09-07T03-57-32-789Z-2267341-5bd56cf0.ndjson`
+correctly skipped because its optional fixture overrides were not supplied.
+The corrected run supplied both private paths and required variables, rehashed
+the source inputs, and passed all four cases in
+`.devkit/analysis/gates/2026-09-07T03-58-35-246Z-2270488-8c317f1e.ndjson`.
+It covered legacy identity through pointer selection and deletion, edit
+migration, reported-file deletion and reload, popup/reply cleanup, and
+neighbor preservation. The source fixtures remained unchanged.
+
+The post-migration #167 interoperability gate passed both tests in
+`.devkit/analysis/gates/2026-09-07T04-00-44-577Z-2274873-dca032c3.ndjson`.
+It imported the five-kind corpus, edited and saved a text box, independently
+rendered the output, reopened two fresh copies, then opened the supported
+encrypted input, created a note with real pointer input, saved a password-free
+output, independently rendered it, and reopened it. The corpus and private
+fixtures were copied into run-owned temporary directories and left unchanged.
+
+The post-migration annotation lifecycle slice passed 7 tests and intentionally
+skipped 9 historical cases in
+`.devkit/analysis/gates/2026-09-07T04-02-19-833Z-2277317-5c9acf08.ndjson`.
+The passing cases covered canonical renderer ownership, keyboard editing and
+mixed history, stamps, sidebar projection, empty and edited sticky notes, and
+foreign replies. The skipped cases remain explicit and are not counted as
+acceptance evidence.
+
+The full post-migration Viewer Smoke gate passed 25/25 in
+`.devkit/analysis/gates/2026-09-07T04-05-07-331Z-2282229-284e5396.ndjson`.
+It covered PDF and DjVu viewport continuity, mixed-size fitting, split-divider
+anchors, crop and screenshot overlays, pressure scrolling, PNG entry, native
+DjVu search, continuous and projected scrolling, fit-height navigation, and
+high-zoom residency. The PNG child session used the documented process-tree
+fallback after its graceful controller deadline; its assertion passed and no
+candidate session remained.
+
+The post-migration save-pipeline gate passed 5 exercised tests with one
+intentional skip in
+`.devkit/analysis/gates/2026-09-07T04-16-39-476Z-2303270-a891f57a.ndjson`.
+It covered encrypted-save warning and suppression, Optimize As Copy, receipt
+reuse and same-size drift rejection, and hard-stop cleanup followed by reopen.
+
+The first exact 882 launch failed before collection because it omitted
+`EVB_EXACT_FIXTURE_PROFILE`; the admission artifact is
+`.devkit/analysis/gates/2026-09-07T04-24-02-385Z-2315122-6df9ac20.ndjson`.
+The corrected run set `localZaliznyak882`, rechecked the required
+722,178,517-byte source and SHA-256
+`1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6`, and
+passed all 8/8 exact-fixture tests in
+`.devkit/analysis/gates/2026-09-07T04-24-56-879Z-2316845-c5cb5b51.ndjson`.
+It covered imported Text/Popup and markup persistence, moved sticky notes,
+multiple canonical edits, hard restarts, ordinary FreeText visibility and
+creation, and persisted FreeText deletion.
+
+The post-migration exact 2,646-page acceptance set
+`EVB_EXACT_FIXTURE_PROFILE=xlargeZaliznyak2646` and passed 2/2 in
+`.devkit/analysis/gates/2026-09-07T04-34-49-553Z-2333337-7e1132ef.ndjson`.
+It used the required 2,168,527,413-byte source with SHA-256
+`5609c151c1cec881da4b97ec7028250574f8f0ee67540dcdc8808cc7b8ab0aea` and
+covered two-session reopen plus fresh-renderer save/reopen. Both source files
+were hash-checked before launch and left unchanged.
+
+The exact 882 native annotation matrix then passed 2/2 in
+`.devkit/analysis/gates/2026-09-07T04-39-38-387Z-2340429-8e89dfeb.ndjson`.
+It used the required 722,178,517-byte source and SHA-256
+`1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6` and
+covered canonical annotation create, update, delete, recreate, save, and hard
+reopen, plus placed-image move, delete, save, and hard reopen. The source was
+hash-checked before launch and left unchanged.
+
+The exact 882 native preview gate passed 3/3 in
+`.devkit/analysis/gates/2026-09-07T04-47-23-367Z-2349493-e86c08d3.ndjson`.
+It covered the generated native first-paint handoff, early-close cleanup, and
+the exact 882 production dictionary without a navigation flash. The named
+session stopped normally and no candidate Electron process remained.
+
+The native split-pane lifecycle gate passed 1/1 in
+`.devkit/analysis/gates/2026-09-07T04-50-44-688Z-2354021-c1c6226c.ndjson`.
+It used the generated two-page native fixture and verified four independent
+same-path panes after the PDF.js handoff, including distinct working-copy
+paths and stable page-one toolbar state. The named session stopped normally.
+
+The draw-shapes gate passed 17/17 in
+`.devkit/analysis/gates/2026-09-07T04-53-07-000Z-2356953-5d581b3f.ndjson`.
+It covered all 16 draw lifecycle cases and the Electron/Playwright stroke
+parity case. The parity telemetry showed one managed shape and equal metrics in
+both runtimes, with zero crop pixels in both measurements. That telemetry is
+retained as a review note and is not being used as independent annotation-paint
+proof.
+
+The final CodeRabbit attempt on the complete migrated candidate reached the
+review service but ended with `WebSocket closed`. `coderabbit doctor` had
+already passed all nine local checks during the earlier review attempt, so no
+paid continuation or repeated retry was made. This is a provider fail-open
+result after the green canonical validation and acceptance gates, not an
+approval or a clean review result.

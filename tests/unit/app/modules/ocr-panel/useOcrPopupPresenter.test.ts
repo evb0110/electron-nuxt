@@ -3,7 +3,6 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import type { IOcrLanguage } from '@contracts/shared';
 import {requireRequestId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import {
     afterEach,
     beforeEach,
@@ -25,6 +24,7 @@ import type {
     IOcrSettings,
     IOcrUiProgress,
 } from '@app/utils/ocr/ocrTypes';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {requireDocumentRevisionToken} from '@contracts';
 
 const useOcrMock = vi.hoisted(() => vi.fn());
@@ -175,7 +175,7 @@ function createPresenterHarness(ocr: TOcrMock = createOcrMock()) {
     const currentPage = ref(3);
     const totalPages = ref(12);
     const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.pdf'));
-    const pdfDocument = shallowRef<PDFDocumentProxy | null>({} as PDFDocumentProxy);
+    const pdfDocument = shallowRef<IPdfDocument | null>({} as IPdfDocument);
     const disabled = ref(false);
     const externalError = ref<string | null | undefined>(null);
     const onRunningChange = vi.fn();
@@ -320,7 +320,7 @@ describe('useOcrPopupPresenter', () => {
             });
             expect(harness.presenter.showSuccessState.value).toBe(false);
             expect(harness.presenter.viewState.value).toBe('applying');
-            harness.pdfDocument.value = {} as PDFDocumentProxy;
+            harness.pdfDocument.value = {} as IPdfDocument;
             await nextTick();
             expect(harness.presenter.showSuccessState.value).toBe(true);
             expect(harness.presenter.viewState.value).toBe('results');
@@ -392,7 +392,7 @@ describe('useOcrPopupPresenter', () => {
             await nextTick();
             expect(harness.events.onOcrComplete).toHaveBeenCalledTimes(1);
 
-            harness.pdfDocument.value = {} as PDFDocumentProxy;
+            harness.pdfDocument.value = {} as IPdfDocument;
             await nextTick();
 
             expect(harness.presenter.viewState.value).toBe('results');

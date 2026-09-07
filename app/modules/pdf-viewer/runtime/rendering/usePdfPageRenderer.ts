@@ -86,6 +86,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         showAnnotations,
         hiddenAnnotationIds,
         annotationProjectionReady,
+        linkAnnotations: options.linkAnnotations,
         renderSupervisor,
         scrollToPage: pageNumber => {
             viewport.singlePageScroll.scrollToPage(requirePageNumber(pageNumber));

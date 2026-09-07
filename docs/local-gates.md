@@ -96,8 +96,9 @@ runs that slowed `unit-app` tests past their 5 s timeout and the blocking
 smoke lane past its 30 s waits. The heavy stages therefore bound themselves:
 `native.test` sets `CARGO_BUILD_JOBS=4` and `RUST_TEST_THREADS=4`,
 `native.lint` sets `CARGO_BUILD_JOBS=2`, and `test.coverage` sets
-`VITEST_MAX_WORKERS=6` (weight 5; a fork spends part of its time waiting on
-I/O and coverage merging).
+`VITEST_MAX_WORKERS=4` (weight 5; a fork spends part of its time waiting on
+I/O and coverage merging, and the cap leaves room for the concurrent
+typecheck and smoke stages on the 8-slot acceptance pool).
 
 `test.coverage` runs the same zero-execution tripwire scope as push CI. CI
 passes the push base and head; the local plan passes the merge base with

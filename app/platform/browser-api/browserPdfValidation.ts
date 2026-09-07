@@ -89,10 +89,22 @@ type TPdfjsLoadingTask = ReturnType<Awaited<ReturnType<typeof getPdfjsLib>>['get
 async function loadAndDestroyPdfDocument(loadingTask: TPdfjsLoadingTask) {
     try {
         const pdfDocument = await loadingTask.promise;
-        await pdfDocument.destroy();
+        const pdfjsDocument = pdfDocument as typeof pdfDocument & {
+            cleanup?: () => Promise<void>;
+            destroy?: () => Promise<void>;
+        };
+        const cleanup = pdfjsDocument.cleanup;
+        if (cleanup) {
+            await cleanup.call(pdfDocument);
+        } else if (pdfjsDocument.destroy) {
+            await pdfjsDocument.destroy.call(pdfDocument);
+        } else {
+            throw new Error('pdfDocument has no supported cleanup method');
+        }
+        await loadingTask.destroy?.();
     } catch (error) {
         try {
-            await loadingTask.destroy();
+            await loadingTask.destroy?.();
         } catch {
             // Ignore cleanup failure so the original validation error surfaces.
         }

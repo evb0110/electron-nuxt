@@ -9,12 +9,13 @@ import {
 } from 'vitest';
 import {ref} from 'vue';
 import {usePdfAnnotationLayerRenderer} from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
+import type {ILinkAnnotation} from '@app/types/annotations';
 
 const annotationLayerCtor = vi.fn();
 const annotationLayerRender = vi.fn(async (_options: unknown) => {});
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({
-    default: {version: '5.7.284'},
+    default: {version: '6.3.311'},
     AnnotationLayer: class MockAnnotationLayer {
         constructor(options: unknown) {
             annotationLayerCtor(options);
@@ -39,7 +40,16 @@ function createRenderer(overrides: Record<string, unknown> = {}) {
 }
 
 function createPageProxy(annotations: unknown[] = []) {
-    return {getAnnotations: vi.fn(async () => annotations)};
+    return {
+        getAnnotations: vi.fn(async () => annotations),
+        rotate: 0,
+        view: [
+            0,
+            0,
+            200,
+            300,
+        ],
+    };
 }
 
 describe('usePdfAnnotationLayerRenderer', () => {
@@ -171,6 +181,77 @@ describe('usePdfAnnotationLayerRenderer', () => {
             expect.objectContaining({id: 'link-1'}),
             expect.objectContaining({id: 'owned-1'}),
         ])}));
+    });
+
+    it('publishes link geometry from the same page annotations used for PDF.js rendering', async () => {
+        const linkAnnotations = ref<ILinkAnnotation[]>([]);
+        const renderer = createRenderer({linkAnnotations});
+        const pdfPage = createPageProxy([
+            {
+                id: 'external-link',
+                annotationType: 2,
+                rect: [
+                    20,
+                    30,
+                    120,
+                    130,
+                ],
+                url: 'https://example.com/annotation',
+            },
+            {
+                id: 'internal-link',
+                annotationType: 2,
+                rect: [
+                    40,
+                    50,
+                    80,
+                    90,
+                ],
+                dest: ['page-2'],
+            },
+            {
+                id: 'link-without-target',
+                annotationType: 2,
+                rect: [
+                    10,
+                    10,
+                    20,
+                    20,
+                ],
+            },
+        ]);
+
+        await renderer.renderAnnotationLayer(
+            pdfPage as never,
+            document.createElement('div'),
+            {
+                width: 200,
+                height: 300,
+                rotation: 0,
+            } as never,
+            1,
+        );
+
+        expect(linkAnnotations.value).toHaveLength(2);
+        expect(linkAnnotations.value).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                id: 'external-link',
+                pageNumber: 1,
+                url: 'https://example.com/annotation',
+                rect: expect.objectContaining({
+                    left: 0.1,
+                    width: 0.5,
+                }),
+            }),
+            expect.objectContaining({
+                id: 'internal-link',
+                pageNumber: 1,
+                dest: ['page-2'],
+            }),
+        ]));
+
+        renderer.clearAllLayers();
+        expect(linkAnnotations.value).toEqual([]);
     });
 
     it('leaves the existing layer untouched when a render is aborted', async () => {

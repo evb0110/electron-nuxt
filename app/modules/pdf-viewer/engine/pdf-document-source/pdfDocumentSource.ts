@@ -13,6 +13,7 @@ import {
     createPdfRangeRequestBridge,
     type IPdfPreloadedRange,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/createPdfRangeRequestBridge';
+import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import type { TDocumentRef } from '@contracts/documentRef';
 
 type TPdfSource = Blob | {
@@ -611,7 +612,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             numPages: document.numPages,
             elapsedMs: performance.now() - startedAt,
         });
-        return document;
+        return adaptPdfjsDocument(document, () => task.destroy());
     }
 
     async function openPath(src: Extract<TPdfSource, {kind: 'path'}>, version: number) {
@@ -688,7 +689,6 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         });
         loadingTask = pdfjsLib.getDocument({
             range: transport,
-            length,
             rangeChunkSize: RANGE_CHUNK_BYTES,
             disableAutoFetch: true,
             disableStream: true,
@@ -711,7 +711,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             numPages: document.numPages,
             elapsedMs: performance.now() - startedAt,
         });
-        return document;
+        return adaptPdfjsDocument(document, () => task.destroy());
     }
 
     return {

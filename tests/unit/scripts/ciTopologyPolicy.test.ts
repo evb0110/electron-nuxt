@@ -1382,7 +1382,7 @@ describe('CI topology policy', () => {
         const packagedDiagnostics = await readProjectFile('scripts/release/verifyPackagedDiagnosticsSmoke.ts');
         const packagedScanCleanup = await readProjectFile('scripts/release/verifyPackagedScanCleanup.ts');
 
-        expect(packagedSmoke).toContain('createFreeTextAnnotationWithPointer(');
+        expect(packagedSmoke).toContain('createCanonicalTextBoxWithPointer(');
         expect(packagedSmoke).not.toContain('createFreeTextAnnotation(page,');
         for (const verifier of [
             packagedSmoke,

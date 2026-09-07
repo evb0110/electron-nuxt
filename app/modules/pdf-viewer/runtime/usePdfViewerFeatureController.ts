@@ -1,4 +1,7 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    parsePageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
@@ -8,6 +11,7 @@ import { summarizeViewerMetrics } from '@app/modules/pdf-viewer/engine/pdf-viewe
 import { isStandaloneSpreadPage } from '@app/utils/pdfViewMode';
 import { shouldShowPdfNavigationSkeleton } from '@app/modules/pdf-viewer/runtime/rendering/pdf-navigation-skeleton-eligibility/shouldShowPdfNavigationSkeleton';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
+import { createPdfRenderPagePredicate } from '@app/modules/pdf-viewer/runtime/rendering/createPdfRenderPagePredicate';
 import { createPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {
     createPdfViewportSession,
@@ -38,6 +42,7 @@ import type {
     IPdfViewerProps,
     IPdfViewerEmit,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
+import type { ILinkAnnotation } from '@app/types/annotations';
 
 /**
  * Composition root for the PDF viewer feature.
@@ -96,6 +101,7 @@ export const usePdfViewerFeatureController = (
     const viewportSessionRef = shallowRef<TPdfViewportSession | null>(null);
     const renderingSessionRef = shallowRef<TPdfRenderingSession | null>(null);
     const annotationSessionRef = shallowRef<TPdfAnnotationSession | null>(null);
+    const linkAnnotations = ref<ILinkAnnotation[]>([]);
     const viewerCurrentPage = computed(() => viewportSessionRef.value?.currentPage.value ?? 1);
     const viewerEffectiveScale = computed(() => viewportSessionRef.value?.scale.effectiveScale.value ?? 1);
 
@@ -297,6 +303,7 @@ export const usePdfViewerFeatureController = (
         markDelayedSkeletonPageRendered: pageNumber => markDelayedSkeletonPageRendered(pageNumber),
         emitInitialVisualReady: viewerEvents.initialVisualReady,
         emitLoadError: viewerEvents.loadError,
+        linkAnnotations,
     });
     renderingSessionRef.value = renderingSession;
 
@@ -331,9 +338,28 @@ export const usePdfViewerFeatureController = (
         emitAnnotationCommentClick: viewerEvents.annotationCommentClick,
         reportAnnotationFailure: viewerEvents.annotationFailure,
         emitShapeContextMenu: viewerEvents.shapeContextMenu,
+        linkAnnotations,
         finalizeImagePlacement: props.finalizeImagePlacement,
     });
     annotationSessionRef.value = annotationSession;
+
+    const getLivePageCount = () => documentSession.numPages.value;
+    const isPageBuffered = createPdfRenderPagePredicate(
+        getLivePageCount,
+        pageNumber => viewportSession.viewModel.isPageBuffered(pageNumber),
+    );
+    const isPageRenderedForClass = createPdfRenderPagePredicate(
+        getLivePageCount,
+        pageNumber => renderingSession.isPageRenderedForClass(pageNumber),
+    );
+    const isPageRendering = createPdfRenderPagePredicate(
+        getLivePageCount,
+        pageNumber => renderingSession.isPageRendering(pageNumber),
+    );
+    const isPageRenderFailed = createPdfRenderPagePredicate(
+        getLivePageCount,
+        pageNumber => renderingSession.isPageRenderFailed(pageNumber),
+    );
 
     const renderViewModel = usePdfRenderViewModel({
         src,
@@ -347,27 +373,22 @@ export const usePdfViewerFeatureController = (
         suppressLoadingOverlay,
         skeletonContentInsets: viewportSession.skeletonInsets.skeletonContentInsets,
         pagesToRender: viewportSession.viewModel.pagesToRender,
-        isPageBuffered: pageNumber => viewportSession.viewModel.isPageBuffered(
-            requirePageNumber(pageNumber, documentSession.numPages.value),
-        ),
-        isPageRenderedForClass: pageNumber => renderingSession.isPageRenderedForClass(
-            requirePageNumber(pageNumber, documentSession.numPages.value),
-        ),
-        isPageRendering: pageNumber => renderingSession.isPageRendering(
-            requirePageNumber(pageNumber, documentSession.numPages.value),
-        ),
-        isPageRenderFailed: pageNumber => renderingSession.isPageRenderFailed(
-            requirePageNumber(pageNumber, documentSession.numPages.value),
-        ),
+        isPageBuffered,
+        isPageRenderedForClass,
+        isPageRendering,
+        isPageRenderFailed,
         shouldShowSkeleton: pageNumber => {
             const totalPages = documentSession.numPages.value;
-            const brandedPageNumber = requirePageNumber(pageNumber, totalPages);
+            const brandedPageNumber = parsePageNumber(pageNumber, totalPages);
+            if (brandedPageNumber === null) {
+                return false;
+            }
             const navigationAnchorPageValue = viewportSession.singlePageScroll.navigationAnchorPage.value;
             const navigationAnchorPage = navigationAnchorPageValue === null
                 ? (viewportSession.singlePageScroll.isProgrammaticNavigationActive.value
-                    ? requirePageNumber(viewportSession.currentPage.value, totalPages)
+                    ? parsePageNumber(viewportSession.currentPage.value, totalPages)
                     : null)
-                : requirePageNumber(navigationAnchorPageValue, totalPages);
+                : parsePageNumber(navigationAnchorPageValue, totalPages);
             return shouldShowPdfNavigationSkeleton({
                 pageNumber: brandedPageNumber,
                 navigationAnchorPage,
@@ -510,10 +531,10 @@ export const usePdfViewerFeatureController = (
         pagesToRender: viewportSession.viewModel.pagesToRender,
         virtualPageSegments: viewportSession.viewModel.virtualPageSegments,
         shouldShowPageSkeleton: renderViewModel.shouldShowPageSkeleton,
-        isPageRenderFailed: renderingSession.isPageRenderFailed,
+        isPageRenderFailed,
         isSpreadSingle: (page: number) => isStandaloneSpreadPage(page, viewMode.value, documentSession.numPages.value),
-        isPageBuffered: viewportSession.viewModel.isPageBuffered,
-        isPageRenderedForClass: renderingSession.isPageRenderedForClass,
+        isPageBuffered,
+        isPageRenderedForClass,
         getPageScale: viewportSession.viewModel.getPageScale,
         getPagePlaceholderStyle: viewportSession.viewModel.getPagePlaceholderStyle,
         getExactPagePlaceholderStyle: viewportSession.openVirtualSurfaceGeometry.getExactPagePlaceholderStyle,

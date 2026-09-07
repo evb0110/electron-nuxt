@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
+import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import { createMultiPageTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
@@ -55,10 +56,11 @@ async function withStepTimeout<T>(label: string, operation: Promise<T>) {
 }
 
 async function readPdfOutlineTitles(filePath: string) {
-    const document = await pdfjs.getDocument({
+    const task = pdfjs.getDocument({
         data: new Uint8Array(readFileSync(filePath)),
         ...createPdfjsNodeDocumentOptions(pdfjs),
-    }).promise;
+    });
+    const document = adaptPdfjsDocument(await task.promise, () => task.destroy());
     try {
         const outline = await document.getOutline();
         const titles: string[] = [];

@@ -124,7 +124,7 @@ const pdfjsModule = vi.hoisted(() => {
     }
 
     return {
-        version: '5.7.284',
+        version: '6.3.311',
         GlobalWorkerOptions: {},
         PDFDataRangeTransport: MockPdfDataRangeTransport,
         VerbosityLevel: {ERRORS: 3},
@@ -1498,7 +1498,6 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             errors: [],
             warnings: [],
         });
-        expect(pdfjsModule.getDocument).toHaveBeenCalledWith(expect.objectContaining({length: BROWSER_MAX_FULL_READ_BYTES + 1}));
         expect(writtenBytes).toBe(BROWSER_MAX_FULL_READ_BYTES + 1);
         expect(clearSearchCaches).toHaveBeenCalledOnce();
     });

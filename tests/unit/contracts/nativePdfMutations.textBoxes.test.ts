@@ -107,6 +107,6 @@ describe('native PDF text-box mutation contracts', () => {
         const chunks = splitPdfNativeMutationSetIntoBoundedChunks({freeTextEditors: [textBox]});
         expect(chunks).toHaveLength(1);
         expect(chunks[0]?.textBoxes).toEqual([textBox]);
-        expect(chunks[0]?.freeTextEditors).toBeUndefined();
+        expect(chunks[0]?.freeTextEditors).toEqual([textBox]);
     });
 });

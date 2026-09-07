@@ -98,7 +98,7 @@ async function invokeWithChannelContext<TResult>(
                 timeoutHandle = setTimeout(() => {
                     reject(new IpcInvokeTimeoutError(channel, timeoutMs));
                 }, timeoutMs);
-                timeoutHandle.unref();
+                timeoutHandle.unref?.();
             }),
         ]);
     } catch (error) {

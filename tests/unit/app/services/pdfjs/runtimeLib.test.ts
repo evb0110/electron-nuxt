@@ -45,7 +45,7 @@ function createAnnotationEditorLayer() {
 
 function createCompatibleRuntime(overrides: Record<PropertyKey, unknown> = {}) {
     return {
-        version: '5.7.284',
+        version: '6.3.311',
         getDocument() {},
         GlobalWorkerOptions: {workerSrc: './pdf.worker.mjs'},
         VerbosityLevel: {ERRORS: 0},
@@ -116,7 +116,7 @@ describe('pdf.js runtime adapter probes', () => {
 
         expect(getPdfjsRuntimeProbeFailures(runtime)).toContain('AnnotationEditorType.FREETEXT is not a finite number');
         expect(() => assertPdfjsRuntimeCompatibility(runtime))
-            .toThrow(/PDF\.js app runtime is incompatible with pdfjs-dist 5\.7\.284/u);
+            .toThrow(/PDF\.js app runtime is incompatible with pdfjs-dist 6\.3\.311/u);
     });
 
     it('reports viewer-runtime export failures', () => {
@@ -129,7 +129,7 @@ describe('pdf.js runtime adapter probes', () => {
 
         await expect(assertPdfjsVendoredAssetVersion(runtime, {
             force: true,
-            readVersionStamp: async () => '5.7.284\n',
+            readVersionStamp: async () => '6.3.311\n',
         })).resolves.toBeUndefined();
     });
 
@@ -144,6 +144,6 @@ describe('pdf.js runtime adapter probes', () => {
         await expect(assertPdfjsVendoredAssetVersion(runtime, {
             force: true,
             readVersionStamp: async () => '5.7.283',
-        })).rejects.toThrow('installed runtime is 5.7.284, vendored assets are 5.7.283');
+        })).rejects.toThrow('installed runtime is 6.3.311, vendored assets are 5.7.283');
     });
 });

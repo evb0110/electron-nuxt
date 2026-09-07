@@ -21,7 +21,7 @@ const OCR_PAGE_MARKER_LANGUAGE_CODE = (() => {
     return language.code;
 })();
 
-export const OCR_PAGE_MARKER_ORACLE_VERSION = `pdfjs-dist@5.7+napi-canvas+tesseract-${OCR_PAGE_MARKER_LANGUAGE_CODE}`;
+export const OCR_PAGE_MARKER_ORACLE_VERSION = `pdfjs-dist@6.3.311+napi-canvas+tesseract-${OCR_PAGE_MARKER_LANGUAGE_CODE}`;
 
 export const DEFAULT_TESSERACT_PATH = 'tesseract';
 

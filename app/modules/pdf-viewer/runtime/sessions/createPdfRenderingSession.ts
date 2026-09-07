@@ -56,6 +56,7 @@ import type {
     IPdfViewportDemand,
     TPdfViewportSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type { ILinkAnnotation } from '@app/types/annotations';
 import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/utils/document-viewer/input/documentWheelInteraction';
 import type {
     IPdfViewportRasterJob,
@@ -88,6 +89,8 @@ export interface ICreatePdfRenderingSessionOptions {
     workingCopyPath: Vue.ComputedRef<TDocumentRef | null>;
     documentRevisionToken: Vue.ComputedRef<TDocumentRevisionToken | null>;
     maxBufferCanvasPixels: number;
+    /** Shared with the annotation session so renderer-owned PDF links reach the portal layer. */
+    linkAnnotations?: Vue.Ref<ILinkAnnotation[]> | undefined;
     consumeZoomViewportAnchor: () => IZoomViewportAnchor | null;
     isZoomInteractionLocked: () => boolean;
     setZoomRerenderBusy: TPdfZoomRerenderBusySetter;
@@ -596,6 +599,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         currentSearchMatchNavigationId: options.currentSearchMatchNavigationId,
         workingCopyPath: options.workingCopyPath,
         documentRevisionToken: options.documentRevisionToken,
+        linkAnnotations: options.linkAnnotations,
         onPageRendered: options.markDelayedSkeletonPageRendered,
         onRenderedPageStateChanged: () => {
             renderedPageStateVersion.value += 1;

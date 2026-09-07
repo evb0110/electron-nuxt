@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { buildRangeFromPagePoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint';
+import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 
 /**
  * A click on a page arrives as a normalized fraction of the page box, while the
@@ -137,5 +138,62 @@ describe('buildRangeFromPagePoint', () => {
         }]);
 
         expect(pointAt(page, 0.05, 0.05)).toBeNull();
+    });
+});
+
+describe('buildRangeFromPageText', () => {
+    it('matches normalized text across text-layer spans and returns its range', () => {
+        const page = createPage([
+            {
+                height: 20,
+                left: 0,
+                node: document.createTextNode('Alpha'),
+                top: 0,
+                width: 40,
+            },
+            {
+                height: 20,
+                left: 50,
+                node: document.createTextNode('beta'),
+                top: 0,
+                width: 40,
+            },
+        ]);
+
+        const result = buildRangeFromPageText(page, {
+            text: ' alpha   beta ',
+            wholeWord: true,
+        });
+
+        expect(result?.matchedText).toBe('Alpha beta');
+        expect(result?.range.toString()).toBe('Alphabeta');
+    });
+
+    it('honors case and whole-word matching while selecting an occurrence', () => {
+        const page = createPage([{
+            height: 20,
+            left: 0,
+            node: document.createTextNode('Catalog catalog'),
+            top: 0,
+            width: 120,
+        }]);
+
+        expect(buildRangeFromPageText(page, {
+            text: 'CATALOG',
+            caseSensitive: true,
+        })).toBeNull();
+
+        const result = buildRangeFromPageText(page, {
+            occurrence: 2,
+            text: 'catalog',
+            wholeWord: true,
+        });
+        expect(result?.matchedText).toBe('catalog');
+        expect(result?.range.toString()).toBe('catalog');
+
+        expect(buildRangeFromPageText(page, {
+            text: 'cat',
+            wholeWord: true,
+        })).toBeNull();
     });
 });

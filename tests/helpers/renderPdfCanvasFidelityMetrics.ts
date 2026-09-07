@@ -10,6 +10,7 @@ import {
     createCanvas,
 } from '@napi-rs/canvas';
 import { isRecord } from '@contracts/runtimeGuards';
+import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 
 export interface IPdfCanvasFidelityMetrics {
     darkPixelRatio: number;
@@ -41,7 +42,8 @@ export async function renderPdfCanvasFidelityMetrics(path: string): Promise<IPdf
         useSystemFonts: false,
         useWorkerFetch: false,
     } satisfies Extract<Parameters<typeof pdfjs.getDocument>[0], {data?: unknown}> & {disableWorker: boolean};
-    const document = await pdfjs.getDocument(documentParameters).promise;
+    const task = pdfjs.getDocument(documentParameters);
+    const document = adaptPdfjsDocument(await task.promise, () => task.destroy());
     try {
         const page = await document.getPage(1);
         // PDF points are 1/72 inch. Scale 1 therefore compares every fixture at
