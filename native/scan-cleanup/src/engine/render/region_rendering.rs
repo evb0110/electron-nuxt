@@ -918,6 +918,120 @@ fn prepare_region_masks(input: MaskPreparationInput<'_>) -> MaskPreparationOutpu
     }
 }
 
+struct BlanknessPolicyInput<'a> {
+    canonical_leaf_source: &'a GrayImage,
+    canonical_routing_dpi: f64,
+    force_clean_blank: bool,
+    content_present: bool,
+    rendered_picture_mask: Option<BinaryImage>,
+    rendered_text_mask: Option<BinaryImage>,
+    rendered_trusted_foreground_mask: Option<BinaryImage>,
+    preserve_confirmed_photo_tones: bool,
+    half: PageHalf,
+}
+
+struct BlanknessPolicyOutput {
+    rendered_picture_mask: Option<BinaryImage>,
+    rendered_text_mask: Option<BinaryImage>,
+    rendered_trusted_foreground_mask: Option<BinaryImage>,
+    ink_ownership_mask: Option<BinaryImage>,
+    pale_tonal_structure: bool,
+    effectively_blank: bool,
+    fail_closed_blank: bool,
+    fold_edge_blank_leaf: bool,
+    unowned_fold_edge_blank_leaf: bool,
+    trusted_selection_applied: bool,
+    trusted_mrc_background_preserved: bool,
+}
+
+fn resolve_blankness_policy(input: BlanknessPolicyInput<'_>) -> BlanknessPolicyOutput {
+    let BlanknessPolicyInput {
+        canonical_leaf_source,
+        canonical_routing_dpi,
+        force_clean_blank,
+        content_present,
+        rendered_picture_mask,
+        rendered_text_mask,
+        rendered_trusted_foreground_mask,
+        preserve_confirmed_photo_tones,
+        half,
+    } = input;
+    let ink_ownership_mask =
+        page_ink_ownership_mask(rendered_text_mask.as_ref(), rendered_picture_mask.as_ref());
+    let pale_tonal_structure =
+        !force_clean_blank && has_pale_tonal_structure(canonical_leaf_source);
+    let effectively_blank = force_clean_blank
+        || (!pale_tonal_structure
+            && is_effectively_blank(canonical_leaf_source, canonical_routing_dpi));
+    // A verso whose only survivor is the fold shadow along the leaf edge is a
+    // blank page, and publishing the streak serves nobody. The leaf has to own
+    // no text or picture ink and its inset interior must independently remain
+    // blank. A pale plate therefore survives even when an edge shadow is also
+    // present; only edge-confined unowned residue earns the white page.
+    let unowned_edge_residue = !pale_tonal_structure
+        && !effectively_blank
+        && !content_present
+        && ink_ownership_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
+        && leaf_interior_is_blank(canonical_leaf_source, canonical_routing_dpi);
+    // A pale reverse-side bleed-through can establish page-scale tonal
+    // structure even when the leaf itself has no authored content. Treat that
+    // combination as blank only when both ownership masks are below the same
+    // minimum and the transformed interior is independently blank. A real
+    // faint plate/text block either owns enough pixels or fails the interior
+    // blank test, while the fold rail remains safely unowned.
+    let pale_blank_leaf = pale_tonal_structure
+        && !preserve_confirmed_photo_tones
+        && half != PageHalf::Full
+        && !content_present
+        && ink_ownership_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
+        && rendered_picture_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
+        && leaf_interior_is_blank(canonical_leaf_source, canonical_routing_dpi);
+    let fail_closed_blank = force_clean_blank
+        || (!pale_tonal_structure
+            && !content_present
+            && (effectively_blank || unowned_edge_residue))
+        || pale_blank_leaf;
+    // A sparse false-positive picture mask is common on a blank verso beside
+    // a fold shadow. Strict text evidence is the blank-page veto here; normal
+    // picture ownership still pins components, while the helper's separate
+    // blank-speck branch may remove only isolated sub-glyph marks in the
+    // fold corridor.
+    let fold_edge_blank_leaf = !content_present
+        && rendered_text_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()));
+    let unowned_fold_edge_blank_leaf = fold_edge_blank_leaf
+        && rendered_picture_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()));
+    // Whole-page abstention guarded against the old destructive whitening.
+    // Picture zones now preserve continuous tone exactly while everything
+    // else is smoothly normalized toward white, so cleanup is always safe and
+    // every page keeps the white-paper contract. The flags and metadata fields
+    // remain protocol-compatible markers; fresh output never sets them.
+    let trusted_selection_applied = rendered_trusted_foreground_mask.is_some();
+    let trusted_mrc_background_preserved = false;
+    BlanknessPolicyOutput {
+        rendered_picture_mask,
+        rendered_text_mask,
+        rendered_trusted_foreground_mask,
+        ink_ownership_mask,
+        pale_tonal_structure,
+        effectively_blank,
+        fail_closed_blank,
+        fold_edge_blank_leaf,
+        unowned_fold_edge_blank_leaf,
+        trusted_selection_applied,
+        trusted_mrc_background_preserved,
+    }
+}
+
 pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
     let Input {
         source,
@@ -1099,7 +1213,7 @@ pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
         timings,
     })?;
     let MaskPreparationOutput {
-        mut rendered_picture_mask,
+        rendered_picture_mask,
         rendered_chroma_picture_mask,
         rendered_text_vicinity_mask,
         rendered_text_mask,
@@ -1122,68 +1236,33 @@ pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
         text_line_count: text_tone_diagnostics.map_or(0, |diagnostics| diagnostics.text_line_count),
         timings,
     });
+    let BlanknessPolicyOutput {
+        rendered_picture_mask: policy_picture_mask,
+        rendered_text_mask: policy_text_mask,
+        rendered_trusted_foreground_mask: policy_trusted_foreground_mask,
+        ink_ownership_mask,
+        pale_tonal_structure,
+        effectively_blank,
+        fail_closed_blank,
+        fold_edge_blank_leaf,
+        unowned_fold_edge_blank_leaf,
+        trusted_selection_applied,
+        trusted_mrc_background_preserved,
+    } = resolve_blankness_policy(BlanknessPolicyInput {
+        canonical_leaf_source,
+        canonical_routing_dpi,
+        force_clean_blank,
+        content_present: content.content.is_some(),
+        rendered_picture_mask,
+        rendered_text_mask,
+        rendered_trusted_foreground_mask,
+        preserve_confirmed_photo_tones,
+        half,
+    });
+    let mut rendered_picture_mask = policy_picture_mask;
+    let rendered_text_mask = policy_text_mask;
+    let rendered_trusted_foreground_mask = policy_trusted_foreground_mask;
     let output_processing_started = Instant::now();
-    let ink_ownership_mask =
-        page_ink_ownership_mask(rendered_text_mask.as_ref(), rendered_picture_mask.as_ref());
-    let pale_tonal_structure =
-        !force_clean_blank && has_pale_tonal_structure(canonical_leaf_source);
-    let effectively_blank = force_clean_blank
-        || (!pale_tonal_structure
-            && is_effectively_blank(canonical_leaf_source, canonical_routing_dpi));
-    // A verso whose only survivor is the fold shadow along the leaf edge is a
-    // blank page, and publishing the streak serves nobody. The leaf has to own
-    // no text or picture ink and its inset interior must independently remain
-    // blank. A pale plate therefore survives even when an edge shadow is also
-    // present; only edge-confined unowned residue earns the white page.
-    let unowned_edge_residue = !pale_tonal_structure
-        && !effectively_blank
-        && content.content.is_none()
-        && ink_ownership_mask
-            .as_ref()
-            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
-        && leaf_interior_is_blank(canonical_leaf_source, canonical_routing_dpi);
-    // A pale reverse-side bleed-through can establish page-scale tonal
-    // structure even when the leaf itself has no authored content. Treat that
-    // combination as blank only when both ownership masks are below the same
-    // minimum and the transformed interior is independently blank. A real
-    // faint plate/text block either owns enough pixels or fails the interior
-    // blank test, while the fold rail remains safely unowned.
-    let pale_blank_leaf = pale_tonal_structure
-        && !preserve_confirmed_photo_tones
-        && half != PageHalf::Full
-        && content.content.is_none()
-        && ink_ownership_mask
-            .as_ref()
-            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
-        && rendered_picture_mask
-            .as_ref()
-            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
-        && leaf_interior_is_blank(canonical_leaf_source, canonical_routing_dpi);
-    let fail_closed_blank = force_clean_blank
-        || (!pale_tonal_structure
-            && content.content.is_none()
-            && (effectively_blank || unowned_edge_residue))
-        || pale_blank_leaf;
-    // A sparse false-positive picture mask is common on a blank verso beside
-    // a fold shadow. Strict text evidence is the blank-page veto here; normal
-    // picture ownership still pins components, while the helper's separate
-    // blank-speck branch may remove only isolated sub-glyph marks in the
-    // fold corridor.
-    let fold_edge_blank_leaf = content.content.is_none()
-        && rendered_text_mask
-            .as_ref()
-            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()));
-    let unowned_fold_edge_blank_leaf = fold_edge_blank_leaf
-        && rendered_picture_mask
-            .as_ref()
-            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()));
-    // Whole-page abstention guarded against the old destructive whitening.
-    // Picture zones now preserve continuous tone exactly while everything
-    // else is smoothly normalized toward white, so cleanup is always safe and
-    // every page keeps the white-paper contract. The flags and metadata fields
-    // remain protocol-compatible markers; fresh output never sets them.
-    let trusted_selection_applied = rendered_trusted_foreground_mask.is_some();
-    let trusted_mrc_background_preserved = false;
     let mut ink_consistency_diagnostics = None;
     let mut conservation_warnings = Vec::new();
     let mut emitted_output_mode = options.output_mode;

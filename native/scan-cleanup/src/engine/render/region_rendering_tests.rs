@@ -322,3 +322,73 @@ fn mask_stage_preserves_overlapping_confirmed_ownership_pixels() {
     assert!(picture.get(2, 1));
     assert!(picture.get(5, 1));
 }
+
+#[test]
+fn blankness_policy_fails_closed_for_a_forced_blank_leaf() {
+    let source = GrayImage::new(64, 64, 255);
+    let output = resolve_blankness_policy(BlanknessPolicyInput {
+        canonical_leaf_source: &source,
+        canonical_routing_dpi: 300.0,
+        force_clean_blank: true,
+        content_present: false,
+        rendered_picture_mask: None,
+        rendered_text_mask: None,
+        rendered_trusted_foreground_mask: None,
+        preserve_confirmed_photo_tones: false,
+        half: PageHalf::Full,
+    });
+
+    assert!(output.effectively_blank);
+    assert!(output.fail_closed_blank);
+    assert!(output.fold_edge_blank_leaf);
+    assert!(output.unowned_fold_edge_blank_leaf);
+    assert!(output.ink_ownership_mask.is_none());
+    assert!(!output.trusted_selection_applied);
+}
+
+#[test]
+fn blankness_policy_keeps_ownership_at_the_nonblank_threshold() {
+    let source = GrayImage::from_vec(
+        64,
+        64,
+        64,
+        (0..64)
+            .flat_map(|y| {
+                (0..64).map(move |x| {
+                    if (20..44).contains(&x) && (20..44).contains(&y) {
+                        0
+                    } else {
+                        255
+                    }
+                })
+            })
+            .collect(),
+    )
+    .expect("synthetic threshold raster dimensions must be valid");
+    let picture = BinaryImage::from_fn_parallel(64, 64, |x, y| {
+        (20..44).contains(&x) && (20..44).contains(&y)
+    });
+    let output = resolve_blankness_policy(BlanknessPolicyInput {
+        canonical_leaf_source: &source,
+        canonical_routing_dpi: 300.0,
+        force_clean_blank: false,
+        content_present: false,
+        rendered_picture_mask: Some(picture),
+        rendered_text_mask: None,
+        rendered_trusted_foreground_mask: None,
+        preserve_confirmed_photo_tones: false,
+        half: PageHalf::Full,
+    });
+
+    assert!(!output.effectively_blank);
+    assert!(!output.fail_closed_blank);
+    assert_eq!(
+        output
+            .ink_ownership_mask
+            .as_ref()
+            .expect("picture ownership must be retained")
+            .count_black(),
+        576
+    );
+    assert!(!output.unowned_fold_edge_blank_leaf);
+}
