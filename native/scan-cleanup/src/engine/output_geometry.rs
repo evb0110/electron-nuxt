@@ -130,15 +130,6 @@ pub(crate) enum GeometryRaster {
     Bilevel(BinaryImage),
 }
 
-impl GeometryRaster {
-    fn to_gray(&self) -> Cow<'_, GrayImage> {
-        match self {
-            Self::Gray(image) => Cow::Borrowed(image),
-            Self::Bilevel(image) => Cow::Owned(binary_to_gray(image)),
-        }
-    }
-}
-
 pub(crate) struct GeometryMixedLayers {
     pub(crate) foreground_mask: BinaryImage,
     pub(crate) foreground_alpha: Option<GrayImage>,
@@ -147,23 +138,45 @@ pub(crate) struct GeometryMixedLayers {
     pub(crate) source_mrc: bool,
 }
 
-pub(crate) struct GeometryPlanes {
-    pub(crate) image: GeometryRaster,
-    pub(crate) color_image: Option<RgbImage>,
-    pub(crate) picture_mask: Option<BinaryImage>,
-    pub(crate) tone_preservation_alpha: Option<GrayImage>,
-    pub(crate) mixed_layers: Option<GeometryMixedLayers>,
+pub(crate) enum GeometryRasterView<'a> {
+    Gray(&'a GrayImage),
+    Bilevel(&'a BinaryImage),
+}
+
+impl GeometryRasterView<'_> {
+    fn to_gray(&self) -> Cow<'_, GrayImage> {
+        match self {
+            Self::Gray(image) => Cow::Borrowed(image),
+            Self::Bilevel(image) => Cow::Owned(binary_to_gray(image)),
+        }
+    }
+}
+
+pub(crate) struct GeometryMixedLayersView<'a> {
+    pub(crate) foreground_mask: &'a BinaryImage,
+    pub(crate) foreground_alpha: Option<&'a GrayImage>,
+    pub(crate) background: &'a GrayImage,
+    pub(crate) color_background: Option<&'a RgbImage>,
+}
+
+pub(crate) struct GeometryPlaneView<'a> {
+    pub(crate) image: GeometryRasterView<'a>,
+    pub(crate) color_image: Option<&'a RgbImage>,
+    pub(crate) picture_mask: Option<&'a BinaryImage>,
+    pub(crate) tone_preservation_alpha: Option<&'a GrayImage>,
+    pub(crate) mixed_layers: Option<GeometryMixedLayersView<'a>>,
     pub(crate) output_mode: OutputMode,
     pub(crate) half: PageHalf,
     pub(crate) fallback_content_top: Option<f64>,
 }
 
 pub(crate) fn compose_primary_raster(
-    planes: &mut GeometryPlanes,
+    image: GeometryRaster,
+    color_image: Option<RgbImage>,
     placement: CanvasPlacement,
     canvas: &GeometryCanvas,
-) {
-    planes.image = match &planes.image {
+) -> (GeometryRaster, Option<RgbImage>) {
+    let image = match &image {
         GeometryRaster::Gray(image) => {
             GeometryRaster::Gray(materialize_gray_primary_on_canvas(image, placement, canvas))
         }
@@ -186,8 +199,8 @@ pub(crate) fn compose_primary_raster(
             ))
         }
     };
-    if let Some(color) = planes.color_image.take() {
-        planes.color_image = Some(place_rgb_on_white_canvas_with_source_window(
+    let color_image = color_image.map(|color| {
+        place_rgb_on_white_canvas_with_source_window(
             &resample_rgb_if_needed(&color, placement.content_width, placement.content_height),
             canvas.width_px,
             canvas.height_px,
@@ -196,19 +209,18 @@ pub(crate) fn compose_primary_raster(
             placement.materialization_source_offset_left,
             placement.materialization_source_offset_right,
             placement.intrinsic_overflow_top,
-        ));
-    }
+        )
+    });
+    (image, color_image)
 }
 
 pub(crate) fn compose_picture_mask(
-    planes: &mut GeometryPlanes,
+    picture_mask: Option<BinaryImage>,
     placement: CanvasPlacement,
     canvas: &GeometryCanvas,
-) {
-    let Some(picture_mask) = planes.picture_mask.as_ref() else {
-        return;
-    };
-    let gray = binary_to_gray(picture_mask);
+) -> Option<BinaryImage> {
+    let picture_mask = picture_mask?;
+    let gray = binary_to_gray(&picture_mask);
     let placed = place_on_white_canvas_with_source_window(
         &resample_bilevel(&gray, placement.content_width, placement.content_height),
         canvas.width_px,
@@ -219,23 +231,21 @@ pub(crate) fn compose_picture_mask(
         placement.materialization_source_offset_right,
         placement.intrinsic_overflow_top,
     );
-    planes.picture_mask = Some(BinaryImage::from_fn_parallel(
+    Some(BinaryImage::from_fn_parallel(
         canvas.width_px,
         canvas.height_px,
         |x, y| placed.get(x, y) < 128,
-    ));
+    ))
 }
 
 pub(crate) fn compose_tone_preservation_alpha(
-    planes: &mut GeometryPlanes,
+    alpha: Option<GrayImage>,
     placement: CanvasPlacement,
     canvas: &GeometryCanvas,
-) {
-    let Some(alpha) = planes.tone_preservation_alpha.as_ref() else {
-        return;
-    };
-    planes.tone_preservation_alpha = Some(place_on_gray_canvas_with_source_window(
-        &resample_gray_if_needed(alpha, placement.content_width, placement.content_height),
+) -> Option<GrayImage> {
+    let alpha = alpha?;
+    Some(place_on_gray_canvas_with_source_window(
+        &resample_gray_if_needed(&alpha, placement.content_width, placement.content_height),
         canvas.width_px,
         canvas.height_px,
         placement.materialization_left,
@@ -244,15 +254,15 @@ pub(crate) fn compose_tone_preservation_alpha(
         placement.materialization_source_offset_left,
         placement.intrinsic_overflow_top,
         placement.materialization_source_offset_right,
-    ));
+    ))
 }
 
-pub(crate) fn restore_mixed_composite(planes: &mut GeometryPlanes) {
-    let Some(layers) = planes.mixed_layers.as_ref() else {
-        return;
-    };
+pub(crate) fn restore_mixed_composite(
+    layers: Option<GeometryMixedLayersView<'_>>,
+) -> Option<(GeometryRaster, Option<RgbImage>)> {
+    let layers = layers?;
     let mask = &layers.foreground_mask;
-    let mut image = resample_gray_if_needed(&layers.background, mask.width(), mask.height());
+    let mut image = resample_gray_if_needed(layers.background, mask.width(), mask.height());
     let alpha = layers
         .foreground_alpha
         .as_ref()
@@ -275,8 +285,7 @@ pub(crate) fn restore_mixed_composite(planes: &mut GeometryPlanes) {
                 }
             }
         });
-    planes.image = GeometryRaster::Gray(image);
-    planes.color_image = layers.color_background.as_ref().map(|background| {
+    let color_image = layers.color_background.map(|background| {
         let mut color = resample_rgb_if_needed(background, mask.width(), mask.height());
         let row_bytes = color.width() * 3;
         color
@@ -300,25 +309,21 @@ pub(crate) fn restore_mixed_composite(planes: &mut GeometryPlanes) {
             });
         color
     });
+    Some((GeometryRaster::Gray(image), color_image))
 }
 
 pub(crate) fn compose_layers(
-    planes: &mut GeometryPlanes,
+    picture_mask: Option<&BinaryImage>,
+    mixed_layers: Option<GeometryMixedLayers>,
     options: &CleanupOptions,
     placement: CanvasPlacement,
     canvas: &GeometryCanvas,
-) {
-    let confirmed_picture = planes
-        .picture_mask
-        .as_ref()
-        .is_some_and(|mask| mask.count_black() > 0)
-        && !planes
-            .mixed_layers
+) -> Option<GeometryMixedLayers> {
+    let confirmed_picture = picture_mask.is_some_and(|mask| mask.count_black() > 0)
+        && !mixed_layers
             .as_ref()
             .is_some_and(|layers| layers.source_mrc);
-    let Some(layers) = planes.mixed_layers.as_mut() else {
-        return;
-    };
+    let mut layers = mixed_layers?;
     let foreground = place_on_white_canvas_with_source_window(
         &resample_bilevel(
             &binary_to_gray(&layers.foreground_mask),
@@ -390,9 +395,10 @@ pub(crate) fn compose_layers(
             (placement.intrinsic_overflow_top as f64 * scale_y).round() as usize,
         ));
     }
+    Some(layers)
 }
 
-pub(crate) fn edge_near_paper_run(planes: &GeometryPlanes, edge: HorizontalEdge) -> usize {
+pub(crate) fn edge_near_paper_run(planes: &GeometryPlaneView<'_>, edge: HorizontalEdge) -> usize {
     let gray = planes.image.to_gray();
     let width = gray.width();
     let near_paper_threshold = paper_reference(&gray).min(FOLD_TAIL_NEAR_PAPER_FLOOR);
@@ -472,7 +478,7 @@ pub(crate) fn edge_near_paper_run(planes: &GeometryPlanes, edge: HorizontalEdge)
         .count()
 }
 
-pub(crate) fn outer_near_paper_edge_runs(planes: &GeometryPlanes) -> NearPaperEdgeRuns {
+pub(crate) fn outer_near_paper_edge_runs(planes: &GeometryPlaneView<'_>) -> NearPaperEdgeRuns {
     match planes.half {
         PageHalf::Left => NearPaperEdgeRuns {
             left: edge_near_paper_run(planes, HorizontalEdge::Left),
@@ -489,7 +495,7 @@ pub(crate) fn outer_near_paper_edge_runs(planes: &GeometryPlanes) -> NearPaperEd
     }
 }
 
-pub(crate) fn fold_side_near_paper_run(planes: &GeometryPlanes) -> usize {
+pub(crate) fn fold_side_near_paper_run(planes: &GeometryPlaneView<'_>) -> usize {
     match planes.half {
         PageHalf::Left => edge_near_paper_run(planes, HorizontalEdge::Right),
         PageHalf::Right => edge_near_paper_run(planes, HorizontalEdge::Left),
@@ -497,7 +503,7 @@ pub(crate) fn fold_side_near_paper_run(planes: &GeometryPlanes) -> usize {
     }
 }
 
-pub(crate) fn placement_near_paper_edge_runs(planes: &GeometryPlanes) -> NearPaperEdgeRuns {
+pub(crate) fn placement_near_paper_edge_runs(planes: &GeometryPlaneView<'_>) -> NearPaperEdgeRuns {
     near_paper_edge_runs_with_fold_side(
         outer_near_paper_edge_runs(planes),
         planes.half,
@@ -505,10 +511,10 @@ pub(crate) fn placement_near_paper_edge_runs(planes: &GeometryPlanes) -> NearPap
     )
 }
 
-pub(crate) fn content_ownership(planes: &GeometryPlanes) -> Option<BinaryImage> {
+pub(crate) fn content_ownership(planes: &GeometryPlaneView<'_>) -> Option<BinaryImage> {
     let mut ownership = match &planes.image {
-        GeometryRaster::Gray(_) => None,
-        GeometryRaster::Bilevel(image) => Some(image.clone()),
+        GeometryRasterView::Gray(_) => None,
+        GeometryRasterView::Bilevel(image) => Some((*image).clone()),
     };
     if planes.output_mode == OutputMode::Bw {
         return ownership;
@@ -516,7 +522,7 @@ pub(crate) fn content_ownership(planes: &GeometryPlanes) -> Option<BinaryImage> 
     if let Some(picture_mask) = planes.picture_mask.as_ref() {
         ownership = Some(match ownership {
             Some(existing) => existing.or(picture_mask),
-            None => picture_mask.clone(),
+            None => (*picture_mask).clone(),
         });
     }
     if let Some(foreground_mask) = planes
@@ -526,7 +532,7 @@ pub(crate) fn content_ownership(planes: &GeometryPlanes) -> Option<BinaryImage> 
     {
         ownership = Some(match ownership {
             Some(existing) => existing.or(foreground_mask),
-            None => foreground_mask.clone(),
+            None => (*foreground_mask).clone(),
         });
     }
     if let Some(tone_alpha) = planes.tone_preservation_alpha.as_ref() {
@@ -542,18 +548,20 @@ pub(crate) fn content_ownership(planes: &GeometryPlanes) -> Option<BinaryImage> 
     ownership
 }
 
-pub(crate) fn planes_optical_content_bounds_x(planes: &GeometryPlanes) -> Option<(f64, f64)> {
+pub(crate) fn planes_optical_content_bounds_x(
+    planes: &GeometryPlaneView<'_>,
+) -> Option<(f64, f64)> {
     content_ownership(planes)
         .as_ref()
         .and_then(optical_binary_bounds_x)
 }
 
-pub(crate) fn spread_content_top(planes: &GeometryPlanes) -> Option<f64> {
+pub(crate) fn spread_content_top(planes: &GeometryPlaneView<'_>) -> Option<f64> {
     let raster_top = gray_content_bounds_y(&planes.image.to_gray()).map(|(top, _)| top);
     let layered_top = planes
         .mixed_layers
         .as_ref()
-        .and_then(|layers| gray_content_bounds_y(&layers.background).map(|(top, _)| top));
+        .and_then(|layers| gray_content_bounds_y(layers.background).map(|(top, _)| top));
     [raster_top, layered_top]
         .into_iter()
         .flatten()
@@ -3521,10 +3529,10 @@ mod tests {
         let placement = warning_event_placement();
         let mut mask = BinaryImage::new(8, 6);
         mask.set(2, 3, true);
-        let mut planes = GeometryPlanes {
-            image: GeometryRaster::Bilevel(mask.clone()),
+        let planes = GeometryPlaneView {
+            image: GeometryRasterView::Bilevel(&mask),
             color_image: None,
-            picture_mask: Some(mask.clone()),
+            picture_mask: Some(&mask),
             tone_preservation_alpha: None,
             mixed_layers: None,
             output_mode: OutputMode::Mixed,
@@ -3536,15 +3544,70 @@ mod tests {
         assert!(ownership.get(2, 3));
         assert_eq!(planes_optical_content_bounds_x(&planes), Some((2.0, 3.0)));
 
-        compose_picture_mask(&mut planes, placement, &canvas);
-        assert_eq!(
-            planes.picture_mask.as_ref().unwrap().width(),
-            canvas.width_px
-        );
-        assert_eq!(
-            planes.picture_mask.as_ref().unwrap().height(),
-            canvas.height_px
-        );
+        let composed_mask = compose_picture_mask(Some(mask.clone()), placement, &canvas);
+        assert_eq!(composed_mask.as_ref().unwrap().width(), canvas.width_px);
+        assert_eq!(composed_mask.as_ref().unwrap().height(), canvas.height_px);
+        assert!(composed_mask.as_ref().unwrap().count_black() > 0);
+    }
+
+    #[test]
+    fn composition_preserves_primary_and_tone_pixels() {
+        let canvas = GeometryCanvas {
+            width_points: 4.0,
+            height_points: 4.0,
+            width_px: 4,
+            height_px: 4,
+        };
+        let mut placement = warning_event_placement();
+        placement.content_width = 2;
+        placement.content_height = 2;
+        placement.left = 1;
+        placement.top = 1;
+        placement.materialization_left = 1;
+        let mut source = GrayImage::new(2, 2, 0);
+        source.set(0, 0, 10);
+        source.set(1, 0, 20);
+        source.set(0, 1, 30);
+        source.set(1, 1, 40);
+        let (GeometryRaster::Gray(primary), _) =
+            compose_primary_raster(GeometryRaster::Gray(source), None, placement, &canvas)
+        else {
+            panic!("expected gray primary");
+        };
+        assert_eq!(primary.get(1, 1), 10);
+        assert_eq!(primary.get(2, 1), 20);
+        assert_eq!(primary.get(1, 2), 30);
+        assert_eq!(primary.get(2, 2), 40);
+
+        let mut alpha = GrayImage::new(2, 2, 0);
+        alpha.set(1, 1, 200);
+        let placed_alpha =
+            compose_tone_preservation_alpha(Some(alpha), placement, &canvas).unwrap();
+        assert_eq!(placed_alpha.get(2, 2), 200);
+        assert_eq!(placed_alpha.get(0, 0), 0);
+    }
+
+    #[test]
+    fn mixed_restore_changes_owned_pixels_in_gray_and_color_planes() {
+        let mut mask = BinaryImage::new(2, 1);
+        mask.set(1, 0, true);
+        let background = GrayImage::new(2, 1, 100);
+        let mut color = RgbImage::new(2, 1, [20, 30, 40]);
+        color.set(1, 0, [90, 80, 70]);
+        let restored = restore_mixed_composite(Some(GeometryMixedLayersView {
+            foreground_mask: &mask,
+            foreground_alpha: None,
+            background: &background,
+            color_background: Some(&color),
+        }))
+        .unwrap();
+        let (GeometryRaster::Gray(gray), Some(color)) = restored else {
+            panic!("expected gray and color composite");
+        };
+        assert_eq!(gray.get(0, 0), 100);
+        assert_eq!(gray.get(1, 0), 0);
+        assert_eq!(color.get(0, 0), [20, 30, 40]);
+        assert_eq!(color.get(1, 0), [0, 0, 0]);
     }
 
     #[test]
