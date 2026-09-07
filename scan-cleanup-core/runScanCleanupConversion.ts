@@ -187,6 +187,36 @@ export type {
     IScanCleanupWorkerPaths,
 } from '@scan-cleanup-core/types';
 
+export function reportScanCleanupNativeWarnings(
+    summary: TScanCleanupSummary,
+    metadata: Pick<INativeScanCleanupOutputMetadataV3, 'half' | 'warnings' | 'warningEvents'>,
+    pageNumber: number,
+    sidecarCapabilities: IScanCleanupSidecarProtocolCapabilities | undefined,
+    fittedMarginBoxPages: Set<number>,
+    report: (message: string) => void,
+) {
+    if (sidecarCapabilities?.structuredWarningEventsSupported === true) {
+        for (const event of metadata.warningEvents ?? []) {
+            // One aggregate names every page the document's scale could not
+            // hold; per-page lines would bury it.
+            if (event.code === 'matched-canvas-content-fitted') {
+                fittedMarginBoxPages.add(pageNumber);
+                continue;
+            }
+            reportScanCleanupSummaryWarningEvent(summary, {
+                event,
+                pageNumber: requirePageNumber(pageNumber),
+                ...(metadata.half === undefined ? {} : {half: metadata.half}),
+            }, report);
+        }
+    }
+    // Diagnostics the engine carries no structure for. An artifact written
+    // before runtime revision 10 still carries these sentences.
+    for (const warning of metadata.warnings ?? []) {
+        report(`Page ${String(pageNumber)}: ${warning}`);
+    }
+}
+
 const FALLBACK_MIXED_LAYER_PPM = Uint8Array.from([
     0x50,
     0x36,
@@ -2892,29 +2922,14 @@ export async function runScanCleanupConversion(
                     });
                     if (!metadata.skewApplied) summary.deskewSkipped += 1;
                     if (request.options.crop && metadata.contentBox == null) summary.cropSkipped += 1;
-                    if (sidecarCapabilities?.structuredWarningEventsSupported === true) {
-                        for (const event of metadata.warningEvents ?? []) {
-                        // One aggregate names every page the document's scale could
-                        // not hold; per-page lines would bury it.
-                            if (event.code === 'matched-canvas-content-fitted') {
-                                fittedMarginBoxPages.add(pageNumber);
-                                continue;
-                            }
-                            reportScanCleanupSummaryWarningEvent(summary, {
-                                event,
-                                pageNumber: requirePageNumber(pageNumber),
-                                ...(metadata.half === undefined ? {} : {half: metadata.half}),
-                            }, report);
-                        }
-                    }
-                    // Diagnostics the engine carries no structure for. An artifact
-                    // written before runtime revision 10 also left its conditions
-                    // here as sentences; those stay readable and logged, and never
-                    // reach aggregation. A live run cannot produce them: the
-                    // bundled sidecar fails the handshake below that revision.
-                    for (const warning of metadata.warnings ?? []) {
-                        report(`Page ${String(pageNumber)}: ${warning}`);
-                    }
+                    reportScanCleanupNativeWarnings(
+                        summary,
+                        metadata,
+                        pageNumber,
+                        sidecarCapabilities,
+                        fittedMarginBoxPages,
+                        report,
+                    );
                 }
                 if (request.options.readingOrder === 'rtl' && pageMetadata.layoutClassification === 'two-page-spread') {
                     pageOutputPages.reverse();
