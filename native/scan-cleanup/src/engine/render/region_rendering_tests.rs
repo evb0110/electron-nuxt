@@ -392,3 +392,131 @@ fn blankness_policy_keeps_ownership_at_the_nonblank_threshold() {
     );
     assert!(!output.unowned_fold_edge_blank_leaf);
 }
+
+#[test]
+fn bilevel_stage_emits_a_standard_binary_raster() {
+    let source = GrayImage::from_vec(
+        8,
+        8,
+        8,
+        (0..8)
+            .flat_map(|y| (0..8).map(move |x| if x < 4 && y < 4 { 0 } else { 255 }))
+            .collect(),
+    )
+    .expect("synthetic B&W raster dimensions must be valid");
+    let options = CleanupOptions {
+        output_mode: OutputMode::Bw,
+        ..CleanupOptions::default()
+    };
+    let split = crate::split::single_page(8, 8);
+    let plan = ComposedRenderPlan::new(
+        Rect::new(0.0, 0.0, 8.0, 8.0),
+        Affine::scaling(1.0, 1.0),
+        Affine::scaling(1.0, 1.0),
+        None,
+        8,
+        8,
+        Rect::new(0.0, 0.0, 8.0, 8.0),
+    );
+    let output = process_bilevel_output(BilevelProcessingInput {
+        rendered_gray: source.clone(),
+        rendered_source_gray: source.clone(),
+        canonical_routing_sample: &source,
+        options: &options,
+        spread_plan: None,
+        calibration: PageCalibration::estimate(&source, 300.0, CalibrationConfig::default()),
+        rendered_picture_mask: None,
+        rendered_text_mask: None,
+        rendered_text_vicinity_mask: None,
+        rendered_trusted_foreground_mask: None,
+        ink_ownership_mask: None,
+        normalized_width: 8,
+        normalized_height: 8,
+        rendered_width: 8,
+        rendered_height: 8,
+        source_page_index: 0,
+        half: PageHalf::Full,
+        split: &split,
+        region: Rect::new(0.0, 0.0, 8.0, 8.0),
+        render_plan: &plan,
+        source_content_box: None,
+        fold_edge_blank_leaf: false,
+        unowned_fold_edge_blank_leaf: false,
+        effectively_blank: false,
+        pale_tonal_structure: false,
+        crop_enabled: false,
+        deskew_accepted: false,
+        effective_dewarp: false,
+        create_mixed_layers: false,
+        timings: &mut PageStageTimings::default(),
+    });
+
+    let CleanupRaster::Bilevel(image) = output.image else {
+        panic!("B&W stage must emit a binary raster");
+    };
+    assert_eq!((image.width(), image.height()), (8, 8));
+    assert!(image.count_black() > 0);
+    assert_eq!(output.emitted_output_mode, OutputMode::Bw);
+}
+
+#[test]
+fn bilevel_stage_keeps_owned_pixels_through_fold_filtering() {
+    let source = GrayImage::new(8, 8, 0);
+    let mut trusted = BinaryImage::new(8, 8);
+    trusted.set(2, 2, true);
+    trusted.set(5, 5, true);
+    let split = crate::split::single_page(8, 8);
+    let plan = ComposedRenderPlan::new(
+        Rect::new(0.0, 0.0, 8.0, 8.0),
+        Affine::scaling(1.0, 1.0),
+        Affine::scaling(1.0, 1.0),
+        None,
+        8,
+        8,
+        Rect::new(0.0, 0.0, 8.0, 8.0),
+    );
+    let options = CleanupOptions {
+        output_mode: OutputMode::Bw,
+        source_has_bilevel_layer: true,
+        ..CleanupOptions::default()
+    };
+    let output = process_bilevel_output(BilevelProcessingInput {
+        rendered_gray: source.clone(),
+        rendered_source_gray: source.clone(),
+        canonical_routing_sample: &source,
+        options: &options,
+        spread_plan: None,
+        calibration: PageCalibration::estimate(&source, 300.0, CalibrationConfig::default()),
+        rendered_picture_mask: None,
+        rendered_text_mask: None,
+        rendered_text_vicinity_mask: None,
+        rendered_trusted_foreground_mask: Some(&trusted),
+        ink_ownership_mask: None,
+        normalized_width: 8,
+        normalized_height: 8,
+        rendered_width: 8,
+        rendered_height: 8,
+        source_page_index: 0,
+        half: PageHalf::Full,
+        split: &split,
+        region: Rect::new(0.0, 0.0, 8.0, 8.0),
+        render_plan: &plan,
+        source_content_box: None,
+        fold_edge_blank_leaf: false,
+        unowned_fold_edge_blank_leaf: false,
+        effectively_blank: false,
+        pale_tonal_structure: false,
+        crop_enabled: false,
+        deskew_accepted: false,
+        effective_dewarp: false,
+        create_mixed_layers: false,
+        timings: &mut PageStageTimings::default(),
+    });
+
+    let CleanupRaster::Bilevel(image) = output.image else {
+        panic!("trusted B&W stage must emit a binary raster");
+    };
+    assert_eq!(image.count_black(), 2);
+    assert!(image.get(2, 2));
+    assert!(image.get(5, 5));
+}
