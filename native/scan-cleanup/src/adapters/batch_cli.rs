@@ -194,27 +194,28 @@ fn geometry_output_from_cleanup_result(
     }
 }
 
-fn geometry_planes_from_cleanup_result(
+fn geometry_plane_view(
     output: &CleanupResult,
-) -> crate::engine::output_geometry::GeometryPlanes {
-    use crate::engine::output_geometry::{GeometryMixedLayers, GeometryPlanes, GeometryRaster};
-    GeometryPlanes {
+) -> crate::engine::output_geometry::GeometryPlaneView<'_> {
+    use crate::engine::output_geometry::{
+        GeometryMixedLayersView, GeometryPlaneView, GeometryRasterView,
+    };
+    GeometryPlaneView {
         image: match &output.image {
-            CleanupRaster::Gray(image) => GeometryRaster::Gray(image.clone()),
-            CleanupRaster::Bilevel(image) => GeometryRaster::Bilevel(image.clone()),
+            CleanupRaster::Gray(image) => GeometryRasterView::Gray(image),
+            CleanupRaster::Bilevel(image) => GeometryRasterView::Bilevel(image),
         },
-        color_image: output.color_image.clone(),
-        picture_mask: output.picture_mask.clone(),
-        tone_preservation_alpha: output.tone_preservation_alpha.clone(),
+        color_image: output.color_image.as_ref(),
+        picture_mask: output.picture_mask.as_ref(),
+        tone_preservation_alpha: output.tone_preservation_alpha.as_ref(),
         mixed_layers: output
             .mixed_layers
             .as_ref()
-            .map(|layers| GeometryMixedLayers {
-                foreground_mask: layers.foreground_mask.clone(),
-                foreground_alpha: layers.foreground_alpha.clone(),
-                background: layers.background.clone(),
-                color_background: layers.color_background.clone(),
-                source_mrc: layers.source_mrc,
+            .map(|layers| GeometryMixedLayersView {
+                foreground_mask: &layers.foreground_mask,
+                foreground_alpha: layers.foreground_alpha.as_ref(),
+                background: &layers.background,
+                color_background: layers.color_background.as_ref(),
             }),
         output_mode: output.metadata.output_mode,
         half: output.metadata.half,
@@ -226,27 +227,56 @@ fn geometry_planes_from_cleanup_result(
     }
 }
 
-fn apply_geometry_planes(
+fn apply_geometry_raster(
     output: &mut CleanupResult,
-    planes: crate::engine::output_geometry::GeometryPlanes,
+    image: crate::engine::output_geometry::GeometryRaster,
 ) {
     use crate::engine::output_geometry::GeometryRaster;
-    output.image = match planes.image {
+    output.image = match image {
         GeometryRaster::Gray(image) => CleanupRaster::Gray(image),
         GeometryRaster::Bilevel(image) => CleanupRaster::Bilevel(image),
     };
-    output.color_image = planes.color_image;
-    output.picture_mask = planes.picture_mask;
-    output.tone_preservation_alpha = planes.tone_preservation_alpha;
-    output.mixed_layers = planes
-        .mixed_layers
-        .map(|layers| crate::engine::render::MixedLayers {
+}
+
+fn take_geometry_raster(
+    output: &mut CleanupResult,
+) -> crate::engine::output_geometry::GeometryRaster {
+    match std::mem::replace(
+        &mut output.image,
+        CleanupRaster::Gray(GrayImage::new(1, 1, 255)),
+    ) {
+        CleanupRaster::Gray(image) => crate::engine::output_geometry::GeometryRaster::Gray(image),
+        CleanupRaster::Bilevel(image) => {
+            crate::engine::output_geometry::GeometryRaster::Bilevel(image)
+        }
+    }
+}
+
+fn take_geometry_layers(
+    output: &mut CleanupResult,
+) -> Option<crate::engine::output_geometry::GeometryMixedLayers> {
+    output.mixed_layers.take().map(
+        |layers| crate::engine::output_geometry::GeometryMixedLayers {
             foreground_mask: layers.foreground_mask,
             foreground_alpha: layers.foreground_alpha,
             background: layers.background,
             color_background: layers.color_background,
             source_mrc: layers.source_mrc,
-        });
+        },
+    )
+}
+
+fn restore_geometry_layers(
+    output: &mut CleanupResult,
+    layers: Option<crate::engine::output_geometry::GeometryMixedLayers>,
+) {
+    output.mixed_layers = layers.map(|layers| crate::engine::render::MixedLayers {
+        foreground_mask: layers.foreground_mask,
+        foreground_alpha: layers.foreground_alpha,
+        background: layers.background,
+        color_background: layers.color_background,
+        source_mrc: layers.source_mrc,
+    });
 }
 
 const MAX_DETAIL_METADATA_BYTES: usize = 16 * 1024 * 1024;
@@ -260,9 +290,16 @@ pub(crate) fn match_primary_raster_in_memory(
 ) {
     let intrinsic_width = output.image.width();
     let intrinsic_height = output.image.height();
-    let mut planes = geometry_planes_from_cleanup_result(output);
-    crate::engine::output_geometry::compose_primary_raster(&mut planes, placement, canvas);
-    apply_geometry_planes(output, planes);
+    let image = take_geometry_raster(output);
+    let color_image = output.color_image.take();
+    let (image, color_image) = crate::engine::output_geometry::compose_primary_raster(
+        image,
+        color_image,
+        placement,
+        canvas,
+    );
+    apply_geometry_raster(output, image);
+    output.color_image = color_image;
     output.metadata.intrinsic_raster_width = Some(intrinsic_width);
     output.metadata.intrinsic_raster_height = Some(intrinsic_height);
     output.metadata.output_width = placement.content_width;
@@ -275,9 +312,11 @@ pub(crate) fn match_picture_mask_in_memory(
     placement: CanvasPlacement,
     canvas: &GeometryCanvas,
 ) {
-    let mut planes = geometry_planes_from_cleanup_result(output);
-    crate::engine::output_geometry::compose_picture_mask(&mut planes, placement, canvas);
-    apply_geometry_planes(output, planes);
+    output.picture_mask = crate::engine::output_geometry::compose_picture_mask(
+        output.picture_mask.take(),
+        placement,
+        canvas,
+    );
 }
 
 pub(crate) fn match_tone_preservation_alpha_in_memory(
@@ -285,15 +324,29 @@ pub(crate) fn match_tone_preservation_alpha_in_memory(
     placement: CanvasPlacement,
     canvas: &GeometryCanvas,
 ) {
-    let mut planes = geometry_planes_from_cleanup_result(output);
-    crate::engine::output_geometry::compose_tone_preservation_alpha(&mut planes, placement, canvas);
-    apply_geometry_planes(output, planes);
+    output.tone_preservation_alpha =
+        crate::engine::output_geometry::compose_tone_preservation_alpha(
+            output.tone_preservation_alpha.take(),
+            placement,
+            canvas,
+        );
 }
 
 pub(crate) fn restore_mixed_composite_from_layers(output: &mut CleanupResult) {
-    let mut planes = geometry_planes_from_cleanup_result(output);
-    crate::engine::output_geometry::restore_mixed_composite(&mut planes);
-    apply_geometry_planes(output, planes);
+    let layers = output.mixed_layers.as_ref().map(|layers| {
+        crate::engine::output_geometry::GeometryMixedLayersView {
+            foreground_mask: &layers.foreground_mask,
+            foreground_alpha: layers.foreground_alpha.as_ref(),
+            background: &layers.background,
+            color_background: layers.color_background.as_ref(),
+        }
+    });
+    if let Some((image, color_image)) =
+        crate::engine::output_geometry::restore_mixed_composite(layers)
+    {
+        apply_geometry_raster(output, image);
+        output.color_image = color_image;
+    }
 }
 
 pub(crate) fn match_layers_in_memory(
@@ -302,35 +355,42 @@ pub(crate) fn match_layers_in_memory(
     placement: CanvasPlacement,
     canvas: &GeometryCanvas,
 ) {
-    let mut planes = geometry_planes_from_cleanup_result(output);
-    crate::engine::output_geometry::compose_layers(&mut planes, options, placement, canvas);
-    apply_geometry_planes(output, planes);
+    let layers = take_geometry_layers(output);
+    let picture_mask = output.picture_mask.as_ref();
+    let layers = crate::engine::output_geometry::compose_layers(
+        picture_mask,
+        layers,
+        options,
+        placement,
+        canvas,
+    );
+    restore_geometry_layers(output, layers);
 }
 
 pub(crate) fn fold_side_near_paper_run_for_output(output: &CleanupResult) -> usize {
-    let planes = geometry_planes_from_cleanup_result(output);
+    let planes = geometry_plane_view(output);
     crate::engine::output_geometry::fold_side_near_paper_run(&planes)
 }
 
 pub(crate) fn outer_near_paper_edge_runs_for_output(output: &CleanupResult) -> NearPaperEdgeRuns {
-    let planes = geometry_planes_from_cleanup_result(output);
+    let planes = geometry_plane_view(output);
     crate::engine::output_geometry::outer_near_paper_edge_runs(&planes)
 }
 
 pub(crate) fn placement_near_paper_edge_runs_for_output(
     output: &CleanupResult,
 ) -> NearPaperEdgeRuns {
-    let planes = geometry_planes_from_cleanup_result(output);
+    let planes = geometry_plane_view(output);
     crate::engine::output_geometry::placement_near_paper_edge_runs(&planes)
 }
 
 pub(crate) fn optical_content_bounds_x_for_output(output: &CleanupResult) -> Option<(f64, f64)> {
-    let planes = geometry_planes_from_cleanup_result(output);
+    let planes = geometry_plane_view(output);
     crate::engine::output_geometry::planes_optical_content_bounds_x(&planes)
 }
 
 pub(crate) fn spread_content_top_for_output(output: &CleanupResult) -> Option<f64> {
-    let planes = geometry_planes_from_cleanup_result(output);
+    let planes = geometry_plane_view(output);
     crate::engine::output_geometry::spread_content_top(&planes)
 }
 
@@ -2353,14 +2413,19 @@ impl PagePublication for CliPagePublication {
 
 #[cfg(test)]
 mod tests {
+    use super::page_workflow::decode_page_inputs;
     use super::page_workflow::{map_image_error, write_gray_layer_background};
+    use super::planning_page;
     use super::{
         map_raster_error, parse_cli_args, ManifestV3, PlanningManifest, ScanCleanupCliInvocation,
     };
+    use crate::engine::resource_planning::{manifest_cache, page_cache_for};
     use crate::engine::resource_planning::{CleanupOptionsView, PageDescriptor, PlanningOperation};
     use crate::engine::staged_input::StagedPageDescriptor;
     use crate::io::raster::RasterReadError;
     use crate::io::MAX_STREAM_INPUT_BYTES;
+    use crate::protocol::manifest_v3::Page;
+    use crate::{CleanupOptions, OutputMode};
     use evb_native_support::{NativeError, NativeErrorCode};
     use scan_primitives::{BinaryImage, GrayImage};
 
@@ -2563,6 +2628,58 @@ mod tests {
         };
         let edge_json = serde_json::to_value(super::canvas_warning_to_protocol(edge)).unwrap();
         assert_eq!(edge_json["scalePercentTenths"], 1225);
+    }
+
+    #[test]
+    fn render_decode_bypasses_input_cache_while_analyze_retains_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-decode-cache-policy-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("page.png");
+        fs::write(
+            &input,
+            crate::png::encode_gray(&GrayImage::new(32, 24, 240)).unwrap(),
+        )
+        .unwrap();
+        let page = Page {
+            input_path: input,
+            analysis_input_path: None,
+            analysis_dpi: None,
+            trusted_foreground_mask_path: None,
+            trusted_mrc_background_path: None,
+            source_page_index: 0,
+            page_metadata_path: dir.join("page.json"),
+            options: CleanupOptions {
+                output_mode: OutputMode::Color,
+                ..CleanupOptions::default()
+            },
+            document_prior: None,
+            detail_render_plan: None,
+            outputs: Vec::new(),
+        };
+        let render_cache = manifest_cache(PlanningOperation::Render, None);
+        let render_page_cache = page_cache_for(&planning_page(&page), &render_cache).unwrap();
+        decode_page_inputs(&page, &page.options, &render_page_cache, false, true).unwrap();
+        let render_key =
+            crate::cache::StageCacheKey::decoded(&render_page_cache.source, true, &page.options);
+        assert!(render_cache
+            .lock()
+            .unwrap()
+            .get::<crate::io::raster::DecodedRaster>(&render_key)
+            .is_none());
+
+        let analyze_cache = manifest_cache(PlanningOperation::Analyze, None);
+        let analyze_page_cache = page_cache_for(&planning_page(&page), &analyze_cache).unwrap();
+        decode_page_inputs(&page, &page.options, &analyze_page_cache, true, true).unwrap();
+        assert!(analyze_cache
+            .lock()
+            .unwrap()
+            .get::<crate::io::raster::DecodedRaster>(&render_key)
+            .is_some());
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
