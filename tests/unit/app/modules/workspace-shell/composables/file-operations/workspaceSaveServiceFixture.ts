@@ -467,8 +467,8 @@ export function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {})
         strokeWidth: overrides.strokeWidth ?? 3,
         source: overrides.source ?? 'local',
         stableKey: overrides.stableKey ?? 'evb-shape:shape-1',
-        createdAt: overrides.createdAt ?? 1781009077000,
-        modifiedAt: overrides.modifiedAt ?? 1781009087000,
+        createdAt: overrides.createdAt ?? requireEpochMs(1781009077000),
+        modifiedAt: overrides.modifiedAt ?? requireEpochMs(1781009087000),
         ...overrides,
     };
 }
