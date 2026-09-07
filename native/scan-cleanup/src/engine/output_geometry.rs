@@ -950,60 +950,8 @@ pub(crate) fn horizontal_overflow_requires_fold_scan(
     matches!(half, PageHalf::Left | PageHalf::Right)
         && width as f64 * fit.pixel_scale > fit.inner_width as f64 + CANVAS_GRID_TOLERANCE_PX
 }
-pub(crate) fn shared_spread_overflow_fit_for_outputs(
-    outputs: &[GeometryOutput],
-    options: &CleanupOptions,
-    canvas: &GeometryCanvas,
-) -> Option<SharedSpreadOverflowPlan> {
-    if outputs.len() != 2
-        || !outputs.iter().any(|output| output.half == PageHalf::Left)
-        || !outputs.iter().any(|output| output.half == PageHalf::Right)
-    {
-        return None;
-    }
-    let trims = outputs
-        .iter()
-        .map(|output| {
-            let (paper_width, paper_height) = (output.paper_width, output.paper_height);
-            let fit = canvas_fit_for(
-                output.width,
-                output.height,
-                paper_width,
-                paper_height,
-                output.content_detected,
-                options,
-                canvas,
-            );
-            let near_paper_run =
-                if horizontal_overflow_requires_fold_scan(output.width, output.half, fit) {
-                    output.fold_side_near_paper_run
-                } else {
-                    0
-                };
-            fold_trim_for(output.width, output.half, near_paper_run, fit)
-        })
-        .collect::<Vec<_>>();
-    let shared_fit = outputs
-        .iter()
-        .zip(&trims)
-        .map(|(output, trim)| {
-            let (paper_width, paper_height) = (output.paper_width, output.paper_height);
-            canvas_fit_for(
-                trim.effective_width(output.width),
-                output.height,
-                paper_width,
-                paper_height,
-                output.content_detected,
-                options,
-                canvas,
-            )
-            .overflow_fit
-        })
-        .reduce(f64::min)?;
-    Some(SharedSpreadOverflowPlan { shared_fit, trims })
-}
 pub(crate) fn shared_spread_overflow_fits_for_geometry_outputs(
-    outputs: &[&GeometryOutput],
+    outputs: &[GeometryOutput],
     canvas: &GeometryCanvas,
 ) -> HashMap<usize, SharedSpreadOverflowPlan> {
     let mut by_source_page = HashMap::<usize, Vec<&GeometryOutput>>::new();
@@ -1011,7 +959,7 @@ pub(crate) fn shared_spread_overflow_fits_for_geometry_outputs(
         by_source_page
             .entry(output.source_page_index)
             .or_default()
-            .push(*output);
+            .push(output);
     }
     by_source_page
         .into_iter()
@@ -1065,6 +1013,40 @@ pub(crate) fn shared_spread_overflow_fits_for_geometry_outputs(
         })
         .collect()
 }
+
+pub(crate) fn plan_canvas_placements(
+    outputs: &[GeometryOutput],
+    canvas: &GeometryCanvas,
+) -> Vec<CanvasPlacement> {
+    let shared_fits = shared_spread_overflow_fits_for_geometry_outputs(outputs, canvas);
+    let mut placements = outputs
+        .iter()
+        .map(|output| {
+            plan_canvas_placement_with_shared_fit(
+                output,
+                canvas,
+                shared_fits.get(&output.source_page_index),
+            )
+        })
+        .collect::<Vec<_>>();
+    let deferred_outputs = outputs
+        .iter()
+        .map(|output| DeferredSpreadVerticalPlacement {
+            source_page_index: output.source_page_index,
+            half: output.half,
+            intrinsic_height: output.height,
+            content_top: output.spread_content_top,
+        })
+        .collect::<Vec<_>>();
+    align_deferred_spread_vertical_placements(
+        &mut placements,
+        &deferred_outputs,
+        &shared_fits,
+        canvas,
+    );
+    placements
+}
+
 pub(crate) fn plan_canvas_placement_with_shared_fit(
     output: &GeometryOutput,
     canvas: &GeometryCanvas,
