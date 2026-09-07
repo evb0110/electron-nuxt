@@ -99,7 +99,7 @@ pub(crate) fn reconcile_classification_batch(
             confidence_sum[bucket] += metadata.tier1_confidence;
         }
         let Some(dominant_bucket) = (0..support.len())
-            .filter(|&bucket| support[bucket] >= policy.minimum_support)
+            .filter(|&bucket| support[bucket] >= policy.minimum_support.max(1))
             .max_by(|&left, &right| {
                 support[left]
                     .cmp(&support[right])
@@ -387,5 +387,23 @@ mod tests {
         assert_eq!(update.8, 2);
         assert!(!update.9);
         assert!(!update.10);
+    }
+
+    #[test]
+    fn zero_minimum_support_still_requires_a_confident_supporting_result() {
+        let actions = super::reconcile_classification_batch(
+            &[candidate(
+                LayoutClassification::SingleUncutPage,
+                0.40,
+                None,
+                Some(0.5),
+            )],
+            ReconciliationPolicy {
+                minimum_confidence: 0.60,
+                minimum_support: 0,
+            },
+        );
+
+        assert!(actions.is_empty());
     }
 }

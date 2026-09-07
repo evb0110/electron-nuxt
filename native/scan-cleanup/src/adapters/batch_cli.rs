@@ -985,6 +985,22 @@ fn preserve_tier1_provenance_after_rerun(
     metadata.document_prior = Some(prior);
 }
 
+fn finish_staged_rerun<T>(
+    rerun_result: Result<T, Box<dyn Error>>,
+    release_result: Result<(), NativeError>,
+) -> Result<T, Box<dyn Error>> {
+    match release_result {
+        Ok(()) => rerun_result,
+        Err(release_error) => match rerun_result {
+            Ok(_) => Err(Box::new(release_error)),
+            Err(rerun_error) => {
+                eprintln!("Unable to release reconciliation staged input: {release_error}");
+                Err(rerun_error)
+            }
+        },
+    }
+}
+
 fn apply_reconciliation_actions<F>(
     page_results: &mut [PageRunResult],
     actions: &[ReconciliationAction],
@@ -1228,11 +1244,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
                     })
                 });
             let released = release_staged_page_input(&lease, &announce_lease);
-            rerun_result.and_then(|result| {
-                released
-                    .map(|()| result)
-                    .map_err(|error| -> Box<dyn Error> { Box::new(error) })
-            })
+            finish_staged_rerun(rerun_result, released)
         };
         apply_reconciliation_actions(&mut page_results, &actions, rerun)?;
     }
@@ -2458,6 +2470,31 @@ mod tests {
     use crate::{CleanupOptions, OrthogonalRotation, OutputMode};
     use evb_native_support::{NativeError, NativeErrorCode};
     use scan_primitives::{BinaryImage, GrayImage, Point};
+
+    #[test]
+    fn rerun_error_remains_primary_when_lease_release_also_fails() {
+        let error = super::finish_staged_rerun::<()>(
+            Err(Box::new(NativeError::new(
+                NativeErrorCode::NativeFailure,
+                "rerun failed",
+            ))),
+            Err(NativeError::new(NativeErrorCode::Io, "release failed")),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "rerun failed");
+    }
+
+    #[test]
+    fn lease_release_error_is_returned_when_rerun_succeeds() {
+        let error = super::finish_staged_rerun::<()>(
+            Ok(()),
+            Err(NativeError::new(NativeErrorCode::Io, "release failed")),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.to_string(), "release failed");
+    }
 
     #[test]
     fn analyze_workers_ignore_duplicate_unused_render_outputs() {

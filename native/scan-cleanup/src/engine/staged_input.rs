@@ -358,10 +358,8 @@ pub(crate) fn staged_input_is_ready(path: &Path, page_number: usize) -> Result<b
     }
 }
 
-/// Publishes one staged-input lease frame. Production announces it on the
-/// progress stream; tests substitute a recorder so the lease sequence itself
-/// can be asserted without reading this process's stdout.
-/// Take this page's staged-input lease.
+/// Announces that this page's staged-input lease is required, then waits for
+/// its producer to publish a readable raster.
 ///
 /// Under `stagedInputWindow` the owning process keeps only a bounded number of
 /// replayable rasters on disk, so a page the sidecar is about to read may have
