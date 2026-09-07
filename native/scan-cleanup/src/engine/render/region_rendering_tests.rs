@@ -520,3 +520,152 @@ fn bilevel_stage_keeps_owned_pixels_through_fold_filtering() {
     assert!(image.get(2, 2));
     assert!(image.get(5, 5));
 }
+
+#[test]
+fn mixed_stage_preserves_picture_partition_and_builds_layers() {
+    let source = GrayImage::new(8, 8, 96);
+    let mut picture = BinaryImage::new(8, 8);
+    for y in 1..7 {
+        for x in 1..7 {
+            picture.set(x, y, true);
+        }
+    }
+    let options = CleanupOptions {
+        output_mode: OutputMode::Mixed,
+        ..CleanupOptions::default()
+    };
+    let split = crate::split::single_page(8, 8);
+    let plan = ComposedRenderPlan::new(
+        Rect::new(0.0, 0.0, 8.0, 8.0),
+        Affine::scaling(1.0, 1.0),
+        Affine::scaling(1.0, 1.0),
+        None,
+        8,
+        8,
+        Rect::new(0.0, 0.0, 8.0, 8.0),
+    );
+    let output = process_mixed_output(MixedProcessingInput {
+        rendered_gray: source.clone(),
+        rendered_source_gray: source.clone(),
+        rendered_color: &None,
+        rendered_picture_mask: &Some(picture),
+        rendered_chroma_picture_mask: &None,
+        rendered_text_vicinity_mask: &None,
+        rendered_text_mask: &None,
+        rendered_trusted_foreground_mask: &None,
+        canonical_routing_sample: &source,
+        options: &options,
+        spread_plan: None,
+        calibration: PageCalibration::estimate(&source, 300.0, CalibrationConfig::default()),
+        ink_ownership_mask: &None,
+        source_page_index: 0,
+        half: PageHalf::Full,
+        split: &split,
+        region: Rect::new(0.0, 0.0, 8.0, 8.0),
+        render_plan: &plan,
+        source_content_box: None,
+        fold_edge_blank_leaf: false,
+        unowned_fold_edge_blank_leaf: false,
+        effectively_blank: false,
+        pale_tonal_structure: false,
+        rendered_width: 8,
+        rendered_height: 8,
+        preserve_confirmed_photo_tones: false,
+        use_soft_alpha_foreground: false,
+        create_mixed_layers: true,
+        create_mixed_composite: true,
+        deskew: DeskewResult {
+            angle_degrees: 0.0,
+            confidence: 1.0,
+            accepted: false,
+        },
+        effective_dewarp: false,
+        timings: &mut PageStageTimings::default(),
+    });
+
+    let CleanupRaster::Gray(image) = output.image else {
+        panic!("Mixed stage must emit its gray composite");
+    };
+    assert_eq!((image.width(), image.height()), (8, 8));
+    let layers = output
+        .mixed_layers
+        .expect("Mixed stage should build layers");
+    assert_eq!(
+        (layers.background.width(), layers.background.height()),
+        (8, 8)
+    );
+    assert!(layers.background.get(3, 3) < 255);
+    assert!(layers.color_background.is_none());
+}
+
+#[test]
+fn mixed_stage_exposes_soft_alpha_for_picture_owned_foreground() {
+    let source = GrayImage::new(8, 8, 96);
+    let mut picture = BinaryImage::new(8, 8);
+    for y in 1..7 {
+        for x in 1..7 {
+            picture.set(x, y, true);
+        }
+    }
+    let options = CleanupOptions {
+        output_mode: OutputMode::Mixed,
+        ..CleanupOptions::default()
+    };
+    let split = crate::split::single_page(8, 8);
+    let plan = ComposedRenderPlan::new(
+        Rect::new(0.0, 0.0, 8.0, 8.0),
+        Affine::scaling(1.0, 1.0),
+        Affine::scaling(1.0, 1.0),
+        None,
+        8,
+        8,
+        Rect::new(0.0, 0.0, 8.0, 8.0),
+    );
+    let output = process_mixed_output(MixedProcessingInput {
+        rendered_gray: source.clone(),
+        rendered_source_gray: source.clone(),
+        rendered_color: &None,
+        rendered_picture_mask: &Some(picture),
+        rendered_chroma_picture_mask: &None,
+        rendered_text_vicinity_mask: &None,
+        rendered_text_mask: &None,
+        rendered_trusted_foreground_mask: &None,
+        canonical_routing_sample: &source,
+        options: &options,
+        spread_plan: None,
+        calibration: PageCalibration::estimate(&source, 300.0, CalibrationConfig::default()),
+        ink_ownership_mask: &None,
+        source_page_index: 0,
+        half: PageHalf::Full,
+        split: &split,
+        region: Rect::new(0.0, 0.0, 8.0, 8.0),
+        render_plan: &plan,
+        source_content_box: None,
+        fold_edge_blank_leaf: false,
+        unowned_fold_edge_blank_leaf: false,
+        effectively_blank: false,
+        pale_tonal_structure: false,
+        rendered_width: 8,
+        rendered_height: 8,
+        preserve_confirmed_photo_tones: true,
+        use_soft_alpha_foreground: true,
+        create_mixed_layers: true,
+        create_mixed_composite: true,
+        deskew: DeskewResult {
+            angle_degrees: 0.0,
+            confidence: 1.0,
+            accepted: false,
+        },
+        effective_dewarp: false,
+        timings: &mut PageStageTimings::default(),
+    });
+
+    let layers = output
+        .mixed_layers
+        .expect("soft-alpha Mixed output needs layers");
+    assert!(layers.foreground_alpha.is_some());
+    assert_eq!(
+        (layers.background.width(), layers.background.height()),
+        (8, 8)
+    );
+}
