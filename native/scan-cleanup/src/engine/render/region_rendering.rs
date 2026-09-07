@@ -2141,6 +2141,7 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, String> {
         text_line_count: text_tone_diagnostics.map_or(0, |diagnostics| diagnostics.text_line_count),
         timings,
     });
+    let output_processing_started = Instant::now();
     let BlanknessPolicyOutput {
         rendered_picture_mask: policy_picture_mask,
         rendered_text_mask: policy_text_mask,
@@ -2167,7 +2168,6 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, String> {
     let mut rendered_picture_mask = policy_picture_mask;
     let rendered_text_mask = policy_text_mask;
     let rendered_trusted_foreground_mask = policy_trusted_foreground_mask;
-    let output_processing_started = Instant::now();
     let mut ink_consistency_diagnostics = None;
     let mut conservation_warnings = Vec::new();
     let mut emitted_output_mode = options.output_mode;

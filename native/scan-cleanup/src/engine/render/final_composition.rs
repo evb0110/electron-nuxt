@@ -19,7 +19,13 @@ pub(crate) struct Input<'a> {
     pub create_composite: bool,
 }
 
-pub(crate) fn run(input: Input<'_>) -> (GrayImage, Option<RgbImage>, Option<MixedLayers>) {
+pub(crate) struct Output {
+    pub gray: GrayImage,
+    pub color: Option<RgbImage>,
+    pub mixed_layers: Option<MixedLayers>,
+}
+
+pub(crate) fn run(input: Input<'_>) -> Output {
     let Input {
         gray,
         raw_gray,
@@ -52,7 +58,7 @@ pub(crate) fn run(input: Input<'_>) -> (GrayImage, Option<RgbImage>, Option<Mixe
     );
     let binary = &owned_binary;
     if use_soft_alpha_foreground {
-        return compose_soft_alpha_mixed(
+        let (gray, color, mixed_layers) = compose_soft_alpha_mixed(
             gray,
             raw_gray,
             color,
@@ -67,6 +73,11 @@ pub(crate) fn run(input: Input<'_>) -> (GrayImage, Option<RgbImage>, Option<Mixe
             create_layers,
             create_composite,
         );
+        return Output {
+            gray,
+            color,
+            mixed_layers,
+        };
     }
     // The final stencil and the calibrated picture mask are both rebuilt from
     // the cleaned raster. Start the background at neutral white so no
@@ -262,7 +273,310 @@ pub(crate) fn run(input: Input<'_>) -> (GrayImage, Option<RgbImage>, Option<Mixe
             source_mrc: false,
         }
     });
-    (mixed_gray, mixed_color, layers)
+    Output {
+        gray: mixed_gray,
+        color: mixed_color,
+        mixed_layers: layers,
+    }
+}
+
+fn fill_picture_stencil_knockouts(
+    background: &mut GrayImage,
+    mut color_background: Option<&mut RgbImage>,
+    stencil: &BinaryImage,
+    picture_ownership_mask: &BinaryImage,
+    dpi: f64,
+) {
+    debug_assert_eq!(background.width(), stencil.width());
+    debug_assert_eq!(background.height(), stencil.height());
+    debug_assert_eq!(background.width(), picture_ownership_mask.width());
+    debug_assert_eq!(background.height(), picture_ownership_mask.height());
+
+    let width = background.width();
+    let height = background.height();
+    if width == 0 || height == 0 {
+        return;
+    }
+    let max_radius = (dpi * 0.5 / 25.4).ceil().clamp(2.0, 16.0) as isize;
+    let source_color = color_background.as_deref();
+    let source_gray: &GrayImage = background;
+
+    let fills: Vec<(usize, usize, u8, Option<[u8; 3]>)> = (0..height)
+        .into_par_iter()
+        .flat_map_iter(|y| {
+            let mut row_fills = Vec::new();
+            for x in 0..width {
+                if !stencil.get(x, y) || !picture_ownership_mask.get(x, y) {
+                    continue;
+                }
+                // Soft-alpha composition may deliberately put the original
+                // plate pixel back after the foreground pass (notably for
+                // chromatic plate detail). Only a white knockout is a hole
+                // that needs reconstruction; never replace an already-
+                // preserved source tone with the surrounding background
+                // average.
+                if source_gray.get(x, y) != 255
+                    || source_color.is_some_and(|background| background.get(x, y) != [255; 3])
+                {
+                    continue;
+                }
+
+                let mut gray_sum = 0u64;
+                let mut color_sum = [0u64; 3];
+                let mut samples = 0u64;
+                for radius in 1..=max_radius {
+                    for dy in -radius..=radius {
+                        for dx in -radius..=radius {
+                            if dx.abs().max(dy.abs()) != radius {
+                                continue;
+                            }
+                            let sample_x = x as isize + dx;
+                            let sample_y = y as isize + dy;
+                            if sample_x < 0
+                                || sample_y < 0
+                                || sample_x >= width as isize
+                                || sample_y >= height as isize
+                            {
+                                continue;
+                            }
+                            let sample_x = sample_x as usize;
+                            let sample_y = sample_y as usize;
+                            if !picture_ownership_mask.get(sample_x, sample_y)
+                                || stencil.get(sample_x, sample_y)
+                            {
+                                continue;
+                            }
+                            gray_sum += u64::from(source_gray.get(sample_x, sample_y));
+                            if let Some(source_color) = source_color.as_ref() {
+                                let pixel = source_color.get(sample_x, sample_y);
+                                for (channel, value) in pixel.into_iter().enumerate() {
+                                    color_sum[channel] += u64::from(value);
+                                }
+                            }
+                            samples += 1;
+                        }
+                    }
+                    if samples > 0 {
+                        break;
+                    }
+                }
+                if samples == 0 {
+                    continue;
+                }
+
+                row_fills.push((
+                    x,
+                    y,
+                    ((gray_sum + samples / 2) / samples) as u8,
+                    source_color
+                        .map(|_| color_sum.map(|sum| ((sum + samples / 2) / samples) as u8)),
+                ));
+            }
+            row_fills
+        })
+        .collect();
+
+    for (x, y, gray, color) in fills {
+        background.set(x, y, gray);
+        if let (Some(output_color), Some(color)) = (color_background.as_deref_mut(), color) {
+            output_color.set(x, y, color);
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compose_soft_alpha_mixed(
+    gray: &GrayImage,
+    raw_gray: Option<&GrayImage>,
+    color: Option<&RgbImage>,
+    binary_fallback: &BinaryImage,
+    picture_mask: &BinaryImage,
+    chroma_picture_mask: Option<&BinaryImage>,
+    removed_edge_bands: Option<&BinaryImage>,
+    text_mask: Option<&BinaryImage>,
+    text_vicinity_mask: Option<&BinaryImage>,
+    dpi: f64,
+    preserve_confirmed_photo_tones: bool,
+    create_layers: bool,
+    create_composite: bool,
+) -> (GrayImage, Option<RgbImage>, Option<MixedLayers>) {
+    debug_assert_eq!(gray.width(), picture_mask.width());
+    debug_assert_eq!(gray.height(), picture_mask.height());
+    debug_assert!(
+        raw_gray.is_none_or(|raw| raw.width() == gray.width() && raw.height() == gray.height())
+    );
+    debug_assert!(text_vicinity_mask
+        .is_none_or(|mask| mask.width() == gray.width() && mask.height() == gray.height()));
+
+    // The normalized raster already expresses the desired black-on-white
+    // coverage. Preserve that coverage as opacity in a narrow physical halo
+    // around actual binarized ink. Text-vicinity masks are deliberately much
+    // broader than glyphs and must not own every faint paper variation inside
+    // their rectangles: doing so creates visible block seams and dense alpha
+    // planes. The binarized core itself remains authoritative even outside a
+    // text rectangle so isolated rules, punctuation, and calibration-like
+    // marks cannot disappear merely because the line detector missed them.
+    // Conversely, a matching halo around the detected tonal plate remains
+    // plate-owned so picture borders and scanner shadows cannot leak into the
+    // foreground.
+    const TEXT_ALPHA_FLOOR: u8 = 6;
+    const MISSED_TEXT_LUMINANCE_CEILING: u8 = 112;
+    let ownership_radius = (dpi * 0.18 / 25.4).round().clamp(1.0, 4.0) as usize;
+    let ink_seed = text_mask.map_or_else(
+        || binary_fallback.clone(),
+        |text_mask| binary_fallback.or(text_mask),
+    );
+    let ink_ownership = dilate(&ink_seed, ownership_radius, ownership_radius);
+    let plate_ownership = dilate(picture_mask, ownership_radius, ownership_radius);
+    let raw_paper = raw_gray.map(paper_reference);
+    let mut foreground_alpha = GrayImage::new(gray.width(), gray.height(), 0);
+    foreground_alpha
+        .data_mut()
+        .par_chunks_mut(gray.width())
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                let owns_binary_core = binary_fallback.get(x, y);
+                let trusted_text = text_mask.is_some_and(|mask| mask.get(x, y));
+                let chromatic_plate_pixel = chroma_picture_mask.is_some_and(|mask| mask.get(x, y));
+                if (plate_ownership.get(x, y)
+                    && (chromatic_plate_pixel || (!trusted_text && !owns_binary_core)))
+                    || removed_edge_bands.is_some_and(|mask| mask.get(x, y))
+                {
+                    continue;
+                }
+                let mut value = gray.get(x, y);
+                if owns_binary_core {
+                    if let (Some(raw), Some(paper)) = (raw_gray, raw_paper) {
+                        value = value.min(normalize_tone_to_paper(raw.get(x, y), paper));
+                    }
+                }
+                let in_text_vicinity = text_vicinity_mask.is_some_and(|mask| mask.get(x, y));
+                let vicinity_allows_ink = text_vicinity_mask.is_none() || in_text_vicinity;
+                let owns_antialias = ink_ownership.get(x, y) && vicinity_allows_ink;
+                let owns_missed_dark_ink =
+                    in_text_vicinity && value <= MISSED_TEXT_LUMINANCE_CEILING;
+                if !owns_binary_core && !owns_antialias && !owns_missed_dark_ink {
+                    continue;
+                }
+                let alpha = 255u8.saturating_sub(value);
+                if alpha >= TEXT_ALPHA_FLOOR {
+                    *target = alpha;
+                }
+            }
+        });
+
+    // Use the same plate construction as the bilevel Mixed representation.
+    // The foreground encoding must not change which tonal or chromatic pixels
+    // survive in the background layer.
+    let bilevel_output = run(Input {
+        gray,
+        raw_gray,
+        color,
+        binary: binary_fallback,
+        picture_mask,
+        chroma_picture_mask,
+        removed_edge_bands,
+        text_mask,
+        text_vicinity_mask,
+        dpi,
+        preserve_confirmed_photo_tones,
+        use_soft_alpha_foreground: false,
+        create_layers: true,
+        create_composite: false,
+    });
+    let bilevel_layers = bilevel_output
+        .mixed_layers
+        .expect("requested mixed background layers");
+    let mut background = bilevel_layers.background;
+    let mut color_background = bilevel_layers.color_background;
+    background
+        .data_mut()
+        .par_chunks_mut(gray.width())
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                if foreground_alpha.get(x, y) > 0 {
+                    *target = 255;
+                } else if plate_ownership.get(x, y)
+                    && chroma_picture_mask.is_some_and(|mask| mask.get(x, y))
+                {
+                    *target = gray.get(x, y);
+                }
+            }
+        });
+    if let (Some(source), Some(background)) = (color, color_background.as_mut()) {
+        background
+            .data_mut()
+            .par_chunks_mut(gray.width() * 3)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                    if foreground_alpha.get(x, y) > 0 {
+                        target.fill(255);
+                    } else if plate_ownership.get(x, y)
+                        && chroma_picture_mask.is_some_and(|mask| mask.get(x, y))
+                    {
+                        target.copy_from_slice(&source.get(x, y));
+                    }
+                }
+            });
+    }
+    fill_picture_stencil_knockouts(
+        &mut background,
+        color_background.as_mut(),
+        binary_fallback,
+        &plate_ownership,
+        dpi,
+    );
+
+    let mut composite = background.clone();
+    composite
+        .data_mut()
+        .par_chunks_mut(gray.width())
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, target) in row.iter_mut().enumerate() {
+                let alpha = foreground_alpha.get(x, y);
+                if alpha > 0 {
+                    *target = 255 - alpha;
+                }
+            }
+        });
+    let composite_color = color_background.as_ref().map(|background| {
+        let mut output = background.clone();
+        output
+            .data_mut()
+            .par_chunks_mut(gray.width() * 3)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, target) in row.chunks_exact_mut(3).enumerate() {
+                    let value = 255 - foreground_alpha.get(x, y);
+                    if value < 255 {
+                        target.fill(value);
+                    }
+                }
+            });
+        output
+    });
+    let layers = create_layers.then(|| MixedLayers {
+        foreground_mask: binary_fallback.clone(),
+        foreground_alpha: Some(foreground_alpha),
+        background,
+        color_background,
+        source_mrc: false,
+    });
+    if create_composite {
+        (composite, composite_color, layers)
+    } else {
+        let layer_background = layers
+            .as_ref()
+            .map_or_else(|| gray.clone(), |layers| layers.background.clone());
+        let layer_color = layers
+            .as_ref()
+            .and_then(|layers| layers.color_background.clone());
+        (layer_background, layer_color, layers)
+    }
 }
 
 #[cfg(test)]
