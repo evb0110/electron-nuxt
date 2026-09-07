@@ -798,4 +798,120 @@ mod tests {
         assert_eq!(metadata.output_count, 2);
         assert_eq!(metadata.split_seam, Some(seam));
     }
+
+    fn candidate(
+        verdict: LayoutClassification,
+        confidence: f64,
+        cutter_x: Option<f64>,
+    ) -> ReconciliationCandidate {
+        ReconciliationCandidate {
+            cutter_x,
+            tier1_verdict: verdict,
+            tier1_confidence: confidence,
+            candidate_cutter_ratio: cutter_x.map(|x| x / 240.0),
+            whitespace_score: 0.9,
+            rotated_width: 240,
+            rotated_height: 200,
+            calibration_stroke_width_px: None,
+            calibration_x_height_px: None,
+            reconciliation_eligible: true,
+            excluded: false,
+            document_prior: None,
+        }
+    }
+
+    #[test]
+    fn pure_rerun_action_preserves_every_tier1_fact() {
+        let candidates = vec![
+            candidate(LayoutClassification::TwoPageSpread, 0.92, Some(120.0)),
+            candidate(LayoutClassification::TwoPageSpread, 0.91, Some(120.0)),
+            candidate(LayoutClassification::TwoPageSpread, 0.90, Some(120.0)),
+            candidate(LayoutClassification::SingleUncutPage, 0.40, None),
+        ];
+        let actions = super::reconcile_classification_batch(
+            &candidates,
+            ReconciliationPolicy {
+                minimum_confidence: 0.60,
+                minimum_support: 2,
+            },
+        );
+        let rerun = actions
+            .iter()
+            .find_map(|action| match action {
+                ReconciliationAction::Rerun {
+                    index,
+                    prior,
+                    tier1,
+                } => Some((*index, *prior, *tier1)),
+                ReconciliationAction::Update { .. } => None,
+            })
+            .expect("the low-confidence candidate must be rerun");
+        assert_eq!(rerun.0, 3);
+        assert_eq!(rerun.1.dominant_layout, LayoutClassification::TwoPageSpread);
+        assert_eq!(rerun.1.cutter_ratio_median, Some(0.5));
+        assert_eq!(rerun.2.verdict, LayoutClassification::SingleUncutPage);
+        assert_eq!(rerun.2.confidence, 0.40);
+        assert_eq!(rerun.2.candidate_cutter_ratio, None);
+        assert_eq!(rerun.2.whitespace_score, 0.9);
+    }
+
+    #[test]
+    fn pure_update_action_contains_publication_facts_without_wire_types() {
+        let candidates = vec![
+            candidate(LayoutClassification::TwoPageSpread, 0.92, Some(120.0)),
+            candidate(LayoutClassification::TwoPageSpread, 0.91, Some(120.0)),
+            candidate(LayoutClassification::TwoPageSpread, 0.90, Some(120.0)),
+        ];
+        let actions = super::reconcile_classification_batch(
+            &candidates,
+            ReconciliationPolicy {
+                minimum_confidence: 0.60,
+                minimum_support: 2,
+            },
+        );
+        let update = actions
+            .iter()
+            .find_map(|action| match action {
+                ReconciliationAction::Update {
+                    index,
+                    prior,
+                    classification,
+                    confidence,
+                    cutter_x,
+                    tier1_verdict,
+                    reconciled,
+                    cluster_agreement,
+                    output_count,
+                    clear_split_seam,
+                    clear_outputs,
+                } => Some((
+                    *index,
+                    *prior,
+                    *classification,
+                    *confidence,
+                    *cutter_x,
+                    *tier1_verdict,
+                    *reconciled,
+                    *cluster_agreement,
+                    *output_count,
+                    *clear_split_seam,
+                    *clear_outputs,
+                )),
+                ReconciliationAction::Rerun { .. } => None,
+            })
+            .expect("a consensus spread must emit an update");
+        assert_eq!(update.0, 0);
+        assert_eq!(
+            update.1.dominant_layout,
+            LayoutClassification::TwoPageSpread
+        );
+        assert_eq!(update.2, LayoutClassification::TwoPageSpread);
+        assert_eq!(update.4, Some(120.0));
+        assert_eq!(update.5, LayoutClassification::TwoPageSpread);
+        assert!(!update.6);
+        assert!(update.7 > 0.0);
+        assert_eq!(update.8, 2);
+        assert!(!update.9);
+        assert!(!update.10);
+    }
 }

@@ -950,6 +950,102 @@ fn run_manifest(path: &Path, allowed_path_root: Option<&Path>) -> Result<(), Box
     }
 }
 
+fn reconciliation_candidates(results: &[PageRunResult]) -> Vec<ReconciliationCandidate> {
+    results
+        .iter()
+        .map(|result| ReconciliationCandidate {
+            cutter_x: result.metadata.cutter_x_px,
+            tier1_verdict: result.metadata.tier1_verdict,
+            tier1_confidence: result.metadata.tier1_confidence,
+            candidate_cutter_ratio: result.metadata.candidate_cutter_ratio,
+            whitespace_score: result.metadata.whitespace_score,
+            rotated_width: result.metadata.rotated_width,
+            rotated_height: result.metadata.rotated_height,
+            calibration_stroke_width_px: result.metadata.calibration_stroke_width_px,
+            calibration_x_height_px: result.metadata.calibration_x_height_px,
+            reconciliation_eligible: result.metadata.reconciliation_eligible,
+            excluded: result.metadata.excluded,
+            document_prior: result.metadata.document_prior,
+        })
+        .collect()
+}
+
+fn preserve_tier1_provenance_after_rerun(
+    metadata: &mut PageResultMetadata,
+    tier1: crate::engine::batch_reconciliation::Tier1Provenance,
+    prior: crate::split::DocumentPrior,
+) {
+    metadata.tier1_verdict = tier1.verdict;
+    metadata.tier1_confidence = tier1.confidence;
+    metadata.candidate_cutter_ratio = tier1.candidate_cutter_ratio;
+    metadata.whitespace_score = tier1.whitespace_score;
+    metadata.reconciled = metadata.layout_classification != tier1.verdict;
+    metadata.cluster_agreement = if metadata.layout_classification == prior.dominant_layout {
+        prior.agreement_strength
+    } else {
+        -prior.agreement_strength
+    };
+    metadata.document_prior = Some(prior);
+}
+
+fn apply_reconciliation_actions<F>(
+    page_results: &mut [PageRunResult],
+    actions: &[ReconciliationAction],
+    mut rerun: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(usize, crate::split::DocumentPrior) -> Result<PageRunResult, Box<dyn Error>>,
+{
+    for action in actions {
+        match *action {
+            ReconciliationAction::Rerun {
+                index,
+                prior,
+                tier1,
+            } => {
+                let mut rerun_result = rerun(index, prior)?;
+                rerun_result.timings += page_results[index].timings;
+                page_results[index] = rerun_result;
+                preserve_tier1_provenance_after_rerun(
+                    &mut page_results[index].metadata,
+                    tier1,
+                    prior,
+                );
+            }
+            ReconciliationAction::Update {
+                index,
+                prior,
+                classification,
+                confidence,
+                cutter_x,
+                tier1_verdict,
+                reconciled,
+                cluster_agreement,
+                output_count,
+                clear_split_seam,
+                clear_outputs,
+            } => {
+                let metadata = &mut page_results[index].metadata;
+                metadata.layout_classification = classification;
+                metadata.layout_confidence = confidence;
+                metadata.cutter_x_px = cutter_x;
+                metadata.tier1_verdict = tier1_verdict;
+                metadata.reconciled = reconciled;
+                metadata.cluster_agreement = cluster_agreement;
+                metadata.document_prior = Some(prior);
+                metadata.output_count = output_count;
+                if clear_split_seam {
+                    metadata.split_seam = None;
+                }
+                if clear_outputs {
+                    metadata.outputs.clear();
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     write_progress(Progress {
         stage: ProgressStage::Started,
@@ -1103,23 +1199,7 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     // Reconciliation only ever revises classification-pass results; a render pass
     // has already published its pages by the time it returns.
     if analyzing {
-        let candidates = page_results
-            .iter()
-            .map(|result| ReconciliationCandidate {
-                cutter_x: result.metadata.cutter_x_px,
-                tier1_verdict: result.metadata.tier1_verdict,
-                tier1_confidence: result.metadata.tier1_confidence,
-                candidate_cutter_ratio: result.metadata.candidate_cutter_ratio,
-                whitespace_score: result.metadata.whitespace_score,
-                rotated_width: result.metadata.rotated_width,
-                rotated_height: result.metadata.rotated_height,
-                calibration_stroke_width_px: result.metadata.calibration_stroke_width_px,
-                calibration_x_height_px: result.metadata.calibration_x_height_px,
-                reconciliation_eligible: result.metadata.reconciliation_eligible,
-                excluded: result.metadata.excluded,
-                document_prior: result.metadata.document_prior,
-            })
-            .collect::<Vec<_>>();
+        let candidates = reconciliation_candidates(&page_results);
         let actions = reconcile_classification_batch(
             &candidates,
             ReconciliationPolicy {
@@ -1127,92 +1207,37 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
                 minimum_support: 2,
             },
         );
-        for action in actions {
-            match action {
-                ReconciliationAction::Rerun {
-                    index,
-                    prior,
-                    tier1,
-                } => {
-                    let page = &manifest.pages[index];
-                    let lease = staged_lease(manifest, page);
-                    let stream_input = planning_page(page).stream_input;
-                    acquire_staged_page_input(&lease, &announce_lease)?;
-                    let rerun_result = run_one_staged_page_job(
-                        manifest,
-                        index,
-                        stream_input,
-                        |(_, descriptor)| {
-                            let page = page_from_staged(&manifest.pages[index], descriptor);
-                            let page_cache = page_cache_for(descriptor, &cache)?;
-                            run_classification(
-                                &page,
-                                manifest.canvas_scope,
-                                Some(prior),
-                                manifest.operation == Operation::Analyze
-                                    || page.options.output_mode == crate::OutputMode::Auto,
-                                manifest.analysis_purpose == AnalysisPurpose::PagePlan,
-                                &page_cache,
-                            )
-                            .map_err(|error| {
-                                let envelope = NativeErrorEnvelope::from_error(error.as_ref());
-                                NativeError::new(envelope.code, envelope.message)
-                            })
-                        },
-                    );
-                    let released = release_staged_page_input(&lease, &announce_lease);
-                    let mut rerun = rerun_result.and_then(|result| {
-                        released
-                            .map(|()| result)
-                            .map_err(|error| -> Box<dyn Error> { Box::new(error) })
-                    })?;
-                    rerun.timings += page_results[index].timings;
-                    page_results[index] = rerun;
-                    let metadata = &mut page_results[index].metadata;
-                    metadata.tier1_verdict = tier1.verdict;
-                    metadata.tier1_confidence = tier1.confidence;
-                    metadata.candidate_cutter_ratio = tier1.candidate_cutter_ratio;
-                    metadata.whitespace_score = tier1.whitespace_score;
-                    metadata.reconciled = metadata.layout_classification != tier1.verdict;
-                    metadata.cluster_agreement =
-                        if metadata.layout_classification == prior.dominant_layout {
-                            prior.agreement_strength
-                        } else {
-                            -prior.agreement_strength
-                        };
-                    metadata.document_prior = Some(prior);
-                }
-                ReconciliationAction::Update {
-                    index,
-                    prior,
-                    classification,
-                    confidence,
-                    cutter_x,
-                    tier1_verdict,
-                    reconciled,
-                    cluster_agreement,
-                    output_count,
-                    clear_split_seam,
-                    clear_outputs,
-                } => {
-                    let metadata = &mut page_results[index].metadata;
-                    metadata.layout_classification = classification;
-                    metadata.layout_confidence = confidence;
-                    metadata.cutter_x_px = cutter_x;
-                    metadata.tier1_verdict = tier1_verdict;
-                    metadata.reconciled = reconciled;
-                    metadata.cluster_agreement = cluster_agreement;
-                    metadata.document_prior = Some(prior);
-                    metadata.output_count = output_count;
-                    if clear_split_seam {
-                        metadata.split_seam = None;
-                    }
-                    if clear_outputs {
-                        metadata.outputs.clear();
-                    }
-                }
-            }
-        }
+        let rerun = |index, prior| {
+            let page = &manifest.pages[index];
+            let lease = staged_lease(manifest, page);
+            let stream_input = planning_page(page).stream_input;
+            acquire_staged_page_input(&lease, &announce_lease)?;
+            let rerun_result =
+                run_one_staged_page_job(manifest, index, stream_input, |(_, descriptor)| {
+                    let page = page_from_staged(&manifest.pages[index], descriptor);
+                    let page_cache = page_cache_for(descriptor, &cache)?;
+                    run_classification(
+                        &page,
+                        manifest.canvas_scope,
+                        Some(prior),
+                        manifest.operation == Operation::Analyze
+                            || page.options.output_mode == crate::OutputMode::Auto,
+                        manifest.analysis_purpose == AnalysisPurpose::PagePlan,
+                        &page_cache,
+                    )
+                    .map_err(|error| {
+                        let envelope = NativeErrorEnvelope::from_error(error.as_ref());
+                        NativeError::new(envelope.code, envelope.message)
+                    })
+                });
+            let released = release_staged_page_input(&lease, &announce_lease);
+            rerun_result.and_then(|result| {
+                released
+                    .map(|()| result)
+                    .map_err(|error| -> Box<dyn Error> { Box::new(error) })
+            })
+        };
+        apply_reconciliation_actions(&mut page_results, &actions, rerun)?;
     }
     for (index, page_result) in page_results.iter().enumerate() {
         write_json_atomic(&page_result.page_metadata_path, &page_result.metadata)?;
