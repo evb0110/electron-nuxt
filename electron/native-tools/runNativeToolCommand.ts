@@ -218,7 +218,10 @@ async function runNativeToolProtocolHandshake(
     if (handshake.protocolVersion > expectedVersion) {
         throw new NativeToolProtocolVersionError(toolName, expectedVersion, String(handshake.protocolVersion));
     }
-    if (toolName === 'evb-scan-cleanup' && handshake.protocolVersion < MIN_COMPATIBLE_SCAN_CLEANUP_PROTOCOL_VERSION) {
+    const minimumCompatibleVersion = toolName === 'evb-scan-cleanup'
+        ? MIN_COMPATIBLE_SCAN_CLEANUP_PROTOCOL_VERSION
+        : expectedVersion;
+    if (handshake.protocolVersion < minimumCompatibleVersion) {
         throw new NativeToolProtocolVersionError(toolName, expectedVersion, String(handshake.protocolVersion));
     }
     return {
