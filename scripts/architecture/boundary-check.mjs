@@ -238,18 +238,6 @@ const PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS = [
 
 const ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS = new Map([
     [
-        'electron/djvu/conversion.ts',
-        { specifier: '@electron/features/djvu/public' },
-    ],
-    [
-        'electron/djvu/convert.ts',
-        { specifier: '@electron/features/djvu/public' },
-    ],
-    [
-        'electron/djvu/viewing.ts',
-        { specifier: '@electron/features/djvu/public' },
-    ],
-    [
         'electron/search/protocol.ts',
         {
             specifier: '@electron/features/search/protocol',
@@ -261,7 +249,7 @@ const ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS = new Map([
 const NATIVE_TOOL_DOMAIN_ROOTS = [
     'electron/ocr',
     'electron/pdf',
-    'electron/djvu',
+    'electron/features/djvu',
 ];
 const OCR_NATIVE_TOOL_BOUNDARY_TARGETS = new Set(`
 electron/ocr/paths.ts

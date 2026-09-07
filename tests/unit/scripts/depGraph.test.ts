@@ -771,25 +771,9 @@ describe('dependency graph', () => {
 
     it('keeps legacy Electron feature re-export shims thin', () => {
         expect(checkArchitectureBoundarySource(
-            'electron/djvu/convert.ts',
-            'export * from \'@electron/features/djvu/public\';\n',
-        )).toEqual([]);
-
-        expect(checkArchitectureBoundarySource(
             'electron/search/protocol.ts',
             'export type * from \'@electron/features/search/protocol\';\n',
         )).toEqual([]);
-
-        expect(checkArchitectureBoundarySource(
-            'electron/djvu/convert.ts',
-            'import { convertDjvuToPdfFile } from \'@electron/features/djvu/public\';\nexport { convertDjvuToPdfFile };\n',
-        )).toEqual([{
-            rule: 'electron-legacy-feature-reexport-shim',
-            source: 'electron/djvu/convert.ts',
-            target: 'electron/djvu/convert.ts',
-            specifier: 'source',
-            message: 'Legacy Electron feature shims must stay one-line re-exports to their feature entrypoint.',
-        }]);
 
         expect(checkArchitectureBoundarySource(
             'electron/search/protocol.ts',
@@ -805,22 +789,31 @@ describe('dependency graph', () => {
 
     it('allows worker-safe Electron feature publicNative entrypoints but still blocks main internals', () => {
         expect(checkArchitectureBoundaryEdge({
-            source: 'electron/djvu/embedBookmarksIntoPdfFile.ts',
+            source: 'electron/features/djvu/main/embedBookmarksIntoPdfFile.ts',
             target: 'electron/features/page-ops/publicNative.ts',
             specifier: '@electron/features/page-ops/publicNative',
         })).toEqual([]);
 
         expect(checkArchitectureBoundaryEdge({
-            source: 'electron/djvu/embedBookmarksIntoPdfFile.ts',
+            source: 'electron/features/djvu/main/embedBookmarksIntoPdfFile.ts',
             target: 'electron/features/page-ops/main/nativeCrop.ts',
             specifier: '@electron/features/page-ops/main/nativeCrop',
-        })).toEqual([{
-            rule: 'electron-feature-main-private',
-            source: 'electron/djvu/embedBookmarksIntoPdfFile.ts',
-            target: 'electron/features/page-ops/main/nativeCrop.ts',
-            specifier: '@electron/features/page-ops/main/nativeCrop',
-            message: 'Electron feature main internals must be consumed through feature public or service entrypoints.',
-        }]);
+        })).toEqual([
+            {
+                rule: 'electron-cross-feature-deep-import',
+                source: 'electron/features/djvu/main/embedBookmarksIntoPdfFile.ts',
+                target: 'electron/features/page-ops/main/nativeCrop.ts',
+                specifier: '@electron/features/page-ops/main/nativeCrop',
+                message: 'Cross-feature imports in electron/features must use public entrypoints only.',
+            },
+            {
+                rule: 'electron-feature-main-private',
+                source: 'electron/features/djvu/main/embedBookmarksIntoPdfFile.ts',
+                target: 'electron/features/page-ops/main/nativeCrop.ts',
+                specifier: '@electron/features/page-ops/main/nativeCrop',
+                message: 'Electron feature main internals must be consumed through feature public or service entrypoints.',
+            },
+        ]);
     });
 
     it('locks Finding 7 native-tool ownership boundaries', () => {
