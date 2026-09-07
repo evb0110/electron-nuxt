@@ -363,7 +363,14 @@ pub(crate) fn cache_budget_bytes(
         // available for those artifacts instead of reserving no cache at all.
         PlanningOperation::Render => DEFAULT_CACHE_BUDGET_BYTES / 2,
     };
-    cap.min((total_memory / denominator) as usize)
+    cap.min(memory_budget_as_usize(
+        total_memory as u128,
+        denominator as u128,
+    ))
+}
+
+fn memory_budget_as_usize(total_memory: u128, denominator: u128) -> usize {
+    usize::try_from(total_memory / denominator).unwrap_or(usize::MAX)
 }
 #[cfg(test)]
 mod tests {
@@ -740,6 +747,12 @@ mod tests {
 
         assert!(render > 0);
         assert!(render < analyze);
+    }
+
+    #[test]
+    fn cache_budget_saturates_when_the_quotient_exceeds_usize() {
+        let quotient_above_usize = usize::MAX as u128 + 1;
+        assert_eq!(memory_budget_as_usize(quotient_above_usize, 1), usize::MAX);
     }
 
     #[test]

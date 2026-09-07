@@ -17,6 +17,7 @@ use crate::engine::output_geometry::{
 };
 use crate::engine::page_statistics::{
     derive_page_ink_contexts, derive_page_ink_sample, page_needs_ink_sample,
+    trusted_selection_is_incomplete,
 };
 use crate::engine::render::{CleanupRaster, CleanupResult};
 use crate::engine::render::{CleanupWarningEvent, WarningExtentUnit};
@@ -178,6 +179,7 @@ fn geometry_output_from_cleanup_result(
         output.metadata.rotation,
         output.metadata.half,
     );
+    let (fold_side_near_paper_run, outer_near_paper_edge_runs) = paper_edge_runs_for_output(output);
     GeometryOutput {
         options: options.clone(),
         source_page_index: output.metadata.source_page_index,
@@ -189,8 +191,8 @@ fn geometry_output_from_cleanup_result(
         content_detected: output.metadata.content_box.is_some(),
         spread_content_top: spread_content_top_for_output(output),
         optical_content_bounds_x: optical_content_bounds_x_for_output(output),
-        fold_side_near_paper_run: fold_side_near_paper_run_for_output(output),
-        outer_near_paper_edge_runs: outer_near_paper_edge_runs_for_output(output),
+        fold_side_near_paper_run,
+        outer_near_paper_edge_runs,
     }
 }
 
@@ -367,14 +369,9 @@ pub(crate) fn match_layers_in_memory(
     restore_geometry_layers(output, layers);
 }
 
-pub(crate) fn fold_side_near_paper_run_for_output(output: &CleanupResult) -> usize {
+fn paper_edge_runs_for_output(output: &CleanupResult) -> (usize, NearPaperEdgeRuns) {
     let planes = geometry_plane_view(output);
-    crate::engine::output_geometry::fold_side_near_paper_run(&planes)
-}
-
-pub(crate) fn outer_near_paper_edge_runs_for_output(output: &CleanupResult) -> NearPaperEdgeRuns {
-    let planes = geometry_plane_view(output);
-    crate::engine::output_geometry::outer_near_paper_edge_runs(&planes)
+    crate::engine::output_geometry::paper_edge_runs(&planes)
 }
 
 pub(crate) fn placement_near_paper_edge_runs_for_output(
@@ -1303,10 +1300,6 @@ mod page_workflow {
         fn remove_file(&self, path: &Path);
     }
 
-    fn trusted_selection_is_incomplete(selection_width: usize, background_width: usize) -> bool {
-        background_width.saturating_mul(2) > selection_width
-    }
-
     pub(crate) fn write_gray_layer_background(
         path: &Path,
         image: &GrayImage,
@@ -2119,6 +2112,7 @@ mod page_workflow {
                     .is_some()
                     .then(|| optical_content_bounds_x_for_output(output))
                     .flatten();
+                let mut paper_edge_runs = None;
                 let fold_side_near_paper_run = if matched_placement.is_some()
                     || !options.match_page_size
                     || options.ocr_mode
@@ -2140,7 +2134,9 @@ mod page_workflow {
                         output.metadata.half,
                         fit,
                     ) {
-                        fold_side_near_paper_run_for_output(output)
+                        paper_edge_runs
+                            .get_or_insert_with(|| paper_edge_runs_for_output(output))
+                            .0
                     } else {
                         0
                     }
@@ -2152,7 +2148,9 @@ mod page_workflow {
                     && !options.ocr_mode
                     && optical_content_bounds_x.is_some()
                 {
-                    outer_near_paper_edge_runs_for_output(output)
+                    paper_edge_runs
+                        .get_or_insert_with(|| paper_edge_runs_for_output(output))
+                        .1
                 } else {
                     NearPaperEdgeRuns::default()
                 };

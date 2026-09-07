@@ -275,7 +275,6 @@ pub(crate) fn materialize_stream_page(
     is_canceled: impl Fn() -> bool,
 ) -> Result<MaterializedStreamPage, NativeError> {
     let mut materialized = page.clone();
-    let _ = page.source_page_index;
     if !page.stream_input {
         return Ok(MaterializedStreamPage {
             index,
@@ -322,7 +321,7 @@ pub(crate) fn materialize_stream_page(
             code,
             format!(
                 "Unable to materialize streamed scan-cleanup page {}: {error}",
-                index + 1
+                page.source_page_index.saturating_add(1)
             ),
         ));
     }
