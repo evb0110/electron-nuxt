@@ -4,7 +4,53 @@ Date: 2026-08-23
 
 Source audit: `docs/pdf-annotations-feature-audit-2026-08-22.md`.
 
-## CURRENT checkpoint, refreshed 2026-09-07 05:01 UTC
+## CURRENT checkpoint, refreshed 2026-09-07 05:15 UTC
+
+- Candidate is `9657bebe1ed7b5886406d505d47a82e256b4ce60` on
+  `ticket/196-renderer-interface`; the worktree is clean. `origin/main` is
+  `b4b6b44135dce544489989caebc9250ab8078359` and is an ancestor of the
+  candidate. Coordinator ownership remains shared helpers, launchers,
+  configuration, interop scripts, generated WASM, the pinned PDF.js artifact
+  and verifier, this ledger, integration, publication, and GitHub state.
+  Halley, Pasteur, and Pauli completed read-only reviews with no edits.
+- No gate, Electron session, or writer is active in this worktree. The final
+  canonical validation tested this exact SHA in shell session `51311`, under
+  `.devkit/gates/2026-09-07T050432Z`, and finished at
+  `2026-09-07T05:14:30.636Z` with exit 0. It passed 1,304 test files, 11,050
+  tests, and 8 intentional skipped tests, plus coverage and zero-execution
+  coverage, native/resource checks, strict build, bundle integrity, and
+  blocking Electron smoke. Evidence is
+  `.devkit/analysis/gates/2026-09-07T05-04-32-837Z-2382190-4706b9f1.ndjson`;
+  the gate summary is `.devkit/gates/2026-09-07T050432Z/summary.json`.
+- Current candidate acceptance is green for #350 `4/4`, #167 `2/2`, the
+  annotation lifecycle slice (`7` passed, `9` documented skips), Viewer Smoke
+  `25/25`, save pipeline (`5` exercised, one intentional skip), native
+  save/reopen `4/4`, exact 882 annotation save `8/8`, exact 882 native matrix
+  `2/2`, exact 882 native preview `3/3`, split-pane `1/1`, draw-shapes
+  `17/17`, and exact 2,646-page `2/2`. The exact fixture hashes and evidence
+  paths remain recorded in the dated entries below.
+- The mixed-size broad red at
+  `.devkit/analysis/gates/2026-09-06T09-13-35-511Z-3977170-a1fd46a8.ndjson`
+  remains historical. It omitted `EVB_PDF_PAGE_OPS_ENABLE=1` and predated the
+  fit-width repair. The correctly configured broad gate passed `24/24`, and
+  post-migration Viewer Smoke passed `25/25`, including mixed-size fitting and
+  crop-overlay coverage. This is a retained historical artifact with an
+  evidence-backed disposition, not a current candidate failure.
+- The pinned #168 PDF.js 6.3.311 artifact, receipt, provenance verifier, app
+  dependency, copied assets, adapter, and version-coupled tests are in this
+  candidate. #168 is still open until the integrated `own-annotations` tree
+  passes its migration and acceptance checks. Candidate-only evidence must not
+  be reported as integrated-main evidence. Earlier pre-migration greens are
+  historical and do not prove this merged behavior.
+- Next queue is the doc-only ledger/checkpoint commit, candidate publication,
+  #196/#206/#349 reconciliation against current main, integrated-tree
+  #350/#167 and exact-fixture verification, then #168 and Project 4 state
+  updates. The delayed-toolbar worktree and unrelated default Electron session
+  remain outside this worktree. The final CodeRabbit attempt reached the
+  service but ended with `WebSocket closed`; the earlier doctor run passed 9/9.
+  That is a provider fail-open result, not review approval.
+
+## Historical checkpoint, refreshed 2026-09-07 05:01 UTC
 
 - The candidate tree is based at `72f411b388026348b4f1619f649d3fecd2b1e2c2`
   on `ticket/196-renderer-interface`, with intentional uncommitted coordinator
