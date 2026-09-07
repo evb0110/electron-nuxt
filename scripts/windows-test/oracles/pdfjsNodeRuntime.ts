@@ -73,7 +73,7 @@ export async function loadPdfjsDocument(
     const document = await task.promise;
     const nativeDestroy = (document as IPdfjsDocumentLifecycle).destroy?.bind(document);
     if (nativeDestroy) {
-        return document;
+        return document as IPdfjsDocumentWithDestroy;
     }
     Object.defineProperty(document, 'destroy', {
         configurable: true,
@@ -85,5 +85,5 @@ export async function loadPdfjsDocument(
             }
         },
     });
-    return document;
+    return document as IPdfjsDocumentWithDestroy;
 }
