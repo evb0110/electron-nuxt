@@ -1,0 +1,27 @@
+docs/architecture/project6-306-workspace-driver-capability-inventory.md
+  s_6ae4600f2e6f51::t_9a8ffa98558eaf 59,73,75
+  s_6ae4600f2e6f51::t_4829aa74079b2d 158,190,194,198,211,232,249,273,277-278,288,307
+  s_6ae4600f2e6f51::t_9d63338b86a3cf 205,242,280
+  s_6ae4600f2e6f51::t_9bccb3c30fffd6 10-16,81-83
+  s_6ae4600f2e6f51::t_34643457dec8d8 102,131-134,140,146,149
+  s_6ae4600f2e6f51::t_18a9acab7ac4ba 153,160,321
+  s_6ae4600f2e6f51::t_4c63dde96c8a2b 309-313,315,317,319-320,322-324,328
+  s_6ae4600f2e6f51::t_a2be654ec3be65 98
+  s_6ae4600f2e6f51::t_93ee7f4d973b17 308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4f46672ddd69c946936c4164d0ed054cb229f7cc",
+  "prompts": {},
+  "sessions": {
+    "s_6ae4600f2e6f51": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a8b-4796-70c1-a9b8-d4353d48d8d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
