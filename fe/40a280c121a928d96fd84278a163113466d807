@@ -1,0 +1,23 @@
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_dcc6defac936b2::t_f383e9e798a2b8 2446-2448,2553-2631,2633-2637,2641-2649
+  s_dcc6defac936b2::t_a5de872dd805d2 2638-2640
+  s_dcc6defac936b2::t_e867e4a617d821 2632
+native/scan-cleanup/src/engine/batch_reconciliation.rs
+  s_dcc6defac936b2::t_e867e4a617d821 252
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fe40a280c121a928d96fd84278a163113466d807",
+  "prompts": {},
+  "sessions": {
+    "s_dcc6defac936b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-6997-78f1-aa1b-45a3adb5a218",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

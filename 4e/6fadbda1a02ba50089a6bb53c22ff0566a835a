@@ -1,0 +1,110 @@
+native/scan-cleanup/src/engine/page_statistics.rs
+  s_dcc6defac936b2::t_1451438fcf7a64 27,60,62
+  s_dcc6defac936b2::t_2594ba573e2a49 93-99
+  s_dcc6defac936b2::t_53eb2180e53386 22-24
+  s_dcc6defac936b2::t_be31b72aad29e0 15
+  s_dcc6defac936b2::t_180d93a22d6b52 26,29,36,44,51,61
+  s_dcc6defac936b2::t_4635fba0db379b 2-6,8,10-14,17-21,25,63-92,100-972,974-1026
+  s_dcc6defac936b2::t_d747410c52689f 43
+  s_dcc6defac936b2::t_5cfd33e9b365bd 16
+  s_dcc6defac936b2::t_69be690cbe95a7 7
+  s_dcc6defac936b2::t_eebffdf79a9797 9
+  s_dcc6defac936b2::t_24aa7f20e35ccd 28,30-35,37-42,45-50,52-59,973
+  s_dcc6defac936b2::t_a324a0630c2bce 1
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_dcc6defac936b2::t_e5d4205969523d 7,10,15-17,32,35,40
+  s_dcc6defac936b2::t_52646bf150172f 126-129,131-136,138-142,144,146,148,150,152,154,156,158,160,162,164,166,168,170,172,176-179,184-187
+  s_dcc6defac936b2::t_df363cae8cdf24 200-203,944-948
+  s_dcc6defac936b2::t_80a6662b80e99b 3-6
+  s_dcc6defac936b2::t_2ccc71c1947e6e 861
+  s_dcc6defac936b2::t_94a512e9cc5633 868
+  s_dcc6defac936b2::t_2d950d82292a14 60-63
+  s_dcc6defac936b2::t_48d3f60d62871b 975-976,980-981,985
+  s_dcc6defac936b2::t_4e62ec9f49632d 978
+  s_dcc6defac936b2::t_80e842fafdb190 964
+  s_dcc6defac936b2::t_26141bf09ded65 45,48,859,867,924
+  s_dcc6defac936b2::t_d38e843246c6e6 68,843
+  s_dcc6defac936b2::t_84fbcfcfd371f8 190-193
+  s_dcc6defac936b2::t_cb175af9ae6497 685,725
+  s_dcc6defac936b2::t_c8ec7a332f92f4 862-864
+  s_dcc6defac936b2::t_d5c6c4210f3dab 84
+  s_dcc6defac936b2::t_53eb2180e53386 929-933
+  s_dcc6defac936b2::t_02fb7de1ba2d64 125,175,183,644
+  s_dcc6defac936b2::t_4d8cbcceaa7055 85-97,102-104,109,113,116,119-120
+  s_dcc6defac936b2::t_509d0417b360ac 452
+  s_dcc6defac936b2::t_69be690cbe95a7 404-407
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_dcc6defac936b2::t_eebffdf79a9797 12,14
+  s_dcc6defac936b2::t_26141bf09ded65 7-8,10,15-16,21
+  s_dcc6defac936b2::t_6cb63ac8db951b 243-246,260-263,274-278,287-290,399-401,1105-1109,1461-1465
+  s_dcc6defac936b2::t_be828856143838 1896,1898,1905-1928,1930-1937,1940-2133,2136-2502,2505-2653,2655-2804,2806-2834,2836-3102,3105-3106,3110-3113,3119-3120,3123,3125,3127-3228,3230,3232,3236-3239,3242,3244-3257,3259-3276,3278-3279,3291-3600
+  s_dcc6defac936b2::t_408610c3750682 24-27,29,32,36-39,44,47-48,50-51,55-59,63,68,72,77,114-115,119-122
+  s_dcc6defac936b2::t_c8ec7a332f92f4 6
+  s_dcc6defac936b2::t_e5ff4896972245 1,9,13,17-20,22-23,28,30-31,33-35,40-43,45-46,49,52-54,60-62,64-67,69-71,73-76,78-96,98-101,112-113,116-118,123-242,247-259,264-273,279-286,291-398,402-1104,1110-1460,1466-1827,3601
+  s_dcc6defac936b2::t_2835a0eef4bd15 11,97
+  s_dcc6defac936b2::t_6453faa8644446 1828,1893-1895,1899,1904,1929,1938-1939,2134-2135,2503-2504,2654,2805,2835,3103-3104,3107-3109,3114-3118,3121-3122,3124,3126,3229,3231,3233-3235,3240-3241,3243,3258,3277,3280-3290
+  s_dcc6defac936b2::t_1514761aff8ce2 102-111
+  s_dcc6defac936b2::t_eee71eb0d39dd6 1829-1892
+  s_dcc6defac936b2::t_48d3f60d62871b 1897,1900-1903
+  s_dcc6defac936b2::t_2d950d82292a14 2-5
+native/scan-cleanup/src/engine/mod.rs
+  s_dcc6defac936b2::t_df363cae8cdf24 2
+  s_dcc6defac936b2::t_d5c6c4210f3dab 3
+  s_dcc6defac936b2::t_d422ac26871b27 8-9
+  s_dcc6defac936b2::t_6cb63ac8db951b 4
+native/scan-cleanup/src/engine/resource_planning.rs
+  s_dcc6defac936b2::t_62a3c7a1d157bc 304-305,307
+  s_dcc6defac936b2::t_3fb971fd0370a6 153-155
+  s_dcc6defac936b2::t_d422ac26871b27 9,11
+  s_dcc6defac936b2::t_48b7a207b07246 290
+  s_dcc6defac936b2::t_df363cae8cdf24 5-8,12,235-239
+  s_dcc6defac936b2::t_2c0c9ed98a9500 3-4
+  s_dcc6defac936b2::t_48d3f60d62871b 293,296,298,300
+  s_dcc6defac936b2::t_6928da755ebfda 294
+  s_dcc6defac936b2::t_84fbcfcfd371f8 306
+  s_dcc6defac936b2::t_75203e838ccbf5 1-2,10,13-152,156-234,240-289
+  s_dcc6defac936b2::t_85163f4a2e633c 291-292,295,297,299,301-303,308-870
+native/scan-cleanup/src/engine/staged_input.rs
+  s_dcc6defac936b2::t_6928da755ebfda 5-9,12-13
+  s_dcc6defac936b2::t_d422ac26871b27 10
+  s_dcc6defac936b2::t_48d3f60d62871b 53,58-59
+  s_dcc6defac936b2::t_031536316a8be0 1152,1210,1276,1294,1384,1443-1444,1466-1467
+  s_dcc6defac936b2::t_de7c85a095c987 49-50
+  s_dcc6defac936b2::t_7b3ca9285a0820 52
+  s_dcc6defac936b2::t_df363cae8cdf24 3,18-22,1021-1024
+  s_dcc6defac936b2::t_d53ba32f2a5fb5 45-46,48,51,54,56-57,60-803
+  s_dcc6defac936b2::t_9f09af85ffd863 1153-1209,1211-1275,1277-1293,1295-1383,1385-1442,1445-1465,1468-1473
+  s_dcc6defac936b2::t_e23ebfaee62f0f 1-2,4,11,14-17,23-43,804-1020,1025-1151
+  s_dcc6defac936b2::t_0974d291ae7b54 44
+  s_dcc6defac936b2::t_5c17086fa785dc 47,55
+native/scan-cleanup/src/engine/batch_reconciliation.rs
+  s_dcc6defac936b2::t_eee71eb0d39dd6 222-238
+  s_dcc6defac936b2::t_9e3c56f283e79b 240-241,243-247,249-678
+  s_dcc6defac936b2::t_5a6d48cbe6f53f 54
+  s_dcc6defac936b2::t_d281b77e14c249 11
+  s_dcc6defac936b2::t_63a87e77186a2f 2-4
+  s_dcc6defac936b2::t_36c80c050fdd95 239
+  s_dcc6defac936b2::t_e6975440c67807 248
+  s_dcc6defac936b2::t_df363cae8cdf24 5-6
+  s_dcc6defac936b2::t_24aa7f20e35ccd 1,15-53,55-221,679
+  s_dcc6defac936b2::t_d747410c52689f 7-10
+  s_dcc6defac936b2::t_48d3f60d62871b 242
+  s_dcc6defac936b2::t_2c0c9ed98a9500 14
+  s_dcc6defac936b2::t_d422ac26871b27 12-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4e6fadbda1a02ba50089a6bb53c22ff0566a835a",
+  "prompts": {},
+  "sessions": {
+    "s_dcc6defac936b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-6997-78f1-aa1b-45a3adb5a218",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
