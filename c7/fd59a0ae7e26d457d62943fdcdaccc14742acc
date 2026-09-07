@@ -1,0 +1,33 @@
+tests/helpers/createPdfDocumentProxy.ts
+  s_0afd208e8e7201::t_4b339fbcfd6d8f 3-5
+  s_0afd208e8e7201::t_387351839c9e5d 8
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineBookmarkIdentity.test.ts
+  s_0afd208e8e7201::t_efcd1dfc1d424f 11-14
+  s_0afd208e8e7201::t_1654432b84be84 27,168,177,181-209,218-227,229-231
+  s_0afd208e8e7201::t_e502efa05b5b3c 210-217,228,232
+  s_0afd208e8e7201::t_59eab110fab90e 233
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_0afd208e8e7201::t_32eb252130b937 5912-5922,5940,5959
+tests/unit/app/composables/pdfSaveDocument.test.ts
+  s_0afd208e8e7201::t_1654432b84be84 117-118,136-138
+tests/unit/app/modules/pdf-viewer/engine/createBookmarkIdentityFactory.test.ts
+  s_0afd208e8e7201::t_e502efa05b5b3c 8,78-86,96,100
+  s_0afd208e8e7201::t_1654432b84be84 20,74,87-95,97-99
+  s_0afd208e8e7201::t_f2e8ea5d3288c0 101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c7fd59a0ae7e26d457d62943fdcdaccc14742acc",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

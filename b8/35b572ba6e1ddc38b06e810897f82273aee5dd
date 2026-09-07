@@ -1,0 +1,75 @@
+tests/unit/electron/docxExportStream.test.ts
+  s_0afd208e8e7201::t_701d8c3caac4fc 49-50
+tests/unit/electron/agentAssistantOptIn.test.ts
+  s_0afd208e8e7201::t_2294e7ec32ee19 28-37
+  s_0afd208e8e7201::t_1f1040758b2bd1 1186,1210
+  s_0afd208e8e7201::t_39f8dcd1499b57 38
+tests/unit/electron/featureValidatedIpcDecoders.test.ts
+  s_0afd208e8e7201::t_795e9203d93c62 27-32,39,43,50-51,65
+  s_0afd208e8e7201::t_efb2de1317d816 44-49
+tests/unit/electron/nativeMenuDialogRouting.test.ts
+  s_0afd208e8e7201::t_8ae51234b1faca 203-205
+  s_0afd208e8e7201::t_59aecc20e872a6 240-253
+  s_0afd208e8e7201::t_82d15107c71aeb 161,173-174,179,193,198,207,212,229,237,239,254-255,258-263,267-275,319
+  s_0afd208e8e7201::t_f9c58f2cdd93c0 3,19-23,32-33,44
+  s_0afd208e8e7201::t_4a54ae6bf244f0 43,165-167,176,178,180-189,194
+tests/unit/electron/agentWorkspaceBridge.test.ts
+  s_0afd208e8e7201::t_7bd379c770d37b 5,62-77,79-83,86,88-91
+  s_0afd208e8e7201::t_0e2767c7c3237e 87
+tests/unit/electron/helpers/createDocumentsServiceFixture.ts
+  s_0afd208e8e7201::t_7c30bedbecf2d0 1-55,57-90
+  s_0afd208e8e7201::t_a00c025ce14efc 56
+tests/unit/electron/ocrWorkerPageProcessing.test.ts
+  s_0afd208e8e7201::t_701d8c3caac4fc 73,92
+  s_0afd208e8e7201::t_526508cc72c79e 75-82
+tests/unit/electron/preloadEventFanout.test.ts
+  s_0afd208e8e7201::t_b5c64b18c4c2e8 26-27,31-32,35-44
+  s_0afd208e8e7201::t_0e2767c7c3237e 21,28,33,46
+tests/unit/electron/docxExportStreamCommitRace.test.ts
+  s_0afd208e8e7201::t_701d8c3caac4fc 63-64,102-103
+tests/unit/electron/helpers/createInProcessIpcRoundTripHarness.ts
+  s_0afd208e8e7201::t_aa9164e55b9f09 23-24,32
+  s_0afd208e8e7201::t_ffb750d43bdc82 10,42-44,53,61,63,65-69,71-73,79-80
+  s_0afd208e8e7201::t_1ec6f34394efbc 22,41,64,70
+tests/unit/electron/pdfjsRangeTransportBounded.test.ts
+  s_0afd208e8e7201::t_1d23f81290c4aa 225-229,289-293
+  s_0afd208e8e7201::t_8324fb1f6cdf68 188-189
+  s_0afd208e8e7201::t_0e2767c7c3237e 224,288
+tests/unit/electron/ocrIpcHandlers.test.ts
+  s_0afd208e8e7201::t_0e2767c7c3237e 95
+  s_0afd208e8e7201::t_1d23f81290c4aa 91-92
+tests/unit/electron/djvuPdfExport.test.ts
+  s_0afd208e8e7201::t_701d8c3caac4fc 205
+  s_0afd208e8e7201::t_6586b7805a830e 209
+  s_0afd208e8e7201::t_9ed3505ba23603 23,187-200
+tests/unit/electron/helpers/createWorkspaceExposeFixture.ts
+  s_0afd208e8e7201::t_b78fbc398b4892 29-30,38-39,49-50,75-76
+  s_0afd208e8e7201::t_7c30bedbecf2d0 1-28,31-37,40-48,51-74,77-88
+tests/unit/electron/searchPreloadClient.test.ts
+  s_0afd208e8e7201::t_b5c64b18c4c2e8 28,36,59,64,82,89,115,137,148-149,151,154-158
+  s_0afd208e8e7201::t_e99daf6a857a9b 21-24,35,37,63,65,67,88,90,136,138,153,159
+tests/unit/electron/assistantEventPublisher.test.ts
+  s_0afd208e8e7201::t_701d8c3caac4fc 14-15,17,45-72,89-90,92-94,117-127,131
+tests/unit/electron/inProcessIpcRoundTrip.test.ts
+  s_0afd208e8e7201::t_1ec6f34394efbc 33,87-95,97
+  s_0afd208e8e7201::t_701d8c3caac4fc 35,96,104
+  s_0afd208e8e7201::t_ce95be0ce24517 24-27,84-85,98
+tests/unit/electron/preloadFileClient.test.ts
+  s_0afd208e8e7201::t_68645c9549377b 42-47,237,267,269,854,856,858,868,870
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b835b572ba6e1ddc38b06e810897f82273aee5dd",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

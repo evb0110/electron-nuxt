@@ -1,0 +1,45 @@
+server/api/maintenance/analyticsRetention.get.ts
+  s_0afd208e8e7201::t_575eaa5a8ec189 29
+server/utils/getRuntimeEnv.ts
+  s_0afd208e8e7201::t_575eaa5a8ec189 8-17
+server/db/index.ts
+  s_0afd208e8e7201::t_575eaa5a8ec189 6-9,14,17,24-25,33,35
+tests/unit/server/analyticsDb.test.ts
+  s_0afd208e8e7201::t_d6cbb2b6baf2f4 69-84
+  s_0afd208e8e7201::t_948138c99b2731 18,20-21,51-55,65
+  s_0afd208e8e7201::t_5ae49d72e6d178 19
+tests/unit/server/analyticsRetentionEndpoint.test.ts
+  s_0afd208e8e7201::t_948138c99b2731 77
+server/utils/normalizeSiteUrl.ts
+  s_0afd208e8e7201::t_575eaa5a8ec189 6-9,38
+tests/unit/server/viewerAnalyticsEndpoint.test.ts
+  s_0afd208e8e7201::t_948138c99b2731 77,95
+tests/unit/server/normalizeSiteUrl.test.ts
+  s_0afd208e8e7201::t_948138c99b2731 28-50
+tests/unit/server/getRuntimeEnv.test.ts
+  s_0afd208e8e7201::t_948138c99b2731 1-9,14-16,21-31
+  s_0afd208e8e7201::t_5ae49d72e6d178 10-13,17-20
+tests/unit/server/analyticsAdmission.test.ts
+  s_0afd208e8e7201::t_d6cbb2b6baf2f4 99-104
+  s_0afd208e8e7201::t_948138c99b2731 23,78-98,105-106,189-191,195
+server/utils/analytics.ts
+  s_0afd208e8e7201::t_575eaa5a8ec189 17-20,54,66,130
+server/api/analytics/events.post.ts
+  s_0afd208e8e7201::t_575eaa5a8ec189 45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9204a1ba02d0060d6cb7f121cb670047991597ba",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

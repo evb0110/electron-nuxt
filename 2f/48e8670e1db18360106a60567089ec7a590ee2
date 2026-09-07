@@ -1,0 +1,114 @@
+tests/unit/electron/djvuPdfWorkerBookmarkPath.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 17
+tests/unit/electron/djvuBookmarkEmbedding.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 72,95
+tests/unit/electron/djvuPdfExport.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 110,121-122,129,132
+electron/features/djvu/main/ddjvuConversion.ts
+  s_181b176e93d0e3::t_f3bd171375731e 9-10
+tests/unit/electron/compactDjvuPdfExport.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 36-37
+tests/unit/electron/parseDjvuOutline.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 6
+electron/image/tryCreatePdfFromInputPathsNative.ts
+  s_181b176e93d0e3::t_813f7dac975887 19
+electron/features/djvu/main/textSearch.ts
+  s_181b176e93d0e3::t_f3bd171375731e 1-640
+electron/features/djvu/main/pdfExport.ts
+  s_181b176e93d0e3::t_f3bd171375731e 58-59,71-73
+electron/features/djvu/main/buildDjvuRuntimeEnv.ts
+  s_181b176e93d0e3::t_f3bd171375731e 1-92
+tests/unit/electron/djvuImageExportLimits.test.ts
+  s_181b176e93d0e3::t_4d9b0958cd0235 30
+  s_181b176e93d0e3::t_555f3e73779002 27
+tests/unit/electron/djvuPagePreview.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 52,56-57
+tests/unit/electron/djvuEstimate.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 55,57,66
+tests/unit/electron/documentsSavePdfAs.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 74
+tests/unit/electron/djvuTextCapabilityCache.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 20,50
+electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu.ts
+  s_181b176e93d0e3::t_f3bd171375731e 29-30
+electron/features/djvu/main/pagePreview.ts
+  s_181b176e93d0e3::t_f3bd171375731e 20-22
+tests/unit/electron/nativePdfAssembler.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 132
+tests/unit/electron/djvuConversion.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 195-196
+tests/unit/electron/djvuMetadata.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 11-12,15,17
+electron/features/djvu/main/viewing.ts
+  s_181b176e93d0e3::t_f3bd171375731e 10,12
+tests/unit/electron/djvuTextSearch.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 12-13,20
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_181b176e93d0e3::t_c579cdc34a26d1 348
+electron/features/documents/main/documentFilePathResolution.ts
+  s_181b176e93d0e3::t_830cceeb5f283b 23
+tests/unit/electron/djvuEmbedBookmarksNative.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 86
+electron/features/djvu/main/djvuOperations.ts
+  s_181b176e93d0e3::t_f3bd171375731e 6,13-14,47
+electron/image/pdfConversion.ts
+  s_181b176e93d0e3::t_ceb0575ce033cb 36
+  s_181b176e93d0e3::t_4d9b0958cd0235 35,37
+tests/unit/electron/djvuTempPath.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 6
+electron/features/documents/main/documentSave.service.ts
+  s_181b176e93d0e3::t_ceb0575ce033cb 27
+electron/features/djvu/main/pdfWorker.ts
+  s_181b176e93d0e3::t_f3bd171375731e 5-6
+tests/unit/electron/djvuExportPaths.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 11
+tests/unit/electron/pdfConversion.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 242
+  s_181b176e93d0e3::t_4d9b0958cd0235 240
+tests/unit/electron/djvuBuildOptimizedPdfNative.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 47,70,85,99,129
+electron/features/djvu/main/estimateSizes.ts
+  s_181b176e93d0e3::t_f3bd171375731e 1-378
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 158
+tests/unit/electron/netpbm.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 11
+electron/features/djvu/public.ts
+  s_181b176e93d0e3::t_93b593908dcb2e 34-38
+  s_181b176e93d0e3::t_ceb0575ce033cb 39
+  s_181b176e93d0e3::t_25b8946f8309f9 40
+tests/unit/electron/djvuPaths.test.ts
+  s_181b176e93d0e3::t_76be0ef0681d03 60,64
+  s_181b176e93d0e3::t_555f3e73779002 7,11
+  s_181b176e93d0e3::t_18a2df43c3586c 62
+tests/unit/electron/djvuIpcHandlers.test.ts
+  s_181b176e93d0e3::t_555f3e73779002 19,71-72,79,101,105
+electron/features/djvu/main/nativeToolPaths.ts
+  s_181b176e93d0e3::t_b696e556629b02 1-125
+electron/features/djvu/main/buildOptimizedPdf.ts
+  s_181b176e93d0e3::t_f3bd171375731e 1-137
+electron/features/djvu/main/getCachedDjvuHasText.ts
+  s_181b176e93d0e3::t_f3bd171375731e 1-182
+electron/features/djvu/main/metadata.ts
+  s_181b176e93d0e3::t_f3bd171375731e 1-147
+electron/features/image-export/main/djvuImageExport.ts
+  s_181b176e93d0e3::t_813f7dac975887 17
+scripts/windows-test/registry/changeSelector.ts
+  s_181b176e93d0e3::t_830cceeb5f283b 113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2f48e8670e1db18360106a60567089ec7a590ee2",
+  "prompts": {},
+  "sessions": {
+    "s_181b176e93d0e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-ed7a-73f3-9752-1140df733125",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

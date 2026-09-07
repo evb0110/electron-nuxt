@@ -1,0 +1,30 @@
+docs/operations/sentry-runbook.md
+  s_9af6769b123cca::t_2568c00ec46356 289-292,299-301,308-310
+docs/operations/sentry-account-controls.md
+  s_9af6769b123cca::t_9dcad8fe91ac37 131-135
+README.md
+  s_9af6769b123cca::t_4e6191cd7b52b3 24-49
+docs/architecture/sentry-implementation-ledger-2026-09-01.md
+  s_9af6769b123cca::t_2568c00ec46356 1944-1954
+  s_9af6769b123cca::t_adb385d906e657 1976-1977,1994-1996,2001-2006
+  s_9af6769b123cca::t_3e9b7706a23005 1973-1975
+  s_9af6769b123cca::t_81a1eb7050a67b 1978
+docs/operations/sentry-agent-check.md
+  s_9af6769b123cca::t_2568c00ec46356 136-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "75ce4da792f0a1094b56dc3791360d8a2bf99d6a",
+  "prompts": {},
+  "sessions": {
+    "s_9af6769b123cca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0762b-3722-7670-b9a9-ffe5a696d53e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

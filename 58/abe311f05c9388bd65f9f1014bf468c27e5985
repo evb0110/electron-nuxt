@@ -1,0 +1,42 @@
+tests/unit/contracts/pdfBookmarks.test.ts
+  s_0afd208e8e7201::t_cda4a7f6a6c5e3 21-22
+tests/unit/contracts/agentPlatformFeature.test.ts
+  s_0afd208e8e7201::t_cda4a7f6a6c5e3 13,208-209,211
+  s_0afd208e8e7201::t_fd3795783af6ba 12
+tests/helpers/textHighlightStagedSaveHarness.ts
+  s_0afd208e8e7201::t_6ceb13e85aa890 72-96,236,267,274,308,409,428,449,518,520,523
+  s_0afd208e8e7201::t_93a96b8732127d 8,27-30
+  s_0afd208e8e7201::t_d6cd2a87f1c9d4 269-270,273
+  s_0afd208e8e7201::t_8eb268870114b1 4
+tests/helpers/annotationRoundTripHarness.ts
+  s_0afd208e8e7201::t_a12ddeb879b5a2 20,25-55,144,151,250-254,267-268
+  s_0afd208e8e7201::t_8eb268870114b1 265-266,269,275,284-285
+  s_0afd208e8e7201::t_d6cd2a87f1c9d4 146-147,150,276-283,287-291
+tests/unit/scripts/electronRunRendererReadiness.test.ts
+  s_0afd208e8e7201::t_cda4a7f6a6c5e3 28-30,33,45,55
+tests/helpers/renderPdfCanvasFidelityMetrics.ts
+  s_0afd208e8e7201::t_38d4e2b20e6975 31
+  s_0afd208e8e7201::t_d6cd2a87f1c9d4 12,33-34,43,53-60,64-68
+  s_0afd208e8e7201::t_8eb268870114b1 52,61-62
+tests/unit/contracts/djvuPlatformFeature.test.ts
+  s_0afd208e8e7201::t_cda4a7f6a6c5e3 20-21,90,94-95,97,102-104,113-117,119,121-122,124,184,188-189,191,216-217,219,235,239-240,242,281,285-286,288
+tests/helpers/createPdfDocumentProxy.ts
+  s_0afd208e8e7201::t_93a96b8732127d 3
+  s_0afd208e8e7201::t_38d4e2b20e6975 4-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "58abe311f05c9388bd65f9f1014bf468c27e5985",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,83 @@
+tests/unit/app/platform/browserWindowTabs.test.ts
+  s_0afd208e8e7201::t_cc8fa61a6908e2 69,76-79,108,455,458,477,484
+tests/unit/app/platform/djvuWorker.test.ts
+  s_0afd208e8e7201::t_b9abd7139d177e 601,656,734,848,850
+  s_0afd208e8e7201::t_a29b359e4e30db 78
+tests/unit/app/composables/pdfSaveDocument.test.ts
+  s_0afd208e8e7201::t_b5e8f85f98c7a8 11-17,33-34,61-62,89,97-98,106,121-122,143
+tests/unit/app/composables/pdf/pdfAnnotationEditorUtils.test.ts
+  s_0afd208e8e7201::t_b5e8f85f98c7a8 1-2,4,29,39-40,46,52,56-58,63-68,70-72,83-86
+  s_0afd208e8e7201::t_521da4784fbc26 47-51
+  s_0afd208e8e7201::t_8803e83a4fd65f 73
+  s_0afd208e8e7201::t_d84cf4075fc68e 87
+tests/unit/app/platform/browserPlatformTestDoubles.ts
+  s_0afd208e8e7201::t_ca70988dd6368c 211,215
+  s_0afd208e8e7201::t_758188ea600aa0 494,497-498
+  s_0afd208e8e7201::t_d2a0c0b9138b0d 390-398,402-405,407-409,416,420,423,425-430
+  s_0afd208e8e7201::t_5832c55185db4b 1-3,121,124
+  s_0afd208e8e7201::t_4867115de1a0bd 22,25-27
+  s_0afd208e8e7201::t_08091859d654d7 140,143
+  s_0afd208e8e7201::t_70aaa7ae62c096 131-137,141-142,144-145,147,154-155,158,161,167-168,185,188-191,195,199-200,204-206,208-210,212-214,216-218,220-222,224
+  s_0afd208e8e7201::t_a26e556af830ff 24,28-47,49,54-118
+  s_0afd208e8e7201::t_00d9606a22a037 48,50-53,207,219,223,406,508
+  s_0afd208e8e7201::t_fb93c1fa62460f 228-233,237-249,251-257,265-269,273,276-277,280-281,286-287,290,297,300,304,308,311,319,322,325-335,339,342,345,349,352-386
+  s_0afd208e8e7201::t_1c1f01187119f6 122-123
+  s_0afd208e8e7201::t_d189a8519bba41 517,519,523
+  s_0afd208e8e7201::t_dae68752e5b55a 433,437-443,445,449,453,456-466,470-471,478-480,488-490
+tests/unit/app/platform/browserFilePickerAdapter.test.ts
+  s_0afd208e8e7201::t_521da4784fbc26 45
+  s_0afd208e8e7201::t_d36f46fc1b944f 37,40-41,46
+  s_0afd208e8e7201::t_ddbdaf096f1877 30-36,42-44
+tests/unit/app/utils/documentRefDiscrimination.test.ts
+  s_0afd208e8e7201::t_09e53d27a87b4b 21-25,37-40
+  s_0afd208e8e7201::t_0e02421ad2677f 20
+tests/unit/app/utils/pdfOutlineHelpers.test.ts
+  s_0afd208e8e7201::t_b10fbf27ce322c 12
+  s_0afd208e8e7201::t_c80ba5e9424d83 29-30,49,52-53,69,72-109,119-121,272,279,281,288-289
+  s_0afd208e8e7201::t_ddbdaf096f1877 54-55,57-59
+  s_0afd208e8e7201::t_959f5de2bf55fe 35-42,56
+  s_0afd208e8e7201::t_521da4784fbc26 113-116
+tests/unit/app/platform/browserDocumentIdb.test.ts
+  s_0afd208e8e7201::t_d36f46fc1b944f 19-23,55,59,67,70,72
+  s_0afd208e8e7201::t_8fdb351ba5a3ee 18
+tests/unit/app/utils/runtimeErrorFilter.test.ts
+  s_0afd208e8e7201::t_09e53d27a87b4b 8,18-25,31,36-42
+  s_0afd208e8e7201::t_758188ea600aa0 7,117-119
+tests/unit/app/utils/document-viewer/documentViewerChassisAuthority.test.ts
+  s_0afd208e8e7201::t_ca24683295d291 1-2,4,56-59,63,91-96,181-182,237
+  s_0afd208e8e7201::t_8803e83a4fd65f 38-42,51-54,139,180,197,233
+  s_0afd208e8e7201::t_ca70988dd6368c 43-50
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_0afd208e8e7201::t_c703f8b5ec67ac 10-11,43,49-56,61,63-64,66-67,131,138,168-169,172,174-178
+  s_0afd208e8e7201::t_8fd4e4ac88d0fe 57-60,62,65
+tests/unit/app/composables/usePdfBookmarkSerialization.test.ts
+  s_0afd208e8e7201::t_b5e8f85f98c7a8 11,13-32,42-47,60
+tests/unit/app/platform/browserPdfjsDocumentInit.test.ts
+  s_0afd208e8e7201::t_d36f46fc1b944f 108-110,146-148,173-175
+  s_0afd208e8e7201::t_758188ea600aa0 86
+  s_0afd208e8e7201::t_ddbdaf096f1877 107,145,172
+tests/unit/app/composables/pdfReloadWaiter.test.ts
+  s_0afd208e8e7201::t_b5e8f85f98c7a8 15,28,37,43,54,61,77,86,104,113,120
+tests/unit/app/composables/pdfPageBufferManager.test.ts
+  s_0afd208e8e7201::t_b5e8f85f98c7a8 1-2,13-20,31-42
+tests/unit/app/platform/pdfjsJbig2Consumer.test.ts
+  s_0afd208e8e7201::t_a29b359e4e30db 122-127
+  s_0afd208e8e7201::t_ddbdaf096f1877 20-34,136-138,140-141
+  s_0afd208e8e7201::t_1e3bcba8af558f 117,134-135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6ea504cbd2e94f4ede58052a21e97e68a71f4865",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

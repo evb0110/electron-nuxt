@@ -1,0 +1,31 @@
+tests/helpers/packageScriptCommands.ts
+  s_0afd208e8e7201::t_92bc1ee4e48d59 1
+  s_0afd208e8e7201::t_45c3d5bc8af854 2-34
+tests/unit/scripts/packageScripts.test.ts
+  s_0afd208e8e7201::t_b783e7315521ec 369-384,392-394
+  s_0afd208e8e7201::t_ace76dbb260b67 387-390
+  s_0afd208e8e7201::t_45c3d5bc8af854 9-12,368,385-386,391,395-396,411,460,473,493
+  s_0afd208e8e7201::t_69e68cf4af1ffe 492
+package.json
+  s_0afd208e8e7201::t_45c3d5bc8af854 70,72,77,83
+tests/unit/scripts/electronE2eSmokeConfig.test.ts
+  s_0afd208e8e7201::t_b783e7315521ec 272-273
+  s_0afd208e8e7201::t_c69272c662acaf 426-433
+  s_0afd208e8e7201::t_45c3d5bc8af854 10,263,267-269,377,379,381,383
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8de5d31b2262451e5870b2d09b5d414b3e4e69fd",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

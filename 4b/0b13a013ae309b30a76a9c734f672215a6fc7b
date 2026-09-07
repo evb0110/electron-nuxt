@@ -1,0 +1,26 @@
+docs/architecture/assistant-production-files.txt
+  s_c63d7a8363f7e9::t_13766add60eaa5 1-108
+CONTEXT.md
+  s_c63d7a8363f7e9::t_4087ca57dee5ff 81-102
+docs/adr/0004-assistant-is-optional-with-provider-adapters.md
+  s_c63d7a8363f7e9::t_4087ca57dee5ff 1-69,73,81-83,86-98,105-107,111-112,119-135
+  s_c63d7a8363f7e9::t_190986c168e7bd 70-72
+  s_c63d7a8363f7e9::t_5de9905b5ce98f 74-80
+  s_c63d7a8363f7e9::t_66db1a837d9b9d 84-85,99-104,108-110,113-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4b0b13a013ae309b30a76a9c734f672215a6fc7b",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

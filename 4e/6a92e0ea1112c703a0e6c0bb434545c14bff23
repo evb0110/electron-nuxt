@@ -1,0 +1,37 @@
+tests/unit/scripts/scanCleanupLineBudget.test.ts
+  s_2a795a6f32ad8d::t_d31133205b7210 41
+  s_2a795a6f32ad8d::t_a771be45703e33 181,196,215
+  s_2a795a6f32ad8d::t_9df06ce0c43595 232-235,253-260,279-282
+  s_2a795a6f32ad8d::t_0ca47d8128bf23 217,219-231,236-252,261-278
+  s_2a795a6f32ad8d::t_a7e130bfd4b50c 218
+scripts/scan-cleanup-line-budget.mjs
+  s_2a795a6f32ad8d::t_378d2f7af2d27f 311
+  s_2a795a6f32ad8d::t_9df06ce0c43595 344-346,378-379
+  s_2a795a6f32ad8d::t_fb6bfea122652d 317,377
+  s_2a795a6f32ad8d::t_315bd55739495e 312-316,318-323,326,328,333,340-343,347-351,366-367,369-370,373-376,380
+  s_c63d7a8363f7e9::t_b312eacfadfe2a 310
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4e6a92e0ea1112c703a0e6c0bb434545c14bff23",
+  "prompts": {},
+  "sessions": {
+    "s_2a795a6f32ad8d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-54c6-73f3-93f0-bd6a81b94e4d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+tests/unit/app/platform/browserDocumentsFileCapability.test.ts
+  s_0afd208e8e7201::t_d100ee29bcb622 28-101,225-235,307,399,968,999-1003,1039,1044-1049,1092-1093,1225-1226,1279,1282-1284,1375,1377-1379,1435-1436,1470,1473-1478,1521-1526,1528,1584,1587-1590,1592-1593,1713-1717
+tests/unit/app/platform/browserDocumentStore.test.ts
+  s_0afd208e8e7201::t_d100ee29bcb622 25-61,88,90,114,117,119,122,149,175,277,279,281,311,425-427,515-517,870-873,894,936,964,989,1018,1245,1249-1258,1340-1347,1352-1353,1430-1432,1434
+tests/unit/app/platform/browserImageExportCapability.test.ts
+  s_0afd208e8e7201::t_d100ee29bcb622 117-153,486-493,592-593,888-896,899
+tests/unit/app/platform/searchCapability.test.ts
+  s_0afd208e8e7201::t_d100ee29bcb622 10,30-48,152,490,495,567,625,627,650,671,685,724,849,1022,1024
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6ec79754529c261965ca8b77213f86f0145eca67",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

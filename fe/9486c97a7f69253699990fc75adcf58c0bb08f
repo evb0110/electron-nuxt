@@ -1,0 +1,45 @@
+tests/unit/scripts/scanCleanupLineBudget.test.ts
+  s_2a795a6f32ad8d::t_312a77f03ffae1 41-44,236-243,307-314,316,321-324,331-334,342
+  s_2a795a6f32ad8d::t_4627d7598ee614 9,47,89-109,225-235,244,306,315,317-320,325-330,335-341
+  s_2a795a6f32ad8d::t_eab95ba9091a0e 4,245-254,343
+  s_2a795a6f32ad8d::t_b2d80a10fb9247 255,344
+scan-cleanup-line-budget-baseline.json
+  s_2a795a6f32ad8d::t_15996420bf310e 3
+  s_2a795a6f32ad8d::t_303e134729d3c8 26
+scripts/scan-cleanup-line-budget.mjs
+  s_2a795a6f32ad8d::t_a2d92c1c01dca4 583-592,601-604
+  s_2a795a6f32ad8d::t_5413d88f300cdc 610,623
+  s_2a795a6f32ad8d::t_2a5f4e18e9ba7e 547,608-609,624-633,660-661,663,669-675,679-680,682-683,699-702,704-707,710-711,714
+  s_2a795a6f32ad8d::t_8fffbc1a69bd61 681,732-733,737-740,753,776-782
+  s_2a795a6f32ad8d::t_312a77f03ffae1 234-236,480-483,532-535,596-599
+  s_2a795a6f32ad8d::t_6abab5c9f10773 770,773
+  s_2a795a6f32ad8d::t_3c96bd7bf82db5 224-233,237-239,246-255
+  s_2a795a6f32ad8d::t_532868833e4ad2 3,22,479,493-497,499-502,510-514,523,527-531,536-546
+  s_2a795a6f32ad8d::t_081599f30e75df 498
+  s_2a795a6f32ad8d::t_bc3dc657c846a1 593-595,600
+  s_018fca800fff45::t_27eceb819b4468 548
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fe9486c97a7f69253699990fc75adcf58c0bb08f",
+  "prompts": {},
+  "sessions": {
+    "s_018fca800fff45": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077ec-6efd-75b1-9f8f-75fb221f1ed6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_2a795a6f32ad8d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-54c6-73f3-93f0-bd6a81b94e4d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

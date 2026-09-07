@@ -1,0 +1,19 @@
+docs/operations/sentry-account-controls.md
+  s_9af6769b123cca::t_85432f3b52826e 124,127-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "12c0d5cf45f0c0621fa1cd5582fa93120498b56f",
+  "prompts": {},
+  "sessions": {
+    "s_9af6769b123cca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0762b-3722-7670-b9a9-ffe5a696d53e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

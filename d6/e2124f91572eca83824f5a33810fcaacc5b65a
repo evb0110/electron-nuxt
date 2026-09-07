@@ -1,0 +1,57 @@
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_2a795a6f32ad8d::t_03333c2c5e3517 469
+scan-cleanup-line-budget-baseline.json
+  s_2a795a6f32ad8d::t_5820a0a169817b 3,26
+scripts/scan-cleanup-line-budget.mjs
+  s_2a795a6f32ad8d::t_acdeb40e24550c 52,57,137,140,162,164,166,365,417,434
+  s_2a795a6f32ad8d::t_4cf5f8b2930492 167-170,174-177,321-323,367-372,374-377,388-391,420-422,424-428,437-444,453-455,461
+  s_2a795a6f32ad8d::t_22d0246cce6330 456-460
+  s_2a795a6f32ad8d::t_d4d03dfd22238c 2
+  s_2a795a6f32ad8d::t_ae3a73ceb8faf4 53-56,58-108,110-136,138-139,141-161,163,165,171-173,178
+  s_2a795a6f32ad8d::t_e23e05e89cd15c 109
+  s_2a795a6f32ad8d::t_938bb691ea88b8 281,284-288,307,310,320,324-329
+  s_2a795a6f32ad8d::t_7aeeb3e1fa76d5 366,373,378-387,392-393,418-419,423,429-433,435-436,445-447,449,451-452,462-464,466,489-490,494,506
+  s_2a795a6f32ad8d::t_f1f073a453ccff 448,450,465
+  s_2a795a6f32ad8d::t_0cbde57fb20b4f 508-510
+  s_c63d7a8363f7e9::t_402f06ac3238f3 179,467,507
+docs/local-gates.md
+  s_2a795a6f32ad8d::t_3f7f562fe918d3 131-143
+tests/unit/scripts/scanCleanupLineBudget.test.ts
+  s_2a795a6f32ad8d::t_60d5c6589ee251 32-37
+  s_2a795a6f32ad8d::t_0eedc9c6e662a6 89,104-105
+  s_2a795a6f32ad8d::t_ed6eb782d6582a 106,108,123,140-150,155-157,162-164,169-173,245-261
+  s_2a795a6f32ad8d::t_57687e69e710b0 109-116,119-122
+  s_2a795a6f32ad8d::t_6943d6cc187ff0 118
+  s_2a795a6f32ad8d::t_f38fb2bdfb2d77 124-139
+  s_2a795a6f32ad8d::t_e23e05e89cd15c 117
+  s_2a795a6f32ad8d::t_4cf5f8b2930492 28-31,38-41,151-154,158-161,165-168,174-177
+  s_2a795a6f32ad8d::t_219ef118c10402 107
+.github/workflows/ci.yml
+  s_2a795a6f32ad8d::t_f1f073a453ccff 129-134
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_2a795a6f32ad8d::t_f1f073a453ccff 1857-1860
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d6e2124f91572eca83824f5a33810fcaacc5b65a",
+  "prompts": {},
+  "sessions": {
+    "s_2a795a6f32ad8d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-54c6-73f3-93f0-bd6a81b94e4d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

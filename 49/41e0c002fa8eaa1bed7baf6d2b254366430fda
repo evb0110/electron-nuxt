@@ -1,0 +1,25 @@
+scripts/scan-cleanup-line-budget.mjs
+  s_2a795a6f32ad8d::t_ed6ac0dbf2b92e 389,392
+  s_2a795a6f32ad8d::t_e9882d7942ba98 24,360-366,387-388,395-399
+tests/unit/scripts/scanCleanupLineBudget.test.ts
+  s_2a795a6f32ad8d::t_6cbbf53fe4c6c7 43-47,263-282
+  s_2a795a6f32ad8d::t_ce331d8223233c 261-262
+  s_2a795a6f32ad8d::t_e03e359306f562 322
+  s_2a795a6f32ad8d::t_521c910f6391b2 283-284
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4941e0c002fa8eaa1bed7baf6d2b254366430fda",
+  "prompts": {},
+  "sessions": {
+    "s_2a795a6f32ad8d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-54c6-73f3-93f0-bd6a81b94e4d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
