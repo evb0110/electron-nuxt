@@ -1,0 +1,36 @@
+native/scan-cleanup/src/engine/batch_reconciliation.rs
+  s_dcc6defac936b2::t_b91a52aa68f5ee 391-408
+  s_dcc6defac936b2::t_7311505eb3bd31 102
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_dcc6defac936b2::t_f6b7f0ff07bf18 3639
+  s_dcc6defac936b2::t_7311505eb3bd31 367-368
+  s_dcc6defac936b2::t_577c9d428c87da 3630-3631,3633-3638,3640-3642,3644,3646-3656,3660-3661
+  s_dcc6defac936b2::t_639b8c2db607d7 3632
+  s_dcc6defac936b2::t_be5f8d2d836993 3643,3645,3657-3659
+native/scan-cleanup/src/engine/staged_input.rs
+  s_dcc6defac936b2::t_7311505eb3bd31 361-362
+native/scan-cleanup/src/engine/resource_planning.rs
+  s_dcc6defac936b2::t_b91a52aa68f5ee 392,884-888,891-895,898-907,910-915,918-933,935-948
+  s_dcc6defac936b2::t_fbd0aaf9164dac 889-890,896-897,908-909,916-917
+  s_dcc6defac936b2::t_7585bcb30ed808 934
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_dcc6defac936b2::t_b91a52aa68f5ee 2475-2498
+  s_dcc6defac936b2::t_7311505eb3bd31 988-1003
+  ai_agent 1247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f7776d495f9887ea5a4fe4e4cafbcc2640780892",
+  "prompts": {},
+  "sessions": {
+    "s_dcc6defac936b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-6997-78f1-aa1b-45a3adb5a218",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
