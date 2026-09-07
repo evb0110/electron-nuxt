@@ -6,6 +6,7 @@ use std::{
     collections::HashSet,
     fs,
     path::{Component, Path, PathBuf},
+    sync::{Mutex, OnceLock},
 };
 
 pub const VERSION: u32 = 3;
@@ -146,7 +147,7 @@ pub enum RenderMode {
 pub use crate::domain::geometry::CanvasScope;
 
 #[derive(Clone, Copy, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 /// The one rectangle and pixel grid every matched output of this document is
 /// normalized onto. The owning process measures it from the source page
 /// geometry so a preview and the final run place their pages identically.
@@ -178,7 +179,7 @@ impl DocumentCanvas {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct PageOutput {
     pub output_path: PathBuf,
     pub metadata_path: PathBuf,
@@ -197,7 +198,7 @@ pub struct PageOutput {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct DetailPixelRect {
     pub x_px: f64,
     pub y_px: f64,
@@ -212,7 +213,7 @@ impl DetailPixelRect {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct DetailRenderPlan {
     pub base_metadata_path: PathBuf,
     pub base_raster_path: PathBuf,
@@ -230,7 +231,7 @@ pub struct DetailRenderPlan {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Page {
     pub input_path: PathBuf,
     /// Fixed-resolution PDF render that owns analysis and Auto-routing.
@@ -259,26 +260,21 @@ pub struct Page {
     pub outputs: Vec<PageOutput>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Clone, Debug)]
 pub struct ManifestV3 {
     pub version: u32,
     pub operation: Operation,
-    #[serde(default)]
     pub analysis_purpose: AnalysisPurpose,
     pub render_mode: RenderMode,
     pub canvas_scope: CanvasScope,
-    #[serde(default)]
     pub document_canvas: Option<DocumentCanvas>,
     /// Physical memory of the host that authored this manifest. The sidecar has
     /// no portable way to read it, so the owning process reports it here and the
     /// worker pool and stage cache are sized from it. Absent for direct CLI
     /// invocations, which then size themselves conservatively.
-    #[serde(default)]
     pub host_memory_bytes: Option<u64>,
     /// Bounded streamed-raster look-ahead. Direct CLI callers that do not
     /// coordinate producers retain the one-page acknowledgement turnstile.
-    #[serde(default = "default_raster_window")]
     pub raster_window: usize,
     /// Number of Analyze page inputs the owning process keeps staged at once.
     ///
@@ -290,7 +286,6 @@ pub struct ManifestV3 {
     /// released here is replayable rather than consumed, which is what keeps a
     /// bounded window from changing any classification. Absent means every
     /// Analyze input must already exist, which is the direct-CLI contract.
-    #[serde(default)]
     pub staged_input_window: Option<usize>,
     /// Largest staged Analyze input the owning process will publish, in pixels.
     ///
@@ -299,10 +294,292 @@ pub struct ManifestV3 {
     /// decision is made. The producer already knows every page's raster
     /// geometry, so it declares the document's peak here and the memory-derived
     /// bound stays a document fact instead of a staging-order accident.
-    #[serde(default)]
     pub staged_input_peak_pixels: Option<u64>,
-    #[serde(deserialize_with = "deserialize_manifest_pages")]
     pub pages: Vec<Page>,
+}
+
+const MANIFEST_DIAGNOSTICS_ENV: &str = "EVB_SCAN_CLEANUP_PROTOCOL_DIAGNOSTICS";
+
+fn manifest_diagnostic_fields() -> &'static Mutex<HashSet<String>> {
+    static FIELDS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    FIELDS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn log_unknown_manifest_field(path: &str) {
+    if std::env::var_os(MANIFEST_DIAGNOSTICS_ENV).is_none() {
+        return;
+    }
+    let mut fields = manifest_diagnostic_fields()
+        .lock()
+        .expect("manifest diagnostics lock is not poisoned");
+    if fields.insert(path.to_string()) {
+        eprintln!("scan-cleanup manifest ignored unknown field: {path}");
+    }
+}
+
+fn allowed_manifest_fields(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "manifest" => &[
+            "version",
+            "operation",
+            "analysisPurpose",
+            "renderMode",
+            "canvasScope",
+            "documentCanvas",
+            "hostMemoryBytes",
+            "rasterWindow",
+            "stagedInputWindow",
+            "stagedInputPeakPixels",
+            "pages",
+        ],
+        "canvas" => &["widthPoints", "heightPoints", "widthPx", "heightPx"],
+        "page" => &[
+            "inputPath",
+            "analysisInputPath",
+            "analysisDpi",
+            "trustedForegroundMaskPath",
+            "trustedMrcBackgroundPath",
+            "sourcePageIndex",
+            "pageMetadataPath",
+            "options",
+            "documentPrior",
+            "detailRenderPlan",
+            "outputs",
+        ],
+        "output" => &[
+            "outputPath",
+            "metadataPath",
+            "bilevelOutputPath",
+            "backgroundOutputPath",
+            "foregroundMaskOutputPath",
+            "foregroundAlphaOutputPath",
+            "pictureMaskOutputPath",
+            "tonePreservationAlphaOutputPath",
+        ],
+        "detail" => &[
+            "baseMetadataPath",
+            "baseRasterPath",
+            "baseCleanedRasterPath",
+            "sourceCrop",
+            "fullSourceWidthPx",
+            "fullSourceHeightPx",
+            "scale",
+            "renderRegion",
+            "sampledRegion",
+        ],
+        "rect" => &["xPx", "yPx", "widthPx", "heightPx"],
+        "prior" => &[
+            "dominantLayout",
+            "cutterRatioMedian",
+            "clusterDims",
+            "agreementStrength",
+            "strokeWidthMedianPx",
+            "xHeightMedianPx",
+        ],
+        "cluster" => &["widthPx", "heightPx"],
+        "options" => &[
+            "dpi",
+            "sourceDpi",
+            "sourceHasBilevelLayer",
+            "sourceBackgroundDpi",
+            "trustedSelectionIncomplete",
+            "requestedRenderDpi",
+            "renderCrop",
+            "binarization",
+            "thickness",
+            "normalizeIllumination",
+            "despeckle",
+            "despeckleLevel",
+            "outputMode",
+            "preferSoftAlphaForeground",
+            "resolvedTextToneDiagnostics",
+            "ocrMode",
+            "layout",
+            "manualSplit",
+            "automaticSplit",
+            "manualSkewDegrees",
+            "manualContentBoxes",
+            "automaticSkewDegrees",
+            "automaticContentBoxes",
+            "manualZones",
+            "cropContent",
+            "matchPageSize",
+            "pageAlignment",
+            "placementOverrides",
+            "placementAnchors",
+            "margins",
+            "dewarp",
+            "experimental",
+            "rotationDegrees",
+            "excluded",
+            "skipBlankPages",
+            "maxPixels",
+            "maxDimensionPx",
+        ],
+        "normalizedRect" => &[
+            "xNormalized",
+            "yNormalized",
+            "widthNormalized",
+            "heightNormalized",
+            "rotationDegrees",
+        ],
+        "normalizedSplit" => &["xNormalized", "rotationDegrees"],
+        "contentBoxes" | "placementOverrides" | "placementAnchors" => &["full", "left", "right"],
+        "automaticSkew" => &["full", "left", "right"],
+        "manualZones" => &["picture", "fill"],
+        "pictureZone" => &["polygon", "layer"],
+        "polygon" => &["points", "rotationDegrees"],
+        "point" => &["x", "y"],
+        "normalizedPoint" => &["xNormalized", "yNormalized"],
+        "anchor" => &["yNormalized"],
+        "margins" => &["leftMm", "topMm", "rightMm", "bottomMm"],
+        "dewarp" => &["topCurve", "bottomCurve", "depth"],
+        "experimental" => &["autoDewarp", "autoDewarpDepth"],
+        "textDiagnostics" => &["full", "left", "right"],
+        "textDiagnostic" => &[
+            "applied",
+            "rule",
+            "textLineCount",
+            "textInkPixels",
+            "pictureFraction",
+            "outsideMidtoneFraction",
+            "outsideMidtoneLargestComponentFraction",
+            "outsideMidtoneLargestComponentWidthFraction",
+            "outsideMidtoneLargestComponentHeightFraction",
+            "inkAnchor",
+            "blackPoint",
+            "slope",
+        ],
+        _ => &[],
+    }
+}
+
+fn sanitize_manifest_value(value: &mut serde_json::Value, kind: &str, path: &str) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    let allowed = allowed_manifest_fields(kind);
+    let unknown = object
+        .keys()
+        .filter(|key| !allowed.contains(&key.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    for key in unknown {
+        object.remove(&key);
+        log_unknown_manifest_field(&format!("{path}.{key}"));
+    }
+    let child_kind = |key: &str| match (kind, key) {
+        ("manifest", "documentCanvas") => Some("canvas"),
+        ("manifest", "pages") => Some("page[]"),
+        ("page", "options") => Some("options"),
+        ("page", "documentPrior") => Some("prior"),
+        ("page", "detailRenderPlan") => Some("detail"),
+        ("page", "outputs") => Some("output[]"),
+        ("detail", "sourceCrop" | "renderRegion" | "sampledRegion") => Some("rect"),
+        ("prior", "clusterDims") => Some("cluster"),
+        ("options", "renderCrop") => Some("normalizedRect"),
+        ("options", "manualSplit" | "automaticSplit") => Some("normalizedSplit"),
+        ("options", "manualContentBoxes" | "automaticContentBoxes") => Some("contentBoxes"),
+        ("options", "automaticSkewDegrees") => Some("automaticSkew"),
+        ("options", "manualZones") => Some("manualZones"),
+        ("options", "placementOverrides") => Some("placementOverrides"),
+        ("options", "placementAnchors") => Some("placementAnchors"),
+        ("options", "margins") => Some("margins"),
+        ("options", "dewarp") => Some("dewarp"),
+        ("options", "experimental") => Some("experimental"),
+        ("options", "resolvedTextToneDiagnostics") => Some("textDiagnostics"),
+        ("contentBoxes" | "automaticSkew" | "placementOverrides", "full" | "left" | "right") => {
+            Some(if kind == "placementOverrides" {
+                "scalar"
+            } else {
+                "normalizedRect"
+            })
+        }
+        ("placementAnchors", "full" | "left" | "right") => Some("anchor"),
+        ("manualZones", "picture") => Some("pictureZone[]"),
+        ("manualZones", "fill") => Some("polygon[]"),
+        ("pictureZone", "polygon") => Some("polygon"),
+        ("polygon", "points") => Some("normalizedPoint[]"),
+        ("dewarp", "topCurve" | "bottomCurve") => Some("point[]"),
+        ("textDiagnostics", "full" | "left" | "right") => Some("textDiagnostic"),
+        ("polygon", "rotationDegrees") => Some("scalar"),
+        _ => None,
+    };
+    for (key, child) in object.iter_mut() {
+        let Some(child_kind) = child_kind(key) else {
+            continue;
+        };
+        let child_path = format!("{path}.{key}");
+        if let Some(array_kind) = child_kind.strip_suffix("[]") {
+            if let Some(items) = child.as_array_mut() {
+                for (index, item) in items.iter_mut().enumerate() {
+                    sanitize_manifest_value(item, array_kind, &format!("{child_path}[{index}]"));
+                }
+            }
+        } else if child_kind != "scalar" {
+            sanitize_manifest_value(child, child_kind, &child_path);
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ManifestV3Wire {
+    version: u32,
+    operation: Operation,
+    #[serde(default)]
+    analysis_purpose: AnalysisPurpose,
+    render_mode: RenderMode,
+    canvas_scope: CanvasScope,
+    #[serde(default)]
+    document_canvas: Option<DocumentCanvas>,
+    #[serde(default)]
+    host_memory_bytes: Option<u64>,
+    #[serde(default = "default_raster_window")]
+    raster_window: usize,
+    #[serde(default)]
+    staged_input_window: Option<usize>,
+    #[serde(default)]
+    staged_input_peak_pixels: Option<u64>,
+    #[serde(deserialize_with = "deserialize_manifest_pages")]
+    pages: Vec<Page>,
+}
+
+impl From<ManifestV3Wire> for ManifestV3 {
+    fn from(value: ManifestV3Wire) -> Self {
+        Self {
+            version: value.version,
+            operation: value.operation,
+            analysis_purpose: value.analysis_purpose,
+            render_mode: value.render_mode,
+            canvas_scope: value.canvas_scope,
+            document_canvas: value.document_canvas,
+            host_memory_bytes: value.host_memory_bytes,
+            raster_window: value.raster_window,
+            staged_input_window: value.staged_input_window,
+            staged_input_peak_pixels: value.staged_input_peak_pixels,
+            pages: value.pages,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ManifestV3 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if std::env::var_os(MANIFEST_DIAGNOSTICS_ENV).is_some() {
+            manifest_diagnostic_fields()
+                .lock()
+                .expect("manifest diagnostics lock is not poisoned")
+                .clear();
+        }
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        sanitize_manifest_value(&mut value, "manifest", "$");
+        ManifestV3Wire::deserialize(value)
+            .map(Into::into)
+            .map_err(|error| serde::de::Error::custom(error.to_string()))
+    }
 }
 
 impl ManifestV3 {
@@ -727,6 +1004,30 @@ mod tests {
     }
 
     #[test]
+    fn shipped_skew_fixtures_round_trip_through_the_same_manifest_contract() {
+        let fixture_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../protocol-fixtures");
+        let older = serde_json::from_slice::<ManifestV3>(
+            &std::fs::read(fixture_dir.join("scan-cleanup-manifest-v3-older-to-newer.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        let newer = serde_json::from_slice::<ManifestV3>(
+            &std::fs::read(fixture_dir.join("scan-cleanup-manifest-v3-newer-to-older.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        older.validate().unwrap();
+        newer.validate().unwrap();
+        assert_eq!(older.pages.len(), newer.pages.len());
+        assert_eq!(older.pages[0].input_path, newer.pages[0].input_path);
+        assert_eq!(
+            serde_json::to_value(&older.pages[0].options).unwrap(),
+            serde_json::to_value(&newer.pages[0].options).unwrap(),
+        );
+    }
+
+    #[test]
     fn manifest_page_limit_is_per_batch_and_page_numbers_have_no_20000_cap() {
         let bytes = std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -746,17 +1047,25 @@ mod tests {
     }
 
     #[test]
-    fn every_manifest_level_rejects_unknown_fields() {
+    fn additive_unknown_fields_are_ignored_at_every_manifest_level() {
         let json = r#"{
             "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
             "pages":[{"inputPath":"in.png","sourcePageIndex":0,"pageMetadataPath":"page.json",
               "outputs":[],"options":{"unknownOption":true}}]
         }"#;
-        assert!(serde_json::from_str::<ManifestV3>(json).is_err());
+        let field_free = json.replace(",\"options\":{\"unknownOption\":true}", ",\"options\":{}");
+        let with_nested_unknown = json.replace(
+            "\"unknownOption\":true",
+            "\"unknownOption\":true,\"nested\":{\"unknown\":true}",
+        );
+        let baseline = serde_json::from_str::<ManifestV3>(&field_free).unwrap();
+        let nested = serde_json::from_str::<ManifestV3>(&with_nested_unknown).unwrap();
+        assert_eq!(nested.pages.len(), baseline.pages.len());
+        assert_eq!(nested.pages[0].input_path, baseline.pages[0].input_path);
         let root_unknown = json.replace("\"pages\"", "\"unknownRoot\":true,\"pages\"");
-        assert!(serde_json::from_str::<ManifestV3>(&root_unknown).is_err());
+        assert!(serde_json::from_str::<ManifestV3>(&root_unknown).is_ok());
         let page_unknown = json.replace("\"outputs\":[]", "\"unknownPage\":true,\"outputs\":[]");
-        assert!(serde_json::from_str::<ManifestV3>(&page_unknown).is_err());
+        assert!(serde_json::from_str::<ManifestV3>(&page_unknown).is_ok());
     }
 
     #[test]

@@ -18,13 +18,14 @@ export interface IRunNativeToolCommandOptions {
     allowedExitCodes?: number[];
     signal?: AbortSignal;
     cancelGroup?: string;
+    requiredCapabilities?: readonly string[];
     commandLabel?: string;
     onStdout?: (chunk: string) => void;
     onSpawn?: (pid: number) => void;
     log?: (level: 'debug' | 'warn' | 'error', message: string) => void;
 }
 
-class NativeToolProtocolVersionError extends Error {
+export class NativeToolProtocolVersionError extends Error {
     readonly toolName: string;
     readonly expectedVersion: number;
     readonly actualVersion: string;
@@ -38,7 +39,47 @@ class NativeToolProtocolVersionError extends Error {
     }
 }
 
+export class NativeToolProtocolCapabilityError extends Error {
+    readonly toolName: string;
+    readonly capability: string | null;
+
+    constructor(toolName: string, message: string, capability: string | null = null) {
+        super(`${toolName} native protocol capability negotiation failed: ${message}`);
+        this.name = 'NativeToolProtocolCapabilityError';
+        this.toolName = toolName;
+        this.capability = capability;
+    }
+}
+
+export interface INativeToolProtocolCapability {
+    name: string;
+    required: boolean;
+    introducedIn: number;
+}
+
+export interface INativeToolProtocolHandshake {
+    protocolVersion: number;
+    capabilities: readonly string[];
+}
+
+const nativeToolProtocolCapabilities = new Map<string, readonly INativeToolProtocolCapability[]>([[
+    'evb-scan-cleanup',
+    [
+        {
+            name: 'manifest-v3',
+            required: true,
+            introducedIn: 1,
+        },
+        {
+            name: 'structured-warning-events',
+            required: false,
+            introducedIn: 10,
+        },
+    ],
+]]);
+
 const NATIVE_TOOL_PROTOCOL_VERSION_TIMEOUT_MS = 5_000;
+const MIN_COMPATIBLE_SCAN_CLEANUP_PROTOCOL_VERSION = 9;
 const expectedNativeToolProtocolVersions = new Map<string, number>(
     GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => [
         tool.binaryName,
@@ -47,7 +88,7 @@ const expectedNativeToolProtocolVersions = new Map<string, number>(
 );
 interface IProtocolHandshake {
     controller: AbortController;
-    promise: Promise<void>;
+    promise: Promise<INativeToolProtocolHandshake>;
     waiters: number;
 }
 
@@ -73,8 +114,9 @@ export async function verifyNativeToolProtocol(command: string, options: IRunNat
 
     const cachedHandshake = nativeToolProtocolHandshakeCache.get(command);
     if (cachedHandshake) {
-        await waitForProtocolHandshake(cachedHandshake, options.signal);
-        return;
+        const handshake = await waitForProtocolHandshake(cachedHandshake, options.signal);
+        assertRequiredCapabilities(toolName, handshake, options.requiredCapabilities);
+        return handshake;
     }
 
     const controller = new AbortController();
@@ -90,7 +132,9 @@ export async function verifyNativeToolProtocol(command: string, options: IRunNat
         waiters: 0,
     };
     nativeToolProtocolHandshakeCache.set(command, handshake);
-    await waitForProtocolHandshake(handshake, options.signal);
+    const result = await waitForProtocolHandshake(handshake, options.signal);
+    assertRequiredCapabilities(toolName, result, options.requiredCapabilities);
+    return result;
 }
 
 function waitForProtocolHandshake(handshake: IProtocolHandshake, signal: AbortSignal | undefined) {
@@ -114,7 +158,7 @@ function waitForProtocolHandshake(handshake: IProtocolHandshake, signal: AbortSi
         return Promise.reject(abortErrorFromSignal(signal));
     }
 
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<INativeToolProtocolHandshake>((resolve, reject) => {
         const handleAbort = () => {
             signal.removeEventListener('abort', handleAbort);
             release();
@@ -122,10 +166,10 @@ function waitForProtocolHandshake(handshake: IProtocolHandshake, signal: AbortSi
         };
         signal.addEventListener('abort', handleAbort, { once: true });
         void handshake.promise.then(
-            () => {
+            result => {
                 signal.removeEventListener('abort', handleAbort);
                 release();
-                resolve();
+                resolve(result);
             },
             (error: unknown) => {
                 signal.removeEventListener('abort', handleAbort);
@@ -147,7 +191,7 @@ async function runNativeToolProtocolHandshake(
     toolName: string,
     options: IRunNativeToolCommandOptions,
     signal: AbortSignal,
-) {
+): Promise<INativeToolProtocolHandshake> {
     const expectedVersion = expectedNativeToolProtocolVersions.get(toolName);
     if (expectedVersion === undefined) {
         throw new NativeToolProtocolVersionError(toolName, -1, 'unknown tool');
@@ -160,10 +204,72 @@ async function runNativeToolProtocolHandshake(
     commandOptions.maxStderrBytes = 4_096;
     commandOptions.allowedExitCodes = [0];
     const result = await runNativeCommand(command, ['--protocol-version'], commandOptions);
-    const actualVersionText = result.stdout.trim();
-    const actualVersion = Number.parseInt(actualVersionText, 10);
-    if (!Number.isSafeInteger(actualVersion) || actualVersion.toString() !== actualVersionText || actualVersion !== expectedVersion) {
-        throw new NativeToolProtocolVersionError(toolName, expectedVersion, actualVersionText || '<empty>');
+    const handshake = parseProtocolHandshake(toolName, expectedVersion, result.stdout.trim());
+    const knownCapabilities = nativeToolProtocolCapabilities.get(toolName) ?? [];
+    const capabilities = handshake.capabilities ?? knownCapabilities
+        .filter(capability => capability.introducedIn <= handshake.protocolVersion)
+        .map(capability => capability.name);
+    const missingRequired = knownCapabilities
+        .filter(capability => capability.required && capability.introducedIn <= handshake.protocolVersion)
+        .find(capability => !capabilities.includes(capability.name));
+    if (missingRequired !== undefined) {
+        throw new NativeToolProtocolCapabilityError(toolName, `required capability ${missingRequired.name} is missing`, missingRequired.name);
+    }
+    if (handshake.protocolVersion > expectedVersion) {
+        throw new NativeToolProtocolVersionError(toolName, expectedVersion, String(handshake.protocolVersion));
+    }
+    if (toolName === 'evb-scan-cleanup' && handshake.protocolVersion < MIN_COMPATIBLE_SCAN_CLEANUP_PROTOCOL_VERSION) {
+        throw new NativeToolProtocolVersionError(toolName, expectedVersion, String(handshake.protocolVersion));
+    }
+    return {
+        protocolVersion: handshake.protocolVersion,
+        capabilities,
+    };
+}
+
+function parseProtocolHandshake(toolName: string, expectedVersion: number, text: string): {
+    protocolVersion: number;
+    capabilities?: string[] | undefined
+} {
+    const version = Number.parseInt(text, 10);
+    if (Number.isSafeInteger(version) && version.toString() === text) {
+        if (version < 1) {
+            throw new NativeToolProtocolVersionError(toolName, expectedVersion, text || '<empty>');
+        }
+        return {protocolVersion: version};
+    }
+    let value: unknown;
+    try {
+        value = JSON.parse(text);
+    } catch {
+        throw new NativeToolProtocolVersionError(toolName, expectedVersion, text || '<empty>');
+    }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        throw new NativeToolProtocolCapabilityError(toolName, 'handshake must be an object');
+    }
+    const record = value as Record<string, unknown>;
+    if (!Number.isSafeInteger(record.protocolVersion) || typeof record.protocolVersion !== 'number') {
+        throw new NativeToolProtocolCapabilityError(toolName, 'protocolVersion must be a safe integer');
+    }
+    if (record.capabilities !== undefined
+        && (!Array.isArray(record.capabilities) || record.capabilities.some(capability => typeof capability !== 'string' || capability.length === 0))) {
+        throw new NativeToolProtocolCapabilityError(toolName, 'capabilities must be a list of non-empty names');
+    }
+    return {
+        protocolVersion: record.protocolVersion,
+        capabilities: record.capabilities as string[] | undefined,
+    };
+}
+
+function assertRequiredCapabilities(
+    toolName: string,
+    handshake: INativeToolProtocolHandshake,
+    requiredCapabilities: readonly string[] | undefined,
+) {
+    for (const capability of requiredCapabilities ?? []) {
+        if (!handshake.capabilities.includes(capability)) {
+            throw new NativeToolProtocolCapabilityError(toolName, `required capability ${capability} is missing`, capability);
+        }
     }
 }
 
