@@ -1,6 +1,7 @@
 mod tests {
     use super::*;
     use crate::bw::{binarize_normalized, rescue_component_scoped_faint_strokes};
+    use crate::protocol::manifest_v3::CanvasScope;
     use crate::split::{FoldBand, FoldBandUnmeasuredReason};
     use jpeg_encoder::{ColorType, Encoder as JpegEncoder, SamplingFactor};
     use std::io::Cursor;
@@ -23,6 +24,107 @@ mod tests {
         let decoded = decoder.decode().unwrap();
         assert_eq!(decoded.len(), source.width() * source.height());
         GrayImage::from_vec(source.width(), source.height(), source.width(), decoded).unwrap()
+    }
+
+    #[test]
+    fn semantic_region_output_maps_payload_and_metadata_once() {
+        let mut color = RgbImage::new(2, 2, [0, 0, 0]);
+        color.set(1, 0, [12, 34, 56]);
+        let output = map_region_semantic_output(region_rendering::RegionSemanticOutput {
+            image: CleanupRaster::Bilevel(BinaryImage::new(2, 2)),
+            color_image: Some(color),
+            picture_mask: Some(BinaryImage::from_fn_parallel(2, 2, |x, y| x == 1 && y == 0)),
+            tone_preservation_alpha: Some(GrayImage::new(2, 2, 7)),
+            mixed_layers: None,
+            effectively_blank: true,
+            metadata: region_rendering::RegionSemanticMetadata {
+                source_page_index: 4,
+                half: PageHalf::Right,
+                detected_skew_degrees: 1.5,
+                skew_confidence: 0.8,
+                skew_applied: true,
+                manual_skew: false,
+                layout_classification: LayoutClassification::SingleUncutPage,
+                layout_confidence: 0.9,
+                cutter_x: Some(10.0),
+                split_geometry: Vec::new(),
+                split_seam: Some(region_rendering::RegionSeamPolyline {
+                    points: vec![Point::new(3.0, 4.0), Point::new(5.0, 6.0)],
+                }),
+                source_region: Rect::new(1.0, 2.0, 2.0, 2.0),
+                content_box: None,
+                crop_rect: Rect::new(0.0, 0.0, 2.0, 2.0),
+                content_diagnostics: None,
+                applied_margins: AppliedMargins::default(),
+                soft_margins_pixels: [1, 2, 3, 4],
+                uniform_canvas: true,
+                canvas_policy: MatchedCanvasPolicy::Intrinsic,
+                canvas_overflow: false,
+                matched_canvas_target_width: None,
+                matched_canvas_target_height: None,
+                matched_canvas_target_width_points: None,
+                matched_canvas_target_height_points: None,
+                matched_canvas_content_width: None,
+                matched_canvas_content_height: None,
+                matched_canvas_optical_placement: false,
+                matched_canvas_optical_content_left: None,
+                matched_canvas_optical_content_right: None,
+                matched_canvas_intrinsic_overflow_left: 0,
+                matched_canvas_intrinsic_overflow_right: 0,
+                matched_canvas_intrinsic_overflow_top: 0,
+                fold_clip_left: 0,
+                fold_clip_right: 0,
+                pdf_image_placement: None,
+                output_mode: OutputMode::Color,
+                bilevel_written: false,
+                layered_written: false,
+                layered_foreground_kind: None,
+                layered_background_dpi: None,
+                layered_foreground_dpi: None,
+                trusted_mrc_background_preserved: false,
+                trusted_selection_applied: true,
+                illumination_normalized: true,
+                text_tone_diagnostics: None,
+                binarization_mode: None,
+                binarization_diagnostics: None,
+                ink_consistency_diagnostics: None,
+                despeckle_fallback: false,
+                forward_transform: None,
+                inverse_transform: None,
+                dewarp_model: None,
+                dewarp_mapping: None,
+                dewarp_confidence: None,
+                input_width: 2,
+                input_height: 2,
+                output_width: 2,
+                output_height: 2,
+                intrinsic_raster_width: Some(2),
+                intrinsic_raster_height: Some(2),
+                render_region: None,
+                canvas_width: 2,
+                canvas_height: 2,
+                placement_offset_x: 0,
+                placement_offset_y: 0,
+                rotation: OrthogonalRotation::None,
+                resample_passes: 1,
+                source_dpi: 300.0,
+                render_dpi: 300.0,
+                requested_render_dpi: 300.0,
+                raster_scale_limited: false,
+                warnings: vec!["first warning".to_owned(), "second warning".to_owned()],
+                warning_events: Vec::new(),
+            },
+        });
+
+        assert!(output.effectively_blank);
+        assert_eq!(output.metadata.canvas_scope, CanvasScope::Page);
+        assert_eq!(output.metadata.warnings, ["first warning", "second warning"]);
+        assert_eq!(output.metadata.source_page_index, 4);
+        assert_eq!(output.metadata.half, PageHalf::Right);
+        assert_eq!(output.metadata.split_seam.unwrap().points.len(), 2);
+        assert_eq!(output.color_image.expect("mapped color plane").get(1, 0), [12, 34, 56]);
+        assert_eq!(output.picture_mask.expect("mapped picture mask").count_black(), 1);
+        assert_eq!(output.tone_preservation_alpha.expect("mapped alpha").get(0, 0), 7);
     }
 
     fn thin_stroke_fixture() -> (GrayImage, Vec<(usize, usize)>) {
