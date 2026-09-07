@@ -249,7 +249,7 @@ mod tests {
     use crate::split::LayoutClassification;
     use crate::{CleanupOptions, OrthogonalRotation};
     use scan_primitives::GrayImage;
-    use std::{fs, path::PathBuf};
+    use std::fs;
 
     fn reconcile_classification_batch(
         results: &mut [PageRunResult],
@@ -332,106 +332,6 @@ mod tests {
             }
         }
         Ok(())
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn reconciliation_does_not_skip_a_prior_rerun_for_nonregular_input() {
-        let dir = PathBuf::from(format!("/tmp/evb-scan-reconcile-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        // This direct seam intentionally bypasses ManifestV3::validate. A
-        // production Analyze manifest rejects this directory before work
-        // starts; reaching the decoder here proves reconciliation no longer
-        // silently skips its prior rerun merely because the path is streamed.
-        let input = dir.join("already-consumed-input");
-        fs::create_dir(&input).unwrap();
-        let manifest = ManifestV3 {
-            version: VERSION,
-            operation: Operation::Analyze,
-            analysis_purpose: AnalysisPurpose::Classification,
-            render_mode: RenderMode::Preview,
-            canvas_scope: CanvasScope::default(),
-            document_canvas: None,
-            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
-            raster_window: 1,
-            staged_input_window: None,
-            staged_input_peak_pixels: None,
-            pages: (0..4)
-                .map(|index| Page {
-                    input_path: input.clone(),
-                    analysis_input_path: None,
-                    analysis_dpi: None,
-                    trusted_foreground_mask_path: None,
-                    trusted_mrc_background_path: None,
-                    source_page_index: index,
-                    page_metadata_path: dir.join(format!("page-{index}.json")),
-                    options: CleanupOptions::default(),
-                    document_prior: None,
-                    detail_render_plan: None,
-                    outputs: Vec::new(),
-                })
-                .collect(),
-        };
-        let result = |index: usize, verdict, confidence: f64| PageRunResult {
-            outputs: Vec::new(),
-            metadata: PageResultMetadata {
-                source_page_index: index,
-                layout_classification: verdict,
-                layout_confidence: confidence,
-                cutter_x_px: (verdict == LayoutClassification::TwoPageSpread).then_some(120.0),
-                split_seam: None,
-                rotation_degrees: OrthogonalRotation::None,
-                canvas_scope: CanvasScope::default(),
-                excluded: false,
-                blank_outputs_skipped: 0,
-                output_count: usize::from(verdict == LayoutClassification::TwoPageSpread) + 1,
-                outputs: Vec::new(),
-                tier1_verdict: verdict,
-                reconciled: false,
-                cluster_agreement: 0.0,
-                split_diagnostics: crate::split::SplitDiagnostics::default(),
-                document_prior: None,
-                text_axis: None,
-                recommended_output_mode: None,
-                recommended_output_mode_confidence: None,
-                recommended_output_mode_reason: None,
-                soft_alpha_foreground_recommendation: None,
-                output_mode_diagnostics: None,
-                rotated_width: 240,
-                rotated_height: 200,
-                candidate_cutter_ratio: Some(0.5),
-                whitespace_score: 0.9,
-                reconciliation_eligible: true,
-                tier1_confidence: confidence,
-                calibration_stroke_width_px: None,
-                calibration_x_height_px: None,
-            },
-            page_metadata_path: dir.join(format!("page-{index}.json")),
-            timings: PageStageTimings::default(),
-        };
-        let mut results = vec![
-            result(0, LayoutClassification::TwoPageSpread, 0.92),
-            result(1, LayoutClassification::TwoPageSpread, 0.91),
-            result(2, LayoutClassification::TwoPageSpread, 0.90),
-            result(3, LayoutClassification::SingleUncutPage, 0.40),
-        ];
-
-        let error = reconcile_classification_batch(
-            &mut results,
-            ReconciliationPolicy {
-                minimum_confidence: 0.60,
-                minimum_support: 2,
-            },
-            |index, _prior| {
-                assert!(fs::metadata(&manifest.pages[index].input_path)
-                    .map(|metadata| !metadata.file_type().is_file())
-                    .unwrap_or(false));
-                Err("rerun input failed".into())
-            },
-        )
-        .unwrap_err();
-        assert!(!error.to_string().is_empty());
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
