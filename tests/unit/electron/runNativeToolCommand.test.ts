@@ -267,6 +267,22 @@ describe('runNativeToolCommand', () => {
         });
     });
 
+    it('rejects lower revisions for tools without a capability fallback', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: '3\n',
+        });
+        const {verifyNativeToolProtocol} = await loadModule();
+
+        await expect(verifyNativeToolProtocol('/tools/evb-pdf-image-combine')).rejects.toMatchObject({
+            name: 'NativeToolProtocolVersionError',
+            toolName: 'evb-pdf-image-combine',
+            expectedVersion: 4,
+            actualVersion: '3',
+        });
+    });
+
     it('allows the legacy scan-cleanup revision with inferred optional capabilities', async () => {
         mocks.runNativeCommand.mockResolvedValueOnce({
             exitCode: 0,
