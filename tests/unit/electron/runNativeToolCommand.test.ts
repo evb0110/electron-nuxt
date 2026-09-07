@@ -267,10 +267,7 @@ describe('runNativeToolCommand', () => {
         });
     });
 
-    it('rejects the scan-cleanup revision that predates structured warning events', async () => {
-        // A sidecar from before the structured channel answers 9 and reports
-        // its placement conditions as English only. Electron aggregates by
-        // code, so that binary has to fail the handshake rather than run.
+    it('allows the legacy scan-cleanup revision with inferred optional capabilities', async () => {
         mocks.runNativeCommand.mockResolvedValueOnce({
             exitCode: 0,
             stderr: '',
@@ -278,8 +275,37 @@ describe('runNativeToolCommand', () => {
         });
         const {verifyNativeToolProtocol} = await loadModule();
 
-        await expect(verifyNativeToolProtocol('/tools/evb-scan-cleanup'))
-            .rejects.toThrow('expected 10, got 9');
+        await expect(verifyNativeToolProtocol('/tools/evb-scan-cleanup')).resolves.toEqual({
+            protocolVersion: 9,
+            capabilities: ['manifest-v3'],
+        });
+        await expect(verifyNativeToolProtocol('/tools/evb-scan-cleanup', {requiredCapabilities: ['structured-warning-events']})).rejects.toMatchObject({
+            name: 'NativeToolProtocolCapabilityError',
+            capability: 'structured-warning-events',
+        });
+    });
+
+    it('consumes structured capability names from a newer handshake', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: JSON.stringify({
+                protocolVersion: 10,
+                capabilities: [
+                    'manifest-v3',
+                    'structured-warning-events',
+                ],
+            }) + '\n',
+        });
+        const {verifyNativeToolProtocol} = await loadModule();
+
+        await expect(verifyNativeToolProtocol('/tools/evb-scan-cleanup', {requiredCapabilities: ['structured-warning-events']})).resolves.toEqual({
+            protocolVersion: 10,
+            capabilities: [
+                'manifest-v3',
+                'structured-warning-events',
+            ],
+        });
     });
 
     it('reports empty and unknown native tool protocol responses', async () => {
