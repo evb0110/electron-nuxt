@@ -40,6 +40,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     openAnnotationsTab,
+    openDocumentSidebarTab,
     openPdfInApp,
     saveViaVisibleToolbar,
     waitForPdfLoaded,
@@ -939,6 +940,211 @@ runLegacyFixtureDescribe('Electron E2E - #350 legacy saved notes', () => {
         await openAnnotationsTab(session.page);
         await expectCanonicalNoteSet(session.page, 'Legacy note 1 edited', false);
         await expectSavedLegacyPair(reopenThreePath, 'Legacy note 1 edited', '/Text', false);
+    }, TEST_TIMEOUT_MS);
+
+    it('dismisses the page note menu after a left click outside it', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Legacy note #350 Electron E2E session failed to start');
+        }
+
+        const fixturePath = copyFreshPdf(LEGACY_FIXTURE_PATH, 'context-menu-dismissal');
+        await openPdfInApp(session.page, fixturePath, 90_000);
+        await waitForPdfLoaded(session.page, 90_000);
+        await waitForViewerInteractive(session.page, 90_000);
+
+        const point = await session.page.evaluate(() => {
+            const page = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container--rendered');
+            if (!page) {
+                return null;
+            }
+            const rect = page.getBoundingClientRect();
+            return {
+                x: Math.min(rect.left + Math.max(24, rect.width * 0.72), window.innerWidth - 96),
+                y: Math.min(rect.top + Math.max(24, rect.height * 0.24), window.innerHeight - 96),
+            };
+        });
+        expect(point).not.toBeNull();
+        await session.page.mouse.click(point!.x, point!.y, {button: 'right'});
+        await session.page.waitForSelector('.annotation-context-menu', {
+            visible: true,
+            timeout: 30_000,
+        });
+
+        const outsidePoint = await session.page.evaluate(() => {
+            const page = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container--rendered');
+            const menu = document.querySelector<HTMLElement>('.annotation-context-menu');
+            if (!page || !menu) {
+                return null;
+            }
+            const pageRect = page.getBoundingClientRect();
+            const menuRect = menu.getBoundingClientRect();
+            return {
+                x: Math.max(pageRect.left + 24, menuRect.left - 20),
+                y: Math.min(pageRect.bottom - 24, Math.max(pageRect.top + 24, menuRect.top + 24)),
+            };
+        });
+        expect(outsidePoint).not.toBeNull();
+        await session.page.mouse.click(outsidePoint!.x, outsidePoint!.y);
+        const menuVisible = await session.page.evaluate(() => Boolean(
+            document.querySelector('.annotation-context-menu'),
+        ));
+        expect(menuVisible, JSON.stringify({outsidePoint})).toBe(false);
+
+        await openDocumentSidebarTab(session.page, 'Pages');
+        const thumbnail = await session.page.waitForSelector(
+            '.editor-pane.is-active .pdf-thumbnail[data-page="1"]',
+            {visible: true},
+        );
+        const thumbnailRect = await thumbnail!.boundingBox();
+        expect(thumbnailRect).not.toBeNull();
+        await session.page.mouse.click(
+            thumbnailRect!.x + thumbnailRect!.width / 2,
+            thumbnailRect!.y + thumbnailRect!.height / 2,
+            {button: 'right'},
+        );
+        await session.page.waitForSelector('.page-context-menu', {visible: true});
+        const pageMenuOutsidePoint = await session.page.evaluate(() => {
+            const menu = document.querySelector<HTMLElement>('.page-context-menu');
+            if (!menu) {
+                return null;
+            }
+            const rect = menu.getBoundingClientRect();
+            const x = rect.left > 24 ? rect.left - 20 : rect.right + 20;
+            return {
+                x,
+                y: Math.min(window.innerHeight - 24, rect.top + 24),
+            };
+        });
+        expect(pageMenuOutsidePoint).not.toBeNull();
+        await session.page.mouse.click(pageMenuOutsidePoint!.x, pageMenuOutsidePoint!.y);
+        const pageMenuVisible = await session.page.evaluate(() => Boolean(
+            document.querySelector('.page-context-menu'),
+        ));
+        expect(pageMenuVisible, JSON.stringify({pageMenuOutsidePoint})).toBe(false);
+    }, TEST_TIMEOUT_MS);
+
+    it('keeps note markers round and centered at normal and 218% zoom', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Legacy note #350 Electron E2E session failed to start');
+        }
+
+        const fixturePath = copyFreshPdf(LEGACY_FIXTURE_PATH, 'marker-appearance');
+        await openPdfInApp(session.page, fixturePath, 90_000);
+        await waitForPdfLoaded(session.page, 90_000);
+        await waitForViewerInteractive(session.page, 90_000);
+        await openAnnotationsTab(session.page);
+
+        const waitForMarkerLayout = () => session.page.waitForFunction(() => {
+            const marker = document.querySelector<HTMLElement>('.pdf-annotation-editor-note');
+            if (!marker) {
+                return false;
+            }
+            const rect = marker.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && Math.abs(rect.width - rect.height) < 0.5;
+        }, {timeout: 30_000});
+        const readMarkerAppearance = () => session.page.evaluate(() => {
+            const marker = document.querySelector<HTMLElement>('.pdf-annotation-editor-note');
+            if (!marker) {
+                return null;
+            }
+            const style = getComputedStyle(marker);
+            const rect = marker.getBoundingClientRect();
+            const offsetParent = marker.offsetParent?.getBoundingClientRect();
+            return {
+                borderRadius: style.borderRadius,
+                centerX: rect.left + rect.width / 2,
+                centerY: rect.top + rect.height / 2,
+                expectedCenterX: offsetParent ? offsetParent.left + marker.offsetLeft : null,
+                expectedCenterY: offsetParent ? offsetParent.top + marker.offsetTop : null,
+                height: rect.height,
+                left: rect.left,
+                outline: style.outlineStyle,
+                pointerEvents: style.pointerEvents,
+                top: rect.top,
+                transform: style.transform,
+                width: rect.width,
+            };
+        });
+
+        await waitForMarkerLayout();
+        const normal = await readMarkerAppearance();
+        expect(normal).toMatchObject({
+            outline: 'none',
+            pointerEvents: 'auto',
+        });
+        expect(normal?.transform).not.toBe('none');
+        expect(normal?.borderRadius).toBe('999px');
+        expect(Math.abs((normal?.centerX ?? 0) - (normal?.expectedCenterX ?? 0))).toBeLessThan(1);
+        expect(Math.abs((normal?.centerY ?? 0) - (normal?.expectedCenterY ?? 0))).toBeLessThan(1);
+        const normalLayoutMetric = await session.page.evaluate(() => {
+            const marker = document.querySelector<HTMLElement>('.pdf-annotation-editor-note');
+            const rect = marker?.getBoundingClientRect();
+            const parentRect = marker?.offsetParent?.getBoundingClientRect();
+            return JSON.stringify({
+                centerX: rect?.left,
+                centerY: rect?.top,
+                parentWidth: parentRect?.width,
+                parentHeight: parentRect?.height,
+            });
+        });
+
+        const zoomButton = await session.page.evaluate(() => {
+            const button = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display'))
+                .find(candidate => {
+                    const rect = candidate.getBoundingClientRect();
+                    const style = getComputedStyle(candidate);
+                    return rect.width > 0
+                        && rect.height > 0
+                        && style.visibility !== 'hidden'
+                        && style.display !== 'none';
+                });
+            if (!button) {
+                return null;
+            }
+            const rect = button.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        });
+        expect(zoomButton).not.toBeNull();
+        await session.page.mouse.click(zoomButton!.x, zoomButton!.y);
+        const customZoom = await session.page.waitForSelector('.zoom-chip-custom-input', {visible: true});
+        expect(customZoom).not.toBeNull();
+        await customZoom!.click();
+        await session.page.keyboard.down('Control');
+        await session.page.keyboard.press('A');
+        await session.page.keyboard.up('Control');
+        await session.page.keyboard.type('218');
+        await session.page.keyboard.press('Enter');
+        await session.page.waitForFunction(() => (
+            document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === '218%'
+        ), {timeout: 30_000});
+
+        await session.page.waitForFunction((before: string) => {
+            const marker = document.querySelector<HTMLElement>('.pdf-annotation-editor-note');
+            const rect = marker?.getBoundingClientRect();
+            const parentRect = marker?.offsetParent?.getBoundingClientRect();
+            const current = JSON.stringify({
+                centerX: rect?.left,
+                centerY: rect?.top,
+                parentWidth: parentRect?.width,
+                parentHeight: parentRect?.height,
+            });
+            return current !== before;
+        }, {timeout: 30_000}, normalLayoutMetric);
+        await waitForMarkerLayout();
+        const zoomed = await readMarkerAppearance();
+        expect(zoomed).toMatchObject({
+            outline: 'none',
+            pointerEvents: 'auto',
+        });
+        expect(zoomed?.transform).not.toBe('none');
+        expect(zoomed?.borderRadius).toBe('999px');
+        expect(Math.abs((zoomed?.centerX ?? 0) - (zoomed?.expectedCenterX ?? 0))).toBeLessThan(1);
+        expect(Math.abs((zoomed?.centerY ?? 0) - (zoomed?.expectedCenterY ?? 0))).toBeLessThan(1);
     }, TEST_TIMEOUT_MS);
 
     const runReportedFixtureTest = selectFixtureDescribe(it, reportedFixtureAvailability);

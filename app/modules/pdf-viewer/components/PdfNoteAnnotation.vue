@@ -35,11 +35,8 @@ const emit = defineEmits<{
 
 const notePosition = computed(() => props.displayRect ?? props.entity.position);
 const noteStyle = computed(() => ({
-    left: `${notePosition.value.left * 100}%`,
-    top: `${notePosition.value.top * 100}%`,
-    width: `${Math.max(notePosition.value.width, 0.018) * 100}%`,
-    height: `${Math.max(notePosition.value.height, 0.018) * 100}%`,
-    color: props.entity.color ?? 'var(--ui-text)',
+    left: `${(notePosition.value.left + notePosition.value.width / 2) * 100}%`,
+    top: `${(notePosition.value.top + notePosition.value.height / 2) * 100}%`,
 }));
 
 function handlePointerDown(event: PointerEvent) {

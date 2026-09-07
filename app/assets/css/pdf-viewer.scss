@@ -376,7 +376,52 @@
     border-color: var(--app-toolbar-focus-ring);
 }
 
-.pdfViewer .pdf-annotation-editor-note,
+.pdfViewer .pdf-annotation-editor-note {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--app-note-anchor-size);
+    height: var(--app-note-anchor-size);
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--ui-warning) 62%, var(--ui-border) 38%);
+    border-radius: var(--app-radius-full);
+    background: color-mix(in srgb, var(--ui-warning) 20%, var(--ui-bg) 80%);
+    color: color-mix(in srgb, var(--ui-warning) 58%, var(--ui-text) 42%);
+    cursor: pointer;
+    opacity: 0.82;
+    transform: translate(-50%, -50%);
+    touch-action: none;
+    transition:
+        background-color var(--app-transition-standard),
+        border-color var(--app-transition-standard),
+        transform var(--app-transition-standard),
+        opacity var(--app-transition-standard);
+}
+
+.pdfViewer .pdf-annotation-editor-note:hover {
+    background: color-mix(in srgb, var(--ui-warning) 30%, var(--ui-bg) 70%);
+    border-color: color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
+    transform: translate(-50%, calc(-50% - 1px));
+    opacity: 0.95;
+}
+
+.pdfViewer .pdf-annotation-editor-note.is-selected {
+    border-color: color-mix(in srgb, var(--ui-warning) 75%, var(--ui-border) 25%);
+    background: color-mix(in srgb, var(--ui-warning) 30%, var(--ui-bg) 70%);
+    opacity: 0.92;
+}
+
+.pdfViewer .pdf-annotation-editor-note:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 2px;
+}
+
+.pdfViewer .pdf-annotation-editor-note svg {
+    width: 0.625rem;
+    height: 0.625rem;
+    flex-shrink: 0;
+}
+
 .pdfViewer .pdf-annotation-editor-stamp {
     display: grid;
     place-items: center;

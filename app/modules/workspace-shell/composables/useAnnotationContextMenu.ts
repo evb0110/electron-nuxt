@@ -83,6 +83,7 @@ export const useAnnotationContextMenu = () => {
     } = usePositionedMenu<IAnnotationContextMenuState>(
         '.annotation-context-menu',
         createInitialAnnotationContextMenuState,
+        { autoDismiss: { onOutsideClick: true } },
     );
 
     const annotationContextMenuCanCopy = computed(() => {

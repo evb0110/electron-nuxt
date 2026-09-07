@@ -20,6 +20,7 @@ export const usePageContextMenu = () => {
     } = usePositionedMenu<IPageContextMenuState>(
         '.page-context-menu',
         createInitialPageContextMenuState,
+        { autoDismiss: { onOutsideClick: true } },
     );
 
     function showPageContextMenu(payload: {
