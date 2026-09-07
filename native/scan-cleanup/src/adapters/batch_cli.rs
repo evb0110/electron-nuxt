@@ -2442,15 +2442,111 @@ mod tests {
     use super::{
         map_raster_error, parse_cli_args, ManifestV3, PlanningManifest, ScanCleanupCliInvocation,
     };
+    use super::{PageResultMetadata, PageRunResult};
+    use crate::engine::batch_reconciliation::ReconciliationAction;
     use crate::engine::resource_planning::{manifest_cache, page_cache_for};
     use crate::engine::resource_planning::{CleanupOptionsView, PageDescriptor, PlanningOperation};
     use crate::engine::staged_input::StagedPageDescriptor;
     use crate::io::raster::RasterReadError;
     use crate::io::MAX_STREAM_INPUT_BYTES;
-    use crate::protocol::manifest_v3::Page;
-    use crate::{CleanupOptions, OutputMode};
+    use crate::protocol::manifest_v3::{CanvasScope, Page, SplitSeamPolyline};
+    use crate::protocol::progress::PageStageTimings;
+    use crate::split::{ClusterDimensions, DocumentPrior, LayoutClassification};
+    use crate::{CleanupOptions, OrthogonalRotation, OutputMode};
     use evb_native_support::{NativeError, NativeErrorCode};
-    use scan_primitives::{BinaryImage, GrayImage};
+    use scan_primitives::{BinaryImage, GrayImage, Point};
+
+    #[test]
+    fn prior_rerun_preserves_unbiased_tier1_provenance() {
+        let seam = SplitSeamPolyline {
+            points: vec![Point::new(120.0, 0.0), Point::new(121.0, 200.0)],
+        };
+        let metadata = || PageResultMetadata {
+            source_page_index: 3,
+            layout_classification: LayoutClassification::TwoPageSpread,
+            layout_confidence: 0.92,
+            cutter_x_px: Some(121.0),
+            split_seam: Some(seam.clone()),
+            rotation_degrees: OrthogonalRotation::None,
+            canvas_scope: CanvasScope::default(),
+            excluded: false,
+            blank_outputs_skipped: 0,
+            output_count: 2,
+            outputs: Vec::new(),
+            tier1_verdict: LayoutClassification::TwoPageSpread,
+            reconciled: false,
+            cluster_agreement: 0.9,
+            split_diagnostics: crate::split::SplitDiagnostics::default(),
+            document_prior: None,
+            text_axis: None,
+            recommended_output_mode: None,
+            recommended_output_mode_confidence: None,
+            recommended_output_mode_reason: None,
+            soft_alpha_foreground_recommendation: None,
+            output_mode_diagnostics: None,
+            rotated_width: 240,
+            rotated_height: 200,
+            candidate_cutter_ratio: Some(0.505),
+            whitespace_score: 0.8,
+            reconciliation_eligible: true,
+            tier1_confidence: 0.0,
+            calibration_stroke_width_px: None,
+            calibration_x_height_px: None,
+        };
+        let tier1 = crate::engine::batch_reconciliation::Tier1Provenance {
+            verdict: LayoutClassification::SingleUncutPage,
+            confidence: 0.47,
+            candidate_cutter_ratio: Some(0.49),
+            whitespace_score: 0.18,
+        };
+        let prior = DocumentPrior {
+            dominant_layout: LayoutClassification::TwoPageSpread,
+            cutter_ratio_median: Some(0.5),
+            cluster_dims: ClusterDimensions {
+                width: 240.0,
+                height: 200.0,
+            },
+            agreement_strength: 0.9,
+            stroke_width_median_px: None,
+            x_height_median_px: None,
+        };
+        let result = PageRunResult {
+            outputs: Vec::new(),
+            metadata: metadata(),
+            page_metadata_path: std::env::temp_dir().join("reconciliation-test.json"),
+            timings: PageStageTimings::default(),
+        };
+        let rerun_result = PageRunResult {
+            outputs: Vec::new(),
+            metadata: metadata(),
+            page_metadata_path: std::env::temp_dir().join("reconciliation-rerun-test.json"),
+            timings: PageStageTimings::default(),
+        };
+        let action = ReconciliationAction::Rerun {
+            index: 0,
+            prior,
+            tier1,
+        };
+        let mut results = vec![result];
+        let mut rerun_result = Some(rerun_result);
+        super::apply_reconciliation_actions(&mut results, &[action], |_, _| {
+            Ok(rerun_result.take().unwrap())
+        })
+        .unwrap();
+        let metadata = &results[0].metadata;
+        assert_eq!(
+            metadata.tier1_verdict,
+            LayoutClassification::SingleUncutPage
+        );
+        assert_eq!(metadata.tier1_confidence, 0.47);
+        assert_eq!(metadata.candidate_cutter_ratio, Some(0.49));
+        assert_eq!(metadata.whitespace_score, 0.18);
+        assert!(metadata.reconciled);
+        assert_eq!(metadata.cluster_agreement, 0.9);
+        assert_eq!(metadata.document_prior, Some(prior));
+        assert_eq!(metadata.output_count, 2);
+        assert_eq!(metadata.split_seam, Some(seam));
+    }
 
     #[test]
     fn trusted_mrc_foreground_uses_sparse_marks_for_either_soft_mask_polarity() {
