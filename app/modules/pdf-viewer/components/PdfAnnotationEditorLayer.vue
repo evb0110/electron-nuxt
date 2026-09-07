@@ -66,7 +66,7 @@
                 :selected="isSelected(entity.identity.id)"
                 :display-rect="displayRectForNote(entity)"
                 @pointer-down="handleNotePointerDown(entity, $event)"
-                @double-click="handleNoteDoubleClick(entity)"
+                @activate="handleNoteActivate(entity)"
             />
             <PdfStampAnnotation
                 v-for="entity in htmlEntities.stamps"
@@ -497,7 +497,12 @@ function handleNotePointerDown(entity: INoteEntity, event: PointerEvent) {
     }
 }
 
-function handleNoteDoubleClick(entity: INoteEntity) {
+function handleNoteActivate(entity: INoteEntity) {
+    if (suppressNextClick) {
+        suppressNextClick = false;
+        capturedClickAnnotationId = null;
+        return;
+    }
     surface.select([entity.identity.id]);
     surface.openNote(entity.identity.id);
 }
@@ -730,6 +735,15 @@ function handleSurfaceClick(event: MouseEvent) {
     // double-click handler consumes it or the next pointerdown replaces it.
     capturedClickAnnotationId = id;
     surface.select([id], {additive: event.shiftKey});
+    const entity = entities.value.find(candidate => candidate.identity.id === id);
+    if (entity?.kind === 'note') {
+        if (suppressNextClick) {
+            suppressNextClick = false;
+            capturedClickAnnotationId = null;
+            return;
+        }
+        surface.openNote(id);
+    }
 }
 
 function handleSurfaceContextMenu(event: MouseEvent) {

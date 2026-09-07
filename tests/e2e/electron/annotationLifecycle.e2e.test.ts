@@ -1825,6 +1825,51 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         if (!created.markerRect) {
             throw new Error(`Created canonical note has no marker rectangle: ${JSON.stringify(created)}`);
         }
+        await clickAnnotationTool(page, 'Select');
+        const clearSelectionPoint = await page.evaluate(() => {
+            const pageElement = document.querySelector<HTMLElement>('.page_container--rendered');
+            if (!pageElement) {
+                return null;
+            }
+            const rect = pageElement.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width * 0.24,
+                y: rect.top + rect.height * 0.76,
+            };
+        });
+        if (!clearSelectionPoint) {
+            throw new Error('Could not resolve a page point for clearing native note selection');
+        }
+        await page.mouse.click(clearSelectionPoint.x, clearSelectionPoint.y);
+        await page.waitForFunction((stableKey: string) => {
+            const marker = document.querySelector<HTMLElement>(
+                `.pdf-annotation-editor-note[data-stable-key="${CSS.escape(stableKey)}"]`,
+            );
+            return marker?.classList.contains('is-selected') !== true;
+        }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, created.stableKey);
+        const createdMarkerCenter = await readVisibleCanonicalNoteCenter(page, created.stableKey);
+        if (!createdMarkerCenter) {
+            throw new Error(`Created canonical note marker was not visible: ${created.stableKey}`);
+        }
+        await page.mouse.move(createdMarkerCenter.x, createdMarkerCenter.y);
+        await page.waitForFunction((expectedText: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('[role="tooltip"]'),
+        ).some(element => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width > 0
+                && rect.height > 0
+                && style.visibility !== 'hidden'
+                && style.display !== 'none'
+                && element.textContent?.trim() === expectedText;
+        }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, noteText);
+        await page.mouse.click(createdMarkerCenter.x, createdMarkerCenter.y);
+        await page.waitForSelector('.note-window', {
+            timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS,
+            visible: true,
+        });
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
         const editedText = `${noteText} edited`;
         const edited = await editCanonicalNoteText(page, noteText, editedText);
         expect(edited.stableKey).toBe(created.stableKey);

@@ -617,10 +617,7 @@ async function waitForNoteWindowButtonCenter(page: Page, annotationId: string, s
 
 async function openNoteWindowWithPointer(page: Page, annotationId: string) {
     const point = await waitForEntityCenter(page, annotationId);
-    await page.mouse.click(point.x, point.y, {
-        count: 2,
-        delay: 80,
-    });
+    await page.mouse.click(point.x, point.y);
     await page.waitForFunction((expectedId: string) => Array.from(
         document.querySelectorAll<HTMLElement>('.note-window'),
     ).some(candidate => candidate.dataset.annotationId === expectedId), {timeout: READINESS_TIMEOUT_MS}, annotationId);
@@ -1145,6 +1142,76 @@ runLegacyFixtureDescribe('Electron E2E - #350 legacy saved notes', () => {
         expect(zoomed?.borderRadius).toBe('999px');
         expect(Math.abs((zoomed?.centerX ?? 0) - (zoomed?.expectedCenterX ?? 0))).toBeLessThan(1);
         expect(Math.abs((zoomed?.centerY ?? 0) - (zoomed?.expectedCenterY ?? 0))).toBeLessThan(1);
+    }, TEST_TIMEOUT_MS);
+
+    it('shows the established tooltip and opens an unselected note with one left click', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Legacy note #350 Electron E2E session failed to start');
+        }
+
+        const fixturePath = copyFreshPdf(LEGACY_FIXTURE_PATH, 'single-click-open');
+        await openPdfInApp(session.page, fixturePath, 90_000);
+        await waitForPdfLoaded(session.page, 90_000);
+        await waitForViewerInteractive(session.page, 90_000);
+        await openAnnotationsTab(session.page);
+
+        const sidebarNeighborPoint = await waitForSidebarButtonCenter(
+            session.page,
+            LEGACY_NEIGHBOR_TEXT,
+            '.note-item-content',
+        );
+        await session.page.mouse.click(sidebarNeighborPoint.x, sidebarNeighborPoint.y);
+        await expectSelectedEntity(session.page, LEGACY_NEIGHBOR_ID);
+        expect(await session.page.evaluate((expectedId: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('.pdf-annotation-editor-note'),
+        ).find(marker => marker.dataset.annotationId === expectedId)?.classList.contains('is-selected') ?? false,
+        LEGACY_NOTE_ID)).toBe(false);
+
+        const targetPoint = await waitForEntityPointerPoint(session.page, LEGACY_NOTE_ID);
+        await session.page.keyboard.down('Shift');
+        try {
+            await session.page.mouse.click(targetPoint.x, targetPoint.y);
+        }
+        finally {
+            await session.page.keyboard.up('Shift');
+        }
+        expect(await session.page.$('.note-window')).toBeNull();
+        await session.page.mouse.click(sidebarNeighborPoint.x, sidebarNeighborPoint.y);
+        await expectSelectedEntity(session.page, LEGACY_NEIGHBOR_ID);
+        expect(await session.page.evaluate((expectedId: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('.pdf-annotation-editor-note'),
+        ).find(marker => marker.dataset.annotationId === expectedId)?.classList.contains('is-selected') ?? false,
+        LEGACY_NOTE_ID)).toBe(false);
+        await session.page.mouse.move(targetPoint.x, targetPoint.y);
+        await session.page.waitForFunction((expectedText: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('[role="tooltip"]'),
+        ).some(element => {
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return rect.width > 0
+                && rect.height > 0
+                && style.visibility !== 'hidden'
+                && style.display !== 'none'
+                && element.textContent?.trim() === expectedText;
+        }), {timeout: 30_000}, LEGACY_NOTE_TEXT);
+        expect(await session.page.$('.note-window')).toBeNull();
+
+        await session.page.mouse.click(targetPoint.x, targetPoint.y);
+        await session.page.waitForFunction(
+            (expectedId: string) => Array.from(document.querySelectorAll<HTMLElement>('.note-window'))
+                .some(windowElement => windowElement.dataset.annotationId === expectedId),
+            {timeout: READINESS_TIMEOUT_MS},
+            LEGACY_NOTE_ID,
+        );
+        expect(await session.page.$$eval('.note-window', windows => windows.length)).toBe(1);
+        const closePoint = await waitForNoteWindowButtonCenter(
+            session.page,
+            LEGACY_NOTE_ID,
+            '.note-window__close',
+        );
+        await session.page.mouse.click(closePoint.x, closePoint.y);
+        await waitForNoOpenNoteWindows(session.page);
     }, TEST_TIMEOUT_MS);
 
     const runReportedFixtureTest = selectFixtureDescribe(it, reportedFixtureAvailability);
