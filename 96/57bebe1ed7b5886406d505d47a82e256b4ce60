@@ -1,0 +1,343 @@
+public/pdf/standard_fonts/LICENSE_LIBERATION
+  s_d252de3ad71cee::t_91bd01b3ad73ad 1-2,4-5,7-11,13,15,17-363
+  s_d252de3ad71cee::t_e94fb3adf28f7b 6,12,14,16
+tests/unit/electron/ocrPdfAssembler.test.ts
+  s_d252de3ad71cee::t_eb6567dfab43db 44,73,76-77,205,208-209
+scripts/windows-test/oracles/renderBlankOracle.ts
+  s_d252de3ad71cee::t_09dbcea4df08fd 14
+app/platform/browser-api/loadBrowserPdfjsDocument.ts
+  s_d252de3ad71cee::t_821e5cba401cae 1-35
+pnpm-lock.yaml
+  ai_agent 226-227,7163-7165,17513
+tests/unit/app/services/pdfjs/runtimeLib.test.ts
+  s_d252de3ad71cee::t_83bab73080ed4b 48,119,132,147
+tests/unit/scripts/pdfjsProvenance.test.ts
+  s_d252de3ad71cee::t_d80313d1949e6d 41-42,46,156-157,171-172,180-181
+app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderQueue.ts
+  s_d252de3ad71cee::t_b858042ae0a79d 26-31,36,46-48
+docs/css-load-bearing-classes.md
+  s_d252de3ad71cee::t_83bab73080ed4b 50
+tests-as-never-baseline.json
+  s_d252de3ad71cee::t_dc27ff6463d94f 9,13-14,75,79
+  s_d252de3ad71cee::t_bd059d72c2bf39 19
+  s_d252de3ad71cee::t_7c0d980e07237a 95
+tests/unit/electron/djvuBuildOptimizedPdfNative.test.ts
+  s_d252de3ad71cee::t_cd6e3032910155 8
+app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint.ts
+  s_d252de3ad71cee::t_4ac31b82fde4ab 1
+scripts/sync-pdfjs-viewer-css.mjs
+  s_d252de3ad71cee::t_09e67a9436aeae 43,162-182
+  s_d252de3ad71cee::t_cbdb90dbcab5e5 128-140
+tests/unit/app/modules/pdf-viewer/pdfjsEditToolbarRemovalGuard.test.ts
+  s_d252de3ad71cee::t_d80313d1949e6d 16,20-22
+tests/unit/app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderQueue.test.ts
+  s_d252de3ad71cee::t_b858042ae0a79d 78-113
+app/assets/css/vendor/pdfjs-viewer-sanitized.css
+  ai_agent 18-42,44-46,48-51,53-55,57-162,165-174,176-187,191-195,197-214,216-231,234-241,243-280,292,298,304,316,318,321,325,327,338,350,354,358,362,366,372,376,379,385,405,409,411,414,420-424,428,430,433,435-437,454,461-462,467,475,481,483,491,496-500,502,508,515,522,527-528,530-533,535-537,539,541,546,550,553,555,558,561,563,569,574,579,583,585,590,597,600,609-611,615,622,627,630-632,634,640,645-647,658-659,668,672,678-680,686-687,698,702,709,715,727,730,734,738,742,746,748,751,753,755-756,759,761-762,765-775,778,782,793,796,805,809,815,823,830-832,836,839-840,843,848,850,856,862,867,878,881,884,888-890,893,895,901,910,912,922-923,926,928,937-940,942-946,950,959-960,965,969,973,982-984,995-997,1001,1005,1009-1011,1017-1019,1022-1024,1028-1029,1036,1041,1047,1052-1055,1057-1059,1061-1064,1066-1074,1076-1079,1082-1085,1087-1092,1095-1101,1104,1110-1121,1126-1163,1173,1190,1194,1198,1202,1207,1214,1220,1225,1228-1229,1231,1233,1241,1252,1256,1258,1267,1589-1590,1593,1597-1601,1604,1606-1608,1611,1613-1615,1618-1619,1621,1625,1629,1633,1635,1638-1639,1641,1648,1651,1653,1659-1660,1665-1666,1673,1677-1678,1680-1681,1686-1687,1694,1698-1700,1705-1732,1735-1738,1742-1745,1770-1772,1775,1780,1785,1795,1801,1806,1811,1816-1817,1821-1822,1825,1846,1849,1853-1854,1864-1895,1899,1916-1923,1926,1931,1933,1944,1948,1952,1954,1964,1971,1978,1981,1983,1993,1995,1998-1999,2002,2017-2018,2022-2029,2031-2032,2041,2056,2060,2062,2079,2082,2090,2099-2100,2106,2127,2135,2140,2148,2153-2155,2157,2168,2176,2184,2187,2204,2215,2225-2226,2228,2231,2248,2256,2259,2261,2270,2274,2291,2295,2300-2302,2306-2307,2315-2317,2319,2322,2329,2341,2345,2350,2353-2354,2356,2362-2363,2365-2367,2371,2379,2385,2392,2396,2399,2401,2405,2412,2421,2425-2426,2428,2434,2437,2440,2442,2448,2452,2458-2462,2464-2465,2469,2473,2481,2489,2495,2504,2508-2512,2517,2521,2529,2535,2539,2544,2547,2549,2552,2555-2556,2558-2559,2563,2565,2586,2597,2606,2610-2611,2613,2618-2619,2622,2624,2628,2633,2645-2648,2653,2657,2676,2684,2696,2701-2702,2708-2709,2711-2736,2738,2741-2744,2747-2772,2774-2785,2802,2806,2823,2829,2833,2836,2838,2842,2845,2847,2851,2854-2856,2864-2870,2875-2882,2886-2890,2894-2897,2901,2906,2908,2916,2919-2920,2930,2940,2948,2956,2965,2979,2981,2990,3004,3007,3010,3012,3016,3019,3021,3025,3031-3032,3034,3038,3047,3060-3062,3067,3072,3074-3075,3080,3085,3087,3092,3097-3098,3104,3108-3109,3111,3127,3130,3132-3133,3142,3154,3158,3161-3162,3164,3176,3189-3192,3196,3201,3218,3222,3225,3229,3232,3234,3238,3247,3260,3269,3275,3284,3287,3290,3292,3297,3300,3302,3308,3319,3324,3328-3330,3332,3343,3349,3353,3359,3362,3367,3369,3371,3374,3393-3394,3397,3400,3403,3405,3408-3409,3418-3420,3423,3436,3461,3465,3469,3471,3474-3475,3489-3496,3499,3524,3528-3529,3532,3539,3541,3545,3551-3552,3554-3563,3565,3567-3568,3570,3573-3576,3580-3584,3588-3603,3605-3608,3627-3629,3640,3644,3648,3652,3656,3663,3667,3678,3681,3693,3697,3702,3707,3711,3713,3717,3722,3729,3732,3734,3738,3740,3756,3760,3775,3779,3784-3785,3795,3799-3800,3806,3809-3810,3812,3816,3818-3822,3825,3827-3828,3854-3855,3857,3860,3873-3876,3945,3954,3959,3981,3992-3993,3995-3997,4002,4006,4014,4019,4024,4029,4034,4039,4044,4049,4053-4055,4057-4067,4071-4072,4076-4077,4081-4082,4085-4086,4088-4098,4102-4103,4107-4108,4112-4113,4116-4117,4119-4126,4129,4134,4138-4139,4141-4148,4153,4155-4162,4165,4170,4174-4176,4178-4179,4183,4187,4196,4203,4207,4212,4214,4220,4224,4228-4229,4231,4238,4242-4245,4249,4255,4265,4268,4273,4278,4282,4284-4286,4289,4291-4292,4295,4297-4298,4301,4303-4304,4307,4309,4321,4325,4334,4338-4339,4342,4344,4349-4350,4359,4373,4377,4380,4383,4385,4400,4410,4414,4418,4422,4425-4431,4442,4447,4454,4466,4471,4475,4479,4482-4484,4486,4493,4498,4506,4510,4514-4515,4523,4527,4531-4532,4534,4541,4544,4554,4560-4561,4566,4572,4576,4580,4586-4587,4593-4595,4599,4604-4605,4607-4608,4612,4615,4635-4639,4641,4643-4644,4647,4658-4659,4663,4673,4695,4697,4701,4714,4729,4732,4735,4739,4743,4746,4748-4749,4753,4757,4761,4764,4766,4770,4773,4775,4781,4783,4795,4815,4831-4832,4834-4836,4857-4858,4864,4867,4869-4870,4876,4878-4879,4882,4884-4885,4889,4893,4896-4897,4899-4900,4918,4923,4925,4927,4931-4932,4935-4940,4949-4951,4954-4955,4958,4970,4974,4988,4992,4996,4998,5004,5008,5011-5012,5023-5027,5030,5032,5037-5040,5045,5053,5085,5089,5093,5098,5108,5112,5115-5126
+electron/features/diagnostics/startupCrashMarker.ts
+  s_d252de3ad71cee::t_708c31d4182125 15,137,139,142
+  s_d252de3ad71cee::t_8dd15fdef2fcbe 14,16-18,304,307
+app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts
+  s_d252de3ad71cee::t_cb2ea7ad9dadb9 14,346-363,376-379,534,536-537
+  s_d252de3ad71cee::t_56ab9e9bca3a5f 1-4,382-385,389,391
+  s_d252de3ad71cee::t_1162bd8d6a9ec4 45,104,306,341
+electron/features/documents/main/pdfAnnotationParse.ts
+  s_d252de3ad71cee::t_b658401484d057 268-269
+  s_d252de3ad71cee::t_9fd7c49ea4cd20 44,267,270-277,386,405,484
+  s_d252de3ad71cee::t_feb87900d009a1 53
+  s_d252de3ad71cee::t_3cc9589a8b8aaa 45-46,48-49,54,179,182-183,355-357,359-372,468-474,476-477,482,486
+  s_d252de3ad71cee::t_0bdc60d43a9c3d 47,253-257,263-265,278-279
+  s_d252de3ad71cee::t_3647c5b537dd8f 326
+  s_d252de3ad71cee::t_a3f4a5910cc723 50-51,283-288,302-303,305,307-324,327-328
+tests/unit/scripts/syncPdfjsViewerCss.test.ts
+  s_d252de3ad71cee::t_09e67a9436aeae 55-73
+tests/unit/scripts/assertPackagedAppContents.test.ts
+  s_d252de3ad71cee::t_d80313d1949e6d 126,141
+scripts/verify-pdfjs-provenance.mjs
+  s_d252de3ad71cee::t_f6156cb88ad9b4 94
+  s_d252de3ad71cee::t_2f36c6cc3bcdf7 21,25,29-31,34-36,41,333
+  s_d252de3ad71cee::t_581d95c13a0bf3 116-122,343
+tests/unit/scripts/checkBuildWarnings.test.ts
+  s_d252de3ad71cee::t_498e1c4e46da78 132-142
+tests/unit/electron/bundleIntegrity.test.ts
+  s_d252de3ad71cee::t_9d7647607d8008 439
+tests/unit/app/services/pdfjs/pdfViewerFacade.test.ts
+  s_d252de3ad71cee::t_83bab73080ed4b 33,145
+  s_d252de3ad71cee::t_cb2ea7ad9dadb9 125-133
+tests/unit/app/modules/pdf-viewer/runtime/usePdfAnnotationLayerRenderer.test.ts
+  s_d252de3ad71cee::t_9d7647607d8008 210
+  s_d252de3ad71cee::t_ba8dd8833eef53 46-51,193-198,204-209,215-220,241-244
+  s_d252de3ad71cee::t_e6857d367d01a7 12,187
+  s_d252de3ad71cee::t_983006b3176935 43-45,52,186,188-192,199-203,211-214,221-240,245-254
+  s_d252de3ad71cee::t_83bab73080ed4b 18
+electron/preload/ipcClient.ts
+  s_d252de3ad71cee::t_70c131473c6b9e 101
+vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.files.sha256
+  ai_agent 1-559
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_d252de3ad71cee::t_eb6567dfab43db 27,178
+  s_d252de3ad71cee::t_ef931357f6c244 323,395
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_d252de3ad71cee::t_62a845f68da3ed 117
+  s_d252de3ad71cee::t_1162bd8d6a9ec4 116,291
+tests/helpers/renderPdfCanvasFidelityMetrics.ts
+  s_d252de3ad71cee::t_eb6567dfab43db 13,45-46
+tests/unit/app/platform/browserDocumentsFileCapabilityValidate.test.ts
+  s_d252de3ad71cee::t_83bab73080ed4b 11
+electron/image/tryCreatePdfWithNativeImageCombiner.ts
+  s_d252de3ad71cee::t_d2bae6cbb865d6 800,802
+  s_d252de3ad71cee::t_554af726553fb9 812
+package.json
+  s_d252de3ad71cee::t_cb2ea7ad9dadb9 71-72,74,79,85
+  s_d252de3ad71cee::t_81ab113c7f0f34 187
+packages/contracts/diagnostics/buildDiagnosticRecord.ts
+  s_d252de3ad71cee::t_dc1b92ccae0211 13
+  s_d252de3ad71cee::t_eb15ea9b626022 29
+  s_d252de3ad71cee::t_971ddd2e628683 1-12,14-28,30-95
+tests/unit/packages/pdf-core/pdfPrintLayout.test.ts
+  s_d252de3ad71cee::t_0a66734e1cf154 15-18,27-34,144-147
+vendor/pdfjs-dist/provenance.json
+  ai_agent 4-5,10-15,26,36,40-44,50-57,61,63,72
+tests/unit/app/utils/pdfPrint.test.ts
+  s_d252de3ad71cee::t_83bab73080ed4b 35
+tests/unit/electron/pdfCanvasFidelity.test.ts
+  s_d252de3ad71cee::t_83bab73080ed4b 26
+electron/features/documents/main/pdfEmbeddedShapeIndex.ts
+  s_d252de3ad71cee::t_382581b97c5a01 52,390,393-400,490,509,534
+  s_d252de3ad71cee::t_9999fa8bfe10a9 55,376-380,386-388,401-402
+  s_d252de3ad71cee::t_9dad37a55bf9cf 58-59,406-411,425-426,428,430-437,439-440
+  s_d252de3ad71cee::t_b658401484d057 391-392
+  s_d252de3ad71cee::t_23c22c7e729133 53-54,56-57,61,305,308-311,467-469,471-476,518-524,526-527,532,536
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfSessionTransitions.test.ts
+  s_d252de3ad71cee::t_83bab73080ed4b 31
+packages/contracts/diagnostics/diagnosticReporterIdentity.ts
+  s_d252de3ad71cee::t_f37c87877e0f9d 16-35
+  s_d252de3ad71cee::t_cd67f7e6d27d60 1-15,36-50
+server/utils/serverFailureReporter.ts
+  s_d252de3ad71cee::t_4c6b224f411c75 11,158,160,163
+  s_d252de3ad71cee::t_761806080b8dd3 25,165,170-174,176
+  s_d252de3ad71cee::t_9422146c388427 407
+  s_d252de3ad71cee::t_5432b038029550 481,488
+  s_d252de3ad71cee::t_1f2fbab39644f8 12-14,420,483-484,491
+  s_d252de3ad71cee::t_962b62f059c47b 29,383-390,392-393
+  s_d252de3ad71cee::t_7a050fe29219c0 28,31
+  s_d252de3ad71cee::t_dc1b92ccae0211 2-4
+  s_d252de3ad71cee::t_917e6e5293c3f4 27,30,395,451-463,544,550
+  s_d252de3ad71cee::t_e96e6dea8130f4 396-400
+app/utils/pdfOutlineHelpers.ts
+  s_d252de3ad71cee::t_cb2ea7ad9dadb9 6-9,576-578
+scripts/windows-test/oracles/ocrPageMarkerOracle.ts
+  s_d252de3ad71cee::t_09dbcea4df08fd 24
+electron/features/documents/createDocumentsPreloadFileClient.ts
+  s_d252de3ad71cee::t_4ac31b82fde4ab 82,1014,1032
+app/modules/pdf-viewer/engine/pdf-visual-snapshot/schedulePdfVisualSnapshotRelease.ts
+  s_d252de3ad71cee::t_24c3510ddcb06d 1-5,8-14,16-17,19-23,25,27-28,30-35,38-41,43-46,48-49,51-52,54-55,57-64,66-69,72
+tests/unit/app/modules/pdf-viewer/engine/pdfLayerVisualSnapshot.test.ts
+  s_d252de3ad71cee::t_d10ca2d54d2301 1-36
+public/pdf/pdf.worker.min.mjs
+  s_d252de3ad71cee::t_91bd01b3ad73ad 24-27,30-32,34-40,42,44-52,54-59,61-63,65-68,71-72,76,79-83
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_d252de3ad71cee::t_cb2ea7ad9dadb9 1385
+app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts
+  s_d252de3ad71cee::t_1162bd8d6a9ec4 89
+tests/helpers/createPdfDocumentProxy.ts
+  s_d252de3ad71cee::t_0ac0ce3c9bb16c 1
+app/services/pdfjs/pdfjsCompatibility.ts
+  s_d252de3ad71cee::t_bbf1f41ac8a566 7,9,12,14-15,38,47,89,116
+  s_d252de3ad71cee::t_0791a61f9e8e4f 10,18,51-54,58-61,65-70
+  s_d252de3ad71cee::t_3d82c6d20bd704 43-46,94-97,117-125
+  s_d252de3ad71cee::t_b8d413359f5c38 37,55-57,62-64,75,88,108,127-128
+  s_d252de3ad71cee::t_5961aed9ceadd1 1-6,8,11,13,16-17,19-36,39-42,48-50,71-74,76-87,90-93,98-107,109-115,126,129-143
+app/platform/browser-api/browserPdfValidation.ts
+  s_d252de3ad71cee::t_1f18ab92b4309e 92,94-96,99-100,102
+  s_d252de3ad71cee::t_3d82c6d20bd704 93,97-98,101,103-104,107
+tests/unit/app/platform/browserImageExportCapability.test.ts
+  s_d252de3ad71cee::t_63be0139d02f24 881,908,937,974,1023,1053
+tests/unit/app/services/pdfjs/pdfjsCompatibility.test.ts
+  s_d252de3ad71cee::t_41a5d751a1de84 12,40,58
+  s_d252de3ad71cee::t_0a406a47a8b8c3 1-11,13-15,20-27,30,35-39,47-54,56-57,65-74,76-82,89-99
+  s_d252de3ad71cee::t_0791a61f9e8e4f 16-19,28-29,31-34,41-46,55,59-64,75,83-88
+packages/contracts/diagnostics/diagnosticReporterFrames.ts
+  s_d252de3ad71cee::t_cd6e3032910155 7
+  s_d252de3ad71cee::t_587b27fe7b4cef 2-6,8-11,13-25,28-32,34,36-42,45-52,54-61,64-65
+app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildTextLineBoxesFromTextContent.ts
+  s_d252de3ad71cee::t_d2bae6cbb865d6 91-95
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineToolbarState.test.ts
+  s_d252de3ad71cee::t_554af726553fb9 39-42
+docs/pdf-annotations-audit-2026-08-22-implementation-ledger.md
+  s_d252de3ad71cee::t_98aa6306bf63c0 15-26,52,1578-1588
+  s_d252de3ad71cee::t_a978abc944c0a0 1607-1614
+  s_d252de3ad71cee::t_154776d69796dc 1531-1567
+  s_d252de3ad71cee::t_e529df3f91519e 1630-1649
+  s_d252de3ad71cee::t_ba4d345724bb35 67-68
+  s_d252de3ad71cee::t_e7cd88a00f08e2 1658-1663
+  s_d252de3ad71cee::t_53b5cda83e74f9 53,1589-1598
+  s_d252de3ad71cee::t_efdbb45c3565ed 56-58,62-66,71-73
+  s_d252de3ad71cee::t_e115364152b553 1599-1606
+  s_d252de3ad71cee::t_bca279f4d7f668 59
+  s_d252de3ad71cee::t_3c594a403bf981 1650-1657
+  s_d252de3ad71cee::t_f4e35b5ee867d6 1624-1629
+  s_d252de3ad71cee::t_4334b6766abd26 7,60-61,69-70
+  s_d252de3ad71cee::t_5f2bd54e9eb5ba 1664-1669
+  s_d252de3ad71cee::t_4e5e28acff8de2 54-55,1615-1623
+  s_d252de3ad71cee::t_741ca58dc0fa6d 1670-1677
+  s_d252de3ad71cee::t_6170037cbf7842 8,35,74-75
+  s_d252de3ad71cee::t_d473a636869c47 9-14,36-51
+  s_d252de3ad71cee::t_b1f551c81bfaef 1678-1684
+  s_d252de3ad71cee::t_f16fe0f16a9185 27-34,1568-1577
+app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes.ts
+  s_d252de3ad71cee::t_62a845f68da3ed 73
+  s_d252de3ad71cee::t_1162bd8d6a9ec4 26,72
+packages/contracts/diagnostics/diagnosticReporterShared.ts
+  s_d252de3ad71cee::t_9d93f493824916 148-173
+  s_d252de3ad71cee::t_7a050fe29219c0 1-2,4,26-49,147
+  s_d252de3ad71cee::t_9a788ecd84dee4 3,5-16,50-107,121-146
+  s_d252de3ad71cee::t_962b62f059c47b 17-25,108-120
+electron/features/documents/main/pdfAnnotationIndex.ts
+  s_d252de3ad71cee::t_06773af5936ece 46-47
+  s_d252de3ad71cee::t_7f80c07d2427a5 342,371
+  s_d252de3ad71cee::t_cf135509115e82 359-364,378-379,381,383-390,392-394
+  s_d252de3ad71cee::t_de01e679b74a4d 43,328-333,339-341,354-355
+  s_d252de3ad71cee::t_b658401484d057 344-345
+  s_d252de3ad71cee::t_e14f71defd170e 40,343,346-353,444,463,488
+  s_d252de3ad71cee::t_8599667f6a226b 41-42,44-45,49,255,258-259,421-423,425-430,472-478,480-481,486,490
+public/pdf/.pdfjs-version
+  s_d252de3ad71cee::t_91bd01b3ad73ad 1
+tests/unit/app/modules/pdf-viewer/pdfjsTextLayerMarkedContentGuard.test.ts
+  s_d252de3ad71cee::t_d80313d1949e6d 18-20
+app/platform/browser-api/browserSearchCore.ts
+  s_d252de3ad71cee::t_821e5cba401cae 3,46
+  s_d252de3ad71cee::t_5e0104564d96a3 2
+scripts/release/verifyPackagedCorePdfSmoke.ts
+  s_d252de3ad71cee::t_91eef69120ce63 4,206-215,217-218,236-237,377-379,381-382,399
+  s_d252de3ad71cee::t_ecba64d719dd6c 216,252-256,368-373,380,404-413
+public/pdf/wasm/quickjs-eval.js
+  s_d252de3ad71cee::t_91bd01b3ad73ad 5-8,10-15
+THIRD_PARTY_NOTICES.md
+  s_d252de3ad71cee::t_83bab73080ed4b 7
+app/utils/pdfPrint.ts
+  s_d252de3ad71cee::t_bca2336569b3a7 5,185
+tests/unit/contracts/nativePdfMutations.textBoxes.test.ts
+  s_d252de3ad71cee::t_cb2ea7ad9dadb9 110
+tests/unit/app/platform/browserDocumentsFileCapability.test.ts
+  s_d252de3ad71cee::t_83bab73080ed4b 127
+app/platform/browser-api/browserSearch.worker.ts
+  s_d252de3ad71cee::t_a75f17bd9f1f96 3,45,50
+tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts
+  s_d252de3ad71cee::t_eb6567dfab43db 10,59,62-63
+tests/unit/app/platform/pdfjsJbig2Consumer.test.ts
+  s_d252de3ad71cee::t_eb6567dfab43db 21,129-130
+electron/features/diagnostics/mainFailureReporter.ts
+  s_d252de3ad71cee::t_9422146c388427 372
+  s_d252de3ad71cee::t_917e6e5293c3f4 22,25,364,414-426,472,478
+  s_d252de3ad71cee::t_e96e6dea8130f4 365-369
+  s_d252de3ad71cee::t_7345e2514ec2cc 446,453
+  s_d252de3ad71cee::t_dc1b92ccae0211 1
+  s_d252de3ad71cee::t_ed851761d5bf27 8-10,383,448-449,456
+  s_d252de3ad71cee::t_d3ad8abef2c5fe 7,153,155,158
+  s_d252de3ad71cee::t_5d932b1a11ae15 20,160,164-168
+  s_d252de3ad71cee::t_7a050fe29219c0 23,26
+  s_d252de3ad71cee::t_962b62f059c47b 24,352-359,361-362
+docs/local-gates.md
+  s_d252de3ad71cee::t_a38d3458d443be 99-101
+scripts/architecture/boundary-check.mjs
+  s_d252de3ad71cee::t_482b858bc3963e 334-335,1183-1189,1255,1317-1324,1348-1353
+app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/schedulePdfResizeCanvasVisualSnapshotRelease.ts
+  s_d252de3ad71cee::t_01f1e061092833 1-4,8,10
+scripts/all-gates-validation-plan.mjs
+  s_d252de3ad71cee::t_a38d3458d443be 86-88
+scripts/windows-test/oracles/pageMarkerOracle.ts
+  s_d252de3ad71cee::t_09dbcea4df08fd 17
+scripts/build-warning-allowlist.json
+  s_d252de3ad71cee::t_fb8c29dc4c0ee2 7-8
+  s_d252de3ad71cee::t_498e1c4e46da78 11-12
+tests/unit/app/platform/browserPdfjsDocumentInit.test.ts
+  s_d252de3ad71cee::t_83bab73080ed4b 23
+scripts/windows-test/oracles/pdfjsNodeRuntime.ts
+  s_d252de3ad71cee::t_bbf1f41ac8a566 44-45,74
+  s_d252de3ad71cee::t_44aaa620022be0 46,65-67,73,75,77-86
+  s_d252de3ad71cee::t_bee382bd0f835e 43,68,76,88
+tests/unit/app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint.test.ts
+  s_d252de3ad71cee::t_d10ca2d54d2301 11,143-197
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_d252de3ad71cee::t_1162bd8d6a9ec4 59,92,602
+  s_d252de3ad71cee::t_62a845f68da3ed 93
+scripts/copy-pdfjs-assets.mjs
+  s_d252de3ad71cee::t_42b1e610cc6cc4 34,120-130
+vendor/pdfjs-dist/README.md
+  ai_agent 3,6-13
+tests/unit/scripts/copyPdfjsAssets.test.ts
+  s_d252de3ad71cee::t_42b1e610cc6cc4 208-211,225-228
+eslint.config.mjs
+  s_d252de3ad71cee::t_6709eefb651e97 194,201-202,204-205
+app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts
+  s_d252de3ad71cee::t_29b21285e95124 22-24,63-106,194-203,338-341,348-350
+  s_d252de3ad71cee::t_62a845f68da3ed 163
+tests/unit/scripts/packageScripts.test.ts
+  s_d252de3ad71cee::t_6709eefb651e97 175-177
+app/utils/failureReporter.ts
+  s_d252de3ad71cee::t_917e6e5293c3f4 23,438
+  s_d252de3ad71cee::t_e96e6dea8130f4 439-443
+  s_d252de3ad71cee::t_9422146c388427 579,619,791
+  s_d252de3ad71cee::t_2dc17f706c7d1a 601,641,679-680,693,788-789
+  s_d252de3ad71cee::t_4b73177f78a51f 8-10
+  s_d252de3ad71cee::t_26ca921b1acc29 588
+  s_d252de3ad71cee::t_dc1b92ccae0211 1
+  s_d252de3ad71cee::t_2e8d07ecadd0f4 7,177,179,182
+  s_d252de3ad71cee::t_962b62f059c47b 25,426-432,435-436
+  s_d252de3ad71cee::t_df708bda94c42d 21,184,189-193
+  s_d252de3ad71cee::t_6137a505de36cc 676,689,785
+  s_d252de3ad71cee::t_7a050fe29219c0 24,26-27
+electron/features/documents/main/pdfSidecarLineIndex.ts
+  s_d252de3ad71cee::t_b7fe4806a02ddb 546-561
+  s_d252de3ad71cee::t_7941b68cffc17a 3,6-7,27-35,69-86,274-275,545,562-610,612-621,623-626,628-685
+  s_d252de3ad71cee::t_82b9a3439a2f12 276-281,283-296,298-303
+  s_d252de3ad71cee::t_c30eeba6b104bd 4,45-51,185-221,223-245
+  s_d252de3ad71cee::t_e67c7f0da068a6 10,611,622,627
+  s_d252de3ad71cee::t_3006eef9763bab 177-180,184
+  s_d252de3ad71cee::t_90dd85da605dc8 40
+  s_d252de3ad71cee::t_37a6fb8a6cec18 162,222
+  s_d252de3ad71cee::t_6709eefb651e97 89,124,147,249,264,314,329,494,509,538
+  s_d252de3ad71cee::t_56c44b7aac9981 12,38-39,60,108-114,133-146,148-161,163-175,181-183,246
+  s_d252de3ad71cee::t_cc50d66e34f0a4 254,257,282,297
+  s_d252de3ad71cee::t_e3ed257c3303a1 11,36-37,41-44,53-59,61-68,87-88,90-107,115-123,125-132,176,247-248,250-253,255-256,258-263,265-273
+  s_d252de3ad71cee::t_554af726553fb9 52
+public/pdf/wasm/LICENSE_PDFJS_QCMS
+  s_d252de3ad71cee::t_91bd01b3ad73ad 1,3-8,10-11,13-19
+tests/unit/app/platform/searchCapability.test.ts
+  s_d252de3ad71cee::t_e22641933992af 357-358,387-388,408-409,439-440,479,509
+  s_d252de3ad71cee::t_83bab73080ed4b 81
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.test.ts
+  s_d252de3ad71cee::t_83bab73080ed4b 63
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_d252de3ad71cee::t_83bab73080ed4b 555
+app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease.ts
+  s_d252de3ad71cee::t_01f1e061092833 2-5,9,11
+app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource.ts
+  s_d252de3ad71cee::t_06deb3de861702 16,615,714
+app/services/pdfjs/pdfViewerFacade.ts
+  s_d252de3ad71cee::t_06deb3de861702 168
+app/platform/browser-api/createBrowserImageExportCapability.ts
+  s_d252de3ad71cee::t_821e5cba401cae 2,22,552
+electron/search/extractTextWithPdfjs.ts
+  s_d252de3ad71cee::t_ba8dd8833eef53 67,70,72
+  s_d252de3ad71cee::t_4f348d79065496 68-69,71,73-79,205,210,247-248,290,300,337-338
+tests/e2e/electron/helpers/fixtures.ts
+  s_d252de3ad71cee::t_44aaa620022be0 50,2736,2739-2741
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9657bebe1ed7b5886406d505d47a82e256b4ce60",
+  "prompts": {},
+  "sessions": {
+    "s_d252de3ad71cee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0723f-6c82-7453-a893-5fe26c4041d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
