@@ -1,0 +1,24 @@
+docs/pdf-annotations-audit-2026-08-22-implementation-ledger.md
+  s_d252de3ad71cee::t_fdd1d69824e767 7,11-15,24-32,77-82,87-99
+tests/unit/scripts/assertElectronNativePageOps.test.ts
+  s_d252de3ad71cee::t_2ac2e425e6dd2d 2-9,51-74,79
+  s_d252de3ad71cee::t_fc7eb4c853377e 75-78
+.github/workflows/ci.yml
+  s_d252de3ad71cee::t_2ac2e425e6dd2d 97-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "21be2e8e1d87bafb8c7d6460ac872ded405bf0f0",
+  "prompts": {},
+  "sessions": {
+    "s_d252de3ad71cee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0723f-6c82-7453-a893-5fe26c4041d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
