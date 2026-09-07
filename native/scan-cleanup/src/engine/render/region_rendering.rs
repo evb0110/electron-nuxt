@@ -1737,6 +1737,56 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
         conservation_warnings,
     }
 }
+struct ContinuousOutputInput {
+    output_mode: OutputMode,
+    rendered_gray: GrayImage,
+    rendered_color: Option<RgbImage>,
+    rendered_width: usize,
+    rendered_height: usize,
+    create_mixed_layers: bool,
+}
+
+struct ContinuousOutputOutput {
+    image: CleanupRaster,
+    color_image: Option<RgbImage>,
+    mixed_layers: Option<MixedLayers>,
+}
+
+fn process_continuous_output(input: ContinuousOutputInput) -> ContinuousOutputOutput {
+    let ContinuousOutputInput {
+        output_mode,
+        rendered_gray,
+        rendered_color,
+        rendered_width,
+        rendered_height,
+        create_mixed_layers,
+    } = input;
+    let color_layers = if output_mode == OutputMode::Color && create_mixed_layers {
+        rendered_color.as_ref().map(|color| MixedLayers {
+            // A fresh Color page has no separate ink owner.
+            // Publishing an empty stencil beside the fresh color raster lets
+            // the assembler use its compact layered JPEG handoff without
+            // implying source-layer identity.
+            foreground_mask: BinaryImage::new(rendered_width, rendered_height),
+            foreground_alpha: None,
+            background: rendered_gray.clone(),
+            color_background: Some(color.clone()),
+            source_mrc: false,
+        })
+    } else {
+        None
+    };
+    ContinuousOutputOutput {
+        image: CleanupRaster::Gray(rendered_gray),
+        color_image: if output_mode == OutputMode::Color {
+            rendered_color
+        } else {
+            None
+        },
+        mixed_layers: color_layers,
+    }
+}
+
 pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
     let Input {
         source,
@@ -2107,39 +2157,20 @@ pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
                 )
             }
 
-            OutputMode::Grayscale => (
-                CleanupRaster::Gray(rendered_gray),
-                None,
-                None,
-                None,
-                false,
-                None,
-            ),
-            OutputMode::Color => {
-                let color_layers = create_mixed_layers
-                    .then(|| {
-                        rendered_color.as_ref().map(|color| MixedLayers {
-                            // A fresh Color page has no separate ink owner.
-                            // Publishing an empty stencil beside the fresh
-                            // color raster lets the assembler use its compact
-                            // layered JPEG handoff without implying source-
-                            // layer identity.
-                            foreground_mask: BinaryImage::new(rendered_width, rendered_height),
-                            foreground_alpha: None,
-                            background: rendered_gray.clone(),
-                            color_background: Some(color.clone()),
-                            source_mrc: false,
-                        })
-                    })
-                    .flatten();
-                (
-                    CleanupRaster::Gray(rendered_gray),
+            OutputMode::Grayscale | OutputMode::Color => {
+                let ContinuousOutputOutput {
+                    image,
+                    color_image,
+                    mixed_layers,
+                } = process_continuous_output(ContinuousOutputInput {
+                    output_mode: options.output_mode,
+                    rendered_gray,
                     rendered_color,
-                    None,
-                    None,
-                    false,
-                    color_layers,
-                )
+                    rendered_width,
+                    rendered_height,
+                    create_mixed_layers,
+                });
+                (image, color_image, None, None, false, mixed_layers)
             }
             OutputMode::Auto => unreachable!("automatic output mode is resolved before render"),
         }
