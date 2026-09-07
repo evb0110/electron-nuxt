@@ -91,7 +91,7 @@ jobs:
 
       - name: Install PDF test tools
         timeout-minutes: 15
-        run: scripts/ci/apt-install.sh qpdf
+        run: scripts/ci/apt-install.sh poppler-utils qpdf
 
       # Provisioning ends here so every gate below can report on its own:
       # a failing gate must not hide the ones after it, while a broken

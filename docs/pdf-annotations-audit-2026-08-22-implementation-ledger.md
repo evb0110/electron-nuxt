@@ -28,7 +28,10 @@ Source audit: `docs/pdf-annotations-feature-audit-2026-08-22.md`.
   native binary that that job does not build. The focused correction installs
   qpdf in the quality job and gives the unit case a disposable executable via
   `EVB_PDF_PAGE_OPS_PATH`; no product behavior or accepted Electron gate is
-  waived. A new hosted run is required. The latest integrated gates tested SHA
+  waived. The follow-up hosted run `34096135979` then failed at the same
+  interop test because `pdftoppm` was also absent from that job; every other
+  required hosted job passed. The quality job now provisions both
+  `poppler-utils` and `qpdf`. A new hosted run is required. The latest integrated gates tested SHA
   `8b8daf216`: canonical validation exited 0 under
   `.devkit/gates/2026-09-07T060244Z` with summary
   `.devkit/gates/2026-09-07T060244Z/summary.json`; #350 passed `4/4` in
@@ -96,7 +99,17 @@ Electron jobs still build and admit the real binary. The correction installs
 qpdf in the quality job and gives the unit test an explicit disposable
 executable through `EVB_PDF_PAGE_OPS_PATH`, retaining the `--version` and
 executable checks. Focused local coverage is green at 11/11. The hosted run
-must be repeated on the corrected head before PR #206 can merge.
+  must be repeated on the corrected head before PR #206 can merge.
+
+### 2026-09-07, hosted run `34096135979` terminal failure
+
+The corrected admission test and qpdf validation passed in hosted coverage.
+The same interop execution then failed when the independent renderer attempted
+to spawn `pdftoppm`; the quality job had installed qpdf but not
+`poppler-utils`. Every dedicated native/build, Electron, browser, packaged,
+Rust, and cleanup job passed. The workflow correction adds `poppler-utils` to
+the quality-job PDF tool install. This remains a runner provisioning fix, not a
+change to rendering assertions or a waiver of the Linux rendering requirement.
 
 ### 2026-09-07, integrated acceptance at `8b8daf216`
 
