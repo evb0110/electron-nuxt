@@ -6,14 +6,13 @@ use crate::engine::batch_reconciliation::{
     ReconciliationPolicy,
 };
 use crate::engine::output_geometry::{
-    align_deferred_spread_vertical_placements, align_spread_vertical_placements,
-    background_canvas_dimensions, background_dimensions_to_publish, canvas_fit_for,
-    canvas_placement_warning_events, horizontal_overflow_requires_fold_scan,
-    layered_background_dpi, matched_output_paper_dimensions_for, plan_canvas_placement,
-    plan_canvas_placement_with_shared_fit, shared_spread_overflow_fit_for_outputs,
+    align_spread_vertical_placements, background_canvas_dimensions,
+    background_dimensions_to_publish, canvas_fit_for, canvas_placement_warning_events,
+    horizontal_overflow_requires_fold_scan, layered_background_dpi,
+    matched_output_paper_dimensions_for, plan_canvas_placement, plan_canvas_placements,
     shared_spread_overflow_fits_for_geometry_outputs, validate_canvas_for_options, CanvasPlacement,
-    CanvasPlacementRequest, DeferredSpreadVerticalPlacement, GeometryCanvas, GeometryOutput,
-    NearPaperEdgeRuns, PLACEMENT_CENTERING_BOUNDS_X,
+    CanvasPlacementRequest, GeometryCanvas, GeometryOutput, NearPaperEdgeRuns,
+    PLACEMENT_CENTERING_BOUNDS_X,
 };
 use crate::engine::page_statistics::{
     derive_page_ink_contexts, derive_page_ink_sample, page_needs_ink_sample,
@@ -698,34 +697,7 @@ fn match_page_sizes(
         .iter()
         .map(|output| geometry_output(output))
         .collect::<Vec<_>>();
-    let geometry_refs = geometry_outputs.iter().collect::<Vec<_>>();
-    let shared_spread_fits =
-        shared_spread_overflow_fits_for_geometry_outputs(&geometry_refs, &canvas);
-    let mut placements = geometry_outputs
-        .iter()
-        .map(|output| {
-            plan_canvas_placement_with_shared_fit(
-                output,
-                &canvas,
-                shared_spread_fits.get(&output.source_page_index),
-            )
-        })
-        .collect::<Vec<_>>();
-    let deferred_spread_outputs = geometry_outputs
-        .iter()
-        .map(|output| DeferredSpreadVerticalPlacement {
-            source_page_index: output.source_page_index,
-            half: output.half,
-            intrinsic_height: output.height,
-            content_top: output.spread_content_top,
-        })
-        .collect::<Vec<_>>();
-    align_deferred_spread_vertical_placements(
-        &mut placements,
-        &deferred_spread_outputs,
-        &shared_spread_fits,
-        &canvas,
-    );
+    let placements = plan_canvas_placements(&geometry_outputs, &canvas);
 
     for (output, placement) in eligible.into_iter().zip(placements) {
         let repad_result = (|| -> Result<(), Box<dyn Error>> {
@@ -904,7 +876,6 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
     };
     let cache = manifest_cache(PlanningOperation::Render, None);
     let page_cache = page_cache_for(&planning_page(&page), &cache)?;
-    let publication = CliPagePublication;
     run_page(
         &page,
         CanvasScope::Page,
@@ -913,7 +884,6 @@ pub fn run(args: impl IntoIterator<Item = String>) -> Result<(), Box<dyn Error>>
         Some((&output, &metadata)),
         None,
         &page_cache,
-        &publication,
     )
     .map(|_| ())
 }
@@ -1185,7 +1155,6 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
         |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
             let page = page_from_staged(&manifest.pages[index], descriptor);
             let page_cache = page_cache_for(descriptor, &cache)?;
-            let publication = CliPagePublication;
             let result = run_page(
                 &page,
                 manifest.canvas_scope,
@@ -1194,7 +1163,6 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
                 None,
                 page_ink_contexts[index],
                 &page_cache,
-                &publication,
             )
             .map_err(|error| {
                 let envelope = NativeErrorEnvelope::from_error(error.as_ref());
@@ -1301,15 +1269,6 @@ mod page_workflow {
             NativeErrorCode::InvalidRequest
         };
         NativeError::new(code, message)
-    }
-
-    pub(crate) trait PagePublication {
-        fn write_metadata(
-            &self,
-            path: &Path,
-            metadata: &CleanupMetadata,
-        ) -> Result<(), Box<dyn Error>>;
-        fn remove_file(&self, path: &Path);
     }
 
     pub(crate) fn write_gray_layer_background(
@@ -1473,7 +1432,6 @@ mod page_workflow {
         fallback_destination: Option<(&Path, &Path)>,
         page_ink_consistency: Option<PageInkConsistencyContext>,
         cache: &PageCache,
-        publication: &dyn PagePublication,
     ) -> Result<PageRunResult, Box<dyn Error>> {
         let options = page.options.clone();
         options.validate().map_err(invalid)?;
@@ -1792,7 +1750,13 @@ mod page_workflow {
                         .iter()
                         .map(|output| geometry_output_from_cleanup_result(output, &options))
                         .collect::<Vec<_>>();
-                    shared_spread_overflow_fit_for_outputs(&geometry_outputs, &options, &canvas)
+                    let shared_fits = shared_spread_overflow_fits_for_geometry_outputs(
+                        &geometry_outputs,
+                        &canvas,
+                    );
+                    geometry_outputs
+                        .first()
+                        .and_then(|output| shared_fits.get(&output.source_page_index).cloned())
                 })
             })
             .flatten();
@@ -1816,8 +1780,7 @@ mod page_workflow {
                         .flatten();
                     let fold_trim = shared_spread_overflow_plan
                         .as_ref()
-                        .and_then(|plan| plan.trims.get(index))
-                        .copied()
+                        .and_then(|plan| plan.trims.get(index).copied())
                         .unwrap_or_default();
                     let mut placement = plan_canvas_placement(
                         CanvasPlacementRequest {
@@ -1924,7 +1887,7 @@ mod page_workflow {
                         Some(path.clone())
                     }
                     Some((path, Err(error))) => {
-                        publication.remove_file(path);
+                        let _ = fs::remove_file(path);
                         output.metadata.warnings.push(format!(
                         "Bilevel output was not written; the composite fallback was published instead: {error}"
                     ));
@@ -2027,8 +1990,8 @@ mod page_workflow {
                         }
                     })();
                     if let Err(error) = layer_result {
-                        publication.remove_file(background_path);
-                        publication.remove_file(foreground_path);
+                        let _ = fs::remove_file(background_path);
+                        let _ = fs::remove_file(foreground_path);
                         restore_mixed_composite_from_layers(output);
                         output.metadata.warnings.push(format!(
                             "Mixed layers were not written safely; the composite fallback was published instead: {error}"
@@ -2111,7 +2074,7 @@ mod page_workflow {
                             .map_err(|message| NativeError::new(NativeErrorCode::Io, message))?;
                     }
                 }
-                publication.write_metadata(&destination.metadata_path, &output.metadata)?;
+                write_json_atomic(&destination.metadata_path, &output.metadata)?;
                 let (paper_width, paper_height) = matched_output_paper_dimensions_for(
                     output.metadata.input_width,
                     output.metadata.input_height,
@@ -2194,28 +2157,28 @@ mod page_workflow {
         })();
         if let Err(error) = publication_result {
             for destination in &destinations {
-                publication.remove_file(&destination.output_path);
-                publication.remove_file(&destination.metadata_path);
+                let _ = fs::remove_file(&destination.output_path);
+                let _ = fs::remove_file(&destination.metadata_path);
                 if let Some(bilevel_path) = &destination.bilevel_output_path {
-                    publication.remove_file(bilevel_path);
+                    let _ = fs::remove_file(bilevel_path);
                 }
                 if let Some(background_path) = &destination.background_output_path {
-                    publication.remove_file(background_path);
+                    let _ = fs::remove_file(background_path);
                 }
                 if let Some(mask_path) = &destination.foreground_mask_output_path {
-                    publication.remove_file(mask_path);
+                    let _ = fs::remove_file(mask_path);
                 }
                 if let Some(alpha_path) = &destination.foreground_alpha_output_path {
-                    publication.remove_file(alpha_path);
+                    let _ = fs::remove_file(alpha_path);
                 }
                 if let Some(mask_path) = &destination.picture_mask_output_path {
-                    publication.remove_file(mask_path);
+                    let _ = fs::remove_file(mask_path);
                 }
                 if let Some(mask_path) = &destination.tone_preservation_alpha_output_path {
-                    publication.remove_file(mask_path);
+                    let _ = fs::remove_file(mask_path);
                 }
             }
-            publication.remove_file(&page.page_metadata_path);
+            let _ = fs::remove_file(&page.page_metadata_path);
             return Err(error);
         }
         timings.write_ms += write_started.elapsed().as_secs_f64() * 1_000.0;
@@ -2421,27 +2384,11 @@ fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usi
     }
 }
 
-pub(crate) use page_workflow::{run_classification, run_page, PagePublication};
+pub(crate) use page_workflow::{run_classification, run_page};
 
 pub(crate) fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(), Box<dyn Error>> {
     let bytes = serde_json::to_vec_pretty(value)?;
     crate::io::write_atomic(path, &bytes).map_err(|error| std::io::Error::other(error).into())
-}
-
-struct CliPagePublication;
-
-impl PagePublication for CliPagePublication {
-    fn write_metadata(
-        &self,
-        path: &Path,
-        metadata: &CleanupMetadata,
-    ) -> Result<(), Box<dyn Error>> {
-        write_json_atomic(path, metadata)
-    }
-
-    fn remove_file(&self, path: &Path) {
-        let _ = fs::remove_file(path);
-    }
 }
 
 #[cfg(test)]
