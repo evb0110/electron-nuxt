@@ -1,0 +1,46 @@
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_42ecbf4c9cb42a::t_20700b7fe1d35f 11,40-41,43
+  s_42ecbf4c9cb42a::t_f64c2b58d5bad0 24-29,38-39
+app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt.ts
+  s_42ecbf4c9cb42a::t_20700b7fe1d35f 7,16-19,111
+  s_42ecbf4c9cb42a::t_f64c2b58d5bad0 20-23
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_42ecbf4c9cb42a::t_02a4b1add117c7 75-77
+  s_42ecbf4c9cb42a::t_dceb28ed0c043e 384
+  s_42ecbf4c9cb42a::t_20700b7fe1d35f 67-74,78-79,306,332,344-347,349,360-362,377-383,385-386
+.devkit/analysis/project6/project6-307-bounded-correction.md
+  s_42ecbf4c9cb42a::t_823698c1faf48c 1-5,7-41
+  s_42ecbf4c9cb42a::t_7dc44ddb873c38 6,42
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_42ecbf4c9cb42a::t_20700b7fe1d35f 16-17
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitPayload.test.ts
+  s_42ecbf4c9cb42a::t_4085d875d604a8 223-265
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_42ecbf4c9cb42a::t_f64c2b58d5bad0 63,190,207,215,217,293,480,517-518
+  s_42ecbf4c9cb42a::t_20700b7fe1d35f 62,64-65
+  s_c63d7a8363f7e9::t_81a7e610d699d9 61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "decf17a05ec5678fedfee4d8dc0aa58679542cb2",
+  "prompts": {},
+  "sessions": {
+    "s_42ecbf4c9cb42a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cac-e171-7471-886d-bb857acd61ce",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
