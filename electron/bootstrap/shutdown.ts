@@ -162,7 +162,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             isQuittingAfterCleanup = true;
             options.app.exit(1);
         }, SHUTDOWN_CLEANUP_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS);
-        gracefulQuitForceTimer.unref?.();
+        gracefulQuitForceTimer.unref();
     }
 
     async function performCleanup(context: IShutdownContext, armForceExit: boolean) {
@@ -317,7 +317,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
                     isQuittingAfterCleanup = true;
                     options.app.exit(exitCode);
                 }, SYSTEM_SHUTDOWN_TIMEOUT_MS);
-                systemShutdownForceTimer.unref?.();
+                systemShutdownForceTimer.unref();
             }
         },
     };

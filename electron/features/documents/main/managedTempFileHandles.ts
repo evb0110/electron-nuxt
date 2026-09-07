@@ -272,7 +272,7 @@ function sweepExpiredLeases() {
 
 function ensureLeaseSweep() {
     leaseSweepTimer ??= setInterval(sweepExpiredLeases, 30_000);
-    leaseSweepTimer.unref?.();
+    leaseSweepTimer.unref();
 }
 
 export async function createManagedTempFileHandle(
@@ -563,6 +563,9 @@ export async function resolveTypedStagedArtifact(
     context: IDocumentsSenderIdContext,
     artifact: ITypedStagedArtifact,
 ): Promise<ITypedStagedArtifact> {
+    if (artifact.fileIdentity.platform === 'browser') {
+        throw new Error('Browser-store staged artifacts must use the browser document store commit path');
+    }
     sweepExpiredLeases();
     const lease = leases.get(artifact.leaseId);
     if (

@@ -1,4 +1,5 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -6,6 +7,7 @@ import {
 import {
     mkdir,
     mkdtemp,
+    rm,
     writeFile,
 } from 'node:fs/promises';
 import {
@@ -35,9 +37,53 @@ const {
     pathToFileURL(resolve(process.cwd(), 'scripts/architecture/annotation-dependency-graph.mjs')).href
 );
 
+const temporaryProjectRoots: string[] = [];
+
+async function createTemporaryProjectRoot() {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+    temporaryProjectRoots.push(projectRoot);
+    return projectRoot;
+}
+
+afterEach(async () => {
+    const roots = temporaryProjectRoots.splice(0);
+    await Promise.all(roots.map(projectRoot => rm(projectRoot, {
+        force: true,
+        recursive: true,
+    })));
+});
+
 describe('dependency graph', () => {
+    it('blocks pdfjs-dist imports outside renderer and adapter roots', () => {
+        expect(checkArchitectureBoundarySource(
+            'app/utils/exportTextAsDocx.ts',
+            'import type { PDFPageProxy } from \'pdfjs-dist/types/src/display/api\';\n',
+        )).toEqual([{
+            rule: 'pdfjs-import-boundary',
+            source: 'app/utils/exportTextAsDocx.ts',
+            target: 'pdfjs-dist/types/src/display/api',
+            specifier: 'pdfjs-dist/types/src/display/api',
+            message: 'pdfjs-dist imports belong only in the renderer or its PDF.js adapter roots.',
+        }]);
+        expect(checkArchitectureBoundarySource(
+            'app/modules/pdf-viewer/runtime/rendering/example.ts',
+            'import * as pdfjs from \'pdfjs-dist\';\n',
+        )).toEqual([]);
+        expect(checkArchitectureBoundarySource(
+            'app/components/PdfViewer.vue',
+            '<script setup lang="ts">\nimport type { IPdfPage } from \'pdfjs-dist\';\n</script>',
+        )).toHaveLength(1);
+        expect(checkArchitectureBoundarySource(
+            'app/utils/pdfPrint.ts',
+            'const pdfjs = await import(\'pdfjs-dist/legacy/build/pdf.mjs\');\n',
+        )).toHaveLength(1);
+        expect(checkArchitectureBoundarySource(
+            'app/utils/pdfPrint.ts',
+            'const pdfjs = require(\'pdfjs-dist\');\n',
+        )).toHaveLength(1);
+    });
     it('fails when a configured root does not exist', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'packages/release-selection'), { recursive: true });
 
         await expect(buildDependencyGraph({
@@ -47,7 +93,7 @@ describe('dependency graph', () => {
     });
 
     it('includes the release-selection package root', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'packages/release-selection'), { recursive: true });
         await writeFile(join(projectRoot, 'packages/release-selection/index.ts'), 'export const releaseSelection = true;\n');
 
@@ -60,7 +106,7 @@ describe('dependency graph', () => {
     });
 
     it('accepts a source file as a configured root', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'app'), { recursive: true });
         await writeFile(join(projectRoot, 'app/session.ts'), 'export const session = true;\n');
 
@@ -73,7 +119,7 @@ describe('dependency graph', () => {
     });
 
     it('ignores generated Vercel output when scanning all architecture roots', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'landing/app'), { recursive: true });
         await mkdir(join(projectRoot, 'landing/.vercel/output/server'), { recursive: true });
         await writeFile(join(projectRoot, 'landing/app/app.ts'), 'export const app = true;\n');
@@ -88,7 +134,7 @@ describe('dependency graph', () => {
     });
 
     it('treats external scoped packages that share internal alias prefixes as external', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'scripts/release'), { recursive: true });
         await writeFile(
             join(projectRoot, 'scripts/release/assert-packaged-app-contents.mjs'),
@@ -104,7 +150,7 @@ describe('dependency graph', () => {
     });
 
     it('resolves @evb workspace package aliases into package graph edges', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'app'), { recursive: true });
         await mkdir(join(projectRoot, 'packages/contracts'), { recursive: true });
         await mkdir(join(projectRoot, 'packages/i18n-core'), { recursive: true });
@@ -144,7 +190,7 @@ describe('dependency graph', () => {
     });
 
     it('reports strongly connected import components as dependency cycles', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'app'), { recursive: true });
         await writeFile(join(projectRoot, 'app/a.ts'), 'import \'./b\';\nexport const a = true;\n');
         await writeFile(join(projectRoot, 'app/b.ts'), 'import \'./a\';\nexport const b = true;\n');
@@ -164,8 +210,46 @@ describe('dependency graph', () => {
         ]]);
     });
 
+    it('does not report type-only import cycles as runtime dependency cycles', async () => {
+        const projectRoot = await createTemporaryProjectRoot();
+        await mkdir(join(projectRoot, 'app'), { recursive: true });
+        await writeFile(join(projectRoot, 'app/a.ts'), 'import type { B } from \'./b\';\nexport const a = true;\n');
+        await writeFile(join(projectRoot, 'app/b.ts'), 'import type { A } from \'./a\';\nexport const b = true;\n');
+
+        const graph = await buildDependencyGraph({
+            projectRoot,
+            roots: ['app'],
+        });
+
+        expect(graph.cycles).toEqual([]);
+        expect(graph.edges).toHaveLength(2);
+    });
+
+    it('keeps a module with both type-only and runtime imports as a runtime edge', async () => {
+        const projectRoot = await createTemporaryProjectRoot();
+        await mkdir(join(projectRoot, 'app'), { recursive: true });
+        await writeFile(
+            join(projectRoot, 'app/a.ts'),
+            'import type { B } from \'./b\';\nimport { b } from \'./b\';\nexport const a = b as B;\n',
+        );
+        await writeFile(
+            join(projectRoot, 'app/b.ts'),
+            'import type { A } from \'./a\';\nimport { a } from \'./a\';\nexport const b = a as A;\n',
+        );
+
+        const graph = await buildDependencyGraph({
+            projectRoot,
+            roots: ['app'],
+        });
+
+        expect(graph.cycles).toEqual([{ files: [
+            'app/a.ts',
+            'app/b.ts',
+        ] }]);
+    });
+
     it('does not turn JSDoc module type imports into runtime dependency edges', async () => {
-        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        const projectRoot = await createTemporaryProjectRoot();
         await mkdir(join(projectRoot, 'packages/contracts/diagnostics'), { recursive: true });
         await writeFile(
             join(projectRoot, 'packages/contracts/diagnostics/identity.js'),
@@ -805,7 +889,7 @@ describe('dependency graph', () => {
         expect(violations).toEqual([]);
     });
 
-    it('blocks direct PDF.js annotationStorage dirty-state access outside the save bridge', () => {
+    it('blocks direct PDF.js annotationStorage dirty-state access outside diagnostics', () => {
         expect(checkArchitectureBoundarySource(
             'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             'pdfDocument.value?.annotationStorage?.resetModified();',
@@ -814,7 +898,7 @@ describe('dependency graph', () => {
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
-            message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+            message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
         }]);
 
         expect(checkArchitectureBoundarySource(
@@ -825,7 +909,7 @@ describe('dependency graph', () => {
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
-            message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+            message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
         }]);
 
         expect(checkArchitectureBoundarySource(
@@ -836,16 +920,16 @@ describe('dependency graph', () => {
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             target: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
             specifier: 'source',
-            message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+            message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
         }]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts',
+            'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',
             'const storage = document.annotationStorage;\nreturn storage?.serializable;',
         )).toEqual([]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts',
+            'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',
             'annotationStorage.onSetModified = handler;',
         )).toEqual([]);
     });
@@ -857,7 +941,7 @@ describe('dependency graph', () => {
         });
         const result = checkAnnotationDependencyGraph(graph, { includeDirectEdgeViolations: true });
 
-        expect(ANNOTATION_LATE_BOUND_EDGES.length).toBeGreaterThan(0);
+        expect(ANNOTATION_LATE_BOUND_EDGES).toEqual([]);
         expect(result.violations).toEqual([]);
         expect(result.cycles).toEqual([]);
         expect(result.inventory.lateBoundEdges.length).toBe(ANNOTATION_LATE_BOUND_EDGES.length);
@@ -867,12 +951,12 @@ describe('dependency graph', () => {
         expect(checkAnnotationDependencyEdge({
             source: 'app/modules/pdf-viewer/tools/usePdfShapeTool.ts',
             target: 'app/modules/pdf-viewer/runtime/annotations/fixtureRuntime.ts',
-            specifier: '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud',
+            specifier: '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud',
         })).toEqual([{
             rule: 'annotation-tools-to-runtime',
             source: 'app/modules/pdf-viewer/tools/usePdfShapeTool.ts',
             target: 'app/modules/pdf-viewer/runtime/annotations/fixtureRuntime.ts',
-            specifier: '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud',
+            specifier: '@app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud',
             message: 'PDF annotation tools must not import runtime annotation composables; share pure helpers through engine/types ports.',
         }]);
 
@@ -890,13 +974,13 @@ describe('dependency graph', () => {
 
         expect(checkAnnotationDependencyEdge({
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            target: 'app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute',
+            target: 'app/modules/pdf-viewer/runtime/save/nativeMutationProjection.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection',
         })).toEqual([{
             rule: 'annotation-save-public-entrypoint',
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            target: 'app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute',
+            target: 'app/modules/pdf-viewer/runtime/save/nativeMutationProjection.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection',
             message: 'Annotation save internals must be consumed through app/modules/pdf-viewer/public.',
         }]);
     });
@@ -904,13 +988,13 @@ describe('dependency graph', () => {
     it('reports annotation cycle paths for negative fixtures', () => {
         const fixtureGraph = { edges: [
             {
-                source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
-                target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
+                source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+                target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
                 specifier: 'fixture-crud-to-highlight',
             },
             {
-                source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
-                target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
+                source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
+                target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
                 specifier: 'fixture-highlight-to-crud',
             },
         ] };
@@ -918,10 +1002,10 @@ describe('dependency graph', () => {
 
         expect(result.violations).toEqual([{
             rule: 'annotation-dependency-cycle',
-            source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
-            target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
+            source: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
+            target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts',
             specifier: 'direct import / late-bound annotation dependency graph',
-            message: 'Disallowed annotation dependency cycle: app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts -> app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts -> app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
+            message: 'Disallowed annotation dependency cycle: app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts -> app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlight.ts -> app/modules/pdf-viewer/runtime/annotations/useAnnotationCrud.ts',
         }]);
     });
 });

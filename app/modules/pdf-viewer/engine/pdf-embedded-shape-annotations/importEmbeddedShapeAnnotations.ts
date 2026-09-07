@@ -1,6 +1,3 @@
-import { requirePageIndex } from '@contracts/pageNumbers';
-import type { TPageIndex } from '@contracts/pageNumbers';
-
 import {
     PDFArray,
     PDFDict,
@@ -23,16 +20,16 @@ import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-g
 import { toMarkerPointFromPdfPoint } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerPointFromPdfPoint';
 import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 import type { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
-import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/generateManagedShapeStableKey';
-import { readManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/readManagedShapeStableKey';
+import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/generateManagedShapeStableKey';
+import { readManagedShapeStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/readManagedShapeStableKey';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { getAllShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
 import { readPdfRectFromDict } from '@pdf-core';
 import { parsePdfDateStringTimestamp } from '@app/utils/pdfDate';
-import { parseEpochMs } from '@contracts/timestamps';
-import { computePointsMinMax } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/computePointsMinMax';
-import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
-import { resolvePageAnnotationContext } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/resolvePageAnnotationContext';
+import { createEpochMs } from '@contracts/timestamps';
+import { computePointsMinMax } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/computePointsMinMax';
+import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/iterateAnnotationRefDicts';
+import { resolvePageAnnotationContext } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/resolvePageAnnotationContext';
 
 const BORDER_NAME = PDFName.of('Border');
 
@@ -102,14 +99,9 @@ function pointsFromPdfNumberPairs(
 ) {
     const points: IShapePoint[] = [];
     for (let index = 0; index < values.length; index += 2) {
-        const x = values[index];
-        const y = values[index + 1];
-        if (x === undefined || y === undefined) {
-            continue;
-        }
         const point = toMarkerPointFromPdfPoint(
-            x,
-            y,
+            values[index]!,
+            values[index + 1]!,
             pageView,
             pageRotation,
         );
@@ -142,48 +134,21 @@ function toHexColor(
 
     switch (color.length) {
         case 1: {
-            const component = color[0];
-            if (component === undefined) {
-                return fallback;
-            }
-            const gray = normalizedPdfComponent(component) * 255;
+            const gray = normalizedPdfComponent(color[0]!) * 255;
             return rgbComponentsToHex(gray, gray, gray);
         }
-        case 3: {
-            const [
-                red,
-                green,
-                blue,
-            ] = color;
-            if (red === undefined || green === undefined || blue === undefined) {
-                return fallback;
-            }
+        case 3:
             return rgbComponentsToHex(
-                normalizedPdfComponent(red) * 255,
-                normalizedPdfComponent(green) * 255,
-                normalizedPdfComponent(blue) * 255,
+                normalizedPdfComponent(color[0]!) * 255,
+                normalizedPdfComponent(color[1]!) * 255,
+                normalizedPdfComponent(color[2]!) * 255,
             );
-        }
         case 4: {
             // Annotation colors have no ICC profile here, so use a deterministic DeviceCMYK approximation.
-            const [
-                cyanValue,
-                magentaValue,
-                yellowValue,
-                blackValue,
-            ] = color;
-            if (
-                cyanValue === undefined
-                || magentaValue === undefined
-                || yellowValue === undefined
-                || blackValue === undefined
-            ) {
-                return fallback;
-            }
-            const cyan = normalizedPdfComponent(cyanValue);
-            const magenta = normalizedPdfComponent(magentaValue);
-            const yellow = normalizedPdfComponent(yellowValue);
-            const black = normalizedPdfComponent(blackValue);
+            const cyan = normalizedPdfComponent(color[0]!);
+            const magenta = normalizedPdfComponent(color[1]!);
+            const yellow = normalizedPdfComponent(color[2]!);
+            const black = normalizedPdfComponent(color[3]!);
             return rgbComponentsToHex(
                 (1 - Math.min(1, cyan + black)) * 255,
                 (1 - Math.min(1, magenta + black)) * 255,
@@ -232,7 +197,7 @@ function readBorderWidth(dict: PDFDict) {
 }
 
 function createImportedShapeId(
-    pageIndex: TPageIndex,
+    pageIndex: number,
     annotationId: string | null,
     stableKey: string | null,
     subtype: TEmbeddedPdfShapeSubtype,
@@ -262,7 +227,7 @@ function toLineEndStyle(value: string | null | undefined): TLineEndStyle | undef
 
 function readLineEndingStyles(dict: PDFDict) {
     const lineEndings = dict.lookupMaybe(LINE_ENDINGS_NAME, PDFArray);
-    if (!(lineEndings instanceof PDFArray) || lineEndings.size() < 2) {
+    if (!(lineEndings instanceof PDFArray)) {
         return {
             lineStartStyle: undefined,
             lineEndStyle: undefined,
@@ -283,7 +248,10 @@ function readPdfTextValue(value: unknown) {
 }
 
 function readAnnotationTimestamp(dict: PDFDict, key: PDFName) {
-    return parseEpochMs(parsePdfDateStringTimestamp(readPdfTextValue(dict.get(key)) || null));
+    const value = parsePdfDateStringTimestamp(readPdfTextValue(dict.get(key)) || null);
+    return value !== null && Number.isSafeInteger(value) && value >= 0
+        ? createEpochMs(value)
+        : null;
 }
 
 function readShapeDates(dict: PDFDict) {
@@ -335,7 +303,7 @@ function toPointsBounds(points: IShapePoint[]) {
 function importRectShape(
     dict: PDFDict,
     ref: PDFRef,
-    pageIndex: TPageIndex,
+    pageIndex: number,
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
     subtype: Extract<TEmbeddedPdfShapeSubtype, 'Square' | 'Circle'>,
@@ -374,7 +342,7 @@ function importRectShape(
 function importLineShape(
     dict: PDFDict,
     ref: PDFRef,
-    pageIndex: TPageIndex,
+    pageIndex: number,
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ): IShapeAnnotation | null {
@@ -388,22 +356,15 @@ function importLineShape(
         return null;
     }
 
-    const startX = values[0];
-    const startY = values[1];
-    const endX = values[2];
-    const endY = values[3];
-    if (startX === undefined || startY === undefined || endX === undefined || endY === undefined) {
-        return null;
-    }
     const start = toMarkerPointFromPdfPoint(
-        startX,
-        startY,
+        values[0]!,
+        values[1]!,
         pageView,
         pageRotation,
     );
     const end = toMarkerPointFromPdfPoint(
-        endX,
-        endY,
+        values[2]!,
+        values[3]!,
         pageView,
         pageRotation,
     );
@@ -445,7 +406,7 @@ function importLineShape(
 function importVerticesShape(
     dict: PDFDict,
     ref: PDFRef,
-    pageIndex: TPageIndex,
+    pageIndex: number,
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
     subtype: Extract<TEmbeddedPdfShapeSubtype, 'PolyLine' | 'Polygon'>,
@@ -508,7 +469,7 @@ function importVerticesShape(
 function importInkShape(
     dict: PDFDict,
     ref: PDFRef,
-    pageIndex: TPageIndex,
+    pageIndex: number,
     pageView: number[],
     pageRotation: ReturnType<typeof normalizePageRotation>,
 ): IShapeAnnotation | null {
@@ -547,10 +508,7 @@ function importInkShape(
         return null;
     }
 
-    const points = strokes[0];
-    if (!points) {
-        return null;
-    }
+    const points = strokes[0]!;
     const bounds = toPointsBounds(getAllShapePoints({
         points,
         strokes,
@@ -587,10 +545,9 @@ export async function importEmbeddedShapeAnnotations(data: Uint8Array) {
     const importedShapes: IShapeAnnotation[] = [];
 
     for (const [
-        rawPageIndex,
+        pageIndex,
         page,
     ] of pdfDocument.getPages().entries()) {
-        const pageIndex = requirePageIndex(rawPageIndex);
         const context = resolvePageAnnotationContext(page);
         if (!context) {
             continue;

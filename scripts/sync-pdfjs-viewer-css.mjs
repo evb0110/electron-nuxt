@@ -39,8 +39,8 @@ const targetImagesDir = path.join(projectRoot, 'public', 'pdfjs', 'images');
 const removableRulePatterns = [
     '.dialog.newAltText',
     '#viewsManager',
-    '#outerContainer.viewsManager',
 ];
+const legacyViewsManagerContainerPattern = '#outerContainer.viewsManager';
 
 function collectBlockRanges(cssText, shouldRemoveBlock) {
     const ranges = [];
@@ -125,7 +125,19 @@ function applyRanges(cssText, ranges) {
         return cssText;
     }
 
-    const sorted = ranges.sort((a, b) => b.start - a.start);
+    const merged = ranges
+        .slice()
+        .sort((a, b) => a.start - b.start)
+        .reduce((result, range) => {
+            const previous = result[result.length - 1];
+            if (previous !== undefined && range.start <= previous.end) {
+                previous.end = Math.max(previous.end, range.end);
+            } else {
+                result.push({...range});
+            }
+            return result;
+        }, []);
+    const sorted = merged.sort((a, b) => b.start - a.start);
     let output = cssText;
     for (const range of sorted) {
         output = `${output.slice(0, range.start)}\n${output.slice(range.end)}`;
@@ -147,7 +159,27 @@ export function removeUnusedUiBlocks(cssText) {
             return true;
         },
     );
-    const missingPatterns = removableRulePatterns.filter(pattern => !matchedPatterns.has(pattern));
+    const legacyContainerRules = collectBlockRanges(
+        cssText,
+        (prelude) => prelude.includes(legacyViewsManagerContainerPattern),
+    );
+    if (legacyContainerRules.length > 0) {
+        removableRules.push(...legacyContainerRules);
+        matchedPatterns.add(legacyViewsManagerContainerPattern);
+    } else {
+        const nestedContainerRules = collectBlockRanges(
+            cssText,
+            (prelude) => prelude.trim() === '#outerContainer',
+        );
+        if (nestedContainerRules.length === 1) {
+            removableRules.push(...nestedContainerRules);
+            matchedPatterns.add(legacyViewsManagerContainerPattern);
+        }
+    }
+    const missingPatterns = [
+        ...removableRulePatterns,
+        legacyViewsManagerContainerPattern,
+    ].filter(pattern => !matchedPatterns.has(pattern));
     if (missingPatterns.length > 0) {
         throw new Error(
             'PDF.js viewer CSS removal pattern(s) no longer match upstream css: '

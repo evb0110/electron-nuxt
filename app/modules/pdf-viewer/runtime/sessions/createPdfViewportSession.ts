@@ -251,7 +251,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (signal.aborted || options.zoomMode.value === 'custom') {
             return;
         }
-        scale.computeFitWidthScale(options.viewerContainer.value, {page: pageNumber});
+        scale.invalidateScaleCache(); scale.computeFitWidthScale(options.viewerContainer.value, {page: pageNumber});
         setupPagePlaceholders();
         await nextTick();
     }

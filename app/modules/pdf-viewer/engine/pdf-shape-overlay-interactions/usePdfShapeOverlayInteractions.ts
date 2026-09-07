@@ -138,7 +138,7 @@ export const usePdfShapeOverlayInteractions = (options: IUsePdfShapeOverlayInter
             clientY: event.clientY,
         };
         if (canCapturePointer(event)) {
-            svgRef.value?.setPointerCapture?.(event.pointerId);
+            svgRef.value?.setPointerCapture(event.pointerId);
         }
     }
 
@@ -198,7 +198,7 @@ export const usePdfShapeOverlayInteractions = (options: IUsePdfShapeOverlayInter
         }
         pointerDrawing = true;
         if (canCapturePointer(event)) {
-            svgRef.value?.setPointerCapture?.(event.pointerId);
+            svgRef.value?.setPointerCapture(event.pointerId);
         }
         emit.startDrawing(coords);
     }
@@ -245,10 +245,10 @@ export const usePdfShapeOverlayInteractions = (options: IUsePdfShapeOverlayInter
     }
 
     function handlePointerUp(event?: PointerEvent) {
-        if (event?.type === 'pointerleave' && canCapturePointer(event) && svgRef.value?.hasPointerCapture?.(event.pointerId)) {
+        if (event?.type === 'pointerleave' && canCapturePointer(event) && svgRef.value?.hasPointerCapture(event.pointerId)) {
             return;
         }
-        if (event && svgRef.value?.hasPointerCapture?.(event.pointerId)) {
+        if (event && svgRef.value?.hasPointerCapture(event.pointerId)) {
             svgRef.value.releasePointerCapture(event.pointerId);
         }
         pendingShapeDrag = null;
@@ -368,7 +368,7 @@ export const usePdfShapeOverlayInteractions = (options: IUsePdfShapeOverlayInter
             y: coords.y,
         });
         if (canCapturePointer(event)) {
-            svgRef.value?.setPointerCapture?.(event.pointerId);
+            svgRef.value?.setPointerCapture(event.pointerId);
         }
     }
 

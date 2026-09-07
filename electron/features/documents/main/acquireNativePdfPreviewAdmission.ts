@@ -22,7 +22,7 @@ export async function acquireNativePdfPreviewAdmission(
             `Native PDF preview admission timed out after ${String(timeoutMs)}ms`,
         ));
     }, timeoutMs);
-    timeout.unref?.();
+    timeout.unref();
     const signal = AbortSignal.any([
         options.ownerSignal,
         admissionController.signal,

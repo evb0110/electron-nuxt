@@ -382,7 +382,8 @@
 </template>
 
 <script setup lang="ts">
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     TOcrPreprocessingMode,
@@ -471,7 +472,7 @@ const languageChipGroupUi = {
 } as const;
 
 interface IProps {
-    pdfDocument: PDFDocumentProxy | null;
+    pdfDocument: IPdfDocument | null;
     currentPage: number;
     totalPages: number;
     workingCopyPath: TDocumentRef | null;
@@ -509,7 +510,7 @@ const isOpen = computed({
     get: () => open,
     set: (value: boolean) => emit('update:open', value),
 });
-const isExporting = computed(() => isExportingDocx ?? false);
+const isExporting = computed(() => isExportingDocx);
 const {
     settings,
     progress,

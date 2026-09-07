@@ -122,7 +122,10 @@ const BROWSER_FILE_PICKER_DESCRIPTION_MESSAGE_KEYS = {
 export function createBrowserDocumentsCapability(
     options: ICreateBrowserDocumentsCapabilityOptions,
 ): IBrowserDocumentCapabilities {
-    const errorMessageProvider = { largeSaveHandleHint: () => translateBrowserMessage('errors.browser.largeSaveHandleHint') };
+    const errorMessageProvider = {
+        largeSaveHandleHint: () => translateBrowserMessage('errors.browser.largeSaveHandleHint'),
+        useNativeApp: () => translateBrowserMessage('errors.browser.useNativeApp'),
+    };
     configureBrowserFilePickerMessages(errorMessageProvider);
     configureBrowserFilePickerDescriptions((key) =>
         translateBrowserMessage(BROWSER_FILE_PICKER_DESCRIPTION_MESSAGE_KEYS[key]),
@@ -146,12 +149,12 @@ export function createBrowserDocumentsCapability(
         openDocumentDialog: fileCapability.openDocumentDialog,
         openCombineDialog: fileCapability.openCombineDialog,
         openFolderDialog: fileCapability.openFolderDialog,
-        openFolderDialogStructured: fileCapability.openFolderDialogStructured,
+        openFolderDialogStructured: fileCapability.openFolderDialogStructured!,
         openImageDialog: fileCapability.openImageDialog,
         getPathForFile: fileCapability.getPathForFile,
         getPathsForFiles: fileCapability.getPathsForFiles,
         registerFilesForOpen: fileCapability.registerFilesForOpen,
-        createCombinedPdfFromFiles: fileCapability.createCombinedPdfFromFiles,
+        createCombinedPdfFromFiles: fileCapability.createCombinedPdfFromFiles!,
     } satisfies IDocumentsPickerCapability
         & TFeatureBrowserBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE>;
     const documentOpen = {
@@ -163,6 +166,7 @@ export function createBrowserDocumentsCapability(
     const documentWorkingCopy = {
         createWorkingCopyFromData: fileCapability.createWorkingCopyFromData,
         createWorkingCopyFromPath: fileCapability.createWorkingCopyFromPath,
+        parsePdfAnnotations: fileCapability.parsePdfAnnotations,
         cleanupFile: fileCapability.cleanupFile,
         cleanupOcrTemp: fileCapability.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
@@ -237,7 +241,7 @@ export function createBrowserDocumentsCapability(
             return undefined;
         },
         showItemInFolder: fileCapability.showItemInFolder,
-        showItemInFolderStructured: fileCapability.showItemInFolderStructured,
+        showItemInFolderStructured: fileCapability.showItemInFolderStructured!,
     } satisfies IDocumentsWindowCapability
         & TFeatureBrowserBindings<typeof DOCUMENT_WINDOW_PLATFORM_FEATURE>;
     const documentMenu = {...browserDocumentsMenuCapability} satisfies IDocumentsMenuCapability

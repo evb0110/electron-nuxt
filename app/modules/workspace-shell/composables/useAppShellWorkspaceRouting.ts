@@ -149,10 +149,10 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             return false;
         }
 
-        const snapshot = record?.toolbarSnapshot;
-        return hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities)
-            || snapshot?.isOpeningDocument === true
-            || snapshot?.hasOpenError === true
+        const snapshot = record.toolbarSnapshot;
+        return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities)
+            || snapshot.isOpeningDocument === true
+            || snapshot.hasOpenError === true
             || record.documentIdentity !== null
             || tabHasDocumentHint(record.tab);
     }

@@ -31,12 +31,10 @@
             v-if="minimizedIndicatorTargets[note.annotationId]"
             :to="minimizedIndicatorTargets[note.annotationId]"
         >
-            <AppTooltip
-                :text="getMinimizedNotePreview(note)"
-                :delay-duration="250"
-                :disabled="isMarkerDragTooltipSuppressed"
-                v-bind="isMarkerDragTooltipSuppressed ? {open: false} : {}"
-            >
+                <AppTooltip
+                    :text="getMinimizedNotePreview(note)"
+                    :delay-duration="250"
+                >
                 <button
                     type="button"
                     class="pdf-note-minimized-indicator"
@@ -139,6 +137,7 @@
         :x="textMarkupPropertiesX"
         :y="textMarkupPropertiesY"
         @update-color="emit('text-markup-color-update', $event)"
+        @update-opacity="emit('text-markup-opacity-update', $event)"
         @close="emit('text-markup-close')"
     />
     </div>
@@ -229,6 +228,7 @@ const emit = defineEmits<{
     'shape-close': [];
     'shape-delete': [];
     'text-markup-color-update': [color: string];
+    'text-markup-opacity-update': [opacity: number];
     'text-markup-close': [];
 }>();
 
@@ -242,7 +242,6 @@ const {
     minimizedIndicatorTargets,
     openNoteAnchorTargets,
     connectorLines,
-    isMarkerDragTooltipSuppressed,
     getMinimizedIndicatorStyle,
     getMinimizedNotePreview,
     traceAnchorInteraction,

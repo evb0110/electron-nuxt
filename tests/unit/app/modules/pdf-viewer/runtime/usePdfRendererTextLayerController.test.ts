@@ -1,3 +1,4 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import { requirePageNumber } from '@contracts/pageNumbers';
@@ -8,44 +9,12 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { PDFPageProxy } from 'pdfjs-dist';
+import { cast } from '@tests/helpers/cast';
 import { usePdfRendererTextLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererTextLayerController';
 import type {
     IActivePdfTextLayerTask,
     TPdfTextLayerCleanup,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-
-type TTextRenderContext = Parameters<
-    ReturnType<typeof usePdfRendererTextLayerController>
->[3];
-
-function createPdfPage(): PDFPageProxy {
-    // The controller passes the page to the renderer, which owns PDF.js access.
-    return {pageNumber: 1} as PDFPageProxy;
-}
-
-function createViewport(scale: number): TTextRenderContext['renderResult']['viewport'] {
-    // This test only exercises layer geometry; PDF.js supplies the other fields.
-    return {
-        width: 100 * scale,
-        height: 100 * scale,
-    } as TTextRenderContext['renderResult']['viewport'];
-}
-
-function createRenderResult(scale: number): TTextRenderContext['renderResult'] {
-    return {
-        canvas: document.createElement('canvas'),
-        viewport: createViewport(scale),
-        scaleX: scale,
-        scaleY: scale,
-        rawDims: {
-            pageWidth: 100,
-            pageHeight: 100,
-        },
-        userUnit: 1,
-        totalScaleFactor: scale,
-    };
-}
 
 function createHarness() {
     const container = document.createElement('div');
@@ -60,7 +29,7 @@ function createHarness() {
     // only when its content key changes, and relayouted otherwise.
     let renderedContentKey: string | null = null;
     const renderTextLayer = vi.fn(async (
-        _pdfPage: PDFPageProxy,
+        _pdfPage: IPdfPage,
         _textLayerDiv: HTMLElement,
         _viewport: unknown,
         _scale: number,
@@ -76,21 +45,12 @@ function createHarness() {
         renderedContentKey = harness.contentKey;
     });
 
-    const textLayerRenderer = {
+    const textLayerRenderer = cast<Parameters<typeof usePdfRendererTextLayerController>[0]['textLayerRenderer']>({
         renderTextLayer,
         setupTextLayerInteraction: vi.fn(() => teardownInteraction),
         applyPageSearchHighlights: vi.fn(),
         cleanupTextLayerDom: vi.fn(),
-        applyAllSearchHighlights: vi.fn(),
-        applySearchHighlightHandoff: vi.fn(),
-        scrollToCurrentMatch: vi.fn(),
-        clearOcrDebug: vi.fn(),
-        isOcrDebugEnabled: vi.fn(() => false),
-        renderOcrDebugBoxes: vi.fn(),
-        scheduleRenderOcrDebugBoxes: vi.fn(),
-        scheduleOcrDebugForPage: vi.fn(),
-        getCurrentMatchRanges: vi.fn(),
-    } satisfies Parameters<typeof usePdfRendererTextLayerController>[0]['textLayerRenderer'];
+    });
 
     const renderTextLayerForPage = usePdfRendererTextLayerController({
         textLayerRenderer,
@@ -120,8 +80,22 @@ function createHarness() {
             1,
             {
                 container,
-                pdfPage: createPdfPage(),
-                renderResult: createRenderResult(scale),
+                pdfPage: cast<IPdfPage>({pageNumber: 1}),
+                renderResult: cast<Parameters<typeof renderTextLayerForPage>[3]['renderResult']>({
+                    canvas: document.createElement('canvas'),
+                    viewport: {
+                        width: 100 * scale,
+                        height: 100 * scale,
+                    },
+                    scaleX: scale,
+                    scaleY: scale,
+                    rawDims: {
+                        pageWidth: 100,
+                        pageHeight: 100,
+                    },
+                    userUnit: 1,
+                    totalScaleFactor: scale,
+                }),
                 textLayerDiv,
             },
             scale,

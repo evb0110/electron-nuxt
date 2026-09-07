@@ -191,7 +191,7 @@ async function streamScanCleanupSidecar(
                 resolve(terminated);
             };
             const fallbackHandle = setTimeout(() => settle(false), SCAN_CLEANUP_TERMINATION_FALLBACK_MS);
-            fallbackHandle.unref?.();
+            fallbackHandle.unref();
             void treeTermination.then(terminated => settle(terminated === true));
         });
         return terminationPromise;
@@ -315,7 +315,7 @@ async function streamScanCleanupSidecar(
                             reject(withTerminationProof(timeoutError, terminated))
                         ));
                     }, timeoutMs);
-                    timeoutHandle.unref?.();
+                    timeoutHandle.unref();
                 }),
                 fatalSettlement,
             ]);

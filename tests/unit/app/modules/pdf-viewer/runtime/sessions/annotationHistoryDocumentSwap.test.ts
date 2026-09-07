@@ -1,8 +1,6 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireEpochMs } from '@contracts/timestamps';
 import {
     afterEach,
     describe,
@@ -18,15 +16,16 @@ import {
     nextTick,
     ref,
     shallowRef,
-    type ShallowRef,
 } from 'vue';
-import type {PDFDocumentProxy} from 'pdfjs-dist';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type {IStickyNoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {TPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type {TPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
-import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
+import { cast } from '@tests/helpers/cast';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     EventBus: vi.fn(),
@@ -43,13 +42,10 @@ afterEach(() => {
     mountedSessions.splice(0).forEach(unmount => unmount());
 });
 
-function stickyNote(id: string): IStickyNoteEntity {
+function note(id: string): INoteEntity {
     return {
-        kind: 'sticky-note',
-        identity: {
-            id: asAnnotationId(id),
-            pdfjsUid: `${id}-editor`,
-        },
+        kind: 'note',
+        identity: {id: asAnnotationId(id)},
         pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
@@ -57,84 +53,68 @@ function stickyNote(id: string): IStickyNoteEntity {
         createdAt: requireEpochMs(1),
         modifiedAt: requireEpochMs(1),
         author: null,
-        text: '',
-        anchor: {
+        contents: '',
+        position: {
             left: 0.1,
             top: 0.2,
             width: 0.02,
             height: 0.02,
         },
         color: '#ffff00',
+        open: false,
     };
 }
 
 /** Enough of a proxy for identity comparisons; the session only swaps on it. */
 function createDocumentProxy(fingerprint: string) {
-    return createPdfDocumentProxy({
+    return cast<IPdfDocument>({
         numPages: 1,
         fingerprints: [fingerprint],
     });
 }
 
-function createDocumentSessionFixture(pdfDocument: ShallowRef<PDFDocumentProxy | null>): TPdfDocumentSession {
-    const fixture = {
-        pdfDocument: computed(() => pdfDocument.value),
-        numPages: ref(1),
-        registerDisposable: vi.fn(),
-        subscribe: vi.fn(() => vi.fn()),
-    } satisfies Pick<TPdfDocumentSession, 'pdfDocument' | 'numPages' | 'registerDisposable' | 'subscribe'>;
-    // The annotation session only consumes this narrow sibling-session slice.
-    return Object.assign(Object.create(null), fixture);
-}
-
-function createViewportSessionFixture(): TPdfViewportSession {
-    const fixture = {
-        currentPage: computed(() => 1),
-        visibleRange: computed(() => ({
-            start: 1,
-            end: 1,
-        })),
-        scale: {effectiveScale: computed(() => 1)},
-        scroll: {updateVisibleRange: vi.fn()},
-        singlePageScroll: {scrollToPage: vi.fn()},
-    };
-    // The annotation session does not inspect the rest of viewport state.
-    return Object.assign(Object.create(null), fixture);
-}
-
-function createRenderingSessionFixture(): TPdfRenderingSession {
-    const fixture = {
-        attachAnnotationProjection: vi.fn(() => vi.fn()),
-        hideManagedAnnotationEditors: vi.fn(),
-        invalidatePages: vi.fn(),
-        isPageRendered: vi.fn(() => false),
-        renderAnnotationEditorLayerForPage: vi.fn(),
-        renderVisiblePages: vi.fn(),
-        renderedPageStateVersion: ref(0),
-    } satisfies Pick<
-        TPdfRenderingSession,
-        | 'attachAnnotationProjection'
-        | 'hideManagedAnnotationEditors'
-        | 'invalidatePages'
-        | 'isPageRendered'
-        | 'renderAnnotationEditorLayerForPage'
-        | 'renderVisiblePages'
-        | 'renderedPageStateVersion'
-    >;
-    // The annotation session only calls the rendering methods listed above.
-    return Object.assign(Object.create(null), fixture);
-}
-
 function mountAnnotationSession() {
-    const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
+    const pdfDocument = shallowRef<IPdfDocument | null>(null);
     let session: ReturnType<typeof createPdfAnnotationSession> | undefined;
     const host = document.createElement('div');
     document.body.append(host);
     const AnnotationSessionHost = defineComponent({ setup() {
         session = createPdfAnnotationSession({
-            document: createDocumentSessionFixture(pdfDocument),
-            viewport: createViewportSessionFixture(),
-            rendering: createRenderingSessionFixture(),
+            // Only the three sibling sessions are cast: each is a wide surface
+            // this fixture has no reason to stub whole. The options themselves
+            // stay typed so a renamed or retyped option fails to compile here.
+            document: cast<TPdfDocumentSession>({
+                pdfDocument,
+                numPages: ref(1),
+                registerDisposable: vi.fn(),
+                subscribe: vi.fn(() => vi.fn()),
+                captureFence: vi.fn(() => ({
+                    loadToken: 0,
+                    documentVersion: 0,
+                    documentRevision: null,
+                    openSurfaceGeneration: 0,
+                })),
+                isCurrent: vi.fn(() => true),
+            }),
+            viewport: cast<TPdfViewportSession>({
+                currentPage: ref(1),
+                visibleRange: computed(() => ({
+                    start: 1,
+                    end: 1,
+                })),
+                scale: {effectiveScale: computed(() => 1)},
+                scroll: {updateVisibleRange: vi.fn()},
+                singlePageScroll: {scrollToPage: vi.fn()},
+            }),
+            rendering: cast<TPdfRenderingSession>({
+                attachAnnotationProjection: vi.fn(() => vi.fn()),
+                hideManagedAnnotationEditors: vi.fn(),
+                invalidatePages: vi.fn(),
+                isPageRendered: vi.fn(() => false),
+                renderAnnotationEditorLayerForPage: vi.fn(),
+                renderVisiblePages: vi.fn(),
+                renderedPageStateVersion: ref(0),
+            }),
             viewerContainer: ref(null),
             originalPath: computed(() => requireDocumentRef('/documents/original.pdf')),
             src: computed(() => ({
@@ -153,7 +133,6 @@ function mountAnnotationSession() {
             annotationKeepActive: computed(() => false),
             annotationSettings: computed(() => null),
             authorName: computed(() => null),
-            stopDrag: vi.fn(),
             clearPendingImagePlacement: vi.fn(),
             emitAnnotationModified: vi.fn(),
             emitAnnotationState: vi.fn(),
@@ -165,8 +144,6 @@ function mountAnnotationSession() {
             emitAnnotationToolAutoReset: vi.fn(),
             emitAnnotationSetting: vi.fn(),
             emitAnnotationCommentClick: vi.fn(),
-            emitAnnotationToolCancel: vi.fn(),
-            emitAnnotationNotePlacementChange: vi.fn(),
             emitShapeContextMenu: vi.fn(),
         });
         return () => h('div');
@@ -184,7 +161,7 @@ function mountAnnotationSession() {
     return {
         pdfDocument,
         createNote: (id: string) => {
-            activeSession.annotationApplication.value.store.createStickyNote(stickyNote(id));
+            activeSession.annotationApplication.value.store.createNote(note(id));
         },
         canUndo: () => activeSession.appAnnotationHistory.canUndo.value,
         canRedo: () => activeSession.appAnnotationHistory.canRedo.value,

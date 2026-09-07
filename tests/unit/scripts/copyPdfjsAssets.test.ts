@@ -205,6 +205,12 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
             ]) {
                 await mkdir(path.join(pdfjsRoot, directory), {recursive: true});
             }
+            await writeFile(
+                path.join(pdfjsRoot, 'standard_fonts', 'LICENSE_LIBERATION'),
+                'license line with spaces   \nlicense line without spaces\n',
+            );
+            await writeFile(path.join(pdfjsRoot, 'wasm', 'README.md'), 'documentation');
+            await writeFile(path.join(pdfjsRoot, 'wasm', 'CHANGELOG.md'), 'documentation');
 
             await copyPdfjsAssets({
                 root: pdfjsRoot,
@@ -216,6 +222,10 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
                 'utf8',
             );
             expect(publicWorkerSource).toContain('ChunkedStreamClone');
+            expect(await readFile(
+                path.join(targetRoot, 'standard_fonts', 'LICENSE_LIBERATION'),
+                'utf8',
+            )).toBe('license line with spaces\nlicense line without spaces\n');
             expect(publicWorkerSource).toContain('_storedChunks');
             expect(publicWorkerSource).toContain('discardChunksBefore');
             expect(publicWorkerSource).toContain('indexObjectsBounded');
@@ -228,6 +238,12 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
             expect(Buffer.byteLength(publicWorkerSource, 'utf8'))
                 .toBeLessThan(PDFJS_WORKER_MAX_BYTES);
             expect(publicWorkerSource).not.toContain('\n    class ChunkedStream');
+            await expect(readFile(path.join(targetRoot, 'wasm', 'README.md')))
+                .rejects
+                .toMatchObject({code: 'ENOENT'});
+            await expect(readFile(path.join(targetRoot, 'wasm', 'CHANGELOG.md')))
+                .rejects
+                .toMatchObject({code: 'ENOENT'});
 
             const publicWorkerModule = await import(
                 `${pathToFileURL(path.join(targetRoot, 'pdf.worker.min.mjs')).href}?asset-contract`

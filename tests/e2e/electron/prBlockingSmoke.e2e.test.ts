@@ -28,9 +28,11 @@ import {
     goToPageViaToolbar,
     openDjvuInApp,
     openPdfInApp,
+    waitForActiveDocumentSource,
     waitForDjvuLoaded,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
+    waitForWorkspaceHistorySettled,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     waitForWorkspaceToolbarSnapshot,
@@ -1806,6 +1808,8 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     ));
                 row?.click();
             }, fixturePath);
+            await waitForActiveDocumentSource(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+            await waitForWorkspaceHistorySettled(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForWorkspaceToolbarSnapshot(
                 session.page,

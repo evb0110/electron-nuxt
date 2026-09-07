@@ -1,20 +1,20 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     Ref,
     ShallowRef,
 } from 'vue';
 import type {
-    PDFDocumentProxy,
     IPdfBookmarkEntry,
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
 import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import type { TRequestId } from '@contracts/shared';
+import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import {
-    usePdfSerialization,
+    usePdfPlacedImagePersistence,
     resolvePdfReloadPage,
     createPdfReloadWaiter,
     resolvePdfViewerSaveTransactionFinalBytes,
@@ -35,20 +35,18 @@ type TPageSaveViewer = IPdfViewerExpose & {
         snapshot: IScrollSnapshot | null,
         options?: {fallbackPage?: number | null},
     ) => void;
-    preserveNextSourceReloadVisibleContent?: (request?: {
-        scrollSnapshot?: IScrollSnapshot | null;
-        pageToRestore?: number | null;
-    }) => void;
 };
 
 interface IPageSaveOrchestrationDeps {
     pdfData: Ref<Uint8Array | null>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
     pdfViewerRef: Ref<TPageSaveViewer | null>;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
     documentSessionKey: Ref<string | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
+    wasEncrypted?: NonNullable<IWorkspaceSaveDependencies['document']['wasEncrypted']>;
+    unencryptedSaveNotice?: NonNullable<IWorkspaceSaveDependencies['unencryptedSaveNotice']>;
     totalPages: Ref<number>;
     pageLabelsDirty: Ref<boolean>;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
@@ -60,19 +58,12 @@ interface IPageSaveOrchestrationDeps {
     annotationNoteWindowsCount: Ref<number>;
     pendingEmbeddedAnnotationDeleteCount: Ref<number>;
     hasAnnotationChanges: () => boolean;
-    hasLivePdfJsAnnotationChanges?: () => boolean;
-    hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
-    getSavedPdfJsAnnotationFingerprint?: () => string | null;
-    hasPreservedAnnotationSourceChanges?: () => boolean;
-    reconcilePreservedAnnotationSourceDirty?: () => void;
-    markAnnotationSaved: (opts?: { preserveLivePdfjsSession?: boolean }) => void;
+    markAnnotationSaved: () => void;
     getAnnotationSaveStateToken?: () => unknown;
     markPageLabelsSaved: () => void;
     getPageLabelsSaveStateToken?: () => unknown;
     markBookmarksSaved: () => void;
     getBookmarksSaveStateToken?: () => unknown;
-    preserveMetadataForNextSourceReload?: (() => void) | undefined;
-    clearPreservedSourceReloadMetadata?: (() => void) | undefined;
     isDirty: Ref<boolean>;
     hasPendingUnsavedChanges?: ComputedRef<boolean>;
     validatePdfPath: IWorkspaceSaveDependencies['persistence']['validatePdfPath'];
@@ -107,6 +98,8 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         originalPath,
         documentSessionKey,
         documentRevisionToken,
+        wasEncrypted,
+        unencryptedSaveNotice,
         totalPages,
         pageLabelsDirty,
         pageLabelRanges,
@@ -118,19 +111,12 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         annotationNoteWindowsCount,
         pendingEmbeddedAnnotationDeleteCount,
         hasAnnotationChanges,
-        hasLivePdfJsAnnotationChanges,
-        hasSavedPdfJsAnnotationBaselineChanges,
-        getSavedPdfJsAnnotationFingerprint,
-        hasPreservedAnnotationSourceChanges,
-        reconcilePreservedAnnotationSourceDirty,
         markAnnotationSaved,
         getAnnotationSaveStateToken,
         markPageLabelsSaved,
         getPageLabelsSaveStateToken,
         markBookmarksSaved,
         getBookmarksSaveStateToken,
-        preserveMetadataForNextSourceReload,
-        clearPreservedSourceReloadMetadata,
         isDirty,
         hasPendingUnsavedChanges,
         validatePdfPath,
@@ -150,30 +136,11 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
     const {
         getSourcePdfData,
-        serializePdfForSave,
-        rewriteMarkupSubtypes,
         embedPlacedImageToPage,
-        updateEmbeddedAnnotationByRef: updateEmbeddedByRef,
-        deleteEmbeddedAnnotationByRef: deleteEmbeddedByRef,
-        rewritePageLabels,
-    } = usePdfSerialization({
+    } = usePdfPlacedImagePersistence({
         pdfData,
         workingCopyPath,
         documentRevisionToken,
-        totalPages,
-        pageLabelsDirty,
-        pageLabelRanges,
-        bookmarksDirty,
-        bookmarkItems,
-        untitledBookmarkLabel: t('bookmarks.untitled'),
-        getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
-        getMarkupSubtypeHints: () => pdfViewerRef.value?.getMarkupSubtypeHints?.(),
-        getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
-        getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
-        getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
-        ensureManagedShapeBaselineReady: () => (
-            pdfViewerRef.value?.ensureManagedShapeBaselineReady?.() ?? Promise.resolve(true)
-        ),
     });
 
     const saveDependencies: IWorkspaceSaveDependencies = {
@@ -186,22 +153,14 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             workingCopyPath,
             originalPath,
             revisionToken: documentRevisionToken,
+            ...(wasEncrypted ? {wasEncrypted} : {}),
         },
+        ...(unencryptedSaveNotice ? {unencryptedSaveNotice} : {}),
         annotations: {
             dirty: annotationDirty,
             markSaved: markAnnotationSaved,
             ...(getAnnotationSaveStateToken ? {getSaveStateToken: getAnnotationSaveStateToken} : {}),
             hasChanges: hasAnnotationChanges,
-            ...(hasLivePdfJsAnnotationChanges ? {hasLivePdfJsChanges: hasLivePdfJsAnnotationChanges} : {}),
-            ...(hasSavedPdfJsAnnotationBaselineChanges
-                ? {hasSavedPdfJsBaselineChanges: hasSavedPdfJsAnnotationBaselineChanges}
-                : {}),
-            ...(getSavedPdfJsAnnotationFingerprint
-                ? {getSavedPdfJsAnnotationFingerprint}
-                : {}),
-            ...(hasPreservedAnnotationSourceChanges
-                ? {hasPreservedSourceChanges: hasPreservedAnnotationSourceChanges}
-                : {}),
             hasPendingDeletes: () => pendingEmbeddedAnnotationDeleteCount.value > 0,
             openNoteCount: annotationNoteWindowsCount,
             persistOpenNotes: persistAllAnnotationNotes,
@@ -230,7 +189,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request)
                 ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
             getSourceData: getSourcePdfData,
-            serializeForSave: serializePdfForSave,
+            serializeForSave: undefined,
         },
         persistence: {
             validatePdfPath,
@@ -262,27 +221,12 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 pdfViewerRef.value?.restorePreparedManagedShapesAfterFailedSave?.(snapshot)
                 ?? Promise.resolve()
             ),
-            adoptPersistedStateOnReload: () => (
-                pdfViewerRef.value?.adoptPersistedManagedShapesOnNextImport?.()
-            ),
-            clearPendingPersistedState: () => (
-                pdfViewerRef.value?.clearPendingManagedShapeImportAdoption?.()
-            ),
         },
         lifecycle: {
             loadRecentFiles,
             preparePostSaveReload: () => {
-                const shouldPreserveMetadata = pageLabelsDirty.value || bookmarksDirty.value;
-                if (shouldPreserveMetadata) {
-                    preserveMetadataForNextSourceReload?.();
-                }
                 const scrollSnapshot = pdfViewerRef.value?.captureScrollSnapshot?.() ?? null;
                 const pageToRestore = resolvePdfReloadPage(scrollSnapshot?.anchorPage ?? currentPage.value);
-                pdfViewerRef.value?.preserveNextSourceReloadVisibleContent?.({
-                    ...(scrollSnapshot ? {scrollSnapshot} : {}),
-                    pageToRestore,
-                });
-
                 const reloadWaiter = createPdfReloadWaiter({
                     pdfDocument,
                     pdfViewerRef,
@@ -293,9 +237,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 return {
                     promise: reloadWaiter.promise,
                     cancel: () => {
-                        if (shouldPreserveMetadata) {
-                            clearPreservedSourceReloadMetadata?.();
-                        }
                         reloadWaiter.cancel();
                     },
                 };
@@ -322,16 +263,12 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                 isDirty.value
                 || annotationDirty.value
                 || hasAnnotationChanges()
-                || (hasLivePdfJsAnnotationChanges?.() ?? false)
-                || (hasSavedPdfJsAnnotationBaselineChanges?.() ?? false)
-                || (hasPreservedAnnotationSourceChanges?.() ?? false)
                 || pageLabelsDirty.value
                 || bookmarksDirty.value
             )
     ));
 
     async function handleSave() {
-        reconcilePreservedAnnotationSourceDirty?.();
         // Save is an idempotent command. A history round trip can reconcile
         // the last dirty signal immediately before the command arrives; in
         // that case there is nothing to write, but the requested save still
@@ -340,12 +277,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     async function handleRepairSave() {
-        reconcilePreservedAnnotationSourceDirty?.();
         return handleRepairSaveWithReload();
     }
 
     async function handleOptimizePdfForInteraction() {
-        reconcilePreservedAnnotationSourceDirty?.();
         if (canSave.value) {
             const saved = await handleSaveWithReload();
             if (!saved) {
@@ -357,7 +292,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     async function handleOptimizePdfAsCopy(options: IPdfOptimizeOptions, requestId?: TRequestId) {
-        reconcilePreservedAnnotationSourceDirty?.();
         if (canSave.value) {
             const saved = await handleSaveWithReload();
             if (!saved) {
@@ -369,12 +303,10 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     }
 
     async function handleSaveAs() {
-        reconcilePreservedAnnotationSourceDirty?.();
         return handleSaveAsWithReload(deps.optimizePdfOnSaveAs?.value === true);
     }
 
     function saveForExternalRead() {
-        reconcilePreservedAnnotationSourceDirty?.();
         return handleSaveWithReload();
     }
 
@@ -390,11 +322,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             && typeof documentFiles.replaceWorkingCopyFromStagedPdfNativeMutation === 'function'
         );
         return {
-            forcePdfjsMaterialize: (
-                (hasPreservedAnnotationSourceChanges?.() ?? false)
-                || (hasSavedPdfJsAnnotationBaselineChanges?.() ?? false)
-            ),
-            savedPdfjsAnnotationFingerprint: getSavedPdfJsAnnotationFingerprint?.() ?? null,
+            forceWriterSave: false,
             nativeCapabilities: {
                 hasNativePdfMutationCapability: canStageNativeMutation,
                 canPersistNativeMetadataMutations: canStageNativeMutation && canConsumeNativeMutation,
@@ -402,8 +330,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             dirtyState: {
                 annotationDirty: annotationDirty.value,
                 hasAnnotationChanges: hasAnnotationChanges(),
-                hasLivePdfJsAnnotationChanges: hasLivePdfJsAnnotationChanges?.() ?? false,
-                savedPdfjsAnnotationBaselineDirty: hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
                 shapeStateDirty: hasViewerShapeChanges(pdfViewerRef.value),
             },
             documentStructure: {
@@ -447,8 +373,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             mode: 'snapshot',
             saveMode: 'rewrite',
             saveFlowMode: 'save',
-            forcePdfjsMaterialize: (hasPreservedAnnotationSourceChanges?.() ?? false)
-                || (hasSavedPdfJsAnnotationBaselineChanges?.() ?? false),
             includeManagedShapes: shapeStateDirty,
             rewriteShapeState: shapeStateDirty,
             forceRewrite: pageLabelsDirty.value || bookmarksDirty.value || shapeStateDirty,
@@ -456,8 +380,6 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             dirtyState: {
                 annotationDirty: annotationDirty.value,
                 hasAnnotationChanges: hasAnnotationChanges(),
-                hasLivePdfJsAnnotationChanges: hasLivePdfJsAnnotationChanges?.() ?? false,
-                savedPdfjsAnnotationBaselineDirty: hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
                 shapeStateDirty,
             },
             documentStructure: {
@@ -470,10 +392,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                     ? totalPages.value
                     : (pdfDocument.value?.numPages ?? 0),
             },
-            source: {
-                getSourcePdfData,
-                serializePdfForSave,
-            },
+            source: {getSourcePdfData},
         });
         const bytes = resolvePdfViewerSaveTransactionFinalBytes(result);
         if (!bytes || !ownsCapturedDocument()) {
@@ -503,7 +422,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
         const result = await pdfViewerRef.value?.runSaveTransaction({
             mode: 'embedded-mutation',
-            forcePdfjsMaterialize: true,
+            forceWriterSave: true,
             serializeResult: false,
         });
         return resolvePdfViewerSaveTransactionFinalBytes(result);
@@ -512,12 +431,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     return {
         getSourcePdfData,
         getEmbeddedMutationBaseData,
-        serializePdfForSave,
-        rewriteMarkupSubtypes,
         embedPlacedImageToPage,
-        updateEmbeddedByRef,
-        deleteEmbeddedByRef,
-        rewritePageLabels,
         handleSave,
         handleRepairSave,
         handleOptimizePdfForInteraction,

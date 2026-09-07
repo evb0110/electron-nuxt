@@ -6,14 +6,14 @@ import {
 } from 'vitest';
 import {
     asAnnotationId,
-    type IStickyNoteEntity,
+    type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 
-function persistedNote(id: string, text = id): IStickyNoteEntity {
+function persistedNote(id: string, contents = id): INoteEntity {
     return {
-        kind: 'sticky-note',
+        kind: 'note',
         identity: {
             id: asAnnotationId(id),
             pdfRef: `${id}-ref`,
@@ -25,14 +25,15 @@ function persistedNote(id: string, text = id): IStickyNoteEntity {
         createdAt: null,
         modifiedAt: null,
         author: null,
-        text,
-        anchor: {
+        contents,
+        position: {
             left: 0.1,
             top: 0.2,
             width: 0.1,
             height: 0.1,
         },
         color: '#ffff00',
+        open: false,
     };
 }
 
@@ -41,7 +42,7 @@ function semanticFingerprintCalls(calls: readonly unknown[][]) {
         typeof value === 'object'
         && value !== null
         && 'kind' in value
-        && 'identity' in value
+        && 'pageIndex' in value
     ));
 }
 
@@ -69,7 +70,7 @@ describe('AnnotationStore bulk imports', () => {
         const store = new AnnotationStore();
         const savedId = asAnnotationId('saved');
         store.import(persistedNote(savedId));
-        store.createStickyNote({
+        store.createNote({
             ...persistedNote('draft'),
             identity: {id: asAnnotationId('draft')},
             persistedRevision: -1,
@@ -83,29 +84,37 @@ describe('AnnotationStore bulk imports', () => {
         expect(store.get(savedId)).toEqual(expect.objectContaining({persistedRevision: 0}));
     });
 
-    it('keeps identity rebinding outside the persisted baseline advance', () => {
+    it('falls back after identity rebinding without dirtying semantic content', () => {
         const store = new AnnotationStore();
         const entity = persistedNote('bound');
         store.import(entity);
+        const stringify = vi.spyOn(JSON, 'stringify');
+        const callsBeforeImport = stringify.mock.calls.length;
 
-        store.importMany(() => {
-            store.bindIdentity({
-                annotationId: entity.identity.id,
-                expectedRevision: entity.revision,
-                bindings: {pdfRef: 'bound-ref-2'},
+        try {
+            store.importMany(() => {
+                store.bindIdentity({
+                    annotationId: entity.identity.id,
+                    expectedRevision: entity.revision,
+                    bindings: {pdfRef: 'bound-ref-2'},
+                });
+                store.import({
+                    ...entity,
+                    identity: {
+                        ...entity.identity,
+                        pdfRef: 'bound-ref-2',
+                    },
+                    revision: entity.revision + 1,
+                });
             });
-            store.import({
-                ...entity,
-                identity: {
-                    ...entity.identity,
-                    pdfRef: 'bound-ref-2',
-                },
-                revision: entity.revision + 1,
-            });
-        });
 
-        expect(store.hasChangesSinceSavedBaseline()).toBe(true);
-        expect(store.get(entity.identity.id)?.identity.pdfRef).toBe('bound-ref-2');
+            const importCalls = semanticFingerprintCalls(stringify.mock.calls.slice(callsBeforeImport));
+            expect(importCalls).toHaveLength(3);
+            expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+            expect(store.get(entity.identity.id)?.identity.pdfRef).toBe('bound-ref-2');
+        } finally {
+            stringify.mockRestore();
+        }
     });
 
     it('keeps a no-op identity binding on the bulk fast path', () => {
@@ -147,7 +156,7 @@ describe('AnnotationStore bulk imports', () => {
             store.import({
                 ...entity,
                 revision: 2,
-                text: 'saved again',
+                contents: 'saved again',
             });
         });
 

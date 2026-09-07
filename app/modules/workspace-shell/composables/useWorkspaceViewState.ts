@@ -26,9 +26,7 @@ interface IWorkspaceViewStateDeps {
     showSidebar: Ref<boolean>;
     sidebarTab: Ref<TPdfSidebarTab>;
     annotationTool: Ref<TAnnotationTool>;
-    annotationPlacingPageNote: Ref<boolean>;
     annotationEditorState: Ref<IAnnotationEditorState>;
-    hasLivePdfJsAnnotationChanges: Ref<boolean>;
     appAnnotationUndoDepth: Ref<number>;
     hasOpenAnnotationNotes: Ref<boolean>;
     canUndoHistory: Ref<boolean>;
@@ -42,10 +40,9 @@ interface IWorkspaceViewStateDeps {
     ) => void) | undefined;
     requestPageNavigation?: ((page: number) => number) | undefined;
     documentViewerRef: Ref<(
-        IDocumentViewerExpose & {
-            applyFitWidthToCurrentPage?: () => Promise<boolean>;
-            cancelCommentPlacement?: () => void;
-        }
+        IDocumentViewerExpose & {applyFitWidthToCurrentPage?: (
+            options?: {page?: number | null | undefined},
+        ) => Promise<boolean>;}
     ) | null>;
 }
 
@@ -66,17 +63,9 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
         || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
     ));
-    const hasLivePdfJsAnnotationUndoState = computed(() => (
-        deps.hasLivePdfJsAnnotationChanges.value
-        && (
-            deps.annotationEditorState.value.hasSomethingToUndo
-            || deps.annotationEditorState.value.hasSomethingToRedo
-        )
-    ));
     const isAnnotationUndoContext = computed(
         () => isAuthoringAnnotationTool(deps.annotationTool.value)
             || hasAppAnnotationHistoryUndoState.value
-            || hasLivePdfJsAnnotationUndoState.value
             || deps.annotationEditorState.value.hasSomethingToRedo
             || deps.appAnnotationUndoDepth.value > 0,
     );
@@ -116,9 +105,11 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         deps.zoomMode.value = mode === 'height' ? 'fit-height' : 'fit-width';
 
         if (mode === 'width') {
+            const fitPage = deps.documentViewerRef.value?.getPendingNavigationTargetPage?.()
+                ?? deps.currentPage.value;
             void nextTick(async () => {
                 try {
-                    await deps.documentViewerRef.value?.applyFitWidthToCurrentPage?.();
+                    await deps.documentViewerRef.value?.applyFitWidthToCurrentPage?.({page: fitPage});
                 } catch (error) {
                     BrowserLogger.warn('workspace', 'Failed to apply fit-width to the current page', { error });
                 }
@@ -128,8 +119,6 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
 
     function enableDragMode() {
         deps.dragMode.value = true;
-        deps.documentViewerRef.value?.cancelCommentPlacement?.();
-        deps.annotationPlacingPageNote.value = false;
         if (deps.annotationTool.value !== 'none') {
             deps.annotationTool.value = 'none';
         }
@@ -176,7 +165,6 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             sidebarTab: deps.sidebarTab.value,
             dragMode: deps.dragMode.value,
             annotationTool: deps.annotationTool.value,
-            isPlacingNote: deps.annotationPlacingPageNote.value,
         });
         logPdfRenderTrace('workspace-go-to-page', {
             requestedPage: page,
@@ -199,7 +187,9 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         // The host-owned viewport session exists before the async viewer ref.
         // Persist intent there so chassis mounting cannot replace it with a
         // stale page prop while the document is still opening.
-        deps.requestPageNavigation?.(targetPage);
+        if (!options) {
+            deps.requestPageNavigation?.(targetPage);
+        }
         queuedPageNavigation = {
             page: targetPage,
             ...(options ? {options} : {}),

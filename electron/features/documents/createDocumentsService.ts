@@ -48,6 +48,13 @@ import {
     releasePdfEmbeddedShapeIndex,
 } from '@electron/features/documents/main/pdfEmbeddedShapeIndex';
 import {
+    beginPdfAnnotationParse,
+    cancelPdfAnnotationParse,
+    parsePdfAnnotations,
+    readPdfAnnotationParseChunk,
+    releasePdfAnnotationParse,
+} from '@electron/features/documents/main/pdfAnnotationParse';
+import {
     handleFileWrite,
     handleFileWriteDocx,
     handleReplaceWorkingCopyFromPath,
@@ -124,8 +131,7 @@ import type {
     IWorkingCopyBackingStatus,
     TWorkingCopyBackingStatusState,
 } from '@contracts/electronApiDocuments';
-import { parseDocumentRef } from '@contracts/documentRef';
-import {requireSessionId} from '@contracts/shared';
+import {parseDocumentRef} from '@contracts/documentRef';
 import {
     createManagedTempFileHandle,
     releaseManagedTempFileHandle,
@@ -247,6 +253,8 @@ export function createDocumentsService(): IDocumentsService {
             handleCreateWorkingCopyFromData(...args),
         createWorkingCopyFromPath: (...args: TDocumentsServiceArgs<'createWorkingCopyFromPath'>) =>
             handleCreateWorkingCopyFromPath(...args),
+        parsePdfAnnotations: (...args: TDocumentsServiceArgs<'parsePdfAnnotations'>) =>
+            parsePdfAnnotations(...args),
         savePdfAs: (...args: TDocumentsServiceArgs<'savePdfAs'>) => handleSavePdfAs(...args),
         savePdfDataAs: (...args: TDocumentsServiceArgs<'savePdfDataAs'>) => handleSavePdfDataAs(...args),
         beginSavePdfDataAs: (...args: TDocumentsServiceArgs<'beginSavePdfDataAs'>) =>
@@ -269,21 +277,29 @@ export function createDocumentsService(): IDocumentsService {
         renderPdfNativePagePreview: (...args: TDocumentsServiceArgs<'renderPdfNativePagePreview'>) =>
             handlePdfNativePagePreview(...args),
         beginPdfAnnotationIndex: (...args: TDocumentsServiceArgs<'beginPdfAnnotationIndex'>) =>
-            beginPdfAnnotationIndex(args[0], requireDocumentRef(args[1]), args[2]),
+            beginPdfAnnotationIndex(...args),
         readPdfAnnotationIndexChunk: (...args: TDocumentsServiceArgs<'readPdfAnnotationIndexChunk'>) =>
-            readPdfAnnotationIndexChunk(args[0], requireSessionId(args[1]), args[2], args[3]),
+            readPdfAnnotationIndexChunk(...args),
         releasePdfAnnotationIndex: (...args: TDocumentsServiceArgs<'releasePdfAnnotationIndex'>) =>
-            releasePdfAnnotationIndex(args[0], requireSessionId(args[1])),
+            releasePdfAnnotationIndex(...args),
         cancelPdfAnnotationIndex: (...args: TDocumentsServiceArgs<'cancelPdfAnnotationIndex'>) =>
-            cancelPdfAnnotationIndex(args[0], requireSessionId(args[1])),
+            cancelPdfAnnotationIndex(...args),
+        beginPdfAnnotationParse: (...args: TDocumentsServiceArgs<'beginPdfAnnotationParse'>) =>
+            beginPdfAnnotationParse(...args),
+        readPdfAnnotationParseChunk: (...args: TDocumentsServiceArgs<'readPdfAnnotationParseChunk'>) =>
+            readPdfAnnotationParseChunk(...args),
+        releasePdfAnnotationParse: (...args: TDocumentsServiceArgs<'releasePdfAnnotationParse'>) =>
+            releasePdfAnnotationParse(...args),
+        cancelPdfAnnotationParse: (...args: TDocumentsServiceArgs<'cancelPdfAnnotationParse'>) =>
+            cancelPdfAnnotationParse(...args),
         beginPdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'beginPdfEmbeddedShapeIndex'>) =>
-            beginPdfEmbeddedShapeIndex(args[0], requireDocumentRef(args[1]), args[2]),
+            beginPdfEmbeddedShapeIndex(...args),
         readPdfEmbeddedShapeIndexChunk: (...args: TDocumentsServiceArgs<'readPdfEmbeddedShapeIndexChunk'>) =>
-            readPdfEmbeddedShapeIndexChunk(args[0], requireSessionId(args[1]), args[2], args[3]),
+            readPdfEmbeddedShapeIndexChunk(...args),
         releasePdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'releasePdfEmbeddedShapeIndex'>) =>
-            releasePdfEmbeddedShapeIndex(args[0], requireSessionId(args[1])),
+            releasePdfEmbeddedShapeIndex(...args),
         cancelPdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'cancelPdfEmbeddedShapeIndex'>) =>
-            cancelPdfEmbeddedShapeIndex(args[0], requireSessionId(args[1])),
+            cancelPdfEmbeddedShapeIndex(...args),
         readTextFile: (...args: TDocumentsServiceArgs<'readTextFile'>) => handleFileReadText(...args),
         fileExists: (...args: TDocumentsServiceArgs<'fileExists'>) => handleFileExists(...args),
         getDocumentRevision: (...args: TDocumentsServiceArgs<'getDocumentRevision'>) => {

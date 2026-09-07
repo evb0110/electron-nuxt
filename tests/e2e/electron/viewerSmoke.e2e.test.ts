@@ -1168,7 +1168,12 @@ describe('Electron E2E - Viewer Smoke', () => {
                 '.editor-pane.is-active .workspace-host[data-workspace-active="true"] '
                 + '.page_container[data-page="5"]',
             );
-            return Boolean(page?.querySelector('.pdf-link-overlay[data-href]'));
+            // Foreign links remain in PDF.js's read-only annotation layer. The
+            // canonical EVB layer owns editable annotations, not link elements.
+            return Boolean(page?.querySelector(
+                '.annotation-layer .linkAnnotation a[data-href], '
+                + '.annotationLayer .linkAnnotation a[data-href]',
+            ));
         }, {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
 
         const rendererFailures: string[] = [];
@@ -1208,9 +1213,12 @@ describe('Electron E2E - Viewer Smoke', () => {
             await waitForFunctionInPage(session.page, () => {
                 const page = document.querySelector<HTMLElement>(
                     '.editor-pane.is-active .workspace-host[data-workspace-active="true"] '
-                    + '.page_container[data-page="5"]',
+                        + '.page_container[data-page="5"]',
                 );
-                return Boolean(page?.querySelector('.pdf-link-overlay[data-href]'));
+                return Boolean(page?.querySelector(
+                    '.annotation-layer .linkAnnotation a[data-href], '
+                    + '.annotationLayer .linkAnnotation a[data-href]',
+                ));
             }, {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
             expect(rendererFailures).toEqual([]);
         } finally {
@@ -4188,6 +4196,28 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             );
             const rect = sidebar?.getBoundingClientRect();
             return Boolean(rect && rect.width > 10 && rect.height > 10);
+        }, {timeout: 10_000});
+        // The panel reaches its open size before the wrapper's documented
+        // width transition finishes. Wait for the final shared boundary before
+        // starting the drag.
+        await waitForFunctionInPage(session.page, () => {
+            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+            const wrapper = host?.querySelector<HTMLElement>('.sidebar-wrapper');
+            const sash = wrapper?.querySelector<HTMLElement>('.sidebar-resizer');
+            const viewer = host?.querySelector<HTMLElement>('.workspace-main__viewer');
+            if (!wrapper || !sash || !viewer) {
+                return false;
+            }
+            const wrapperRect = wrapper.getBoundingClientRect();
+            const sashRect = sash.getBoundingClientRect();
+            const viewerRect = viewer.getBoundingClientRect();
+            return Boolean(
+                wrapperRect.width > 10
+                && sashRect.width > 0
+                && viewerRect.width > 10
+                && Math.abs(wrapperRect.right - sashRect.right) <= 1
+                && Math.abs(viewerRect.left - sashRect.right) <= 1,
+            );
         }, {timeout: 10_000});
 
         const sidebarResize = await dragDocumentSidebarDividerBy(session, 120);

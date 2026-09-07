@@ -254,7 +254,10 @@ describe('validation gate policy', () => {
     }, 30_000);
 
     it.sequential('skips root config files ignored by ESLint while still checking lintable changed files', async () => {
-        const invalidPath = `tests/unit/scripts/validation-gate-policy-invalid-${process.pid}.ts`;
+        // Keep the deliberately invalid fixture dot-prefixed. ESLint excludes
+        // dotfiles from directory globs used by the full gate, while an
+        // explicit --file still exercises the changed-file path below.
+        const invalidPath = `tests/unit/scripts/.validation-gate-policy-invalid-${process.pid}.ts`;
         await rm(invalidPath, {force: true});
         await writeFile(invalidPath, 'const invalidSyntax = ;\n');
         try {

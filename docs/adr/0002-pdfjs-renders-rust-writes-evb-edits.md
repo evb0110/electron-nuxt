@@ -91,9 +91,32 @@ breakage during the effort is accepted.
 - Every temporary bridge between old and new ownership must state its removal
   condition, per the repository design rules.
 
+The EVB PDF.js renderer is consumed from the committed local tarball in
+`vendor/pdfjs-dist/`. It is built from the exact public fork commit recorded in
+that directory's `provenance.json`, verified before installation, and never
+published to npm. The complete package remains outside shipped web and
+Electron output. Only copied runtime workers, fonts, CMaps, Wasm, ICC assets,
+and sanitized viewer assets cross that boundary. Human legal review remains
+required for the fork notices and bundled third-party inventory.
+
 ## Revisit when
 
 After the cutover and writer consolidation, a renderer-attributable defect
 class remains with issue evidence (fidelity, speed, or memory) that the
 source-fork patch cannot address. Only then open a renderer-replacement map,
 and evaluate hayro and PDFium side by side on that evidence.
+
+## Scope amendment, 2026-09-06
+
+Issue #167 now closes through the Linux VPS acceptance path. The project uses
+the committed stock unpatched pdf.js and synthetic corpus, native and wasm
+writer checks, real EVB Electron coverage, qpdf, and an independent Linux
+renderer. The report records the exact tool versions, commands, hashes and
+artifacts and states that Linux evidence does not establish Acrobat Reader or
+macOS Preview compatibility. A Mac, Acrobat, Preview, owner-created fixture,
+human hand-check, and owner sign-off are outside this project's completion
+gate. The owner may perform separate visual verification later.
+
+This amendment changes only the acceptance route. The renderer, writer,
+editor ownership, preservation, identity, and cross-viewer product goals in
+this ADR remain unchanged.

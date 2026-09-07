@@ -15,8 +15,12 @@ import {
     shallowRef,
 } from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {
+    AnnotationApplication,
+    toCanonicalShapeEntity,
+} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/usePdfShapeTool';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/shape-annotation-comments/toShapeAnnotationCommentSummary';
 import type {
     IAnnotationCommentSummary,
@@ -24,10 +28,6 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 
-const IMPORT_SOURCE = {
-    documentKey: 'doc-key',
-    path: '/documents/doc.pdf',
-};
 const mountedApps = new Set<ReturnType<typeof createApp>>();
 
 function createShapeToolHarness(application = new AnnotationApplication('doc-key')) {
@@ -91,6 +91,16 @@ function drawLocalShape(harness: ReturnType<typeof createShapeToolHarness>) {
     return created!;
 }
 
+function replaceEmbeddedShapes(
+    harness: ReturnType<typeof createShapeToolHarness>,
+    shapes: readonly IShapeAnnotation[],
+) {
+    harness.annotationApplication.value.store.replaceFromDocument(
+        shapes.map(shape => toCanonicalShapeEntity(shape, asAnnotationId(shape.id))),
+        [],
+    );
+}
+
 function summaryFor(harness: ReturnType<typeof createShapeToolHarness>, shapeId: string) {
     const summary = harness.tool
         .getShapeAnnotationCommentSummaries()
@@ -119,27 +129,24 @@ describe('usePdfShapeTool.findShapeForAnnotationComment', () => {
 
     it('matches a persisted shape summary through its PDF reference', () => {
         const harness = createShapeToolHarness();
-        harness.tool.shapeComposable.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
+        replaceEmbeddedShapes(harness, [createEmbeddedShape()]);
         const summary = summaryFor(harness, 'embedded-shape-1');
 
         expect(summary.appAnnotationId).toBeUndefined();
-        expect(summary.annotationId).toBe('12R0');
+        expect(summary.annotationId).toBe('12R');
         expect(harness.tool.findShapeForAnnotationComment(summary)?.id).toBe('embedded-shape-1');
     });
 
     it('picks the shape the summary identifies instead of the first shape on record', () => {
         const harness = createShapeToolHarness();
-        harness.tool.shapeComposable.importEmbeddedShapes(
-            [
-                createEmbeddedShape(),
-                createEmbeddedShape({
-                    id: 'embedded-shape-2',
-                    annotationId: '13R0',
-                    stableKey: 'evb-shape:embedded-rect-2',
-                }),
-            ],
-            IMPORT_SOURCE,
-        );
+        replaceEmbeddedShapes(harness, [
+            createEmbeddedShape(),
+            createEmbeddedShape({
+                id: 'embedded-shape-2',
+                annotationId: '13R0',
+                stableKey: 'evb-shape:embedded-rect-2',
+            }),
+        ]);
         const second = summaryFor(harness, 'embedded-shape-2');
 
         expect(harness.tool.findShapeForAnnotationComment(second)?.id).toBe('embedded-shape-2');
@@ -147,7 +154,7 @@ describe('usePdfShapeTool.findShapeForAnnotationComment', () => {
 
     it('returns null for a shape summary that no live shape owns', () => {
         const harness = createShapeToolHarness();
-        harness.tool.shapeComposable.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
+        replaceEmbeddedShapes(harness, [createEmbeddedShape()]);
         const unrelated = toShapeAnnotationCommentSummary(createEmbeddedShape({
             id: 'never-imported-shape',
             annotationId: '99R0',
@@ -181,7 +188,7 @@ describe('usePdfShapeTool.findShapeForAnnotationComment', () => {
         }
 
         const harness = createShapeToolHarness(new UnresolvableApplication('doc-key'));
-        harness.tool.shapeComposable.importEmbeddedShapes([createEmbeddedShape()], IMPORT_SOURCE);
+        replaceEmbeddedShapes(harness, [createEmbeddedShape()]);
         const summary = summaryFor(harness, 'embedded-shape-1');
 
         expect(harness.tool.findShapeForAnnotationComment(summary)).toBeNull();

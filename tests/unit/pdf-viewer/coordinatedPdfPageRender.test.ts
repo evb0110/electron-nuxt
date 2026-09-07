@@ -1,5 +1,4 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { PDFPageProxy } from 'pdfjs-dist';
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     afterEach,
     describe,
@@ -40,7 +39,7 @@ function createRenderTask() {
 }
 
 function createPdfPage() {
-    return {} as PDFPageProxy;
+    return {} as IPdfPage;
 }
 
 describe('runCoordinatedPdfPageRender', () => {
@@ -56,7 +55,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const firstRun = runCoordinatedPdfPageRender({
             owner: 'thumbnail-current',
-            pageNumber: requirePageNumber(1),
+            pageNumber: 1,
             pdfPage,
             priority: 100,
             startRender: () => firstRender.task,
@@ -65,7 +64,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const secondRun = runCoordinatedPdfPageRender({
             owner: 'viewer',
-            pageNumber: requirePageNumber(1),
+            pageNumber: 1,
             pdfPage,
             priority: 100,
             startRender: () => {
@@ -95,7 +94,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const firstRun = runCoordinatedPdfPageRender({
             owner: 'thumbnail',
-            pageNumber: requirePageNumber(1),
+            pageNumber: 1,
             pdfPage,
             priority: 10,
             startRender: () => firstRender.task,
@@ -105,7 +104,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const secondRun = runCoordinatedPdfPageRender({
             owner: 'viewer',
-            pageNumber: requirePageNumber(1),
+            pageNumber: 1,
             pdfPage,
             priority: 100,
             startRender: () => {

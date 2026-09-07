@@ -41,7 +41,7 @@ export function registerScanCleanupDetectionResultStore(input: Omit<
         }, RESULT_STORE_HANDOFF_TTL_MS),
         storeId,
     };
-    registered.expiry.unref?.();
+    registered.expiry.unref();
     registeredStores.set(storeId, registered);
     return storeId;
 }

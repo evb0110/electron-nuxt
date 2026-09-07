@@ -1382,7 +1382,7 @@ describe('CI topology policy', () => {
         const packagedDiagnostics = await readProjectFile('scripts/release/verifyPackagedDiagnosticsSmoke.ts');
         const packagedScanCleanup = await readProjectFile('scripts/release/verifyPackagedScanCleanup.ts');
 
-        expect(packagedSmoke).toContain('createFreeTextAnnotationWithPointer(');
+        expect(packagedSmoke).toContain('createCanonicalTextBoxWithPointer(');
         expect(packagedSmoke).not.toContain('createFreeTextAnnotation(page,');
         for (const verifier of [
             packagedSmoke,
@@ -1610,6 +1610,10 @@ describe('CI topology policy', () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
         const jobs = parseWorkflowJobs(workflow);
         const gateCondition = '${{ !cancelled() && steps.setup.outcome == \'success\' }}';
+        expect(
+            jobs.pr_quality?.steps?.map(step => step.run).filter(Boolean),
+            'pr_quality must provision every executable used by the interop coverage test',
+        ).toContain('scripts/ci/apt-install.sh imagemagick poppler-utils qpdf');
 
         // Naming the gates each lane owes is what keeps the rest of this test
         // from passing vacuously. Every selector below is built from whatever

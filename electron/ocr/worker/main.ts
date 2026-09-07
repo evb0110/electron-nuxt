@@ -238,7 +238,7 @@ async function acquireOcrResourceSlot(
         pendingResourceAcquires.delete(requestId);
         pending?.reject(new Error(`OCR resource acquire timed out after ${OCR_RESOURCE_ACQUIRE_TIMEOUT_MS}ms`));
     }, OCR_RESOURCE_ACQUIRE_TIMEOUT_MS);
-    timeout.unref?.();
+    timeout.unref();
 
     const abortListener = () => {
         const pending = pendingResourceAcquires.get(requestId);

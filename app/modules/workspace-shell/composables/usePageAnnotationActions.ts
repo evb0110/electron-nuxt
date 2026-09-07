@@ -1,6 +1,6 @@
 import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TDocumentRef } from '@contracts/documentRef';
 import * as VueUse from '@vueuse/core';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -21,9 +21,7 @@ import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacemen
 import {
     getShapeRect,
     isPdfPlacedImageNativePathResult,
-    resolveAnnotationCommentTextMarkupColor,
     annotationIdForSummary,
-    resolvePdfViewerSaveTransactionFinalBytes,
 } from '@app/modules/pdf-viewer/public';
 import type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/public';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
@@ -35,6 +33,10 @@ import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-sh
 import { createPageAnnotationDeleteActions } from '@app/modules/workspace-shell/composables/createPageAnnotationDeleteActions';
 import { NativePdfSaveRequiredError } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+import {
+    createTextMarkupPropertyActions,
+    settingsKeysForTextMarkup,
+} from '@app/modules/workspace-shell/composables/createTextMarkupPropertyActions';
 
 interface IShapePopoverBounds {
     id: string;
@@ -69,7 +71,6 @@ interface IPageAnnotationActionsDeps {
     pdfViewerRef: Ref<TPageAnnotationActionsPdfViewer | null>;
     annotationTool: Ref<TAnnotationTool>;
     annotationKeepActive: Ref<boolean>;
-    annotationPlacingPageNote: Ref<boolean>;
     annotationSettings: Ref<IAnnotationSettings>;
     annotationActiveCommentStableKey: Ref<string | null>;
     annotationContextMenu: Ref<{
@@ -112,11 +113,9 @@ interface IPageAnnotationActionsDeps {
         persistWorkingCopy?: boolean;
     }) => Promise<void>;
     loadPdfFromPath?: (path: TDocumentRef, opts?: { markDirty?: boolean }) => Promise<void>;
-    materializeAnnotationsForPageMutation?: () => Promise<boolean>;
+    saveAnnotationsForPageMutation?: () => Promise<boolean>;
     waitForPdfReload: (page: number) => Promise<void>;
     invalidateThumbnailPages?: (pages: number[]) => void;
-    markPreservedAnnotationSourceDirty?: () => void;
-    setPreservedAnnotationSourceDirty?: (dirty: boolean) => void;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     getAnnotationCommentsStatusSnapshot?: () => TAnnotationCommentsStatus;
     getEmbeddedMutationBaseData: () => Promise<Uint8Array | null>;
@@ -130,11 +129,6 @@ interface IPageAnnotationActionsDeps {
     ) => Promise<T>;
 }
 
-interface IPageAnnotationExistingImage {
-    stableKey: string;
-    annotationId: string;
-}
-
 export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     const { t } = useTypedI18n();
     const { clampToViewport } = useContextMenuPosition();
@@ -144,7 +138,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         pdfViewerRef,
         annotationTool,
         annotationKeepActive,
-        annotationPlacingPageNote,
         annotationSettings,
         annotationActiveCommentStableKey,
         annotationContextMenu,
@@ -162,7 +155,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         annotationNoteWindows,
         loadPdfFromData,
         loadPdfFromPath,
-        materializeAnnotationsForPageMutation,
+        saveAnnotationsForPageMutation,
         waitForPdfReload,
         invalidateThumbnailPages,
         isSameAnnotationComment,
@@ -183,12 +176,19 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         y: 0,
     });
     const dismissedShapePropertiesId = ref<string | null>(null);
-    const selectedShapeId = computed(() => pdfViewerRef.value?.selectedShapeId ?? null);
+    const contextShapeId = ref<string | null>(null);
+    const selectedShapeId = computed(() => (
+        pdfViewerRef.value?.selectedShapeId
+        ?? contextShapeId.value
+    ));
     const selectedShape = computed(() => {
         if (!selectedShapeId.value) {
             return null;
         }
-        return pdfViewerRef.value?.getSelectedShape() ?? null;
+        return pdfViewerRef.value?.getSelectedShape()
+            ?? (contextShapeId.value
+                ? pdfViewerRef.value?.getAllShapes?.().find(shape => shape.id === contextShapeId.value) ?? null
+                : null);
     });
 
     const selectedShapeForProperties = computed(() =>
@@ -275,35 +275,12 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         const previousSidebarTab = sidebarTab.value;
         try {
             dragMode.value = false;
-            annotationTool.value = 'none';
-            if (!annotationPlacingPageNote.value) {
-                viewer.startCommentPlacement();
-                annotationPlacingPageNote.value = true;
-            }
+            handleAnnotationToolChange('note');
         } finally {
             await nextTick();
             showSidebar.value = previousSidebarVisibility;
             sidebarTab.value = previousSidebarTab;
         }
-    }
-
-    function handleStartPlaceNote() {
-        if (!pdfViewerRef.value) {
-            return;
-        }
-
-        if (annotationPlacingPageNote.value) {
-            pdfViewerRef.value.cancelCommentPlacement();
-            annotationPlacingPageNote.value = false;
-            return;
-        }
-
-        showSidebar.value = true;
-        sidebarTab.value = 'annotations';
-        dragMode.value = false;
-        annotationTool.value = 'none';
-        pdfViewerRef.value.startCommentPlacement();
-        annotationPlacingPageNote.value = true;
     }
 
     async function handleAnnotationFocusComment(comment: IAnnotationCommentSummary) {
@@ -393,6 +370,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 const noteComment = toAnnotationNoteWindowComment(note);
                 return Boolean(noteComment && isSameAnnotationComment(noteComment, comment)) || (
                     note.annotationId
+                    ?? (noteComment ? annotationIdForSummary(noteComment) : null)
                 ) === annotationIdForSummary(comment);
             })
             .forEach((note) => {
@@ -423,6 +401,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     function closeShapeProperties() {
         dismissedShapePropertiesId.value = selectedShape.value?.id ?? null;
+        contextShapeId.value = null;
         shapePropertiesPopover.value = {
             visible: false,
             x: 0,
@@ -490,6 +469,13 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         updateTextMarkupPropertiesPopoverPosition(markup);
     }
 
+    const { handleTextMarkupOpacityUpdate } = createTextMarkupPropertyActions({
+        pdfViewerRef,
+        annotationSettings,
+        selectedTextMarkupForProperties,
+        closeTextMarkupProperties,
+    });
+
     function normalizeTextMarkupColorValue(color: string | null | undefined) {
         return color?.trim().toLowerCase() ?? '';
     }
@@ -505,61 +491,31 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
         if (selectedMarkup) {
             const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
-            if (selectedMarkup.subtype === 'Underline') {
-                nextSettings.underlineColor = color;
-            } else if (selectedMarkup.subtype === 'StrikeOut') {
-                nextSettings.strikethroughColor = color;
-            } else if (selectedMarkup.subtype === 'Squiggly') {
-                nextSettings.squigglyColor = color;
-            } else {
-                nextSettings.highlightColor = color;
+            const settingsKeys = settingsKeysForTextMarkup(selectedMarkup.subtype);
+            if (settingsKeys) {
+                nextSettings[settingsKeys.color] = color;
+                annotationSettings.value = nextSettings;
             }
-            annotationSettings.value = nextSettings;
         }
         selectedTextMarkupForProperties.value = pdfViewerRef.value?.getSelectedTextMarkupAnnotationProperties?.() ?? selectedTextMarkupForProperties.value;
         return true;
     }
 
     function handleTextMarkupColorUpdate(color: string) {
-        const selectedMarkup = selectedTextMarkupForProperties.value;
-        const previousColor = selectedMarkup?.color ?? null;
         const didUpdate = applySelectedTextMarkupColorUpdate(color);
         if (!didUpdate) {
             return;
-        }
-        if (
-            selectedMarkup
-            && previousColor
-            && normalizeTextMarkupColorValue(previousColor) !== normalizeTextMarkupColorValue(color)
-        ) {
-            pdfViewerRef.value?.registerAnnotationHistoryCommand?.({
-                cmd: () => {
-                    selectedTextMarkupForProperties.value = selectedMarkup;
-                    applySelectedTextMarkupColorUpdate(color);
-                },
-                undo: () => {
-                    selectedTextMarkupForProperties.value = selectedMarkup;
-                    applySelectedTextMarkupColorUpdate(previousColor);
-                },
-            });
         }
         closeTextMarkupProperties();
     }
 
     function updateTextMarkupDefaultSettings(comment: IAnnotationCommentSummary, color: string) {
-        const subtype = (comment.subtype ?? '').trim().toLowerCase();
         const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
-        if (subtype === 'underline') {
-            nextSettings.underlineColor = color;
-        } else if (subtype === 'strikeout' || subtype === 'strikethrough') {
-            nextSettings.strikethroughColor = color;
-        } else if (subtype === 'squiggly') {
-            nextSettings.squigglyColor = color;
-        } else if (subtype === 'highlight') {
-            nextSettings.highlightColor = color;
-        } else {
+        const settingsKeys = settingsKeysForTextMarkup(comment.subtype);
+        if (!settingsKeys) {
             return;
         }
+        nextSettings[settingsKeys.color] = color;
         annotationSettings.value = nextSettings;
     }
 
@@ -588,11 +544,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             comment: nextComment,
         };
         invalidateAnnotationPage(nextComment);
-        if (deps.setPreservedAnnotationSourceDirty) {
-            deps.setPreservedAnnotationSourceDirty(colorEdited);
-        } else if (colorEdited) {
-            deps.markPreservedAnnotationSourceDirty?.();
-        }
         if (!didUpdate) {
             BrowserLogger.debug('annotations', 'Context-menu text markup color state updated before DOM repaint', () => ({
                 annotationId: comment.annotationId ?? null,
@@ -612,7 +563,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         if (!container) {
             return null;
         }
-        return resolveAnnotationCommentTextMarkupColor(container, comment);
+        return comment.color ?? null;
     }
 
     function updateTextMarkupColorWithHistory(
@@ -698,6 +649,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         clientX: number;
         clientY: number;
     }) {
+        contextShapeId.value = payload.shapeId;
         closeAnnotationContextMenu();
         dismissedShapePropertiesId.value = null;
         const clampedPosition = clampToViewport(
@@ -716,7 +668,12 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     function handleDeleteSelectedShape() {
-        pdfViewerRef.value?.deleteSelectedShape();
+        const id = contextShapeId.value;
+        if (id && pdfViewerRef.value?.deleteShapeById) {
+            pdfViewerRef.value.deleteShapeById(id);
+        } else {
+            pdfViewerRef.value?.deleteSelectedShape();
+        }
         closeShapeProperties();
     }
 
@@ -789,12 +746,35 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     const viewportChange = createRafCoalescedCallback(handleViewportChange);
+    let refreshMarkupPropertiesTimer: ReturnType<typeof setTimeout> | null = null;
 
     VueUse.useEventListener(viewerContainer, 'scroll', viewportChange.schedule, { passive: true });
     VueUse.useEventListener(windowTarget, 'resize', viewportChange.schedule);
-    VueUse.useEventListener(viewerContainer, 'pointerup', () => setTimeout(refreshSelectedTextMarkupProperties, 0));
+    VueUse.useEventListener(
+        viewerContainer,
+        'pointerup',
+        () => {
+            if (refreshMarkupPropertiesTimer !== null) {
+                clearTimeout(refreshMarkupPropertiesTimer);
+            }
+            refreshMarkupPropertiesTimer = setTimeout(() => {
+                refreshMarkupPropertiesTimer = null;
+                refreshSelectedTextMarkupProperties();
+            }, 0);
+        },
+        {
+            capture: true,
+            passive: true,
+        },
+    );
     VueUse.useEventListener(viewerContainer, 'keyup', refreshSelectedTextMarkupProperties);
     onScopeDispose(viewportChange.cancel, true);
+    onScopeDispose(() => {
+        if (refreshMarkupPropertiesTimer !== null) {
+            clearTimeout(refreshMarkupPropertiesTimer);
+            refreshMarkupPropertiesTimer = null;
+        }
+    }, true);
 
     function handleViewerAnnotationContextMenu(payload: {
         comment: IAnnotationCommentSummary | null;
@@ -815,13 +795,14 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         showAnnotationContextMenu(payload);
     }
 
-    async function placeImageFile(
-        readImageFile: () => Promise<File | null>,
-        failureMessage: string,
-        pageNumber: number | null | undefined,
-        pageX: number | null | undefined,
-        pageY: number | null | undefined,
-        existingImage: IPageAnnotationExistingImage | null | undefined,
+    async function insertImageFromFileAt(
+        pageNumber?: number | null,
+        pageX?: number | null,
+        pageY?: number | null,
+        existingImage?: {
+            stableKey: string;
+            annotationId: string;
+        } | null,
     ) {
         const viewer = pdfViewerRef.value;
         if (!viewer) {
@@ -830,37 +811,57 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
         closeAnnotationContextMenu();
         try {
-            const file = await readImageFile();
+            const file = await pickPageAnnotationImageFile();
             if (!file) {
                 return;
             }
             await viewer.startImagePlacement(file, {
-                ...(pageNumber !== undefined ? {pageNumber: pageNumber === null ? null : requirePageNumber(pageNumber)} : {}),
-                ...(pageX !== undefined ? {pageX} : {}),
-                ...(pageY !== undefined ? {pageY} : {}),
+                ...(pageNumber === undefined || pageNumber === null
+                    ? {}
+                    : {pageNumber: requirePageNumber(pageNumber)}),
+                ...(pageX !== undefined ? { pageX } : {}),
+                ...(pageY !== undefined ? { pageY } : {}),
                 ...(existingImage ?? {}),
             });
         } catch (error) {
-            BrowserLogger.warn('annotations', failureMessage, error);
+            BrowserLogger.warn('annotations', 'Failed to insert image from file', error);
         }
     }
 
-    function insertImageFromFileAt(
+    async function pasteImageFromClipboardAt(
         pageNumber?: number | null,
         pageX?: number | null,
         pageY?: number | null,
-        existingImage?: IPageAnnotationExistingImage | null,
-    ) {
-        return placeImageFile(pickPageAnnotationImageFile, 'Failed to insert image from file', pageNumber, pageX, pageY, existingImage);
-    }
+        existingImage?: {
+            stableKey: string;
+            annotationId: string;
+        } | null,
+    ): Promise<boolean> {
+        const viewer = pdfViewerRef.value;
+        if (!viewer) {
+            return false;
+        }
 
-    function pasteImageFromClipboardAt(
-        pageNumber?: number | null,
-        pageX?: number | null,
-        pageY?: number | null,
-        existingImage?: IPageAnnotationExistingImage | null,
-    ) {
-        return placeImageFile(readPageAnnotationImageFileFromClipboard, 'Failed to paste image from clipboard', pageNumber, pageX, pageY, existingImage);
+        closeAnnotationContextMenu();
+
+        try {
+            const file = await readPageAnnotationImageFileFromClipboard();
+            if (!file) {
+                return false;
+            }
+            const targetPage = requirePageNumber(
+                pageNumber ?? viewer.getCurrentPage?.() ?? deps.currentPage.value,
+            );
+            return await viewer.startImagePlacement(file, {
+                pageNumber: targetPage,
+                ...(pageX !== undefined ? { pageX } : {}),
+                ...(pageY !== undefined ? { pageY } : {}),
+                ...(existingImage ?? {}),
+            });
+        } catch (error) {
+            BrowserLogger.warn('annotations', 'Failed to paste image from clipboard', error);
+            return false;
+        }
     }
 
     let imageFinalizeInFlight = false;
@@ -876,7 +877,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 const capturedWorkingCopy = captureActiveWorkingCopy();
                 const isNativePathBacked = isNativeDocumentRef(capturedWorkingCopy);
                 if (isNativePathBacked) {
-                    if (!materializeAnnotationsForPageMutation) {
+                    if (!saveAnnotationsForPageMutation) {
                         throw new NativePdfSaveRequiredError({
                             code: 'native-save-required',
                             phase: 'pre-write',
@@ -884,7 +885,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                             detail: 'Native placed-image persistence requires page-mutation materialization',
                         });
                     }
-                    if (!await materializeAnnotationsForPageMutation()) {
+                    if (!await saveAnnotationsForPageMutation()) {
                         pdfViewerRef.value?.restorePendingImagePlacement?.();
                         return false;
                     }
@@ -939,7 +940,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             });
         } catch (error) {
             BrowserLogger.warn('annotations', 'Failed to finalize placed image', error);
-            pdfViewerRef.value.restorePendingImagePlacement?.();
+            pdfViewerRef.value?.restorePendingImagePlacement?.();
             return false;
         } finally {
             imageFinalizeInFlight = false;
@@ -1090,43 +1091,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
     }
 
-    async function serializeCurrentPdfForEmbeddedFallback() {
-        if (!pdfViewerRef.value) {
-            return false;
-        }
-
-        return runWithDocumentOperationLease('page-operation', async () => {
-            const capturedWorkingCopy = captureActiveWorkingCopy();
-            const saveTransaction = await pdfViewerRef.value?.runSaveTransaction({
-                mode: 'embedded-mutation',
-                forcePdfjsMaterialize: true,
-            });
-            const rawData = resolvePdfViewerSaveTransactionFinalBytes(saveTransaction);
-            if (!rawData) {
-                return false;
-            }
-            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-                return false;
-            }
-
-            const pageToRestore = currentPage.value;
-            const restorePromise = waitForPdfReload(pageToRestore);
-            await loadPdfFromData(rawData, {
-                pushHistory: true,
-                persistWorkingCopy: !!capturedWorkingCopy,
-            });
-            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-                void restorePromise.catch(() => {});
-                return false;
-            }
-            await restorePromise;
-            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-                return false;
-            }
-            return true;
-        });
-    }
-
     async function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {
         closeAnnotationContextMenu();
         const text = comment.text?.trim();
@@ -1157,7 +1121,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         selectedTextMarkupForProperties,
         handleCommentSelection,
         handleQuickNoteAction,
-        handleStartPlaceNote,
         handleAnnotationFocusComment,
         handleAnnotationCommentClick,
         handleOpenAnnotationNote,
@@ -1166,6 +1129,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         handleDeleteSelectedShape,
         handleShapePropertyUpdate,
         handleTextMarkupColorUpdate,
+        handleTextMarkupOpacityUpdate,
         handleContextTextMarkupColorUpdate,
         updateTextMarkupColorWithHistory,
         handleShapeContextMenu,
@@ -1179,7 +1143,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         insertContextMenuImageFromFile,
         pasteContextMenuImageFromClipboard,
         createContextMenuMarkup,
-        serializeCurrentPdfForEmbeddedFallback,
         handleCopyAnnotationComment,
         handleDeleteAnnotationComment,
         handleFinalizePlacedImage,

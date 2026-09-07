@@ -1,10 +1,10 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     Ref,
     ShallowRef,
 } from 'vue';
 import type {
-    PDFDocumentProxy,
     TFitMode,
     TPdfViewMode,
     TZoomMode,
@@ -16,7 +16,7 @@ import type { TPdfRerenderSource } from '@app/modules/pdf-viewer/runtime/rerende
 
 interface IUsePdfViewerFitWidthControllerOptions {
     viewerContainer: Ref<HTMLElement | null>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
     isLoading: Ref<boolean>;
     continuousScroll: ComputedRef<boolean>;
     fitMode: ComputedRef<TFitMode>;
@@ -29,7 +29,11 @@ interface IUsePdfViewerFitWidthControllerOptions {
     numPages: Ref<number>;
     pageMetricsVersion: Ref<number>;
     visibleRange: Ref<IPageRange>;
-    computeFitWidthScale: (container: HTMLElement | null) => boolean;
+    computeFitWidthScale: (
+        container: HTMLElement | null,
+        options?: {page?: number | null | undefined},
+    ) => boolean;
+    getPendingNavigationTargetPage?: () => number | null;
     isFitWidthScaleCurrent: (container: HTMLElement | null) => boolean;
     syncHorizontalScrollForZoomMode: () => void;
     cancelInFlightRenders: () => Promise<void> | void;
@@ -44,12 +48,15 @@ interface IUsePdfViewerFitWidthControllerOptions {
 }
 
 export const usePdfViewerFitWidthController = (options: IUsePdfViewerFitWidthControllerOptions) => {
-    async function applyFitWidthToCurrentPage() {
+    async function applyFitWidthToCurrentPage(input?: {page?: number | null | undefined}) {
         if (!options.pdfDocument.value || options.isLoading.value) {
             return false;
         }
 
-        const updated = options.computeFitWidthScale(options.viewerContainer.value);
+        const page = input?.page
+            ?? options.getPendingNavigationTargetPage?.()
+            ?? options.currentPage.value;
+        const updated = options.computeFitWidthScale(options.viewerContainer.value, {page});
         if (!updated) {
             options.syncHorizontalScrollForZoomMode();
             return false;

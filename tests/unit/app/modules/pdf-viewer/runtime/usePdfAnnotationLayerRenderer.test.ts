@@ -1,4 +1,5 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+// @vitest-environment happy-dom
+
 import {
     beforeEach,
     describe,
@@ -6,60 +7,15 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {
-    AnnotationEditorUIManager,
-    PDFPageProxy,
-} from 'pdfjs-dist';
-import {
-    ref,
-    shallowRef,
-} from 'vue';
-import { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
-import type {PDFDocumentProxy} from '@app/types/pdfContracts';
-import {createPdfDocumentProxy} from '@tests/helpers/createPdfDocumentProxy';
-
-type TPdfViewport = ReturnType<PDFPageProxy['getViewport']>;
-
-function createPageProxy(getAnnotations: PDFPageProxy['getAnnotations']): PDFPageProxy {
-    // Annotation rendering uses getAnnotations in this unit. PDF.js supplies
-    // the remaining page proxy members.
-    return {getAnnotations} as PDFPageProxy;
-}
-
-function createViewport(width = 200, height = 300): TPdfViewport {
-    // The layer renderer reads only viewport dimensions and rotation here.
-    return {
-        width,
-        height,
-        rotation: 0,
-    } as TPdfViewport;
-}
-
-function createAnnotationLayerDiv(innerHTML = ''): HTMLElement {
-    // The PDF.js layer mock reads the HTML string and annotation descendants.
-    return Object.assign(Object.create(null), {
-        innerHTML,
-        querySelectorAll: vi.fn(() => []),
-    });
-}
-
-function createAnnotationUiManagerRef(
-    annotationUiManager: object,
-) {
-    // Forward PDF.js manager mutations to the local object while keeping the
-    // object identity that the guard tests inspect.
-    const managerProxy = new Proxy(Object.create(null), {
-        get: (_target, property) => Reflect.get(annotationUiManager, property),
-        set: (_target, property, value) => Reflect.set(annotationUiManager, property, value),
-    });
-    return shallowRef(managerProxy);
-}
+import {ref} from 'vue';
+import {usePdfAnnotationLayerRenderer} from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
+import type {ILinkAnnotation} from '@app/types/annotations';
 
 const annotationLayerCtor = vi.fn();
 const annotationLayerRender = vi.fn(async (_options: unknown) => {});
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({
-    default: {version: '5.7.284'},
+    default: {version: '6.3.311'},
     AnnotationLayer: class MockAnnotationLayer {
         constructor(options: unknown) {
             annotationLayerCtor(options);
@@ -69,24 +25,32 @@ vi.mock('@app/services/pdfjs/runtimeLib', () => ({
             return annotationLayerRender(options);
         }
     },
-    AnnotationEditorLayer: class MockAnnotationEditorLayer {
-        disable() {}
-        destroy() {}
-    },
-    AnnotationEditorUIManager: class MockAnnotationEditorUIManager {
-        readonly kind = 'mock';
-
-        get currentLayer() {
-            return null;
-        }
-    },
-    AnnotationEditorType: {},
-    DrawLayer: class MockDrawLayer {
-        destroy() {}
-    },
 }));
 
-vi.mock('@app/utils/getShellCapability', () => ({ getShellCapability: () => ({ openExternal: vi.fn(async () => {}) }) }));
+vi.mock('@app/utils/getShellCapability', () => ({getShellCapability: () => ({openExternal: vi.fn(async () => {})})}));
+
+function createRenderer(overrides: Record<string, unknown> = {}) {
+    return usePdfAnnotationLayerRenderer({
+        numPages: ref(3),
+        currentPage: ref(1),
+        pdfDocument: ref({annotationStorage: {}} as never),
+        showAnnotations: ref(true),
+        ...overrides,
+    });
+}
+
+function createPageProxy(annotations: unknown[] = []) {
+    return {
+        getAnnotations: vi.fn(async () => annotations),
+        rotate: 0,
+        view: [
+            0,
+            0,
+            200,
+            300,
+        ],
+    };
+}
 
 describe('usePdfAnnotationLayerRenderer', () => {
     beforeEach(() => {
@@ -94,18 +58,14 @@ describe('usePdfAnnotationLayerRenderer', () => {
         annotationLayerRender.mockClear();
     });
 
-    it('passes the shared annotation canvas map to PDF.js so stamp appearances can render after reload', async () => {
-        const renderer = usePdfAnnotationLayerRenderer({
-            numPages: ref(3),
-            currentPage: ref(1),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
-            showAnnotations: ref(true),
-            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(null),
-            annotationL10n: ref(null),
-        });
-
-        const viewport = createViewport();
-        const pdfPage = createPageProxy(vi.fn(async () => [{
+    it('renders the static PDF.js annotation layer with the shared canvas map', async () => {
+        const renderer = createRenderer();
+        const viewport = {
+            width: 200,
+            height: 300,
+            rotation: 0,
+        };
+        const pdfPage = createPageProxy([{
             id: 'stamp-1',
             annotationType: 13,
             rect: [
@@ -115,18 +75,18 @@ describe('usePdfAnnotationLayerRenderer', () => {
                 10,
             ],
             noHTML: false,
-        }]));
-        const annotationLayerDiv = createAnnotationLayerDiv();
+        }]);
+        const annotationLayerDiv = document.createElement('div');
         const annotationCanvasMap = new Map<string, HTMLCanvasElement>([[
             'stamp-1',
-            {} as HTMLCanvasElement,
+            document.createElement('canvas'),
         ]]);
 
         await renderer.renderAnnotationLayer(
-            pdfPage,
+            pdfPage as never,
             annotationLayerDiv,
-            viewport,
-            requirePageNumber(1),
+            viewport as never,
+            1,
             annotationCanvasMap,
         );
 
@@ -135,334 +95,228 @@ describe('usePdfAnnotationLayerRenderer', () => {
             div: annotationLayerDiv,
             page: pdfPage,
             viewport,
+            annotationEditorUIManager: null,
         }));
         expect(annotationLayerRender).toHaveBeenCalledWith(expect.objectContaining({
-            annotations: expect.arrayContaining([expect.objectContaining({ id: 'stamp-1' })]),
+            annotations: expect.arrayContaining([expect.objectContaining({id: 'stamp-1'})]),
             div: annotationLayerDiv,
             page: pdfPage,
             viewport,
         }));
     });
 
-    it('keeps the current annotation DOM mounted while PDF.js fetches replacement annotations', async () => {
-        const annotations = Promise.withResolvers<unknown[]>();
-        const renderer = usePdfAnnotationLayerRenderer({
-            numPages: ref(3),
-            currentPage: ref(1),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
-            showAnnotations: ref(true),
-            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(null),
-            annotationL10n: ref(null),
-        });
-        const viewport = createViewport();
-        const pdfPage = createPageProxy(vi.fn(() => annotations.promise));
-        const annotationLayerDiv = createAnnotationLayerDiv('<section class="underlineAnnotation"></section>');
+    it('filters canonical PDF refs before asking PDF.js to render them', async () => {
+        const renderer = createRenderer({hiddenAnnotationIds: ref(new Set(['hidden-1']))});
+        const pdfPage = createPageProxy([
+            {
+                id: 'hidden-1',
+                annotationType: 10,
+                noHTML: false,
+            },
+            {
+                id: 'visible-1',
+                annotationType: 10,
+                noHTML: false,
+            },
+        ]);
+        const annotationLayerDiv = document.createElement('div');
 
-        const renderPromise = renderer.renderAnnotationLayer(
-            pdfPage,
+        await renderer.renderAnnotationLayer(
+            pdfPage as never,
             annotationLayerDiv,
-            viewport,
-            requirePageNumber(1),
+            {
+                width: 200,
+                height: 300,
+                rotation: 0,
+            } as never,
+            1,
         );
-        await Promise.resolve();
 
-        expect(annotationLayerDiv.innerHTML).toContain('underlineAnnotation');
-
-        annotations.resolve([{
-            id: 'underline-1',
-            annotationType: 10,
-            noHTML: false,
-        }]);
-        await renderPromise;
+        expect(annotationLayerRender).toHaveBeenCalledWith(expect.objectContaining({annotations: [expect.objectContaining({id: 'visible-1'})]}));
     });
 
-    it('aborts annotation rendering on document switch before mutating DOM', async () => {
-        const annotations = Promise.withResolvers<unknown[]>();
-        let documentVersion = 1;
+    it('keeps foreign links visible while the canonical ownership parse is pending', async () => {
+        const annotationProjectionReady = ref(false);
+        const renderer = createRenderer({annotationProjectionReady});
+        const pdfPage = createPageProxy([
+            {
+                id: 'link-1',
+                annotationType: 2,
+                noHTML: false,
+            },
+            {
+                id: 'owned-1',
+                annotationType: 10,
+                noHTML: false,
+            },
+        ]);
+        const annotationLayerDiv = document.createElement('div');
+
+        await renderer.renderAnnotationLayer(
+            pdfPage as never,
+            annotationLayerDiv,
+            {
+                width: 200,
+                height: 300,
+                rotation: 0,
+            } as never,
+            1,
+        );
+
+        expect(annotationLayerRender).toHaveBeenLastCalledWith(expect.objectContaining({annotations: [expect.objectContaining({id: 'link-1'})]}));
+
+        annotationProjectionReady.value = true;
+        await renderer.renderAnnotationLayer(
+            pdfPage as never,
+            annotationLayerDiv,
+            {
+                width: 200,
+                height: 300,
+                rotation: 0,
+            } as never,
+            1,
+        );
+
+        expect(annotationLayerRender).toHaveBeenLastCalledWith(expect.objectContaining({annotations: expect.arrayContaining([
+            expect.objectContaining({id: 'link-1'}),
+            expect.objectContaining({id: 'owned-1'}),
+        ])}));
+    });
+
+    it('publishes link geometry from the same page annotations used for PDF.js rendering', async () => {
+        const linkAnnotations = ref<ILinkAnnotation[]>([]);
+        const renderer = createRenderer({linkAnnotations});
+        const pdfPage = createPageProxy([
+            {
+                id: 'external-link',
+                annotationType: 2,
+                rect: [
+                    20,
+                    30,
+                    120,
+                    130,
+                ],
+                url: 'https://example.com/annotation',
+            },
+            {
+                id: 'internal-link',
+                annotationType: 2,
+                rect: [
+                    40,
+                    50,
+                    80,
+                    90,
+                ],
+                dest: ['page-2'],
+            },
+            {
+                id: 'link-without-target',
+                annotationType: 2,
+                rect: [
+                    10,
+                    10,
+                    20,
+                    20,
+                ],
+            },
+        ]);
+
+        await renderer.renderAnnotationLayer(
+            pdfPage as never,
+            document.createElement('div'),
+            {
+                width: 200,
+                height: 300,
+                rotation: 0,
+            } as never,
+            1,
+        );
+
+        expect(linkAnnotations.value).toHaveLength(2);
+        expect(linkAnnotations.value).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                id: 'external-link',
+                pageNumber: 1,
+                url: 'https://example.com/annotation',
+                rect: expect.objectContaining({
+                    left: 0.1,
+                    width: 0.5,
+                }),
+            }),
+            expect.objectContaining({
+                id: 'internal-link',
+                pageNumber: 1,
+                dest: ['page-2'],
+            }),
+        ]));
+
+        renderer.clearAllLayers();
+        expect(linkAnnotations.value).toEqual([]);
+    });
+
+    it('leaves the existing layer untouched when a render is aborted', async () => {
+        const pending = Promise.withResolvers<unknown[]>();
+        const renderer = createRenderer();
         const abortController = new AbortController();
-        const renderer = usePdfAnnotationLayerRenderer({
-            numPages: ref(3),
-            currentPage: ref(1),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
-            showAnnotations: ref(true),
-            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(null),
-            annotationL10n: ref(null),
-            getDocumentVersion: () => documentVersion,
-        });
-        const viewport = createViewport();
-        const pdfPage = createPageProxy(vi.fn(() => annotations.promise));
-        const annotationLayerDiv = createAnnotationLayerDiv('<section class="existingAnnotation"></section>');
+        const pdfPage = {getAnnotations: vi.fn(() => pending.promise)};
+        const annotationLayerDiv = document.createElement('div');
+        annotationLayerDiv.innerHTML = '<section class="existingAnnotation"></section>';
 
         const renderPromise = renderer.renderAnnotationLayer(
-            pdfPage,
+            pdfPage as never,
             annotationLayerDiv,
-            viewport,
-            requirePageNumber(1),
-            null,
             {
-                documentVersion: 1,
-                signal: abortController.signal,
-            },
+                width: 200,
+                height: 300,
+                rotation: 0,
+            } as never,
+            1,
+            null,
+            {signal: abortController.signal},
         ).catch(error => error as Error);
         await Promise.resolve();
-
-        documentVersion = 2;
         abortController.abort();
 
-        const error = await renderPromise;
-        expect(error).toBeInstanceOf(Error);
-        if (!(error instanceof Error)) {
-            throw new TypeError('Expected annotation layer render to reject');
-        }
-        expect(error.name).toBe('AbortError');
+        await expect(renderPromise).resolves.toMatchObject({name: 'AbortError'});
         expect(annotationLayerRender).not.toHaveBeenCalled();
         expect(annotationLayerDiv.innerHTML).toContain('existingAnnotation');
-
-        annotations.resolve([]);
-    });
-
-    it('serializes hidden annotation UI manager guards and restores original methods', async () => {
-        const firstRender = Promise.withResolvers<undefined>();
-        const secondRender = Promise.withResolvers<undefined>();
-        const originalRenderAnnotationElement = vi.fn();
-        const originalSetMissingCanvas = vi.fn();
-        const annotationUiManager = {
-            renderAnnotationElement: originalRenderAnnotationElement,
-            setMissingCanvas: originalSetMissingCanvas,
-        };
-        annotationLayerRender
-            .mockImplementationOnce(async () => {
-                annotationUiManager.renderAnnotationElement({ data: { id: 'hidden-1' } });
-                await firstRender.promise;
-            })
-            .mockImplementationOnce(async () => {
-                annotationUiManager.renderAnnotationElement({ data: { id: 'visible-1' } });
-                await secondRender.promise;
-            });
-
-        const renderer = usePdfAnnotationLayerRenderer({
-            numPages: ref(3),
-            currentPage: ref(1),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
-            showAnnotations: ref(true),
-            hiddenAnnotationIds: ref(new Set(['hidden-1'])),
-            annotationUiManager: createAnnotationUiManagerRef(annotationUiManager),
-            annotationL10n: ref(null),
-        });
-        const viewport = createViewport();
-        const pdfPage = createPageProxy(vi.fn(async () => []));
-        const annotationLayerDiv = createAnnotationLayerDiv();
-
-        const firstPromise = renderer.renderAnnotationLayer(
-            pdfPage,
-            annotationLayerDiv,
-            viewport,
-            requirePageNumber(1),
-        );
-        const secondPromise = renderer.renderAnnotationLayer(
-            pdfPage,
-            annotationLayerDiv,
-            viewport,
-            requirePageNumber(2),
-        );
-
-        await vi.waitFor(() => {
-            expect(annotationLayerRender).toHaveBeenCalledTimes(1);
-        });
-        expect(originalRenderAnnotationElement).not.toHaveBeenCalled();
-
-        firstRender.resolve(undefined);
-        await vi.waitFor(() => {
-            expect(annotationLayerRender).toHaveBeenCalledTimes(2);
-        });
-        secondRender.resolve(undefined);
-        await Promise.all([
-            firstPromise,
-            secondPromise,
-        ]);
-
-        expect(originalRenderAnnotationElement).toHaveBeenCalledTimes(1);
-        expect(originalRenderAnnotationElement).toHaveBeenCalledWith({ data: { id: 'visible-1' } });
-        expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
-        expect(annotationUiManager.setMissingCanvas).toBe(originalSetMissingCanvas);
-    });
-
-    it('releases hidden annotation UI manager guards when a render is aborted', async () => {
-        const stuckRender = Promise.withResolvers<undefined>();
-        const originalRenderAnnotationElement = vi.fn();
-        const originalSetMissingCanvas = vi.fn();
-        const annotationUiManager = {
-            renderAnnotationElement: originalRenderAnnotationElement,
-            setMissingCanvas: originalSetMissingCanvas,
-        };
-        annotationLayerRender
-            .mockImplementationOnce(async () => {
-                await stuckRender.promise;
-            })
-            .mockResolvedValueOnce(undefined);
-
-        const renderer = usePdfAnnotationLayerRenderer({
-            numPages: ref(3),
-            currentPage: ref(1),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
-            showAnnotations: ref(true),
-            hiddenAnnotationIds: ref(new Set(['hidden-1'])),
-            annotationUiManager: createAnnotationUiManagerRef(annotationUiManager),
-            annotationL10n: ref(null),
-        });
-        const viewport = createViewport();
-        const pdfPage = createPageProxy(vi.fn(async () => []));
-        const annotationLayerDiv = createAnnotationLayerDiv();
-        const abortController = new AbortController();
-
-        const abortedRender = renderer.renderAnnotationLayer(
-            pdfPage,
-            annotationLayerDiv,
-            viewport,
-            requirePageNumber(1),
-            null,
-            { signal: abortController.signal },
-        ).catch(error => error as Error);
-        await vi.waitFor(() => {
-            expect(annotationLayerRender).toHaveBeenCalledTimes(1);
-        });
-
-        abortController.abort();
-        const abortError = await abortedRender;
-        expect(abortError).toBeInstanceOf(Error);
-        expect(abortError).toMatchObject({ name: 'AbortError' });
-        expect(annotationUiManager.renderAnnotationElement).not.toBe(originalRenderAnnotationElement);
-        expect(annotationUiManager.setMissingCanvas).not.toBe(originalSetMissingCanvas);
-
-        const quarantinedRender = await renderer.renderAnnotationLayer(
-            pdfPage,
-            annotationLayerDiv,
-            viewport,
-            requirePageNumber(2),
-        );
-        expect(quarantinedRender).toBeNull();
-        expect(annotationLayerRender).toHaveBeenCalledTimes(1);
-
-        stuckRender.resolve(undefined);
-        await vi.waitFor(() => {
-            expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
-        });
-
-        const nextRender = renderer.renderAnnotationLayer(
-            pdfPage,
-            annotationLayerDiv,
-            viewport,
-            requirePageNumber(3),
-        );
-        await vi.waitFor(() => {
-            expect(annotationLayerRender).toHaveBeenCalledTimes(2);
-        });
-        await nextRender;
-
-        expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
-        expect(annotationUiManager.setMissingCanvas).toBe(originalSetMissingCanvas);
-    });
-
-    it('keeps queued guards serialized when a waiting render is aborted', async () => {
-        const activeRender = Promise.withResolvers<undefined>();
-        const originalRenderAnnotationElement = vi.fn();
-        const annotationUiManager = { renderAnnotationElement: originalRenderAnnotationElement };
-        annotationLayerRender
-            .mockImplementationOnce(async () => {
-                await activeRender.promise;
-            })
-            .mockResolvedValueOnce(undefined);
-        const renderer = usePdfAnnotationLayerRenderer({
-            numPages: ref(3),
-            currentPage: ref(1),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
-            showAnnotations: ref(true),
-            hiddenAnnotationIds: ref(new Set(['hidden-1'])),
-            annotationUiManager: createAnnotationUiManagerRef(annotationUiManager),
-            annotationL10n: ref(null),
-        });
-        const viewport = createViewport();
-        const pdfPage = createPageProxy(vi.fn(async () => []));
-        const annotationLayerDiv = createAnnotationLayerDiv();
-        const waitingAbortController = new AbortController();
-
-        const firstRender = renderer.renderAnnotationLayer(
-            pdfPage,
-            annotationLayerDiv,
-            viewport,
-            requirePageNumber(1),
-        );
-        await vi.waitFor(() => {
-            expect(annotationLayerRender).toHaveBeenCalledTimes(1);
-        });
-        const waitingRender = renderer.renderAnnotationLayer(
-            pdfPage,
-            annotationLayerDiv,
-            viewport,
-            requirePageNumber(2),
-            null,
-            { signal: waitingAbortController.signal },
-        ).catch(error => error as Error);
-        await vi.waitFor(() => {
-            expect(annotationLayerCtor).toHaveBeenCalledTimes(2);
-        });
-        waitingAbortController.abort();
-        expect(await waitingRender).toMatchObject({ name: 'AbortError' });
-
-        const thirdRender = renderer.renderAnnotationLayer(
-            pdfPage,
-            annotationLayerDiv,
-            viewport,
-            requirePageNumber(3),
-        );
+        pending.resolve([]);
+        await pending.promise;
         await Promise.resolve();
-        expect(annotationLayerRender).toHaveBeenCalledTimes(1);
-
-        activeRender.resolve(undefined);
-        await Promise.all([
-            firstRender,
-            thirdRender,
-        ]);
-        expect(annotationLayerRender).toHaveBeenCalledTimes(2);
-        expect(annotationUiManager.renderAnnotationElement).toBe(originalRenderAnnotationElement);
+        expect(annotationLayerRender).not.toHaveBeenCalled();
+        expect(annotationLayerDiv.innerHTML).toContain('existingAnnotation');
     });
 
-    it('parses a page proxy annotations once across re-renders of the same page', async () => {
-        const renderer = usePdfAnnotationLayerRenderer({
-            numPages: ref(3),
-            currentPage: ref(1),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
-            showAnnotations: ref(true),
-            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(null),
-            annotationL10n: ref(null),
-        });
-        const annotationLayerDiv = createAnnotationLayerDiv();
-        const createPage = () => createPageProxy(vi.fn(async () => [{
+    it('caches parsed annotations per page proxy while allowing a reloaded proxy to parse once', async () => {
+        const renderer = createRenderer();
+        const annotationLayerDiv = document.createElement('div');
+        const renderAt = (pdfPage: unknown) => renderer.renderAnnotationLayer(
+            pdfPage as never,
+            annotationLayerDiv,
+            {
+                width: 200,
+                height: 300,
+                rotation: 0,
+            } as never,
+            1,
+        );
+        const firstPage = createPageProxy([{
             id: 'link-1',
             annotationType: 2,
-            rect: [
-                0,
-                0,
-                10,
-                10,
-            ],
             noHTML: false,
-        }]));
-        const pdfPage = createPage();
-        const reloadedPdfPage = createPage();
-        const renderAt = (page: PDFPageProxy, scale: number) => renderer.renderAnnotationLayer(
-            page,
-            annotationLayerDiv,
-            createViewport(200 * scale, 300 * scale),
-            requirePageNumber(1),
-        );
+        }]);
+        const reloadedPage = createPageProxy([{
+            id: 'link-1',
+            annotationType: 2,
+            noHTML: false,
+        }]);
 
-        await renderAt(pdfPage, 1);
-        await renderAt(pdfPage, 2);
-        await renderAt(reloadedPdfPage, 2);
+        await renderAt(firstPage);
+        await renderAt(firstPage);
+        await renderAt(reloadedPage);
 
-        expect(pdfPage.getAnnotations).toHaveBeenCalledTimes(1);
-        expect(reloadedPdfPage.getAnnotations).toHaveBeenCalledTimes(1);
+        expect(firstPage.getAnnotations).toHaveBeenCalledOnce();
+        expect(reloadedPage.getAnnotations).toHaveBeenCalledOnce();
         expect(annotationLayerRender).toHaveBeenCalledTimes(3);
     });
 });

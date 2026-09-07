@@ -1,7 +1,7 @@
 {
   "name": "evb-viewer",
   "productName": "EVB Viewer",
-  "version": "0.1.453",
+  "version": "0.1.452",
   "author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>",
   "description": "EVB Viewer - a PDF and DjVu document viewer",
   "homepage": "https://github.com/evb0110/evb-viewer",
@@ -43,8 +43,9 @@
     "preview": "pnpm exec nuxi preview",
     "postinstall": "pnpm exec nuxi prepare && pnpm run copy:pdfjs && pnpm run check:electron:install",
     "copy:pdfjs": "node scripts/copy-pdfjs-assets.mjs && node scripts/sync-pdfjs-viewer-css.mjs",
-    "typecheck": "node scripts/run-nuxt-typecheck.mjs && node scripts/run-workspace-package-typecheck.mjs -p electron/tsconfig.json -p tests/tsconfig.json -p tsconfig.scripts.json -p tsconfig.scripts-js.json -p server/tsconfig.json",
-    "typecheck:clean": "node scripts/run-nuxt-typecheck.mjs --cold && node scripts/run-workspace-package-typecheck.mjs --cold -p electron/tsconfig.json -p tests/tsconfig.json -p tsconfig.scripts.json -p tsconfig.scripts-js.json -p server/tsconfig.json",
+    "verify:pdfjs-provenance": "node scripts/verify-pdfjs-provenance.mjs",
+    "typecheck": "node scripts/run-nuxt-typecheck.mjs && node scripts/run-workspace-package-typecheck.mjs -p electron/tsconfig.json -p tests/tsconfig.json -p tsconfig.scripts.json -p server/tsconfig.json",
+    "typecheck:clean": "node scripts/run-nuxt-typecheck.mjs --cold && node scripts/run-workspace-package-typecheck.mjs --cold -p electron/tsconfig.json -p tests/tsconfig.json -p tsconfig.scripts.json -p server/tsconfig.json",
     "lint": "node scripts/validation-gates.mjs lint",
     "lint:clean": "node scripts/validation-gates.mjs lint --no-cache",
     "lint:fix": "node scripts/validation-gates.mjs lint --fix",
@@ -67,6 +68,7 @@
     "test:rust": "cargo test --manifest-path native/Cargo.toml --workspace --locked && pnpm exec tsx scripts/checkSearchNativeParity.ts",
     "test:scan-cleanup:affected-oracles": "scripts/ci/scan-cleanup-oracles.sh affected",
     "test:scan-cleanup:canonical-identity": "cargo test --release --locked --manifest-path native/Cargo.toml -p evb-scan-cleanup --bin scan-cleanup-harness tests::tracked_corpus_routes_reconciliation_and_leaf_resolution_are_dpi_identical -- --ignored --exact",
+    "check:tests:as-never": "pnpm exec tsx scripts/checkTestsAsNever.ts",
     "test:e2e:electron": "pnpm run test:e2e:electron:regression",
     "test:e2e:electron:blocking-smoke": "pnpm run build:scan-cleanup && pnpm run build:pdf-page-ops && pnpm run build:electron && EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-blocking-smoke --reporter verbose",
     "test:e2e:electron:blocking-smoke:headless": "pnpm run test:e2e:electron:blocking-smoke",
@@ -120,7 +122,6 @@
     "check:electron:install": "node scripts/check-electron-install.mjs",
     "check:electron-builder:asar-unpack": "node scripts/check-electron-builder-asar-unpack.mjs",
     "check:drizzle-schema": "node scripts/check-drizzle-schema.mjs",
-    "check:tests:as-never": "pnpm exec tsx scripts/checkTestsAsNever.ts",
     "check:production-dependency-audit": "pnpm exec tsx scripts/checkProductionDependencyAudit.ts",
     "check:production-dependency-audit:production-only": "pnpm exec tsx scripts/checkProductionDependencyAudit.ts --production-only",
     "check:static:assets": "node scripts/check-web-deploy-source.mjs",
@@ -183,7 +184,7 @@
     "iron-webcrypto": "2.0.0",
     "node-mock-http": "1.0.5",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "5.7.284",
+    "pdfjs-dist": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz",
     "pdfjs-dist-codex-preview": "npm:pdfjs-dist@5.4.296",
     "radix3": "1.1.2",
     "source-map-js": "1.2.1",
@@ -308,7 +309,7 @@
       "builder-util-runtime": "9.7.0",
       "bundle-require@^5.0.0>esbuild": "0.28.2",
       "eslint-plugin-regexp": "3.1.0",
-      "fast-uri": "3.1.5",
+      "fast-uri": "3.1.6",
       "fontless@^0.2.0>esbuild": "0.28.2",
       "form-data": "4.0.6",
       "hono": "4.12.34",
@@ -335,9 +336,6 @@
       "vite@^7.0.0>esbuild": "0.28.2",
       "vue": "3.5.41",
       "ws": "8.21.0"
-    },
-    "patchedDependencies": {
-      "pdfjs-dist@5.7.284": "patches/pdfjs-dist@5.7.284.patch"
     }
   }
 }

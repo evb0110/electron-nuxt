@@ -20,6 +20,7 @@ import type {
 import { hasElectronAPI } from '@app/utils/platform';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import type { IWorkspaceSplitCacheLike } from '@app/modules/workspace-shell/composables/workspaceSplitTypes';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
@@ -227,8 +228,18 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
                 return Promise.resolve();
             });
             await nextTick();
+            // The split state can trigger a second layout and ResizeObserver
+            // delivery after the first Vue patch. Keep the viewer's resize
+            // fence open through both visual frames so its existing semantic
+            // anchor restore runs before the browser paints the settled track.
+            await waitForVisualFrames({frames: 2});
         } finally {
             options.setWorkspaceLayoutResizing?.(false);
+            // Releasing the resize fence schedules one more layout and
+            // ResizeObserver delivery. Keep the split transition alive for
+            // those painted frames so the retained document anchor settles
+            // before callers observe the completed split.
+            await waitForVisualFrames({frames: 2});
         }
     }
 
@@ -378,7 +389,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             return;
         }
         try {
-            await globalThis.navigator?.clipboard?.writeText(path);
+            await globalThis.navigator.clipboard.writeText(path);
         } catch {
             // Best-effort; clipboard access can be denied.
         }

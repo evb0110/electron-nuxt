@@ -294,7 +294,7 @@ function refreshSessionTimeout(session: ISerializedPdfPersistenceSession) {
             void cleanupSession(session);
         }
     }, SERIALIZED_PDF_SESSION_TIMEOUT_MS);
-    session.timeout.unref?.();
+    session.timeout.unref();
 }
 
 async function cleanupSession(session: ISerializedPdfPersistenceSession) {
@@ -391,7 +391,7 @@ async function createSession(options: {
     }
     const id = createSessionId('serialized-pdf');
     const timeout = setTimeout(() => undefined, SERIALIZED_PDF_SESSION_TIMEOUT_MS);
-    timeout.unref?.();
+    timeout.unref();
     const lifecycleOperation = registerMainOperation({
         kind: 'critical-write',
         ownerWebContentsId: options.sender.id,

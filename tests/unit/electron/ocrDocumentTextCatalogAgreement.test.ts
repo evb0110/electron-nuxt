@@ -1,3 +1,6 @@
+import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     beforeEach,
     describe,
@@ -5,9 +8,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { PageViewport } from 'pdfjs-dist';
-import {requireDocumentRef} from '@contracts/documentRef';
-import {requirePageNumber} from '@contracts/pageNumbers';
 import {loadDocumentTextCatalogPages} from '@app/utils/ocr/loadOcrText';
 import {useOcrTextContent} from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
 import {buildSearchIndex} from '@electron/search/indexBuilder';
@@ -197,7 +197,7 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     warn: vi.fn(),
 })}));
 
-function createViewport(): PageViewport {
+function createViewport(): IPdfViewport {
     return {
         viewBox: [
             0,

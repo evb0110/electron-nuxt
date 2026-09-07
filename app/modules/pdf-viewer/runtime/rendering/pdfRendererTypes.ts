@@ -1,9 +1,9 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {
-    PDFPageProxy,
-    RenderTask,
-} from 'pdfjs-dist';
+    IPdfPage,
+    IPdfRenderTask,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -23,6 +23,7 @@ import type { TPdfViewRotation } from '@contracts/shared';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type { ILinkAnnotation } from '@app/types/annotations';
 export type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 
 export interface IPdfRendererSearchNavigationOptions {
@@ -68,6 +69,8 @@ export interface IUsePdfPageRendererOptions {
     renderSupervisor?: IPdfRenderSupervisor | undefined;
     /** RenderingSession owns this state; the post-canvas runtime only derives from it. */
     pageRenderState: TPdfPageRenderState;
+    /** Shared with the annotation session so link overlays follow renderer page lifetime. */
+    linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
     getRenderVersion: () => number;
     getRenderDocumentToken: () => string;
     getCommittedCanvas: (pageNumber: TPageNumber) => HTMLCanvasElement | null;
@@ -77,7 +80,7 @@ export interface IUsePdfPageRendererOptions {
 export interface ICancelableRenderTask {
     cancel: () => void;
     promise: Promise<unknown>;
-    onContinue?: RenderTask['onContinue'];
+    onContinue?: IPdfRenderTask['onContinue'];
 }
 
 export interface IActivePdfTextLayerTask {
@@ -96,7 +99,7 @@ export interface IPdfCanvasDomCommit {
 
 export interface IPdfLayerRenderResult {
     canvas: HTMLCanvasElement;
-    viewport: ReturnType<PDFPageProxy['getViewport']>;
+    viewport: ReturnType<IPdfPage['getViewport']>;
     annotationCanvasMap: Map<string, HTMLCanvasElement> | null;
     scaleX: number;
     scaleY: number;
@@ -110,7 +113,7 @@ export interface IPdfLayerRenderResult {
 
 export interface IPdfPageLayerRenderContext {
     container: HTMLElement;
-    pdfPage: PDFPageProxy;
+    pdfPage: IPdfPage;
     renderResult: IPdfLayerRenderResult;
     textLayerDiv: HTMLDivElement | null;
     annotationLayerInstance: unknown;

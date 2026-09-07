@@ -28,7 +28,7 @@ class MockPdfDataRangeTransport {
 }
 
 const pdfjsState = {
-    version: '5.7.284',
+    version: '6.3.311',
     GlobalWorkerOptions: { workerSrc: '' },
     VerbosityLevel: { ERRORS: 0 },
     getDocument: vi.fn(),

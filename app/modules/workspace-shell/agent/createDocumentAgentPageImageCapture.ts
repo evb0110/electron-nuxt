@@ -184,7 +184,7 @@ export function createDocumentAgentPageImageCapture(options: ICreateDocumentAgen
             actionId,
         ), totalPages.value);
         const viewer = pdfViewerRef.value;
-        const viewerContainer = viewer?.getViewerContainer?.() ?? null;
+        const viewerContainer = viewer?.getViewerContainer() ?? null;
         if (!viewer || !viewerContainer) {
             throw new Error('document.capture_page_image requires a rendered PDF viewer.');
         }

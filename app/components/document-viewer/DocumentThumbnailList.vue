@@ -105,8 +105,8 @@ const {
     virtualItems,
 } = useDocumentThumbnailController({
     currentPage: toRef(props, 'currentPage'),
-    isActive: computed(() => props.isActive ?? true),
-    isResizing: computed(() => props.isResizing ?? false),
+    isActive: computed(() => props.isActive),
+    isResizing: computed(() => props.isResizing),
     itemMetricsKey: toRef(props, 'itemMetricsKey'),
     scrollRoot,
     source: toRef(props, 'source'),

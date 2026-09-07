@@ -1,3 +1,4 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -8,12 +9,13 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { PDFPageProxy } from 'pdfjs-dist';
+import { cast } from '@tests/helpers/cast';
 import {
     requirePageIndex,
     requirePageNumber,
 } from '@contracts/pageNumbers';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
 type THighlightPageMock = (
@@ -109,41 +111,6 @@ const usePdfTextLayerRenderer = (
     viewportWritePort: createTestPdfViewportWritePort().port,
 });
 
-type TPdfPageViewport = ReturnType<PDFPageProxy['getViewport']>;
-
-function createPdfPageProxy(overrides: Record<string, unknown> = {}): PDFPageProxy {
-    // These tests exercise text-layer calls only. PDF.js supplies the rest of
-    // the page proxy in the renderer.
-    return Object.assign(Object.create(null), {
-        pageNumber: 1,
-        getTextContent: vi.fn(async () => ({
-            items: [],
-            styles: {},
-        })),
-        streamTextContent: vi.fn(() => ({items: []})),
-        ...overrides,
-    });
-}
-
-function createElementShim(shape: Record<string, unknown>): HTMLElement {
-    // Search/highlight tests provide only the DOM properties they inspect.
-    return Object.assign(Object.create(null), shape);
-}
-
-function createCanvasShim(shape: Record<string, unknown> = {}): HTMLCanvasElement {
-    // The renderer reads layout from this canvas; no drawing API is needed.
-    return Object.assign(Object.create(null), shape);
-}
-
-function createStyleDeclaration(): CSSStyleDeclaration {
-    // Scroll alignment reads these two computed-style values in this test.
-    return Object.assign(Object.create(null), {
-        paddingTop: '20px',
-        paddingBottom: '20px',
-        getPropertyValue: () => '',
-    });
-}
-
 function domRectLike(options: {
     top: number;
     left?: number;
@@ -157,7 +124,7 @@ function domRectLike(options: {
         height = 20,
     } = options;
 
-    return Object.assign(Object.create(null), {
+    return cast<DOMRect>({
         top,
         left,
         width,
@@ -170,8 +137,8 @@ function domRectLike(options: {
     });
 }
 
-function textLayerViewport(scale: number): TPdfPageViewport {
-    return Object.assign(Object.create(null), {
+function textLayerViewport(scale: number) {
+    return cast<ReturnType<IPdfPage['getViewport']>>({
         scale,
         rotation: 0,
         width: 100 * scale,
@@ -219,7 +186,8 @@ describe('usePdfTextLayerRenderer', () => {
             }],
             styles: {},
         };
-        const pdfPage = createPdfPageProxy({
+        const pdfPage = cast<IPdfPage>({
+            pageNumber: 1,
             getTextContent: vi.fn(async () => nativeTextContent),
             streamTextContent: vi.fn(),
         });
@@ -229,7 +197,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/ocr.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/ocr.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -238,7 +206,7 @@ describe('usePdfTextLayerRenderer', () => {
         await renderer.renderTextLayer(
             pdfPage,
             textLayerDiv,
-            textLayerViewport(1),
+            cast({}),
             1,
             1,
             1,
@@ -268,7 +236,8 @@ describe('usePdfTextLayerRenderer', () => {
             }],
             styles: {},
         };
-        const pdfPage = createPdfPageProxy({
+        const pdfPage = cast<IPdfPage>({
+            pageNumber: 1,
             getTextContent: vi.fn(async () => nativeTextContent),
             streamTextContent: vi.fn(),
         });
@@ -278,7 +247,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/scanned.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/scanned.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -287,7 +256,7 @@ describe('usePdfTextLayerRenderer', () => {
         await renderer.renderTextLayer(
             pdfPage,
             textLayerDiv,
-            textLayerViewport(1),
+            cast({}),
             1,
             1,
             1,
@@ -303,14 +272,15 @@ describe('usePdfTextLayerRenderer', () => {
             str: 'page text',
             hasEOL: false,
         }]}));
-        const pdfPage = createPdfPageProxy({
+        const pdfPage = cast<IPdfPage>({
+            pageNumber: 1,
             getTextContent: vi.fn(),
             streamTextContent,
         });
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/book.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/book.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -339,7 +309,8 @@ describe('usePdfTextLayerRenderer', () => {
             str: 'page text',
             hasEOL: false,
         }]}));
-        const pdfPage = createPdfPageProxy({
+        const pdfPage = cast<IPdfPage>({
+            pageNumber: 1,
             getTextContent: vi.fn(),
             streamTextContent,
         });
@@ -347,7 +318,7 @@ describe('usePdfTextLayerRenderer', () => {
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/book.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/book.pdf')),
             documentRevisionToken,
             effectiveScale: ref(1),
         });
@@ -374,14 +345,15 @@ describe('usePdfTextLayerRenderer', () => {
             str: 'page text',
             hasEOL: false,
         }]}));
-        const pdfPage = createPdfPageProxy({
+        const pdfPage = cast<IPdfPage>({
+            pageNumber: 1,
             getTextContent: vi.fn(),
             streamTextContent,
         });
         const renderer = usePdfTextLayerRenderer({
             searchPageMatches: ref(new Map()),
             currentSearchMatch: ref(null),
-            workingCopyPath: ref('/tmp/book.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/book.pdf')),
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
@@ -450,10 +422,10 @@ describe('usePdfTextLayerRenderer', () => {
         });
 
         renderer.applyPageSearchHighlights(
-            createElementShim({}),
-            createElementShim({dataset: {pdfTextLayerReady: 'true'}}),
+            {} as HTMLElement,
+            cast<HTMLElement>({dataset: {pdfTextLayerReady: 'true'}}),
             requirePageNumber(1),
-            createCanvasShim(),
+            {} as HTMLCanvasElement,
         );
 
         expect(renderPageWordBoxesMock).toHaveBeenCalledTimes(1);
@@ -508,17 +480,17 @@ describe('usePdfTextLayerRenderer', () => {
             effectiveScale: ref(1),
         });
 
-        const textLayer41 = createElementShim({dataset: {pdfTextLayerReady: 'true'}});
-        const textLayer44 = createElementShim({dataset: {pdfTextLayerReady: 'true'}});
-        const page41 = createElementShim({
+        const textLayer41 = cast<HTMLElement>({dataset: {pdfTextLayerReady: 'true'}});
+        const textLayer44 = cast<HTMLElement>({dataset: {pdfTextLayerReady: 'true'}});
+        const page41 = cast<HTMLElement>({
             dataset: {page: '41'},
             querySelector: (selector: string) => selector === '.text-layer' ? textLayer41 : null,
         });
-        const page44 = createElementShim({
+        const page44 = cast<HTMLElement>({
             dataset: {page: '44'},
             querySelector: (selector: string) => selector === '.text-layer' ? textLayer44 : null,
         });
-        const root = createElementShim({querySelectorAll: (selector: string) => (
+        const root = cast<HTMLElement>({querySelectorAll: (selector: string) => (
             selector === '.page_container'
                 ? [
                     page41,
@@ -569,11 +541,11 @@ describe('usePdfTextLayerRenderer', () => {
         });
 
         let textLayer: HTMLElement | null = null;
-        const page = createElementShim({
+        const page = cast<HTMLElement>({
             dataset: {page: '1'},
             querySelector: (selector: string) => selector === '.text-layer' ? textLayer : null,
         });
-        const root = createElementShim({querySelectorAll: (selector: string) => (
+        const root = cast<HTMLElement>({querySelectorAll: (selector: string) => (
             selector === '.page_container'
                 ? [page]
                 : []
@@ -583,7 +555,7 @@ describe('usePdfTextLayerRenderer', () => {
 
         expect(highlightPageMock).not.toHaveBeenCalled();
 
-        textLayer = createElementShim({dataset: {pdfTextLayerReady: 'true'}});
+        textLayer = cast<HTMLElement>({dataset: {pdfTextLayerReady: 'true'}});
 
         renderer.applyAllSearchHighlights(root);
 
@@ -622,12 +594,12 @@ describe('usePdfTextLayerRenderer', () => {
             pdfTextLayerRendering: 'true',
             pdfTextLayerReady: 'false',
         };
-        let textLayer = createElementShim({dataset: renderingTextLayerDataset});
-        const page = createElementShim({
+        let textLayer = cast<HTMLElement>({dataset: renderingTextLayerDataset});
+        const page = cast<HTMLElement>({
             dataset: {page: '1'},
             querySelector: (selector: string) => selector === '.text-layer' ? textLayer : null,
         });
-        const root = createElementShim({querySelectorAll: (selector: string) => (
+        const root = cast<HTMLElement>({querySelectorAll: (selector: string) => (
             selector === '.page_container'
                 ? [page]
                 : []
@@ -637,10 +609,10 @@ describe('usePdfTextLayerRenderer', () => {
 
         expect(highlightPageMock).not.toHaveBeenCalled();
 
-        textLayer = createElementShim({
+        textLayer = cast<HTMLElement>({
             dataset: {pdfTextLayerReady: 'true'},
             textContent: 'roma',
-            querySelector: (selector: string) => selector === 'span' ? document.createElement('span') : null,
+            querySelector: (selector: string) => selector === 'span' ? cast<HTMLSpanElement>({}) : null,
         });
 
         renderer.applyAllSearchHighlights(root);
@@ -685,14 +657,14 @@ describe('usePdfTextLayerRenderer', () => {
             documentRevisionToken: ref(TEST_DOCUMENT_REVISION),
             effectiveScale: ref(1),
         });
-        const textLayer = createElementShim({dataset: {pdfTextLayerReady: 'true'}});
-        const page = createElementShim({
+        const textLayer = cast<HTMLElement>({dataset: {pdfTextLayerReady: 'true'}});
+        const page = cast<HTMLElement>({
             dataset: {page: '1'},
             querySelector: (selector: string) => selector === '.text-layer'
                 ? textLayer
                 : null,
         });
-        const root = createElementShim({querySelectorAll: (selector: string) => (
+        const root = cast<HTMLElement>({querySelectorAll: (selector: string) => (
             selector === '.page_container'
                 ? [page]
                 : []
@@ -706,7 +678,11 @@ describe('usePdfTextLayerRenderer', () => {
     });
 
     it('refreshes same-page current highlights before measuring scroll geometry', () => {
-        vi.spyOn(window, 'getComputedStyle').mockReturnValue(createStyleDeclaration());
+        vi.spyOn(window, 'getComputedStyle').mockReturnValue(cast<CSSStyleDeclaration>({
+            paddingTop: '20px',
+            paddingBottom: '20px',
+            getPropertyValue: () => '',
+        }));
 
         const oldCurrentMarkRect = domRectLike({
             top: 189,
@@ -718,8 +694,8 @@ describe('usePdfTextLayerRenderer', () => {
             width: 79,
             height: 25,
         });
-        const oldCurrentMark = createElementShim({getBoundingClientRect: () => oldCurrentMarkRect});
-        const newCurrentMark = createElementShim({getBoundingClientRect: () => newCurrentMarkRect});
+        const oldCurrentMark = cast<HTMLElement>({getBoundingClientRect: () => oldCurrentMarkRect});
+        const newCurrentMark = cast<HTMLElement>({getBoundingClientRect: () => newCurrentMarkRect});
         let currentMark = oldCurrentMark;
 
         highlightPageMock.mockImplementation((_textLayer, _pageMatchData, currentMatch) => {
@@ -769,13 +745,13 @@ describe('usePdfTextLayerRenderer', () => {
             effectiveScale: ref(1),
         });
 
-        const textLayer = createElementShim({
+        const textLayer = cast<HTMLElement>({
             dataset: {pdfTextLayerReady: 'true'},
             querySelector: (selector: string) => selector === '.pdf-search-highlight--current'
                 ? currentMark
                 : null,
         });
-        const page = createElementShim({
+        const page = cast<HTMLElement>({
             dataset: {page: '1'},
             offsetTop: 7106,
             offsetHeight: 3000,
@@ -783,7 +759,7 @@ describe('usePdfTextLayerRenderer', () => {
                 ? textLayer
                 : null,
         });
-        const root = createElementShim({
+        const root = cast<HTMLElement>({
             scrollTop: 7106,
             clientHeight: 982,
             querySelector: (selector: string) => selector === '.page_container[data-page="1"]'
@@ -803,7 +779,7 @@ describe('usePdfTextLayerRenderer', () => {
             page,
             textLayer,
             requirePageNumber(1),
-            createCanvasShim(),
+            {} as HTMLCanvasElement,
         );
         currentSearchMatch.value = {
             pageIndex: requirePageIndex(0),
@@ -821,7 +797,7 @@ describe('usePdfTextLayerRenderer', () => {
     });
 
     it('reveals the current match horizontally when it is outside the viewport', () => {
-        const currentMark = createElementShim({getBoundingClientRect: () => domRectLike({
+        const currentMark = cast<HTMLElement>({getBoundingClientRect: () => domRectLike({
             left: 1500,
             top: 500,
             width: 80,
@@ -854,13 +830,13 @@ describe('usePdfTextLayerRenderer', () => {
             effectiveScale: ref(1),
         });
 
-        const textLayer = createElementShim({
+        const textLayer = cast<HTMLElement>({
             dataset: {pdfTextLayerReady: 'true'},
             querySelector: (selector: string) => selector === '.pdf-search-highlight--current'
                 ? currentMark
                 : null,
         });
-        const page = createElementShim({
+        const page = cast<HTMLElement>({
             dataset: {page: '1'},
             offsetTop: 1000,
             offsetHeight: 2000,
@@ -868,7 +844,7 @@ describe('usePdfTextLayerRenderer', () => {
                 ? textLayer
                 : null,
         });
-        const root = createElementShim({
+        const root = cast<HTMLElement>({
             scrollTop: 1000,
             scrollLeft: 0,
             clientHeight: 800,
@@ -931,7 +907,7 @@ describe('usePdfTextLayerRenderer', () => {
             effectiveScale: ref(1),
         });
 
-        const canvas = createCanvasShim({
+        const canvas = cast<HTMLCanvasElement>({
             offsetWidth: 2000,
             offsetHeight: 2000,
             getBoundingClientRect: () => domRectLike({
@@ -941,11 +917,11 @@ describe('usePdfTextLayerRenderer', () => {
                 height: 2000,
             }),
         });
-        const textLayer = createElementShim({
+        const textLayer = cast<HTMLElement>({
             dataset: {pdfTextLayerReady: 'true'},
             querySelector: () => null,
         });
-        const page = createElementShim({
+        const page = cast<HTMLElement>({
             dataset: {page: '1'},
             offsetTop: 0,
             offsetHeight: 2000,
@@ -959,7 +935,7 @@ describe('usePdfTextLayerRenderer', () => {
                 return null;
             },
         });
-        const root = createElementShim({
+        const root = cast<HTMLElement>({
             scrollTop: 0,
             scrollLeft: 0,
             clientHeight: 800,
@@ -997,9 +973,20 @@ describe('usePdfTextLayerRenderer', () => {
         textLayerDiv.textContent = 'stale';
 
         await renderer.renderTextLayer(
-            createPdfPageProxy({getTextContent: vi.fn().mockResolvedValue({items: []})}),
+            cast<IPdfPage>({
+                pageNumber: 1,
+                getTextContent: vi.fn().mockResolvedValue({items: []}),
+            }),
             textLayerDiv,
-            textLayerViewport(1),
+            cast<ReturnType<IPdfPage['getViewport']>>({
+                width: 100,
+                height: 100,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 100,
+                    pageHeight: 100,
+                },
+            }),
             1,
             1,
             1,

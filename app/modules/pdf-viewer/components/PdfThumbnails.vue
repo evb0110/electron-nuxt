@@ -251,7 +251,10 @@ function getThumbnailCanvasStyle(page: number) {
     return createThumbnailCanvasStyle(thumbnailLayout.value.getPageAspect(page));
 }
 function getThumbnailStyle(page: number) {
-    return createThumbnailItemStyle(getThumbnailTop(page));
+    return createThumbnailItemStyle(
+        getThumbnailTop(page),
+        thumbnailLayout.value.getPageHeight(page),
+    );
 }
 
 const {
@@ -803,7 +806,7 @@ const thumbnailRenderRuntime = usePdfThumbnailRenderRuntime({
     source: {
         currentPage: computed(() => currentPage),
         invalidationRequest: computed(() => invalidationRequest),
-        isActive: computed(() => isActive ?? true),
+        isActive: computed(() => isActive),
         pdfDocument: computed(() => pdfDocument),
         rasterScheduler: computed(() => rasterScheduler),
         totalPages: computed(() => totalPages),

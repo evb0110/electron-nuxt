@@ -8,11 +8,13 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 interface IUseAnnotationTextSelectionCacheOptions {
     viewerContainer: Ref<HTMLElement | null>;
     currentPage: Ref<number>;
+    allowCrossPage?: boolean;
 }
 
 export const useAnnotationTextSelectionCache = ({
     viewerContainer,
     currentPage,
+    allowCrossPage = false,
 }: IUseAnnotationTextSelectionCacheOptions) => {
     let cachedSelectionRange: Range | null = null;
     let cachedSelectionTimestamp = 0;
@@ -32,17 +34,22 @@ export const useAnnotationTextSelectionCache = ({
             : node instanceof HTMLElement ? node : null;
     }
 
+    function getTextLayerFromRangeNode(node: Node) {
+        return getElementFromRangeNode(node)?.closest<HTMLElement>('.text-layer, .textLayer') ?? null;
+    }
+
     function isRangeWithinViewerTextLayer(range: Range) {
         const container = viewerContainer.value;
         if (!container) {
             return false;
         }
-        const element = getElementFromRangeNode(range.commonAncestorContainer);
-        if (!element) {
-            return false;
+        if (!allowCrossPage) {
+            const commonAncestorLayer = getTextLayerFromRangeNode(range.commonAncestorContainer);
+            return Boolean(commonAncestorLayer && container.contains(commonAncestorLayer));
         }
-        const textLayer = element.closest('.text-layer, .textLayer');
-        return Boolean(textLayer && container.contains(textLayer));
+        const startLayer = getTextLayerFromRangeNode(range.startContainer);
+        const endLayer = getTextLayerFromRangeNode(range.endContainer);
+        return Boolean(startLayer && endLayer && container.contains(startLayer) && container.contains(endLayer));
     }
 
     function getSelectionRangeFromDocument() {
@@ -70,9 +77,7 @@ export const useAnnotationTextSelectionCache = ({
         }
 
         const range = selection.getRangeAt(0);
-        const element = getElementFromRangeNode(range.commonAncestorContainer);
-
-        if (!element?.closest('.text-layer, .textLayer') || !container.contains(element)) {
+        if (!isRangeWithinViewerTextLayer(range)) {
             clearSelectionCache();
             return;
         }
@@ -150,7 +155,7 @@ export const useAnnotationTextSelectionCache = ({
         if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
             return 'none';
         }
-        return doesRangeSpanTextLayers(selection.getRangeAt(0)) ? 'cross-page' : 'none';
+        return !allowCrossPage && doesRangeSpanTextLayers(selection.getRangeAt(0)) ? 'cross-page' : 'none';
     }
 
     function getPageNumberForTextLayer(textLayer: HTMLElement) {

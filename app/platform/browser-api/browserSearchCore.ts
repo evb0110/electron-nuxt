@@ -1,8 +1,6 @@
-import {
-    createPdfjsDocumentInitFromBrowserDocument,
-    getPdfjsLib,
-} from '@app/platform/browser-api/browserPdfjsDocumentInit';
-import type { PDFPageProxy } from 'pdfjs-dist';
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {getPdfjsLib} from '@app/platform/browser-api/browserPdfjsDocumentInit';
+import {loadBrowserPdfjsDocument} from '@app/platform/browser-api/loadBrowserPdfjsDocument';
 import type { TPdfjsTextOps } from '@pdf-core/pdfjsTextGeometry';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageData } from '@app/platform/browser-api/extractBrowserSearchPageText';
@@ -13,7 +11,7 @@ import {validateBrowserSearchPageCount} from '@app/platform/browser-api/browserS
 interface ILoadedBrowserSearchDocument {
     pdfDocument: {
         numPages: number;
-        getPage: (pageNumber: number) => Promise<PDFPageProxy>;
+        getPage: (pageNumber: number) => Promise<IPdfPage>;
         destroy: () => Promise<void>;
     };
     pdfjsOps: TPdfjsTextOps;
@@ -45,27 +43,7 @@ async function loadBrowserSearchDocument(
     pdfPath: string,
 ): Promise<ILoadedBrowserSearchDocument> {
     const pdfjsLib = await getPdfjsLib();
-    let rejectRangeReadFailure: ((error: Error) => void) | null = null;
-    const rangeReadFailure = new Promise<never>((_resolve, reject) => {
-        rejectRangeReadFailure = reject;
-    });
-    const loadingTask = pdfjsLib.getDocument(await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, pdfPath, {onRangeReadFailure: (error) => {
-        const reject = rejectRangeReadFailure;
-        rejectRangeReadFailure = null;
-        reject?.(error);
-    }}));
-    let pdfDocument: Awaited<typeof loadingTask.promise>;
-    try {
-        pdfDocument = await Promise.race([
-            loadingTask.promise,
-            rangeReadFailure,
-        ]);
-    } catch (error) {
-        await loadingTask.destroy();
-        throw error;
-    } finally {
-        rejectRangeReadFailure = null;
-    }
+    const pdfDocument = await loadBrowserPdfjsDocument(pdfjsLib, pdfPath);
 
     return {
         pdfDocument,

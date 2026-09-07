@@ -1,5 +1,4 @@
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     afterEach,
     beforeEach,
@@ -8,8 +7,9 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { PageViewport } from 'pdfjs-dist';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type { IOcrWord } from '@contracts/shared';
 
 const ocrCapability = vi.hoisted(() => ({
@@ -44,7 +44,7 @@ function createPageSnapshot(words: IOcrWord[]) {
     };
 }
 
-function createViewport(): PageViewport {
+function createViewport(): IPdfViewport {
     return {
         viewBox: [
             0,

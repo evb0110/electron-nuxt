@@ -397,7 +397,7 @@ export function stagePdfOpeningPreview(options: {
             nextRenderRevision += 1;
             const renderRevision = nextRenderRevision;
             if (activeRender !== null) {
-                previewSource.cancelPagePreview?.(
+                previewSource.cancelPagePreview(
                     activeRender.pageNumber,
                     activeRender.requestId,
                 );

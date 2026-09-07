@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- This file is the public desktop document protocol contract. */
 import type {
     TPageNumber,
     TPageIndex,
@@ -68,6 +69,12 @@ import type {
 } from '@contracts/electronApiCommon';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
+import type * as PdfAnnotationParse from '@contracts/pdfAnnotationParseTypes';
+import type {
+    IPdfDecryptRequest,
+    IPdfDecryptResult,
+} from '@contracts/pdfDecryptSchemas';
+import type {TPdfOpenFileFailureResult} from '@contracts/pdfOpenFileResults';
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
 export interface IDocumentChunkReadOptions {
     chunkBytes?: number;
@@ -108,7 +115,7 @@ export interface IPdfAnnotationIndexEntry {
 
 export interface IPdfAnnotationIndexOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
 
-export interface IPdfAnnotationIndexChunkOptions {chunkBytes?: number;}
+export interface IPdfAnnotationIndexChunkOptions extends PdfAnnotationParse.IPdfSidecarChunkOptions {}
 
 export interface IPdfAnnotationIndexSession {
     readonly sessionId: TSessionId;
@@ -127,6 +134,13 @@ export interface IPdfAnnotationIndexChunk {
     readonly entries: readonly IPdfAnnotationIndexEntry[];
 }
 
+export {
+    PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES, PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
+} from '@contracts/pdfAnnotationParseTypes';
+export type * from '@contracts/pdfAnnotationParseTypes';
+export type {
+    IPdfDecryptRequest, IPdfDecryptResult, TPdfDecryptOutcome,
+} from '@contracts/pdfDecryptSchemas';
 /** A normalized point returned by the private embedded-shape index. */
 export interface IPdfEmbeddedShapeIndexPoint {
     readonly x: number;
@@ -166,7 +180,7 @@ export const PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES = 4 * 1024 * 1024;
 
 export interface IPdfEmbeddedShapeIndexOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
 
-export interface IPdfEmbeddedShapeIndexChunkOptions {chunkBytes?: number;}
+export interface IPdfEmbeddedShapeIndexChunkOptions extends PdfAnnotationParse.IPdfSidecarChunkOptions {}
 
 export interface IPdfEmbeddedShapeIndexSession {
     readonly sessionId: TSessionId;
@@ -366,6 +380,7 @@ export interface IOpenPdfResult {
     readonly workingPath: TDocumentRef;
     readonly originalPath: TDocumentRef;
     readonly isGenerated?: boolean;
+    readonly wasEncrypted?: true;
     /**
      * Authoritative first-page metadata discovered by the main process from
      * the admitted working copy. The workspace host can therefore publish
@@ -373,14 +388,13 @@ export interface IOpenPdfResult {
      */
     readonly openingGeometry?: IPdfOpeningGeometry;
 }
-
 export interface IOpenDjvuResult {
     readonly kind: 'djvu';
     readonly workingPath: '';
     readonly originalPath: TDocumentRef;
 }
 
-export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
+export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult | TPdfOpenFileFailureResult;
 export type TOpenFolderDialogResult =
     | {
         readonly ok: true;
@@ -603,7 +617,7 @@ export interface IPdfNativeFreeTextNote {
     createdAt?: TEpochMs | null;
 }
 
-export interface IPdfNativeFreeTextEditor {
+export interface IPdfNativeTextBoxMutation {
     pageIndex: TPageIndex;
     stableKey: string;
     /** Existing PDF object ref when this mutation updates imported FreeText. */
@@ -613,8 +627,11 @@ export interface IPdfNativeFreeTextEditor {
     rotation: 0 | 90 | 180 | 270;
     fontSize: number;
     color: [number, number, number];
+    author?: string | null;
+    createdAt?: number | null;
+    modifiedAt?: number | null;
 }
-
+export type IPdfNativeFreeTextEditor = IPdfNativeTextBoxMutation;
 export interface IPdfNativeAnnotationDelete {
     pageIndex: TPageIndex;
     objectNumber?: number;
@@ -622,18 +639,14 @@ export interface IPdfNativeAnnotationDelete {
     stableKey?: string;
     createdAt?: TEpochMs | null;
 }
-
 export interface IPdfNativeNoteChanges {
     updates?: IPdfNoteTextUpdate[];
     geometryUpdates?: IPdfNoteGeometryUpdate[];
     freeTextNotes?: IPdfNativeFreeTextNote[];
     deletes?: IPdfNativeAnnotationDelete[];
 }
-
 export type TPdfNativePageLabelStyle = TPdfPageLabelStyle;
-
 export type IPdfNativePageLabelRange = IPdfPageLabelRange;
-
 export type IPdfNativePageLabelsMutation = IPdfPageLabelsMutation;
 
 export interface IPdfNativeBookmarksMutation {
@@ -716,13 +729,22 @@ export interface IPdfNativePlacedImage extends IPdfBox {
     source: IManagedTempFileHandle;
 }
 
+export interface IPdfNativePlacedImageGeometryUpdate extends IPdfBox {
+    pageIndex: TPageIndex;
+    stableKey?: string;
+    annotationId?: string | null;
+    rotationDegrees?: number | null;
+}
+
 export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
+    textBoxes?: IPdfNativeTextBoxMutation[];
     freeTextEditors?: IPdfNativeFreeTextEditor[];
     pageLabels?: IPdfNativePageLabelsMutation;
     bookmarks?: IPdfNativeBookmarksMutation;
     shapes?: IPdfNativeShapesMutation;
     markup?: IPdfNativeMarkupMutation;
     placedImages?: IPdfNativePlacedImage[];
+    placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];
 }
 
 export interface IPdfNativeNoteTextSaveResult {
@@ -883,7 +905,7 @@ export interface IDocumentsFileCapability {
     openFolderDialog: () => Promise<TOpenFileResult | null>;
     openFolderDialogStructured?: () => Promise<TOpenFolderDialogResult>;
     openImageDialog: () => Promise<string | null>;
-    openDocumentDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
+    openDocumentDirect: (path: TDocumentRef, password?: string) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (
         paths: TDocumentRef[],
         requestId?: TRequestId,
@@ -905,6 +927,7 @@ export interface IDocumentsFileCapability {
     readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
     createManagedTempFileHandle?: (path: TDocumentRef) => Promise<IManagedTempFileHandle>;
     releaseManagedTempFileHandle?: (leaseId: TLeaseId) => Promise<boolean>;
+    parsePdfAnnotations: PdfAnnotationParse.TPdfAnnotationParse;
     getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry | null>;
     getPdfNativePageSizes?: (path: TDocumentRef) => Promise<TPdfNativePageSizes>;
     cancelPdfNativePagePreview?: (requestId: TRequestId) => Promise<{ canceled: boolean }>;
@@ -924,6 +947,10 @@ export interface IDocumentsFileCapability {
     ) => Promise<IPdfAnnotationIndexChunk>;
     releasePdfAnnotationIndex?: (sessionId: TSessionId) => Promise<boolean>;
     cancelPdfAnnotationIndex?: (sessionId: TSessionId) => Promise<{canceled: boolean}>;
+    beginPdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseBegin;
+    readPdfAnnotationParseChunk?: PdfAnnotationParse.TPdfAnnotationParseReadChunk;
+    releasePdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseRelease;
+    cancelPdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseCancel;
     beginPdfEmbeddedShapeIndex?: (
         path: TDocumentRef,
         options: IPdfEmbeddedShapeIndexOptions,
@@ -935,6 +962,7 @@ export interface IDocumentsFileCapability {
     ) => Promise<IPdfEmbeddedShapeIndexChunk>;
     releasePdfEmbeddedShapeIndex?: (sessionId: TSessionId) => Promise<boolean>;
     cancelPdfEmbeddedShapeIndex?: (sessionId: TSessionId) => Promise<{canceled: boolean}>;
+    decryptPdfWorkingCopy?: (path: TDocumentRef, request?: IPdfDecryptRequest) => Promise<IPdfDecryptResult>;
     readFileChunks: (
         path: TDocumentRef,
         options: IDocumentChunkReadOptions,
@@ -982,8 +1010,8 @@ export interface IDocumentsFileCapability {
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<boolean>;
     writeDocxFile: (path: TDocumentRef, data: Uint8Array, signal?: AbortSignal) => Promise<boolean>;
-    createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
-    createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
+    createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
+    createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
     saveFileStructured: (path: TDocumentRef, options?: IDocumentMutationRevisionOptions) => Promise<TDocumentSaveResult>;
     resyncWorkingCopy?: (path: TDocumentRef) => Promise<TDocumentSaveResult>;
     savePdfData: (
@@ -1127,6 +1155,7 @@ export interface IDocumentsWorkingCopyCapability extends Pick<
     IDocumentsFileCapability,
     | 'createWorkingCopyFromData'
     | 'createWorkingCopyFromPath'
+    | 'parsePdfAnnotations'
     | 'cleanupFile'
     | 'cleanupOcrTemp'
 > {}
@@ -1146,10 +1175,15 @@ export interface IDocumentsReadCapability extends Pick<
     | 'readPdfAnnotationIndexChunk'
     | 'releasePdfAnnotationIndex'
     | 'cancelPdfAnnotationIndex'
+    | 'beginPdfAnnotationParse'
+    | 'readPdfAnnotationParseChunk'
+    | 'releasePdfAnnotationParse'
+    | 'cancelPdfAnnotationParse'
     | 'beginPdfEmbeddedShapeIndex'
     | 'readPdfEmbeddedShapeIndexChunk'
     | 'releasePdfEmbeddedShapeIndex'
     | 'cancelPdfEmbeddedShapeIndex'
+    | 'decryptPdfWorkingCopy'
     | 'readFileChunks'
     | 'readTextFile'
     | 'fileExists'

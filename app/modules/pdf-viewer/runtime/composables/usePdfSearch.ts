@@ -377,7 +377,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 error,
             });
         } finally {
-            resolver?.(isCurrentSearchRun(payload.runId, payload.documentRevisionToken) && !searchError.value);
+            resolver(isCurrentSearchRun(payload.runId, payload.documentRevisionToken) && !searchError.value);
         }
     }
 

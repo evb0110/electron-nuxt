@@ -28,9 +28,8 @@ import {
     iteratePageMatches,
 } from '@electron/search/worker/searchMatch';
 import { parsePageNumber } from '@contracts/pageNumbers';
-import { assertNever } from '@contracts/assertNever';
 import type { TRequestId } from '@contracts/shared';
-import type { IResolvedSearchMatchOptions } from '@pdf-core';
+import type { IResolvedSearchMatchOptions } from '@pdf-core/pdfSearchCore';
 import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
 import {
     ensureSearchIndex,
@@ -42,7 +41,7 @@ import {
     resetXlargeSearchIndexBuilds,
 } from '@electron/search/xlargeSearchRouting';
 import type {IXlargeSearchIndexBuildProgress} from '@electron/search/xlargeIndexBuilder';
-import { collectSearchMatchWords } from '@pdf-core';
+import { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
 import { decodeSearchWorkerData } from '@contracts/resourcePolicies';
 
 interface ISearchRequestContext extends IResolvedSearchMatchOptions {
@@ -60,6 +59,7 @@ interface ISearchRequestContext extends IResolvedSearchMatchOptions {
 interface ISearchExecutionResult {
     results: readonly ISearchMatch[];
     truncated: boolean;
+    canceled?: boolean;
 }
 
 interface ISearchProgressResultBatch extends ISearchExecutionResult { resultsStartIndex?: number; }
@@ -202,17 +202,19 @@ function sendProgress(
     }
 
     progressSentAt.set(requestId, now);
-    const progress = {
+    const progress: Extract<TSearchWorkerOutboundMessage, {type: 'progress'}> = {
         type: 'progress',
         requestId,
         processed,
         total,
-        ...(partialResult === undefined ? {} : {
-            results: partialResult.results,
-            ...(partialResult.resultsStartIndex === undefined ? {} : {resultsStartIndex: partialResult.resultsStartIndex}),
-            truncated: partialResult.truncated,
-        }),
-    } as const;
+    };
+    if (partialResult !== undefined) {
+        progress.results = partialResult.results;
+        if (partialResult.resultsStartIndex !== undefined) {
+            progress.resultsStartIndex = partialResult.resultsStartIndex;
+        }
+        progress.truncated = partialResult.truncated;
+    }
     postMessage(progress);
 }
 
@@ -909,7 +911,6 @@ parentPort?.on('message', (rawMessage: unknown) => {
             startSearchRequest(message.payload);
             return;
     }
-    return assertNever(message);
 });
 
 log.debug('Search worker initialized');

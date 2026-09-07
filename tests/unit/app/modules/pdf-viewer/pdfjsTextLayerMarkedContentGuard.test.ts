@@ -15,9 +15,9 @@ import { createPdfjsTextLayer } from '@app/services/pdfjs/pdfViewerFacade';
  * unbalanced run climbs out of the text layer, past the document, and lands on
  * `null`; the next `beginMarkedContent` then throws inside the reader pump,
  * where the throw surfaced only as an unhandled rejection and left the page's
- * text layer promise pending forever. `patches/pdfjs-dist@5.7.284.patch` stops
- * the climb at the layer's own root and routes any remaining pump error into
- * the render promise. This holds both halves of that patch.
+ * text layer promise pending forever. The EVB fork stops the climb at the
+ * layer's own root and routes any remaining pump error into the render
+ * promise. This pins the behavior in both generated builds.
  */
 const FONT_NAME = 'g_d0_f1';
 

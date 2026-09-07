@@ -1,3 +1,4 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import { requirePageNumber } from '@contracts/pageNumbers';
@@ -8,38 +9,8 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { PDFPageProxy } from 'pdfjs-dist';
+import { cast } from '@tests/helpers/cast';
 import { usePdfRendererAnnotationLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
-
-type TAnnotationRenderContext = Parameters<
-    ReturnType<typeof usePdfRendererAnnotationLayerController>
->[3];
-
-function createPdfPage(): PDFPageProxy {
-    // The controller forwards the page proxy to the renderer but does not read it.
-    return {} as PDFPageProxy;
-}
-
-function createViewport(): TAnnotationRenderContext['renderResult']['viewport'] {
-    // PDF.js owns the complete viewport shape; this test needs its dimensions.
-    return {
-        width: 100,
-        height: 100,
-        rotation: 0,
-    } as TAnnotationRenderContext['renderResult']['viewport'];
-}
-
-function createRenderContext(container: HTMLElement): TAnnotationRenderContext {
-    return {
-        container,
-        pdfPage: createPdfPage(),
-        renderResult: {
-            viewport: createViewport(),
-            annotationCanvasMap: null,
-        },
-        textLayerDiv: null,
-    };
-}
 
 function createHarness() {
     const container = document.createElement('div');
@@ -49,22 +20,15 @@ function createHarness() {
 
     const renderDeferred = Promise.withResolvers<null>();
     const renderSignals: AbortSignal[] = [];
-    const annotationLayerRenderer = {
-        renderAnnotationLayer: vi.fn((_page, _layer, _viewport, _pageNumber, _canvasMap, renderOptions) => {
-            if (renderOptions?.signal) {
-                renderSignals.push(renderOptions.signal);
-            }
-            return renderDeferred.promise;
-        }),
-        renderAnnotationEditorLayer: vi.fn(),
-        hideHiddenManagedEditors: vi.fn(),
-        cleanupEditorLayer: vi.fn(),
-        clearAllLayers: vi.fn(),
-    } satisfies Parameters<typeof usePdfRendererAnnotationLayerController>[0]['annotationLayerRenderer'];
+    const annotationLayerRenderer = cast<Parameters<typeof usePdfRendererAnnotationLayerController>[0]['annotationLayerRenderer']>({renderAnnotationLayer: vi.fn((_page, _layer, _viewport, _pageNumber, _canvasMap, renderOptions) => {
+        if (renderOptions?.signal) {
+            renderSignals.push(renderOptions.signal);
+        }
+        return renderDeferred.promise;
+    })});
     const controller = usePdfRendererAnnotationLayerController({
         annotationLayerRenderer,
         showAnnotations: ref(true),
-        annotationUiManager: ref(null),
         getRenderVersion: () => 1,
         cleanupPageIfCurrentRender: vi.fn(),
         logNonCriticalStageError: vi.fn(),
@@ -86,7 +50,19 @@ describe('usePdfRendererAnnotationLayerController', () => {
             requirePageNumber(1),
             1,
             1,
-            createRenderContext(harness.container),
+            cast<Parameters<typeof harness.controller>[3]>({
+                container: harness.container,
+                pdfPage: cast<IPdfPage>({}),
+                renderResult: {
+                    viewport: {
+                        width: 100,
+                        height: 100,
+                        rotation: 0,
+                    },
+                    annotationCanvasMap: null,
+                },
+                textLayerDiv: null,
+            }),
             () => true,
         );
 
@@ -102,7 +78,7 @@ describe('usePdfRendererAnnotationLayerController', () => {
         await expect(render).resolves.toMatchObject({shouldContinue: true});
     });
 
-    it('registers editor-layer controllers so dispose aborts direct editor renders', () => {
+    it('registers page annotation controllers so dispose aborts direct renders', () => {
         const harness = createHarness();
         const editorController = new AbortController();
 

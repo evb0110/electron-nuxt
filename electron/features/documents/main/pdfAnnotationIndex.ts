@@ -1,13 +1,3 @@
-import {createReadStream} from 'node:fs';
-import {
-    lstat,
-    mkdtemp,
-    open,
-    readdir,
-    rm,
-    stat,
-} from 'node:fs/promises';
-import {join} from 'node:path';
 import type {
     IPdfAnnotationIndexChunk,
     IPdfAnnotationIndexChunkOptions,
@@ -16,11 +6,11 @@ import type {
     IPdfAnnotationIndexOptions,
     IPdfAnnotationIndexSession,
 } from '@contracts/electronApiDocuments';
-import type { TDocumentRef } from '@contracts/documentRef';
 import {
-    createSessionId,
-    type TSessionId,
-} from '@contracts/shared';
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {createSessionId} from '@contracts/shared';
 import {createStaleRevisionError} from '@contracts/documentMutationErrors';
 import {
     parseDocumentRevisionToken,
@@ -40,13 +30,25 @@ import {
 } from '@electron/features/page-ops/public/nativePageOpsPath';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {cancelNativeCommandGroup} from '@electron/native-tools/runNativeCommand';
-import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {registerNativePdfSenderCleanup} from '@electron/features/documents/main/nativePdfPreview';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
 import {abortErrorFromSignal} from '@electron/utils/abort';
 import {isRecord} from '@contracts/runtimeGuards';
+import {
+    assertSafePdfSidecarOffset,
+    cancelPdfSidecarSession,
+    cleanupPdfSidecarSession,
+    cleanupPdfSidecarSessionWhenOperationSettles,
+    createPdfSidecarMainOperation,
+    expireStalePdfSidecarSessions,
+    readPdfSidecarChunk,
+    runPdfSidecarOperation,
+    scanPdfSidecarIntoSession,
+    scanPdfSidecarLines,
+    sweepStalePdfSidecarArtifacts,
+    type IScannedPdfSidecar,
+} from '@electron/features/documents/main/pdfSidecarLineIndex';
 
 const ANNOTATION_INDEX_DIRECTORY_PREFIX = 'pdf-annotation-index-';
 const ANNOTATION_INDEX_FILE_NAME = 'index.jsonl';
@@ -61,31 +63,17 @@ const ANNOTATION_INDEX_SWEEP_MAX_ENTRIES = 200;
 const ANNOTATION_INDEX_NATIVE_TIMEOUT_MS = 30 * 60 * 1_000;
 const ANNOTATION_INDEX_NATIVE_STDOUT_BYTES = 64 * 1_024;
 const ANNOTATION_INDEX_NATIVE_STDERR_BYTES = 512 * 1_024;
-const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
 const logger = createLogger('pdf-annotation-index');
 
-interface IAnnotationIndexLine {
-    offset: number;
-    byteLength: number;
-}
-
-interface IScannedAnnotationIndex {
-    dataStartOffset: number;
-    dataBytes: number;
-    pageCount: number;
-    entryCount: number;
-    lines: IAnnotationIndexLine[];
-}
-
 interface IAnnotationIndexSessionState {
-    sessionId: TSessionId;
+    sessionId: string;
     ownerId: number;
-    documentRef: TDocumentRef;
+    documentRef: string;
     resolvedPath: string;
     expectedRevisionToken: TDocumentRevisionToken;
     sidecarDirectory: string;
     sidecarPath: string;
-    index: IScannedAnnotationIndex;
+    index: IScannedPdfSidecar;
     abortController: AbortController;
     cancelGroup: string;
     operationPromise: Promise<void>;
@@ -95,25 +83,18 @@ interface IAnnotationIndexSessionState {
     cleanupPromise?: Promise<void>;
 }
 
-const sessions = new Map<TSessionId, IAnnotationIndexSessionState>();
+function requireDocumentRef(value: unknown): TDocumentRef {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
+}
+
+const sessions = new Map<string, IAnnotationIndexSessionState>();
 
 function getOwnerId(context: IDocumentsSenderIdContext) {
     return context.senderId ?? -1;
-}
-
-function assertSafeOffset(value: number, fieldName: string) {
-    if (!Number.isSafeInteger(value) || value < 0) {
-        throw new RangeError(`${fieldName} must be a non-negative safe integer`);
-    }
-    return value;
-}
-
-function addSafeOffsets(left: number, right: number, fieldName: string) {
-    const result = left + right;
-    if (!Number.isSafeInteger(result) || result < 0) {
-        throw new RangeError(`${fieldName} exceeds the safe integer range`);
-    }
-    return result;
 }
 
 function decodeHeader(value: unknown) {
@@ -256,124 +237,6 @@ function decodeDataLine(value: unknown): IPdfAnnotationIndexEntry[] {
     return rawEntries.map(item => decodeEntry(item, pageIndex));
 }
 
-function parseJsonLine(bytes: Buffer, label: string) {
-    const withoutNewline = bytes[bytes.length - 1] === 0x0a
-        ? bytes.subarray(0, bytes.length - 1)
-        : bytes;
-    const jsonBytes = withoutNewline[withoutNewline.length - 1] === 0x0d
-        ? withoutNewline.subarray(0, withoutNewline.length - 1)
-        : withoutNewline;
-    if (jsonBytes.length === 0) {
-        throw new Error(`PDF annotation index sidecar contains an empty ${label} line`);
-    }
-    try {
-        return JSON.parse(jsonBytes.toString('utf8')) as unknown;
-    } catch (error) {
-        throw new Error(`PDF annotation index sidecar contains invalid JSON in its ${label} line`, {cause: error});
-    }
-}
-
-function scanSidecarLines(sidecarPath: string): Promise<IScannedAnnotationIndex> {
-    return new Promise((resolveScan, rejectScan) => {
-        const lines: IAnnotationIndexLine[] = [];
-        let stream: ReturnType<typeof createReadStream> | null = null;
-        let pending = Buffer.alloc(0) as Buffer;
-        let pendingStartOffset = 0;
-        let dataStartOffset = 0;
-        let totalBytes = 0;
-        let headerPageCount: number | null = null;
-        let entryCount = 0;
-        let headerSeen = false;
-        let settled = false;
-
-        const rejectOnce = (error: unknown) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            stream?.destroy();
-            rejectScan(error);
-        };
-        const processLine = (line: Buffer, offset: number) => {
-            if (line.length === 0 || line.length > ANNOTATION_INDEX_LINE_MAX_BYTES) {
-                throw new Error(`PDF annotation index sidecar line exceeds ${ANNOTATION_INDEX_LINE_MAX_BYTES} bytes`);
-            }
-            const lineValue = parseJsonLine(line, headerSeen ? 'data' : 'header');
-            if (!headerSeen) {
-                headerPageCount = decodeHeader(lineValue).pageCount;
-                dataStartOffset = addSafeOffsets(offset, line.length, 'PDF annotation index offset');
-                headerSeen = true;
-                return;
-            }
-            const entries = decodeDataLine(lineValue);
-            entryCount = addSafeOffsets(entryCount, entries.length, 'PDF annotation index entry count');
-            lines.push({
-                offset: addSafeOffsets(offset, -dataStartOffset, 'PDF annotation index offset'),
-                byteLength: line.length,
-            });
-        };
-        const consume = (chunk: Buffer) => {
-            totalBytes = addSafeOffsets(totalBytes, chunk.length, 'PDF annotation index sidecar size');
-            pending = pending.length === 0 ? chunk : Buffer.concat([
-                pending,
-                chunk,
-            ]);
-            if (pending.length > ANNOTATION_INDEX_LINE_MAX_BYTES && pending.indexOf(0x0a) < 0) {
-                throw new Error(`PDF annotation index sidecar line exceeds ${ANNOTATION_INDEX_LINE_MAX_BYTES} bytes`);
-            }
-            let newlineIndex = pending.indexOf(0x0a);
-            while (newlineIndex >= 0) {
-                const lineLength = newlineIndex + 1;
-                const line = pending.subarray(0, lineLength);
-                processLine(line, pendingStartOffset);
-                pendingStartOffset = addSafeOffsets(pendingStartOffset, lineLength, 'PDF annotation index offset');
-                pending = pending.subarray(lineLength);
-                newlineIndex = pending.indexOf(0x0a);
-            }
-            if (pending.length > ANNOTATION_INDEX_LINE_MAX_BYTES) {
-                throw new Error(`PDF annotation index sidecar line exceeds ${ANNOTATION_INDEX_LINE_MAX_BYTES} bytes`);
-            }
-        };
-
-        stream = createReadStream(sidecarPath, {highWaterMark: 64 * 1_024});
-        stream.on('data', (chunk: Buffer | string) => {
-            try {
-                consume(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-            } catch (error) {
-                rejectOnce(error);
-            }
-        });
-        stream.once('error', rejectOnce);
-        stream.once('end', () => {
-            if (settled) {
-                return;
-            }
-            try {
-                if (pending.length > 0) {
-                    processLine(pending, pendingStartOffset);
-                    pendingStartOffset = addSafeOffsets(pendingStartOffset, pending.length, 'PDF annotation index offset');
-                }
-                if (headerPageCount === null) {
-                    throw new Error('PDF annotation index sidecar is empty');
-                }
-                if (pendingStartOffset !== totalBytes) {
-                    throw new Error('PDF annotation index sidecar offset accounting failed');
-                }
-                settled = true;
-                resolveScan({
-                    dataStartOffset,
-                    dataBytes: addSafeOffsets(totalBytes, -dataStartOffset, 'PDF annotation index bytes'),
-                    pageCount: headerPageCount,
-                    entryCount,
-                    lines,
-                });
-            } catch (error) {
-                rejectOnce(error);
-            }
-        });
-    });
-}
-
 function parseChunkOptions(options: IPdfAnnotationIndexChunkOptions | undefined) {
     const chunkBytes = options?.chunkBytes ?? ANNOTATION_INDEX_LINE_MAX_BYTES;
     if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1 || chunkBytes > ANNOTATION_INDEX_LINE_MAX_BYTES) {
@@ -382,53 +245,20 @@ function parseChunkOptions(options: IPdfAnnotationIndexChunkOptions | undefined)
     return chunkBytes;
 }
 
-function findLineIndex(lines: readonly IAnnotationIndexLine[], offset: number) {
-    let low = 0;
-    let high = lines.length - 1;
-    while (low <= high) {
-        const middle = Math.floor((low + high) / 2);
-        const line = lines[middle]!;
-        if (line.offset === offset) {
-            return middle;
-        }
-        if (line.offset < offset) low = middle + 1;
-        else high = middle - 1;
-    }
-    return -1;
-}
-
 function assertSessionOwner(session: IAnnotationIndexSessionState, context: IDocumentsSenderIdContext) {
     if (session.ownerId !== getOwnerId(context)) {
         throw new Error('PDF annotation index session belongs to another sender');
     }
 }
 
-function cancelSession(session: IAnnotationIndexSessionState, reason: string) {
-    session.canceled = true;
-    if (!session.abortController.signal.aborted) {
-        session.abortController.abort(new Error(reason));
-    }
-    cancelNativeCommandGroup(session.cancelGroup);
-}
-
 function cleanupWhenOperationSettles(session: IAnnotationIndexSessionState) {
-    void session.operationPromise
-        .catch(() => undefined)
-        .then(() => cleanupSession(session));
+    cleanupPdfSidecarSessionWhenOperationSettles(session, cleanupSession);
 }
 
-async function cleanupSession(session: IAnnotationIndexSessionState) {
-    if (session.cleanupPromise) {
-        return session.cleanupPromise;
-    }
-    sessions.delete(session.sessionId);
-    session.cleanupPromise = rm(session.sidecarDirectory, {
-        force: true,
-        recursive: true,
-    }).catch((error: unknown) => {
+function cleanupSession(session: IAnnotationIndexSessionState) {
+    return cleanupPdfSidecarSession(sessions, session, (error: unknown) => {
         logger.warn(`Failed to remove PDF annotation index sidecar: ${String(error)}`);
     });
-    return session.cleanupPromise;
 }
 
 /** Build the native command in one place so the native operation can rename its verb. */
@@ -474,7 +304,7 @@ async function runPdfAnnotationIndexNative(
 
 export async function beginPdfAnnotationIndex(
     context: IDocumentsSenderIdContext,
-    filePath: TDocumentRef,
+    filePath: string,
     options: IPdfAnnotationIndexOptions,
 ): Promise<IPdfAnnotationIndexSession> {
     const expectedRevisionToken = parseDocumentRevisionToken(
@@ -487,7 +317,7 @@ export async function beginPdfAnnotationIndex(
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
-            documentRef: filePath,
+            documentRef: requireDocumentRef(resolvedPath),
             expectedRevision: expectedRevisionToken,
             actualRevision: revision.token,
         });
@@ -495,104 +325,76 @@ export async function beginPdfAnnotationIndex(
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
     const sessionId = createSessionId('pdf-annotation-index');
-    const sidecarDirectory = await mkdtemp(join(getAppTempDir(), ANNOTATION_INDEX_DIRECTORY_PREFIX));
-    const sidecarPath = join(sidecarDirectory, ANNOTATION_INDEX_FILE_NAME);
-    const abortController = new AbortController();
-    let cancelGroup = `pdf-annotation-index:${sessionId}`;
-    const session: IAnnotationIndexSessionState = {
+    const {
+        session,
+        mainOperation,
+        cancel,
+        detachSenderCleanup,
+    } = await createPdfSidecarMainOperation({
         sessionId,
         ownerId: getOwnerId(context),
         documentRef: filePath,
         resolvedPath,
         expectedRevisionToken,
-        sidecarDirectory,
-        sidecarPath,
-        index: {
-            dataStartOffset: 0,
-            dataBytes: 0,
-            pageCount: 0,
-            entryCount: 0,
-            lines: [],
-        },
-        abortController,
-        cancelGroup,
-        operationPromise: Promise.resolve(),
-        lastTouchedAt: Date.now(),
-        canceled: false,
-        released: false,
-    };
-    sessions.set(sessionId, session);
-
-    const cancel = (reason: string) => cancelSession(session, reason);
-    let mainOperation: ReturnType<typeof registerMainOperation>;
-    try {
-        mainOperation = registerMainOperation({
-            kind: 'abortable-work',
-            ownerWebContentsId: context.senderId,
-            workingCopyPath: resolvedPath,
-            cancel,
-        });
-    } catch (error) {
-        await cleanupSession(session);
-        throw error;
-    }
-    cancelGroup = `pdf-annotation-index:${mainOperation.id}`;
-    session.cancelGroup = cancelGroup;
-    const unregisterSenderCleanup = registerNativePdfSenderCleanup(
-        context.sender,
-        cancel,
-        'Renderer navigation canceled PDF annotation indexing',
-    );
+        tempDir: getAppTempDir(),
+        directoryPrefix: ANNOTATION_INDEX_DIRECTORY_PREFIX,
+        fileName: ANNOTATION_INDEX_FILE_NAME,
+        cancelGroup: `pdf-annotation-index:${sessionId}`,
+        sessions,
+        ownerWebContentsId: context.senderId,
+        workingCopyPath: resolvedPath,
+        cleanup: cleanupSession,
+        cancelGroupForOperation: operationId => `pdf-annotation-index:${operationId}`,
+        registerSenderCleanup: operationCancel => registerNativePdfSenderCleanup(
+            context.sender,
+            operationCancel,
+            'Renderer navigation canceled PDF annotation indexing',
+        ),
+    });
+    const {abortController} = session;
+    const {sidecarPath} = session;
     const handleMainAbort = () => cancel('PDF annotation indexing canceled');
     mainOperation.signal.addEventListener('abort', handleMainAbort, {once: true});
 
-    session.operationPromise = (async () => {
-        try {
+    await runPdfSidecarOperation(
+        session,
+        mainOperation,
+        handleMainAbort,
+        cleanupSession,
+        async () => {
             await runWithWorkingCopyReadBacking(
                 resolvedPath,
                 physicalPath => runPdfAnnotationIndexNative(
                     physicalPath,
                     sidecarPath,
                     abortController.signal,
-                    cancelGroup,
+                    session.cancelGroup,
                 ),
                 context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId},
             );
             if (abortController.signal.aborted) {
                 throw abortErrorFromSignal(abortController.signal);
             }
-            await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
-            const sidecarStat = await stat(sidecarPath, {bigint: true});
-            if (sidecarStat.size > MAX_SAFE_INTEGER_BIGINT) {
-                throw new Error('PDF annotation index sidecar exceeds the safe offset range');
-            }
-            session.index = await scanSidecarLines(sidecarPath);
-            if (session.index.dataBytes !== Number(sidecarStat.size) - session.index.dataStartOffset) {
-                throw new Error('PDF annotation index sidecar changed while it was being indexed');
-            }
-            session.lastTouchedAt = Date.now();
-        } catch (error) {
-            session.canceled = session.canceled || abortController.signal.aborted;
-            throw error;
-        } finally {
-            mainOperation.signal.removeEventListener('abort', handleMainAbort);
-            unregisterSenderCleanup();
-            mainOperation.complete();
-            if (session.canceled || session.released) {
-                await cleanupSession(session);
-            }
-        }
-    })();
-
-    try {
-        await session.operationPromise;
-    } catch (error) {
-        await cleanupSession(session);
-        throw error;
-    }
+            await scanPdfSidecarIntoSession(
+                session,
+                sidecarPath,
+                abortController.signal,
+                'PDF annotation index',
+                () => assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken),
+                signal => scanPdfSidecarLines(sidecarPath, {
+                    maxLineBytes: ANNOTATION_INDEX_LINE_MAX_BYTES,
+                    label: 'PDF annotation index',
+                    signal,
+                    decodeHeader: value => decodeHeader(value).pageCount,
+                    decodeDataLine,
+                }),
+            );
+        },
+        detachSenderCleanup,
+    );
     return {
         sessionId,
-        documentRef: filePath,
+        documentRef: requireDocumentRef(filePath),
         documentRevisionToken: expectedRevisionToken,
         pageCount: session.index.pageCount,
         entryCount: session.index.entryCount,
@@ -602,7 +404,7 @@ export async function beginPdfAnnotationIndex(
 
 export async function readPdfAnnotationIndexChunk(
     context: IDocumentsSenderIdContext,
-    sessionId: TSessionId,
+    sessionId: string,
     offset: number,
     options?: IPdfAnnotationIndexChunkOptions,
 ): Promise<IPdfAnnotationIndexChunk> {
@@ -614,63 +416,23 @@ export async function readPdfAnnotationIndexChunk(
     if (session.canceled || session.released) {
         throw new Error('PDF annotation index session is canceled');
     }
-    const requestedOffset = assertSafeOffset(offset, 'offset');
+    const requestedOffset = assertSafePdfSidecarOffset(offset, 'offset');
     const chunkBytes = parseChunkOptions(options);
-    if (requestedOffset === session.index.dataBytes) {
-        session.lastTouchedAt = Date.now();
-        return {
-            offset: requestedOffset,
-            nextOffset: null,
-            byteLength: 0,
-            done: true,
-            entries: [],
-        };
-    }
-    const lineIndex = findLineIndex(session.index.lines, requestedOffset);
-    if (lineIndex < 0) {
-        throw new RangeError('PDF annotation index offset must point to the beginning of a chunk line');
-    }
-    const line = session.index.lines[lineIndex]!;
-    if (line.byteLength > chunkBytes) {
-        throw new RangeError(`PDF annotation index line requires a chunk of at least ${line.byteLength} bytes`);
-    }
-    const absoluteOffset = addSafeOffsets(session.index.dataStartOffset, requestedOffset, 'PDF annotation index offset');
-    const lineBytes = Buffer.allocUnsafe(line.byteLength);
-    const sidecarHandle = await open(session.sidecarPath, 'r');
-    try {
-        let bytesRead = 0;
-        while (bytesRead < line.byteLength) {
-            const readResult = await sidecarHandle.read(
-                lineBytes,
-                bytesRead,
-                line.byteLength - bytesRead,
-                absoluteOffset + bytesRead,
-            );
-            if (readResult.bytesRead === 0) {
-                throw new Error('PDF annotation index sidecar ended before the requested chunk');
-            }
-            bytesRead += readResult.bytesRead;
-        }
-    } finally {
-        await sidecarHandle.close();
-    }
-    const entries = decodeDataLine(parseJsonLine(lineBytes, 'data'));
-    const nextOffset = lineIndex + 1 < session.index.lines.length
-        ? addSafeOffsets(line.offset, line.byteLength, 'PDF annotation index offset')
-        : null;
-    session.lastTouchedAt = Date.now();
-    return {
+    const result = await readPdfSidecarChunk({
+        sidecarPath: session.sidecarPath,
+        index: session.index,
         offset: requestedOffset,
-        nextOffset,
-        byteLength: line.byteLength,
-        done: nextOffset === null,
-        entries,
-    };
+        chunkBytes,
+        label: 'PDF annotation index',
+        decodeDataLine,
+    });
+    session.lastTouchedAt = Date.now();
+    return result;
 }
 
 export async function releasePdfAnnotationIndex(
     context: IDocumentsSenderIdContext,
-    sessionId: TSessionId,
+    sessionId: string,
 ) {
     const session = sessions.get(sessionId);
     if (!session) {
@@ -679,7 +441,7 @@ export async function releasePdfAnnotationIndex(
     assertSessionOwner(session, context);
     session.released = true;
     if (!session.abortController.signal.aborted) {
-        cancelSession(session, 'PDF annotation index released');
+        cancelPdfSidecarSession(session, 'PDF annotation index released');
     }
     await session.operationPromise.catch(() => undefined);
     await cleanupSession(session);
@@ -688,7 +450,7 @@ export async function releasePdfAnnotationIndex(
 
 export function cancelPdfAnnotationIndex(
     context: IDocumentsSenderIdContext,
-    sessionId: TSessionId,
+    sessionId: string,
 ) {
     const session = sessions.get(sessionId);
     if (!session) {
@@ -698,7 +460,7 @@ export function cancelPdfAnnotationIndex(
     if (session.canceled || session.released) {
         return Promise.resolve({canceled: false});
     }
-    cancelSession(session, 'PDF annotation index canceled');
+    cancelPdfSidecarSession(session, 'PDF annotation index canceled');
     cleanupWhenOperationSettles(session);
     return Promise.resolve({canceled: true});
 }
@@ -707,43 +469,25 @@ export async function sweepStalePdfAnnotationIndexArtifacts(
     maxAgeMs = ANNOTATION_INDEX_DEFAULT_TTL_MS,
     maxEntries = ANNOTATION_INDEX_SWEEP_MAX_ENTRIES,
 ) {
-    const tempDir = getAppTempDir();
-    const now = Date.now();
-    const activeDirectories = new Set([...sessions.values()].map(session => session.sidecarDirectory));
-    let entries: string[];
-    try {
-        entries = await readdir(tempDir);
-    } catch {
-        return 0;
-    }
-    let deletedCount = 0;
-    for (const entry of entries.filter(name => name.startsWith(ANNOTATION_INDEX_DIRECTORY_PREFIX)).slice(0, maxEntries)) {
-        const directoryPath = join(tempDir, entry);
-        if (activeDirectories.has(directoryPath)) continue;
-        try {
-            const directoryStat = await lstat(directoryPath);
-            if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) continue;
-            if (now - Math.floor(Math.max(directoryStat.mtimeMs, directoryStat.ctimeMs)) < maxAgeMs) continue;
-            await rm(directoryPath, {
-                force: true,
-                recursive: true,
-            });
-            deletedCount += 1;
-        } catch (error) {
+    return sweepStalePdfSidecarArtifacts({
+        tempDir: getAppTempDir(),
+        directoryPrefix: ANNOTATION_INDEX_DIRECTORY_PREFIX,
+        activeDirectories: new Set([...sessions.values()].map(session => session.sidecarDirectory)),
+        maxAgeMs,
+        maxEntries,
+        onError: (directoryPath, error) => {
             logger.warn(`Failed to sweep stale PDF annotation index artifact "${directoryPath}": ${String(error)}`);
-        }
-    }
-    return deletedCount;
+        },
+    });
 }
 
 const annotationIndexTtlTimer = setInterval(() => {
     const cutoff = Date.now() - ANNOTATION_INDEX_DEFAULT_TTL_MS;
-    for (const session of sessions.values()) {
-        if (session.lastTouchedAt >= cutoff) continue;
+    expireStalePdfSidecarSessions(sessions.values(), cutoff, session => {
         session.released = true;
-        cancelSession(session, 'PDF annotation index session expired');
+        cancelPdfSidecarSession(session, 'PDF annotation index session expired');
         cleanupWhenOperationSettles(session);
-    }
+    });
     void sweepStalePdfAnnotationIndexArtifacts().catch((error: unknown) => {
         logger.debug(`PDF annotation index TTL sweep failed: ${String(error)}`);
     });

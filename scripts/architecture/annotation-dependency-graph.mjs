@@ -13,9 +13,6 @@ export const ANNOTATION_GRAPH_SCAN_ROOTS = [
     'app/modules/pdf-viewer/tools',
     'app/modules/pdf-viewer/runtime/save',
     'app/modules/pdf-viewer/engine/annotations',
-    'app/modules/pdf-viewer/engine/pdf-serialization-comments',
-    'app/modules/pdf-viewer/engine/pdf-serialization-operations',
-    'app/modules/pdf-viewer/engine/serialization',
 ];
 
 const ANNOTATION_POLICY_ROOTS = [
@@ -31,101 +28,26 @@ const ANNOTATION_SESSION = 'app/modules/pdf-viewer/runtime/sessions/createPdfAnn
 
 const RUNTIME_TOOLS_ALLOWED_EDGES = new Set();
 
-/** @typedef {{source: string, target: string, specifier: string, kind?: string, label?: string, phase?: string}} IAnnotationEdge */
-/** @typedef {{rule: string, source: string, target: string, specifier: string, message: string}} IAnnotationViolation */
-/** @typedef {{nodes: Array<{file: string}>, directEdges: IAnnotationEdge[], lateBoundEdges: IAnnotationEdge[]}} IAnnotationInventory */
-/** @typedef {{edges: IAnnotationEdge[]}} IAnnotationGraph */
-/** @typedef {{includeKnownLateBoundEdges?: boolean, includeDirectEdgeViolations?: boolean}} IAnnotationGraphOptions */
+// The deleted PDF.js editor bridge no longer contributes late-bound edges.
+export const ANNOTATION_LATE_BOUND_EDGES = [];
 
-export const ANNOTATION_LATE_BOUND_EDGES = [
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        kind: 'late-bound',
-        label: 'scheduleAnnotationCommentsSync',
-        phase: 'event-time',
-        evidence: 'createPdfAnnotationSession wires useFreeTextResize with () => commentSync.scheduleAnnotationCommentsSync().',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize.ts',
-        kind: 'late-bound',
-        label: 'getFreeTextResize',
-        phase: 'event-time',
-        evidence: 'useAnnotationToolState calls getFreeTextResize().patchResizableFreeTextEditors().',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        kind: 'late-bound',
-        label: 'getCommentSync',
-        phase: 'init/event-time',
-        evidence: 'useAnnotationEditorBridge resolves getCommentSync() during dialog and editor initialization flows.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState.ts',
-        kind: 'late-bound',
-        label: 'getToolManager/getMarkupSubtype',
-        phase: 'init/event-time',
-        evidence: 'useAnnotationEditorBridge resolves tool manager and markup subtype ports during annotation editor setup.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.ts',
-        kind: 'late-bound',
-        label: 'syncInlineCommentIndicators',
-        phase: 'event-time',
-        evidence: 'useAnnotationSync receives inline indicator sync as an injected callback.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        kind: 'late-bound',
-        label: 'getSync',
-        phase: 'event-time',
-        evidence: 'useAnnotationHighlight resolves comment sync while creating text markup and note comments.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
-        kind: 'late-bound',
-        label: 'getHighlight',
-        phase: 'event-time',
-        evidence: 'useAnnotationCrud resolves highlight placement/page-point helpers during click and note flows.',
-    },
-    {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationCrud.ts',
-        target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        kind: 'late-bound',
-        label: 'getSync',
-        phase: 'event-time',
-        evidence: 'useAnnotationCrud resolves comment sync for active comment, deletion, and editor summary flows.',
-    },
-];
-
-/** @param {string} filePath @param {string} root @returns {boolean} */
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
 
-/** @param {IAnnotationEdge} edge @returns {string} */
 function annotationEdgeKey(edge) {
     return `${edge.source} -> ${edge.target}`;
 }
 
-/** @param {string} filePath @returns {boolean} */
 function isAnnotationPolicyNode(filePath) {
     return filePath === ANNOTATION_SESSION
         || ANNOTATION_POLICY_ROOTS.some(root => matchesRoot(filePath, root));
 }
 
-/** @param {string} filePath @returns {boolean} */
 function isPdfViewerInternalSource(filePath) {
     return matchesRoot(filePath, PDF_VIEWER_MODULE_ROOT);
 }
 
-/** @param {{rule: string, source: string, target: string, specifier: string, message: string}} options @returns {IAnnotationViolation} */
 function createViolation({
     rule,
     source,
@@ -142,7 +64,6 @@ function createViolation({
     };
 }
 
-/** @param {{source: string, target: string, label: string, kind: string, phase: string}} edge @returns {IAnnotationEdge} */
 function toLateBoundDependencyEdge(edge) {
     return {
         source: edge.source,
@@ -153,17 +74,15 @@ function toLateBoundDependencyEdge(edge) {
     };
 }
 
-/** @param {string[]} cyclePath @returns {string} */
 function normalizeCycleKey(cyclePath) {
     const cycle = cyclePath.slice(0, -1);
     const rotations = cycle.map((_, index) => [
         ...cycle.slice(index),
         ...cycle.slice(0, index),
     ].join(' -> '));
-    return rotations.sort()[0] ?? '';
+    return rotations.sort()[0];
 }
 
-/** @param {Map<string, string[]>} adjacency @param {string} start @param {string} target @returns {string[] | null} */
 function findPath(adjacency, start, target) {
     const stack = [{
         node: start,
@@ -198,18 +117,17 @@ function findPath(adjacency, start, target) {
     return null;
 }
 
-/** @param {IAnnotationEdge[]} edges @returns {string[][]} */
 export function findAnnotationDependencyCyclePaths(edges) {
     const annotationEdges = edges
         .filter(edge => isAnnotationPolicyNode(edge.source) && isAnnotationPolicyNode(edge.target))
         .sort((left, right) => annotationEdgeKey(left).localeCompare(annotationEdgeKey(right)));
 
-    const adjacency = /** @type {Map<string, string[]>} */ (new Map());
+    const adjacency = new Map();
     for (const edge of annotationEdges) {
         if (!adjacency.has(edge.source)) {
             adjacency.set(edge.source, []);
         }
-        adjacency.get(edge.source)?.push(edge.target);
+        adjacency.get(edge.source).push(edge.target);
     }
     for (const targets of adjacency.values()) {
         targets.sort();
@@ -238,7 +156,6 @@ export function findAnnotationDependencyCyclePaths(edges) {
     return cycles.sort((left, right) => left.join('\n').localeCompare(right.join('\n')));
 }
 
-/** @param {IAnnotationEdge} edge @returns {IAnnotationViolation[]} */
 export function checkAnnotationDependencyEdge(edge) {
     if (matchesRoot(edge.source, ANNOTATION_TOOLS_ROOT) && matchesRoot(edge.target, RUNTIME_ANNOTATION_ROOT)) {
         return [createViolation({
@@ -296,7 +213,6 @@ export function checkAnnotationDependencyEdge(edge) {
     return [];
 }
 
-/** @param {IAnnotationGraph} graph @returns {IAnnotationInventory} */
 export function buildAnnotationDependencyInventory(graph) {
     const directEdges = graph.edges
         .filter(edge => isAnnotationPolicyNode(edge.source) || isAnnotationPolicyNode(edge.target))
@@ -321,7 +237,6 @@ export function buildAnnotationDependencyInventory(graph) {
     };
 }
 
-/** @param {IAnnotationGraph} graph @param {IAnnotationGraphOptions} [options] */
 export function checkAnnotationDependencyGraph(
     graph,
     {
@@ -339,8 +254,8 @@ export function checkAnnotationDependencyGraph(
     const cyclePaths = findAnnotationDependencyCyclePaths(checkedEdges);
     const cycleViolations = cyclePaths.map(cyclePath => createViolation({
         rule: 'annotation-dependency-cycle',
-        source: cyclePath[0] ?? '',
-        target: cyclePath[1] ?? cyclePath[0] ?? '',
+        source: cyclePath[0],
+        target: cyclePath[1] ?? cyclePath[0],
         specifier: 'direct import / late-bound annotation dependency graph',
         message: `Disallowed annotation dependency cycle: ${cyclePath.join(' -> ')}`,
     }));
@@ -358,7 +273,6 @@ export function checkAnnotationDependencyGraph(
     };
 }
 
-/** @param {string[]} argv @returns {string | null} */
 function parseOutputArg(argv) {
     const outputArg = argv.find(argument => argument.startsWith('--output='));
     return outputArg ? outputArg.slice('--output='.length) : null;

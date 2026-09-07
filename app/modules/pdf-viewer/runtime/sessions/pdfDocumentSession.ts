@@ -1,24 +1,26 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {
+    IPdfDocument,
+    IPdfPage,
+    TPdfDocumentPageLeaseRetention,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { clamp } from 'es-toolkit/math';
 import type { ComputedRef } from 'vue';
 import type { TaggedUnion } from 'type-fest';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     createNativeDocumentRefValue,
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type {
     IPdfPageMetric,
     TPdfSource,
 } from '@app/types/pdfUi';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import {
@@ -40,7 +42,6 @@ import {
     disposePdfPageRasterScheduler,
     ensurePdfPageRasterScheduler,
     type IPdfPageRasterScheduler,
-    type TPdfDocumentPageLeaseRetention,
 } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import {
     resolvePdfViewerResidencyDecision,
@@ -51,18 +52,17 @@ import {
     cloneSparsePageMetrics,
     forEachKnownPageMetric,
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
 
 type TPdfDocumentLoadState = TaggedUnion<'status', {
     idle: { version: number };
     loading: {
         version: number;
-        document: PDFDocumentProxy | null;
+        document: IPdfDocument | null;
         source: TPdfSource | null;
     };
     ready: {
         version: number;
-        document: PDFDocumentProxy;
+        document: IPdfDocument;
         source: TPdfSource;
     };
     failed: {
@@ -124,7 +124,7 @@ export interface ICreatePdfDocumentSessionOptions {
     pageSourceDocumentRef?: ComputedRef<TDocumentRef | null> | undefined;
     isActive?: ComputedRef<boolean> | undefined;
     isAnySaving?: ComputedRef<boolean> | undefined;
-    emitDocument?: ((document: PDFDocumentProxy | null) => void) | undefined;
+    emitDocument?: ((document: IPdfDocument | null) => void) | undefined;
     emitTotalPages?: ((total: number) => void) | undefined;
     emitLoading?: ((loading: boolean) => void) | undefined;
     emitLoadError?: ((error: unknown) => void) | undefined;
@@ -282,7 +282,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         return transitions.subscribe(subscriber);
     }
 
-    async function emitTransition(phase: TPdfDocumentPhase, reason: string, fence = captureFence()) {
+    async function emitTransition(
+        phase: TPdfDocumentPhase,
+        reason: string,
+        fence = captureFence(),
+    ) {
         return transitions.publish({
             phase,
             fence,
@@ -305,7 +309,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         return queued;
     }
 
-    function destroyPdfDocument(document: PDFDocumentProxy, message: string, lifecycleKey = activeLifecycleKey) {
+    function destroyPdfDocument(
+        document: IPdfDocument,
+        message: string,
+        lifecycleKey = activeLifecycleKey,
+    ) {
         pdfjsDocumentTeardownCoordinator.track(lifecycleKey, {
             message,
             run: async () => {
@@ -384,7 +392,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     async function loadPageMetric(
-        document: PDFDocumentProxy,
+        document: IPdfDocument,
         pageNumber: TPageNumber,
         version: number,
     ): Promise<IPdfPageMetric | null> {
@@ -407,7 +415,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             /**
              * Keep metric-loaded page proxies in the bounded render cache.
              *
-             * PDF.js may return the same `PDFPageProxy` for a later render.
+             * PDF.js may return the same `IPdfPage` for a later render.
              * Calling `cleanup()` after a metrics-only `getViewport()` looked
              * harmless, but on the scanned Girgas last page it left the
              * following canvas render waiting forever on PDF.js internals. The
@@ -502,7 +510,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         bumpPageMetricsVersion();
     }
 
-    async function primeInitialPageMetrics(document: PDFDocumentProxy, version: number) {
+    async function primeInitialPageMetrics(document: IPdfDocument, version: number) {
         if (document.numPages <= 0) {
             resetLoadMetadata();
             return;
@@ -519,9 +527,9 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     }
 
     function leaseOwnedPage(
-        document: PDFDocumentProxy,
+        document: IPdfDocument,
         pageNumber: TPageNumber,
-        retention: TPdfDocumentPageLeaseRetention = 'render-cache',
+        retention: TPdfDocumentPageLeaseRetention = 'render-cache', signal?: AbortSignal,
     ) {
         if (pdfDocument.value !== document) {
             throw createStalePdfDocumentError(
@@ -529,12 +537,12 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             );
         }
         return retention === 'transient-background'
-            ? pageCache.leaseTransientBackgroundPage(pageNumber)
-            : pageCache.leasePage(pageNumber);
+            ? pageCache.leaseTransientBackgroundPage(pageNumber, signal)
+            : pageCache.leasePage(pageNumber, signal);
     }
 
     async function acceptLoadedDocument(
-        document: PDFDocumentProxy,
+        document: IPdfDocument,
         version: number,
         lifecycleKey: string,
         source: TPdfSource,
@@ -562,14 +570,14 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         const leasePage = (
             pageNumber: TPageNumber,
             retention: TPdfDocumentPageLeaseRetention = 'render-cache',
-        ) => leaseOwnedPage(document, pageNumber, retention);
-        registerPdfDocumentPageLeaseOwner(document, leasePage);
+            signal?: AbortSignal,
+        ) => leaseOwnedPage(document, pageNumber, retention, signal);
+        registerPdfDocumentPageLeaseOwner(document, (pageNumber, retention) => (
+            leaseOwnedPage(document, requirePageNumber(pageNumber, document.numPages), retention)
+        ));
         activeRasterScheduler = ensurePdfPageRasterScheduler(document, {
             documentFence: captureFence(),
             leasePage,
-            // Keep the existing two-render ceiling for normal hosts. Low and
-            // software profiles still reduce it to one before native PDF.js
-            // surfaces can overlap and multiply their memory cost.
             maxConcurrency: Math.min(2, getPerformanceProfile().concurrentPdfRenders),
         });
         numPages.value = document.numPages;
@@ -791,7 +799,12 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         pendingRangeReadFailure = null;
         const version = incrementRenderVersion();
         const document = pdfDocument.value;
-        if (activeRasterScheduler) {
+        const rasterScheduler = activeRasterScheduler;
+        if (rasterScheduler) {
+            rasterScheduler.invalidate({
+                documentFence: rasterScheduler.documentFence,
+                reason: 'document-cleanup',
+            });
             activeRasterScheduler = null;
             options.emitRasterScheduler?.(null);
         }
@@ -1001,7 +1014,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         if (!decision.shouldCleanupDocumentCaches || !document || typeof document.cleanup !== 'function') {
             return;
         }
-        void document.cleanup()
+        void Promise.resolve(document.cleanup())
             .then(() => {
                 if (options.isActive?.value === false) {
                     viewerResidencyState = resolvePostReclaimResidencyState(viewerResidencyState);
@@ -1166,7 +1179,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         isCurrent,
         subscribe,
         registerDisposable,
-        getPage: (pageNumber: TPageNumber): Promise<PDFPageProxy> => pageCache.getPage(pageNumber),
+        getPage: (pageNumber: TPageNumber): Promise<IPdfPage> => pageCache.getPage(pageNumber),
         leasePage: (pageNumber: TPageNumber, retention: TPdfDocumentPageLeaseRetention = 'render-cache') => (
             retention === 'transient-background'
                 ? pageCache.leaseTransientBackgroundPage(pageNumber)

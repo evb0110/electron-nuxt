@@ -65,6 +65,9 @@ export const useCombinePdfOperation = <T extends {
                 onProgress: next => { progress.value = next; },
                 signal: abortController.signal,
             });
+            if (result.kind !== 'pdf') {
+                throw new Error('ERR_COMBINE_RESULT_OPEN_FAILED');
+            }
             pendingCombinedResult.value = result;
             const opened = options.openResult ? await options.openResult(result) : true;
             if (!opened) throw new Error('ERR_COMBINE_RESULT_OPEN_FAILED');
@@ -110,7 +113,10 @@ export const useCombinePdfOperation = <T extends {
 
     async function savePendingAs() {
         const pending = pendingCombinedResult.value;
-        if (!pending || isCombining.value) {
+        if (!pending || pending.kind !== 'pdf' || isCombining.value) {
+            return;
+        }
+        if (pending.kind !== 'pdf' || !pending.workingPath) {
             return;
         }
         if (pending.kind !== 'pdf' || !pending.workingPath) {

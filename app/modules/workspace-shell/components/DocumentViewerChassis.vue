@@ -116,6 +116,7 @@ import {
     resolveDocumentOpeningPageShellId,
 } from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
 import { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public';
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
@@ -126,6 +127,7 @@ import {
 } from '@app/utils/document-viewer/chassis/documentViewportResizeAnchor';
 import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
 import { observeDocumentViewportWheelInteraction } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
+import { shouldRestoreDocumentViewerHandoffSnapshot } from '@app/modules/workspace-shell/viewers/shouldRestoreDocumentViewerHandoffSnapshot';
 
 defineOptions({ inheritAttrs: false });
 
@@ -173,7 +175,6 @@ const retainedResizeAnchor = shallowRef<IDocumentViewportResizeAnchor | null>(nu
 let retainedResizeAnchorFence: {
     generation: number;
     interactionEpoch: number;
-    viewportIntentId: string | null;
 } | null = null;
 const RESIZE_ANCHOR_QUIET_MS = 120;
 let resizeAnchorReleaseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -202,7 +203,7 @@ function applyRetainedResizeAnchor(reason: string) {
         || session.lifecycle !== 'ready'
         || session.requestedPage !== session.committedPage
         || fence.generation !== session.generation
-        || fence.viewportIntentId !== (session.viewportIntent?.id ?? null)
+        || session.committedPage !== anchor.pageNumber
         || fence.interactionEpoch !== chassisAuthority.viewportWritePort.getInteractionEpoch()
     ) {
         releaseRetainedResizeAnchor();
@@ -246,13 +247,12 @@ function retainCurrentResizeAnchor() {
     if (!viewport) {
         return;
     }
-    releaseRetainedResizeAnchor();
-    retainedResizeAnchor.value = captureDocumentViewportResizeAnchor(viewport);
     const session = chassisAuthority.openSurface.viewportSession.value;
+    releaseRetainedResizeAnchor();
+    retainedResizeAnchor.value = captureDocumentViewportResizeAnchor(viewport, {preferredPageNumber: session.committedPage ?? session.requestedPage});
     retainedResizeAnchorFence = retainedResizeAnchor.value ? {
         generation: session.generation,
         interactionEpoch: chassisAuthority.viewportWritePort.getInteractionEpoch(),
-        viewportIntentId: session.viewportIntent?.id ?? null,
     } : null;
     if (retainedResizeAnchor.value) {
         openingFrameResizeObserver?.observe(retainedResizeAnchor.value.element);
@@ -454,8 +454,8 @@ const chassisOpeningPageShell = computed(() => {
         ...policy,
     }) : null;
     const style = liveFrame?.style ?? frame?.style ?? provisionalStyle;
-    const liveWidth = Number.parseFloat(style.width ?? '');
-    const liveHeight = Number.parseFloat(style.height ?? '');
+    const liveWidth = Number.parseFloat(style.width);
+    const liveHeight = Number.parseFloat(style.height);
     if (
         !Number.isFinite(liveWidth)
         || liveWidth <= 0
@@ -648,15 +648,24 @@ watch(() => [
     const nextViewer = sourceViewerRef.value as {
         waitForViewerLoadSettled?: () => Promise<void>;
         restoreScrollSnapshot?: (snapshot: unknown, options: {fallbackPage: number}) => void;
-        scrollToPage?: (pageNumber: number) => void;
+        scrollToPage?: (pageNumber: number, options?: IScrollToPageOptions) => void;
     } | null;
     await nextViewer?.waitForViewerLoadSettled?.();
     if (generation !== handoffGeneration || sourceViewerRef.value !== nextViewer) {
         return;
     }
-    if (nextViewer?.restoreScrollSnapshot) {
+    const viewportSession = chassisAuthority.openSurface.viewportSession.value;
+    const shouldRestoreSnapshot = shouldRestoreDocumentViewerHandoffSnapshot({
+        fallbackPage,
+        currentPage: chassisAuthority.currentPage.value,
+        pendingNavigationPage: viewportSession.identity !== null
+                && viewportSession.requestedPage !== viewportSession.committedPage
+            ? viewportSession.requestedPage
+            : null,
+    });
+    if (shouldRestoreSnapshot && nextViewer?.restoreScrollSnapshot) {
         nextViewer.restoreScrollSnapshot(snapshot, {fallbackPage});
-    } else {
+    } else if (shouldRestoreSnapshot) {
         nextViewer?.scrollToPage?.(fallbackPage);
     }
 }, {flush: 'pre'});
@@ -673,10 +682,10 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
             ? session.requestedPage
             : null;
     },
-    scrollToPage: (pageNumber: number) => {
+    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => {
         const normalizedPage = chassisAuthority.navigate(pageNumber);
-        const viewer = sourceViewerRef.value as {scrollToPage?: (page: number) => void;} | null;
-        viewer?.scrollToPage?.(normalizedPage);
+        const viewer = sourceViewerRef.value as {scrollToPage?: (page: number, options?: IScrollToPageOptions) => void;} | null;
+        viewer?.scrollToPage?.(normalizedPage, options);
     },
 }));
 </script>

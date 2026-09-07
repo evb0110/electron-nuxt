@@ -14,10 +14,7 @@ import type {
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
-import {
-    parseRequestId,
-    type TRequestId,
-} from '@contracts/shared';
+import type {TRequestId} from '@contracts/shared';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -28,7 +25,6 @@ import {
 } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import type { DiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
-import {isRecord} from '@contracts/runtimeGuards';
 import type {
     TWindowCloseDecision,
     TWindowCloseUnavailableReason,
@@ -73,6 +69,7 @@ import {
     CORE_IPC_SEND_CHANNELS,
     type IPreloadDiagnosticsApi,
     type ICoreEventMap,
+    type IShutdownSaveFlushRequest,
     type IShutdownSaveFlushResult,
     decodeWindowCloseRequest,
 } from '@electron/platform-ipc/coreContract';
@@ -272,13 +269,15 @@ export function createElectronApi(
         });
     }
 
-    const openDocumentDirect = async (path: TDocumentRef) => {
+    const openDocumentDirect = async (path: TDocumentRef, password?: string) => {
         const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
         if (pendingAllow && !await pendingAllow) {
             return null;
         }
         await options.waitForDocumentOpenDirect?.(path);
-        return baseDocuments.openDocumentDirect(path);
+        return password === undefined
+            ? baseDocuments.openDocumentDirect(path)
+            : baseDocuments.openDocumentDirect(path, password);
     };
     const openDocumentDirectBatch = async (
         paths: TDocumentRef[],
@@ -321,9 +320,9 @@ export function createElectronApi(
         return allowed ? filePaths : [];
     };
 
-    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest, (_event, payload: unknown) => {
-        const requestId = parseRequestId(isRecord(payload) ? payload.requestId : undefined);
-        if (requestId === null) {
+    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest, (_event, payload: IShutdownSaveFlushRequest) => {
+        const requestId = typeof payload?.requestId === 'string' ? payload.requestId : '';
+        if (!requestId) {
             return;
         }
         void (async () => {
@@ -373,14 +372,14 @@ export function createElectronApi(
             const callbacks = Array.from(windowCloseCallbacks);
             const callback = callbacks.length === 1 ? callbacks[0] : undefined;
             let response: {
-                requestId: TRequestId;
+                requestId: string;
                 decision?: TWindowCloseDecision;
                 status?: 'unavailable';
                 reason?: TWindowCloseUnavailableReason;
             };
             if (callback) {
                 try {
-                    const candidate: unknown = await callback(request);
+                    const candidate = await callback(request);
                     if (candidate === 'save' || candidate === 'discard' || candidate === 'cancel') {
                         response = {
                             decision: candidate,
@@ -467,6 +466,7 @@ export function createElectronApi(
     const documentWorkingCopy = {
         createWorkingCopyFromData: baseDocuments.createWorkingCopyFromData,
         createWorkingCopyFromPath: baseDocuments.createWorkingCopyFromPath,
+        parsePdfAnnotations: baseDocuments.parsePdfAnnotations,
         cleanupFile: baseDocuments.cleanupFile,
         cleanupOcrTemp: baseDocuments.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;
@@ -518,6 +518,18 @@ export function createElectronApi(
             : {}),
         ...(baseDocuments.cancelPdfAnnotationIndex
             ? {cancelPdfAnnotationIndex: baseDocuments.cancelPdfAnnotationIndex}
+            : {}),
+        ...(baseDocuments.beginPdfAnnotationParse
+            ? {beginPdfAnnotationParse: baseDocuments.beginPdfAnnotationParse}
+            : {}),
+        ...(baseDocuments.readPdfAnnotationParseChunk
+            ? {readPdfAnnotationParseChunk: baseDocuments.readPdfAnnotationParseChunk}
+            : {}),
+        ...(baseDocuments.releasePdfAnnotationParse
+            ? {releasePdfAnnotationParse: baseDocuments.releasePdfAnnotationParse}
+            : {}),
+        ...(baseDocuments.cancelPdfAnnotationParse
+            ? {cancelPdfAnnotationParse: baseDocuments.cancelPdfAnnotationParse}
             : {}),
         ...(baseDocuments.beginPdfEmbeddedShapeIndex
             ? {beginPdfEmbeddedShapeIndex: baseDocuments.beginPdfEmbeddedShapeIndex}

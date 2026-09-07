@@ -1,5 +1,6 @@
-import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsLib from '@app/services/pdfjs/runtimeLib';
 import { createPdfjsDocumentInitFromBrowserDocument } from '@app/platform/browser-api/browserPdfjsDocumentInit';
+import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { extractBrowserSearchPageText } from '@app/platform/browser-api/extractBrowserSearchPageText';
 import {
@@ -41,11 +42,12 @@ async function loadBrowserSearchDocument(request: TBrowserSearchDocumentRequest)
         reject?.(error);
     }}));
     try {
-        return await Promise.race([
+        const document = await Promise.race([
             loadingTask.promise,
             rangeReadFailure,
             loadCancellation,
         ]);
+        return adaptPdfjsDocument(document, () => loadingTask.destroy());
     } catch (error) {
         await loadingTask.destroy();
         canceledRequestIds.delete(request.id);

@@ -148,7 +148,7 @@ export function createPendingResultFileStore(options: ICreatePendingResultFileSt
                     },
                 );
             }, options.ttlMs);
-            cleanupTimer.unref?.();
+            cleanupTimer.unref();
 
             pendingResultFiles.set(scopedJobId, {
                 scopedJobId,

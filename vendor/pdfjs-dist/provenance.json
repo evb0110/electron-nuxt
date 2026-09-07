@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "artifact": {
+    "path": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz",
+    "filename": "pdfjs-dist-6.3.311-6922bee2.tgz",
+    "published": false
+  },
+  "source": {
+    "repository": "https://github.com/evb0110/pdf.js.git",
+    "branch": "ticket/168-fork-rebase",
+    "commit": "6922bee2b3dd047c954d5717a533a2d701559c17",
+    "tree": "0fc8b8db395e8ab30ddec61a78bb9ad72d82512b",
+    "upstreamTag": "v6.3.289",
+    "upstreamCommit": "1c8020a7d4e43668ac287a3ecf9a8dbea17e4c56",
+    "upstreamTree": "df7e37b2ed4ab43bf3cee8c96348993459e2c457",
+    "sourceBaseCommit": "5e0ac85d697d41a2232045033962b3437b7e2ad1",
+    "sourceBaseTree": "9dbb438c9a4bce5a958ca8b37d305b79b5b74c6a",
+    "versionCalculationBase": "sourceBaseCommit",
+    "cleanCheckout": true,
+    "fullHistory": true
+  },
+  "build": {
+    "commands": [
+      "PUPPETEER_SKIP_DOWNLOAD=1 npm ci",
+      "npx gulp dist",
+      "node scripts/verify_fork_artifacts.mjs",
+      "npm pack ./build/dist --ignore-scripts --json"
+    ],
+    "os": "ubuntu 24.04",
+    "kernel": "6.8.0-138-generic",
+    "arch": "x86_64",
+    "node": "v24.18.0",
+    "npm": "11.18.0",
+    "environment": "PUPPETEER_SKIP_DOWNLOAD=1",
+    "packageLockSha256": "3bf40345ad74ca02396681079e25fb9b63332e75ade3394ce990549dcd5263c0",
+    "reproduciblePackSha256": "f1db91efda7463d099e238acc296a78e2dc66889660190136ba5c44a8536f00a"
+  },
+  "package": {
+    "name": "pdfjs-dist",
+    "version": "6.3.311",
+    "entryCount": 559,
+    "unpackedByteSize": 34888812,
+    "manifest": "pdfjs-dist-6.3.311-6922bee2.files.sha256",
+    "manifestSha256": "7d3fdea389cf22fe6cba49615f0cf583c22b771b34c261a41fc4b797925664cc",
+    "manifestFormat": "file<TAB>size<TAB>sha256<TAB>path",
+    "sourceMapPolicy": "source maps retained; local absolute paths forbidden",
+    "sourceMapCount": 10
+  },
+  "archive": {
+    "byteSize": 8524137,
+    "sha256": "f1db91efda7463d099e238acc296a78e2dc66889660190136ba5c44a8536f00a",
+    "sha512": "e68e76b143c510a6fae834810455f53bc700d8b2a777a0b0624b433e1001110391a8d28543747f8ef64d9a1e242f851771912ee21ba73ebf25a1ea52cc4cb55a",
+    "sri": "sha512-5o52sUPFEKb66DSBBFX1O8cA2LKnd6CwYktDPhABEQORqNKFQ3R/jvZNmh4kL4UXcZEu4hunPr8loepSzEy1Wg==",
+    "entryCount": 559,
+    "unpackedByteSize": 34888812,
+    "pack1Sha256": "f1db91efda7463d099e238acc296a78e2dc66889660190136ba5c44a8536f00a",
+    "pack2Sha256": "f1db91efda7463d099e238acc296a78e2dc66889660190136ba5c44a8536f00a",
+    "reproducible": true
+  },
+  "evb": {
+    "dependencyKey": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.311-6922bee2.tgz",
+    "pnpm": "10.32.1",
+    "lockfilePdfjsIntegrity": "sha512-5o52sUPFEKb66DSBBFX1O8cA2LKnd6CwYktDPhABEQORqNKFQ3R/jvZNmh4kL4UXcZEu4hunPr8loepSzEy1Wg==",
+    "publicVersionStamp": "public/pdf/.pdfjs-version",
+    "previewDependency": "npm:pdfjs-dist@5.4.296",
+    "noNpmPublication": true,
+    "shippingBoundary": "The complete package stays in vendor/ and only copied runtime assets ship."
+  },
+  "verifier": {
+    "path": "scripts/verify-pdfjs-provenance.mjs",
+    "version": "1",
+    "sourceSha256": "664601888bbaae373e6866b084fe2799481aec7976d84400b83c294f4f8d7cce"
+  },
+  "verification": {
+    "requiredForkMarkers": 16,
+    "forkMarkerFiles": [
+      "NOTICE",
+      "gulpfile.mjs",
+      "scripts/verify_fork_artifacts.mjs",
+      "src/core/chunked_stream.js",
+      "src/core/evaluator.js",
+      "src/core/worker.js",
+      "src/core/xref.js",
+      "src/display/api.js",
+      "src/display/canvas.js",
+      "src/display/editor/editor.js",
+      "src/display/editor/stamp.js",
+      "src/display/text_layer.js",
+      "src/display/transport_stream.js",
+      "test/integration/stamp_editor_spec.mjs",
+      "test/unit/api_spec.js",
+      "test/unit/stream_spec.js"
+    ],
+    "runtimeMarkerSourceFiles": [
+      "webpack://pdf.js/./src/display/editor/editor.js",
+      "webpack://pdf.js/./src/display/canvas.js",
+      "webpack://pdf.js/./src/display/transport_stream.js",
+      "webpack://pdf.js/./src/display/text_layer.js",
+      "webpack://pdf.js/./src/display/api.js",
+      "webpack://pdf.js/./src/display/editor/stamp.js",
+      "webpack://pdf.js/./src/core/chunked_stream.js",
+      "webpack://pdf.js/./src/core/evaluator.js",
+      "webpack://pdf.js/./src/core/xref.js",
+      "webpack://pdf.js/./src/core/worker.js"
+    ],
+    "forbiddenStreamBytesWorkerMaterializations": 0,
+    "archiveAttackChecks": [
+      "absolute paths",
+      ".. traversal",
+      "duplicate entries",
+      "links",
+      "devices",
+      "unsafe types",
+      "backup/patch artifacts",
+      "local absolute source-map paths"
+    ],
+    "requiredAssets": [
+      "normal and legacy bundles/workers",
+      "types",
+      "CMaps",
+      "standard fonts",
+      "Wasm",
+      "ICC profiles",
+      "licenses",
+      "NOTICE",
+      "THIRD_PARTY_INVENTORY.json"
+    ]
+  }
+}

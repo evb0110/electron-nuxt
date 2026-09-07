@@ -568,32 +568,6 @@ function createRenderingFixture(fixtureOptions: {
     };
 }
 
-function attachTextMarkupPresentation(fixture: ReturnType<typeof createRenderingFixture>) {
-    const notify = vi.fn();
-    const detach = fixture.rendering.attachAnnotationProjection({textMarkupPresentation: {notify}} as never);
-    return {
-        detach,
-        notify,
-    };
-}
-
-function emitPageLayersCommitted(
-    fixture: ReturnType<typeof createRenderingFixture>,
-    fence: IPdfDocumentTransition['fence'] = fixture.documentSession.captureFence(),
-) {
-    const notifyCommit = rendererFixture.options?.onPageLayersCommitted as (
-        signal: {
-            kind: 'page-layer-committed';
-            pageNumber: number;
-        },
-        documentFence: IPdfDocumentTransition['fence'],
-    ) => void;
-    notifyCommit({
-        kind: 'page-layer-committed',
-        pageNumber: 3,
-    }, fence);
-}
-
 describe('PdfRenderingSession behavior', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -678,83 +652,7 @@ describe('PdfRenderingSession behavior', () => {
         }
     });
 
-    it('notifies the attached presentation controller once for a current page-layer commit', async () => {
-        const fixture = createRenderingFixture();
-        const presentation = attachTextMarkupPresentation(fixture);
-        try {
-            emitPageLayersCommitted(fixture);
-
-            expect(presentation.notify).toHaveBeenCalledOnce();
-            expect(presentation.notify).toHaveBeenCalledWith({
-                kind: 'page-layer-committed',
-                pageNumber: 3,
-            });
-        } finally {
-            await fixture.dispose();
-        }
-    });
-
-    it('does not notify presentation for a stale page-layer fence', async () => {
-        const fixture = createRenderingFixture();
-        const presentation = attachTextMarkupPresentation(fixture);
-        try {
-            const staleFence = {
-                ...fixture.documentSession.captureFence(),
-                documentVersion: 8,
-            };
-            emitPageLayersCommitted(fixture, staleFence);
-
-            expect(presentation.notify).not.toHaveBeenCalled();
-        } finally {
-            await fixture.dispose();
-        }
-    });
-
-    it('ignores page-layer completion after the document was replaced', async () => {
-        const fixture = createRenderingFixture();
-        const presentation = attachTextMarkupPresentation(fixture);
-        try {
-            const replacedFence = fixture.documentSession.captureFence();
-            fixture.replaceDocument();
-            emitPageLayersCommitted(fixture, replacedFence);
-
-            expect(presentation.notify).not.toHaveBeenCalled();
-        } finally {
-            await fixture.dispose();
-        }
-    });
-
-    it('invalidates presentation on current loading and invalidated transitions', async () => {
-        const fixture = createRenderingFixture();
-        const presentation = attachTextMarkupPresentation(fixture);
-        try {
-            await fixture.emit(createTransition('loading'));
-            await fixture.emit(createTransition('invalidated'));
-
-            expect(presentation.notify).toHaveBeenCalledTimes(2);
-            expect(presentation.notify).toHaveBeenNthCalledWith(1, {kind: 'document-invalidated'});
-            expect(presentation.notify).toHaveBeenNthCalledWith(2, {kind: 'document-invalidated'});
-        } finally {
-            await fixture.dispose();
-        }
-    });
-
-    it('does not let an old projection detach clear a newer presentation attachment', async () => {
-        const fixture = createRenderingFixture();
-        const first = attachTextMarkupPresentation(fixture);
-        const second = attachTextMarkupPresentation(fixture);
-        try {
-            first.detach();
-            emitPageLayersCommitted(fixture);
-
-            expect(first.notify).not.toHaveBeenCalled();
-            expect(second.notify).toHaveBeenCalledOnce();
-        } finally {
-            await fixture.dispose();
-        }
-    });
-
-    it('publishes queued work once, starts the actual RenderTask, and commits canvas before layers', async () => {
+    it('publishes queued work once, starts the actual render task, and commits canvas before layers', async () => {
         const fixture = createRenderingFixture({autoResolve: false});
         try {
             await vi.waitFor(() => expect(fixture.pdfPage.render).toHaveBeenCalledOnce());
@@ -1139,8 +1037,8 @@ describe('PdfRenderingSession behavior', () => {
         });
         try {
             await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
-            expect(fixture.documentSession.leasePage).toHaveBeenCalledWith(3, 'render-cache');
-            expect(fixture.documentSession.leasePage).not.toHaveBeenCalledWith(4, 'render-cache');
+            expect(fixture.documentSession.leasePage).toHaveBeenCalledWith(3, 'render-cache', expect.any(AbortSignal));
+            expect(fixture.documentSession.leasePage).not.toHaveBeenCalledWith(4, 'render-cache', expect.any(AbortSignal));
 
             fixture.renderTasks[0]!.resolve();
             await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
@@ -1149,7 +1047,7 @@ describe('PdfRenderingSession behavior', () => {
                 revision: 2,
                 mandatoryRaster: null,
             };
-            await vi.waitFor(() => expect(fixture.documentSession.leasePage).toHaveBeenCalledWith(4, 'render-cache'));
+            await vi.waitFor(() => expect(fixture.documentSession.leasePage).toHaveBeenCalledWith(4, 'render-cache', expect.any(AbortSignal)));
         } finally {
             await fixture.dispose();
         }
