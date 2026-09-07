@@ -306,8 +306,12 @@ fn manifest_diagnostic_fields() -> &'static Mutex<HashSet<String>> {
     FIELDS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
+fn manifest_diagnostics_enabled() -> bool {
+    std::env::var_os(MANIFEST_DIAGNOSTICS_ENV).is_some()
+}
+
 fn log_unknown_manifest_field(path: &str) {
-    if std::env::var_os(MANIFEST_DIAGNOSTICS_ENV).is_none() {
+    if !manifest_diagnostics_enabled() {
         return;
     }
     let mut fields = manifest_diagnostic_fields()
@@ -1099,6 +1103,32 @@ mod tests {
         assert!(serde_json::from_str::<ManifestV3>(&root_unknown).is_ok());
         let page_unknown = json.replace("\"outputs\":[]", "\"unknownPage\":true,\"outputs\":[]");
         assert!(serde_json::from_str::<ManifestV3>(&page_unknown).is_ok());
+    }
+
+    #[test]
+    fn diagnostics_are_opt_in_and_deduplicate_unknown_paths_per_run() {
+        manifest_diagnostic_fields()
+            .lock()
+            .expect("manifest diagnostics lock is not poisoned")
+            .clear();
+        std::env::remove_var(MANIFEST_DIAGNOSTICS_ENV);
+        log_unknown_manifest_field("$.futureField");
+        assert!(manifest_diagnostic_fields()
+            .lock()
+            .expect("manifest diagnostics lock is not poisoned")
+            .is_empty());
+
+        std::env::set_var(MANIFEST_DIAGNOSTICS_ENV, "1");
+        log_unknown_manifest_field("$.futureField");
+        log_unknown_manifest_field("$.futureField");
+        assert_eq!(
+            manifest_diagnostic_fields()
+                .lock()
+                .expect("manifest diagnostics lock is not poisoned")
+                .len(),
+            1
+        );
+        std::env::remove_var(MANIFEST_DIAGNOSTICS_ENV);
     }
 
     #[test]

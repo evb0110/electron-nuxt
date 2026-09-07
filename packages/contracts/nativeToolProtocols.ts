@@ -1,7 +1,14 @@
+export interface IGeneratedRustNativeToolCapability {
+    name: string;
+    required: boolean;
+    introducedIn: number;
+}
+
 export interface IGeneratedRustNativeToolProtocol {
     binaryName: string;
     crateName: string;
     protocolVersion: number;
+    capabilities?: readonly IGeneratedRustNativeToolCapability[];
     resourceFamilyId: 'pdf-image-combine' | 'pdf-page-ops' | 'pdf-search' | 'scan-cleanup';
     stagingName: string;
 }
@@ -38,6 +45,18 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
         // Callers that require that capability must refuse a legacy binary;
         // callers that do not require it use the legacy warning fallback.
         protocolVersion: 10,
+        capabilities: [
+            {
+                name: 'manifest-v3',
+                required: true,
+                introducedIn: 1,
+            },
+            {
+                name: 'structured-warning-events',
+                required: false,
+                introducedIn: 10,
+            },
+        ],
         resourceFamilyId: 'scan-cleanup',
         stagingName: 'scan-cleanup',
     },

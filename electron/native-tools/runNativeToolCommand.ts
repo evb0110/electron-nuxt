@@ -5,7 +5,11 @@ import {
 } from '@electron/native-tools/runNativeCommand';
 import { withDefinedCommandOptions } from '@electron/native-tools/withDefinedCommandOptions';
 import type { IProcessResult } from '@electron/native-tools/processResult';
-import { GENERATED_RUST_NATIVE_TOOL_PROTOCOLS } from '@contracts/nativeToolProtocols';
+import {
+    GENERATED_RUST_NATIVE_TOOL_PROTOCOLS,
+    type IGeneratedRustNativeToolCapability,
+    type IGeneratedRustNativeToolProtocol,
+} from '@contracts/nativeToolProtocols';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 
 export interface IRunNativeToolCommandOptions {
@@ -51,32 +55,20 @@ export class NativeToolProtocolCapabilityError extends Error {
     }
 }
 
-export interface INativeToolProtocolCapability {
-    name: string;
-    required: boolean;
-    introducedIn: number;
-}
-
 export interface INativeToolProtocolHandshake {
     protocolVersion: number;
     capabilities: readonly string[];
 }
 
-const nativeToolProtocolCapabilities = new Map<string, readonly INativeToolProtocolCapability[]>([[
-    'evb-scan-cleanup',
-    [
-        {
-            name: 'manifest-v3',
-            required: true,
-            introducedIn: 1,
-        },
-        {
-            name: 'structured-warning-events',
-            required: false,
-            introducedIn: 10,
-        },
-    ],
-]]);
+const nativeToolProtocolCapabilities = new Map<string, readonly IGeneratedRustNativeToolCapability[]>(
+    (GENERATED_RUST_NATIVE_TOOL_PROTOCOLS as readonly IGeneratedRustNativeToolProtocol[])
+        .flatMap(tool => tool.capabilities === undefined
+            ? []
+            : [[
+                tool.binaryName,
+                tool.capabilities,
+            ] as const]),
+);
 
 const NATIVE_TOOL_PROTOCOL_VERSION_TIMEOUT_MS = 5_000;
 const MIN_COMPATIBLE_SCAN_CLEANUP_PROTOCOL_VERSION = 9;
@@ -254,8 +246,11 @@ function parseProtocolHandshake(toolName: string, expectedVersion: number, text:
     if (!Number.isSafeInteger(record.protocolVersion) || typeof record.protocolVersion !== 'number') {
         throw new NativeToolProtocolCapabilityError(toolName, 'protocolVersion must be a safe integer');
     }
-    if (record.capabilities !== undefined
-        && (!Array.isArray(record.capabilities) || record.capabilities.some(capability => typeof capability !== 'string' || capability.length === 0))) {
+    if (record.capabilities === undefined) {
+        throw new NativeToolProtocolCapabilityError(toolName, 'structured handshake must include capabilities');
+    }
+    if (!Array.isArray(record.capabilities)
+        || record.capabilities.some(capability => typeof capability !== 'string' || capability.length === 0)) {
         throw new NativeToolProtocolCapabilityError(toolName, 'capabilities must be a list of non-empty names');
     }
     return {

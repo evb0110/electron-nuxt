@@ -380,6 +380,8 @@ export type TScanCleanupRenderPage = (
  */
 export type TScanCleanupSidecarProgress = (nativeProgress: TNativeScanCleanupProgressV3) => void;
 
+export interface IScanCleanupSidecarProtocolCapabilities {structuredWarningEventsSupported: boolean;}
+
 export type TScanCleanupRunSidecar = (
     binaryPath: string,
     manifestPath: string,
@@ -390,7 +392,7 @@ export type TScanCleanupRunSidecar = (
         priority?: 'background';
         allowedPathRoot?: string;
     },
-) => Promise<void>;
+) => Promise<IScanCleanupSidecarProtocolCapabilities> | Promise<void>;
 
 export type TScanCleanupRequirePublishedRaster = (
     path: string | undefined,

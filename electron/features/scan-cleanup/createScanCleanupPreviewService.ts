@@ -156,6 +156,7 @@ import type {
     IPdfMrcLayers,
     IScanCleanupDetectionResultStore,
     IScanCleanupPageRasterSource,
+    TScanCleanupRunSidecar,
 } from '@scan-cleanup-core/types';
 import {detectPageRasterFromPageSize} from '@scan-cleanup-core/types';
 import {
@@ -532,7 +533,7 @@ export interface IScanCleanupPreviewDependencies {
         signal: AbortSignal,
         log: TWorkerLog,
     ) => Promise<void>;
-    runSidecar: typeof runScanCleanupSidecar;
+    runSidecar: TScanCleanupRunSidecar;
     resolveBinary: () => string | null;
     resolvePageOpsBinary: () => string | null;
     resolvePdfInfoBinary?: () => string | undefined;

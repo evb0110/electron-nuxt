@@ -324,6 +324,20 @@ describe('runNativeToolCommand', () => {
         });
     });
 
+    it('rejects a structured handshake that omits its capability list', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: JSON.stringify({protocolVersion: 10}) + '\n',
+        });
+        const {verifyNativeToolProtocol} = await loadModule();
+
+        await expect(verifyNativeToolProtocol('/tools/evb-scan-cleanup')).rejects.toMatchObject({
+            name: 'NativeToolProtocolCapabilityError',
+            capability: null,
+        });
+    });
+
     it('reports empty and unknown native tool protocol responses', async () => {
         mocks.runNativeCommand.mockResolvedValueOnce({
             exitCode: 0,

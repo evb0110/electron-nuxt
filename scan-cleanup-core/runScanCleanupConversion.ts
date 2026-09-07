@@ -63,6 +63,7 @@ import {
     type IDetectedPageRaster,
     type IScanCleanupRasterRenderLimits,
     type IScanCleanupPageRasterSource,
+    type IScanCleanupSidecarProtocolCapabilities,
     type ISourceDpiDetectionResult,
     type IPdfPageSizeChunk,
     type TScanCleanupLog,
@@ -2621,7 +2622,7 @@ export async function runScanCleanupConversion(
                 }
                 emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
             };
-            await runRasterProducerConsumer({
+            const sidecarCapabilities = await runRasterProducerConsumer<IScanCleanupSidecarProtocolCapabilities>({
                 signal,
                 stream: canStreamRasters,
                 ...(canStreamRasters ? {createStreams: () => dependencies.createRasterPipes!(
@@ -2909,8 +2910,10 @@ export async function runScanCleanupConversion(
                     // here as sentences; those stay readable and logged, and never
                     // reach aggregation. A live run cannot produce them: the
                     // bundled sidecar fails the handshake below that revision.
-                    for (const warning of metadata.warnings ?? []) {
-                        report(`Page ${String(pageNumber)}: ${warning}`);
+                    if (sidecarCapabilities?.structuredWarningEventsSupported !== true) {
+                        for (const warning of metadata.warnings ?? []) {
+                            report(`Page ${String(pageNumber)}: ${warning}`);
+                        }
                     }
                 }
                 if (request.options.readingOrder === 'rtl' && pageMetadata.layoutClassification === 'two-page-spread') {
