@@ -30,8 +30,9 @@ Source audit: `docs/pdf-annotations-feature-audit-2026-08-22.md`.
   `EVB_PDF_PAGE_OPS_PATH`; no product behavior or accepted Electron gate is
   waived. The follow-up hosted run `34096135979` then failed at the same
   interop test because `pdftoppm` was also absent from that job; every other
-  required hosted job passed. The quality job now provisions both
-  `poppler-utils` and `qpdf`. A new hosted run is required. The latest integrated gates tested SHA
+  required hosted job passed. The quality job now provisions
+  `imagemagick`, `poppler-utils`, and `qpdf` as one asserted set. A new hosted
+  run is required. The latest integrated gates tested SHA
   `8b8daf216`: canonical validation exited 0 under
   `.devkit/gates/2026-09-07T060244Z` with summary
   `.devkit/gates/2026-09-07T060244Z/summary.json`; #350 passed `4/4` in
@@ -110,6 +111,16 @@ to spawn `pdftoppm`; the quality job had installed qpdf but not
 Rust, and cleanup job passed. The workflow correction adds `poppler-utils` to
 the quality-job PDF tool install. This remains a runner provisioning fix, not a
 change to rendering assertions or a waiver of the Linux rendering requirement.
+
+### 2026-09-07, hosted run `34097520081` terminal failure
+
+The complete external executable set was audited after the third exact-head
+failure. The quality job had qpdf and Poppler, but the independent renderer
+then failed on `identify` from ImageMagick. The run's dedicated native/build,
+Electron, browser, packaged, Rust, and cleanup jobs passed. The workflow now
+installs `imagemagick`, `poppler-utils`, and `qpdf` together, and the focused
+CI topology test asserts that exact package set. This is a provisioning fix;
+the Linux rendering and negative-control assertions remain unchanged.
 
 ### 2026-09-07, integrated acceptance at `8b8daf216`
 
