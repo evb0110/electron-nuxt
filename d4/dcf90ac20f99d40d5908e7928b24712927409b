@@ -1,0 +1,43 @@
+.devkit/analysis/project6/project6-307-bounded-correction.md
+  s_42ecbf4c9cb42a::t_78990dde02c8f5 37-38
+  s_42ecbf4c9cb42a::t_580b803d2408f2 5,12,23,42
+tests/unit/app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore.test.ts
+  s_42ecbf4c9cb42a::t_1ac8397d362ad9 115-116
+  s_42ecbf4c9cb42a::t_8231d5e7fee2a8 69-70,91,160-161
+  s_42ecbf4c9cb42a::t_286be5a4776f63 71-90
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_42ecbf4c9cb42a::t_f36c3f0be81bdb 66
+  s_42ecbf4c9cb42a::t_7985aaf111c30c 349,355,357,382,386,389,391
+  s_42ecbf4c9cb42a::t_1adf05917cba9c 330-332,354,356,388,390
+app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore.ts
+  s_42ecbf4c9cb42a::t_f36c3f0be81bdb 47
+  s_42ecbf4c9cb42a::t_7985aaf111c30c 6,190-192,213
+  s_42ecbf4c9cb42a::t_1adf05917cba9c 48,185
+  s_42ecbf4c9cb42a::t_8804ef21bbb302 189
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitPayload.test.ts
+  s_42ecbf4c9cb42a::t_286be5a4776f63 224-231,250-257,280-288
+  s_42ecbf4c9cb42a::t_16717b81a18ada 279,289-304
+  s_42ecbf4c9cb42a::t_2efd23e814bdb9 305-306
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_42ecbf4c9cb42a::t_79eea379fc1658 19,27-30,35,139
+  s_42ecbf4c9cb42a::t_286be5a4776f63 31-34
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_42ecbf4c9cb42a::t_7985aaf111c30c 12,24
+  s_42ecbf4c9cb42a::t_1adf05917cba9c 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d4dcf90ac20f99d40d5908e7928b24712927409b",
+  "prompts": {},
+  "sessions": {
+    "s_42ecbf4c9cb42a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cac-e171-7471-886d-bb857acd61ce",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}

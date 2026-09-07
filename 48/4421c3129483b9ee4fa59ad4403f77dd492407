@@ -1,0 +1,55 @@
+tests/unit/app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.test.ts
+  s_42ecbf4c9cb42a::t_887b633aa071a6 348-351
+  s_42ecbf4c9cb42a::t_e37c88911e679d 21,341-347,352-366
+  s_42ecbf4c9cb42a::t_fb85901390baa5 367
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitPayload.test.ts
+  s_42ecbf4c9cb42a::t_887b633aa071a6 316-328
+  s_42ecbf4c9cb42a::t_4c8f138904cb2d 307-315,329-348
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_42ecbf4c9cb42a::t_8338d5e75c1509 29-32,995,1000-1015
+  s_42ecbf4c9cb42a::t_887b633aa071a6 996-999
+  s_42ecbf4c9cb42a::t_a19afa0f922599 1016-1017
+app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.ts
+  s_42ecbf4c9cb42a::t_5cda989f62b220 25,282,284,287-295,299,302,306
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_42ecbf4c9cb42a::t_c9ec4e3c48824e 30,329,331,352,358,362,378,382-388,390,397
+tests/unit/app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore.test.ts
+  s_42ecbf4c9cb42a::t_4a663a8ba2a91a 186-189,191-193
+  s_42ecbf4c9cb42a::t_0a0a9adef88cea 17,190
+  s_42ecbf4c9cb42a::t_887b633aa071a6 116
+tests/unit/app/modules/workspace-shell/composables/useWindowTabTransfers.test.ts
+  s_42ecbf4c9cb42a::t_44199af6adeecd 484-491,598-605,730-737
+  s_42ecbf4c9cb42a::t_887b633aa071a6 65-68,116-119,124
+  s_42ecbf4c9cb42a::t_0a0a9adef88cea 42
+  s_42ecbf4c9cb42a::t_61ea8abf8c3c82 125,127-145
+  s_42ecbf4c9cb42a::t_f185bc1ed6eb48 52-64,69-94,101-115,120-123
+  s_42ecbf4c9cb42a::t_3d9c2c66f1b6bc 126
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_42ecbf4c9cb42a::t_a1543f609f600e 115-120,299-303,442
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_42ecbf4c9cb42a::t_4a663a8ba2a91a 103
+app/modules/workspace-shell/composables/useDocumentWorkspaceSplitRestore.ts
+  s_42ecbf4c9cb42a::t_20459c188953b1 42,182,186
+app/types/workspaceExpose.ts
+  s_42ecbf4c9cb42a::t_e67e5cecb482e3 23,226
+tests/unit/app/modules/workspace-shell/composables/workspaceExposeContract.test.ts
+  s_42ecbf4c9cb42a::t_4a663a8ba2a91a 151
+app/modules/workspace-shell/composables/useWindowTabTransfers.ts
+  s_42ecbf4c9cb42a::t_96be45f0e6f306 424-432
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "484421c3129483b9ee4fa59ad4403f77dd492407",
+  "prompts": {},
+  "sessions": {
+    "s_42ecbf4c9cb42a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cac-e171-7471-886d-bb857acd61ce",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

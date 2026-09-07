@@ -1,0 +1,33 @@
+app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts
+  s_42ecbf4c9cb42a::t_939997cd07fc1f 282-291
+  s_42ecbf4c9cb42a::t_cb2cb5ea4ee5dc 293
+  s_42ecbf4c9cb42a::t_d5613fc4394d4b 2-5,25-28
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceSplitPayload.test.ts
+  s_42ecbf4c9cb42a::t_d4083e0453b447 209-222
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_42ecbf4c9cb42a::t_4d52f9eeef4084 222-232
+  s_42ecbf4c9cb42a::t_cb2cb5ea4ee5dc 75
+  s_42ecbf4c9cb42a::t_a8b71e36765f48 33,77-78
+  s_42ecbf4c9cb42a::t_3ba6df3ecd07ab 76
+  s_42ecbf4c9cb42a::t_52175f410d9df7 233-239
+  s_42ecbf4c9cb42a::t_a3e3fcfe875be2 348-349,461,523
+  s_42ecbf4c9cb42a::t_78a9931209640d 240,325,524,586,674,676
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_42ecbf4c9cb42a::t_fc0d1d4d1607ff 16-19,202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6cc24fde5aa95e59592b47b9adc85dfb22d9309c",
+  "prompts": {},
+  "sessions": {
+    "s_42ecbf4c9cb42a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07cac-e171-7471-886d-bb857acd61ce",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
