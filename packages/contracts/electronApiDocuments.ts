@@ -603,6 +603,9 @@ export interface IPdfNoteGeometryUpdate {
     generationNumber: number;
     pageIndex: TPageIndex;
     markerRect: IMarkerRect;
+    /** Omitted keeps the imported PDF color. Null removes `/C`. */
+    color?: string | null;
+    open?: boolean;
 }
 
 export type IPdfNativeFreeTextNoteMarkerRect = IMarkerRect;
@@ -615,6 +618,7 @@ export interface IPdfNativeFreeTextNote {
     author?: string | null;
     color?: string | null;
     createdAt?: TEpochMs | null;
+    open?: boolean;
 }
 
 export interface IPdfNativeTextBoxMutation {
@@ -708,6 +712,7 @@ export interface IPdfNativeMarkupSubtypeHint {
     appAnnotationId?: string | null;
     annotationId?: string | null;
     color?: string | null;
+    opacity?: number | null;
     /** Replacement `/Contents` note text when this hint represents a canonical edit. */
     contents?: string | null;
     id?: string | null;

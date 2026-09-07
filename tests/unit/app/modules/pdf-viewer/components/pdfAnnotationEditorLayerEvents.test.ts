@@ -5,6 +5,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {
@@ -27,6 +28,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type {
     IPlacedImageEntity,
+    ITextBoxEntity,
     ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
@@ -57,6 +59,126 @@ const entity: ITextMarkupEntity = {
     opacity: 0.5,
 };
 
+const createdTextBox: ITextBoxEntity = {
+    kind: 'text-box',
+    identity: {id: 'created-text-box' as ITextBoxEntity['identity']['id']},
+    pageIndex: requirePageIndex(25),
+    revision: 0,
+    persistedRevision: -1,
+    deleted: false,
+    createdAt: null,
+    modifiedAt: null,
+    author: null,
+    text: '',
+    rect: {
+        left: 0.2,
+        top: 0.2,
+        width: 0.3,
+        height: 0.1,
+    },
+    rotation: 0,
+    fontSize: 14,
+    color: '#111827',
+};
+
+function createCreationSurface() {
+    const activeToolValue = ref<TAnnotationTool>('text');
+    const activeTool = computed(() => activeToolValue.value);
+    const entities = ref<readonly ITextBoxEntity[]>([]);
+    const selectedIds = ref<ReadonlySet<ITextBoxEntity['identity']['id']>>(new Set());
+    const select = vi.fn((ids: ReadonlyArray<ITextBoxEntity['identity']['id']>) => {
+        selectedIds.value = new Set(ids);
+    });
+    const clearSelection = vi.fn(() => {
+        selectedIds.value = new Set();
+    });
+    const commitGesture = vi.fn();
+    const draftCommitters = new Set<() => void>();
+    const registerTextBoxDraftCommitter = vi.fn((committer: () => void) => {
+        draftCommitters.add(committer);
+        return () => draftCommitters.delete(committer);
+    });
+    const commitPendingTextBoxDraftsForSave = vi.fn(() => {
+        [...draftCommitters].forEach(committer => committer());
+    });
+    const pendingDraftIds = new Set<ITextBoxEntity['identity']['id']>();
+    const setTextBoxDraftPending = vi.fn((id: ITextBoxEntity['identity']['id']) => {
+        pendingDraftIds.add(id);
+    });
+    const clearTextBoxDraftPending = vi.fn((id: ITextBoxEntity['identity']['id']) => {
+        pendingDraftIds.delete(id);
+    });
+    const hasPendingTextBoxDrafts = vi.fn(() => pendingDraftIds.size > 0);
+    const createTextBoxAt = vi.fn(() => {
+        entities.value = [createdTextBox];
+        return createdTextBox;
+    });
+    const surface: IAnnotationEditorSurface = {
+        activeTool,
+        entitiesByPage: computed(() => new Map([[
+            25,
+            entities.value,
+        ]])),
+        selectedIds,
+        settings: computed(() => null),
+        getEntitiesForPage: (pageIndex: number) => pageIndex === 25 ? entities.value : [],
+        select,
+        clearSelection,
+        getSelectedTextBox: vi.fn(() => selectedIds.value.has(createdTextBox.identity.id)
+            ? createdTextBox
+            : null),
+        registerTextBoxDraftCommitter,
+        commitPendingTextBoxDraftsForSave,
+        setTextBoxDraftPending,
+        clearTextBoxDraftPending,
+        hasPendingTextBoxDrafts,
+        updateSelectedTextBoxProperties: vi.fn(() => true),
+        discardUnsavedAnnotation: vi.fn(() => true),
+        deleteAnnotation: vi.fn(() => true),
+        deleteSelection: vi.fn(),
+        moveSelection: vi.fn(),
+        nudgeSelection: vi.fn(),
+        nudgeSelectionByPdfPoints: vi.fn(),
+        undo: vi.fn(() => true),
+        redo: vi.fn(() => true),
+        getPageGeometry: vi.fn(() => ({
+            pageView: [
+                0,
+                0,
+                100,
+                100,
+            ],
+            rotation: 0 as const,
+        })),
+        beginMove: vi.fn(() => null),
+        beginResize: vi.fn(() => null),
+        commitGesture,
+        cancelGesture: vi.fn(),
+        createTextBoxAt,
+        createNoteAt: vi.fn(),
+        createStampAt: vi.fn(),
+        createHighlightFromSelection: vi.fn(),
+        createShape: vi.fn(),
+        openNote: vi.fn(),
+        openShapeContextMenu: vi.fn(),
+    };
+    return {
+        surface,
+        activeToolValue,
+        entities,
+        selectedIds,
+        select,
+        clearSelection,
+        createTextBoxAt,
+        commitGesture,
+        commitPendingTextBoxDraftsForSave,
+        setTextBoxDraftPending,
+        clearTextBoxDraftPending,
+        hasPendingTextBoxDrafts,
+        registerTextBoxDraftCommitter,
+    };
+}
+
 function createSurface() {
     const selectedIds = ref<ReadonlySet<ITextMarkupEntity['identity']['id']>>(new Set());
     const activeTool = computed(() => 'select' as const);
@@ -81,6 +203,11 @@ function createSurface() {
         select,
         clearSelection: vi.fn(() => { selectedIds.value = new Set(); }),
         getSelectedTextBox: vi.fn(() => null),
+        registerTextBoxDraftCommitter: vi.fn(() => vi.fn()),
+        commitPendingTextBoxDraftsForSave: vi.fn(),
+        setTextBoxDraftPending: vi.fn(),
+        clearTextBoxDraftPending: vi.fn(),
+        hasPendingTextBoxDrafts: vi.fn(() => false),
         updateSelectedTextBoxProperties: vi.fn(() => true),
         discardUnsavedAnnotation: vi.fn(() => true),
         deleteAnnotation: vi.fn(() => true),
@@ -368,5 +495,113 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         expect(resizeStart).toHaveBeenCalledOnce();
         expect(resizeStart.mock.calls[0]?.[0]).toBe('se');
         app.unmount();
+    });
+
+    it('keeps a newly created text box selected after a root-retargeted click', async () => {
+        const harness = createCreationSurface();
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, harness.surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {
+            app.unmount();
+            host.remove();
+        });
+        await nextTick();
+
+        const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+        const background = host.querySelector<HTMLElement>('.pdf-annotation-editor-surface__background');
+        expect(layer).not.toBeNull();
+        expect(background).not.toBeNull();
+        vi.spyOn(layer!, 'getBoundingClientRect').mockReturnValue({
+            bottom: 100,
+            height: 100,
+            left: 0,
+            right: 100,
+            top: 0,
+            width: 100,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        });
+
+        background!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 21,
+        }));
+        layer!.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 21,
+        }));
+        background!.dispatchEvent(new MouseEvent('click', {
+            bubbles: true,
+            clientX: 20,
+            clientY: 20,
+        }));
+        await nextTick();
+
+        expect(harness.createTextBoxAt).toHaveBeenCalledOnce();
+        expect(harness.select).toHaveBeenCalledWith([createdTextBox.identity.id]);
+        expect(harness.clearSelection).not.toHaveBeenCalled();
+        expect(harness.selectedIds.value).toEqual(new Set([createdTextBox.identity.id]));
+    });
+
+    it('commits an inline text draft through the viewer save hook', async () => {
+        const harness = createCreationSurface();
+        harness.activeToolValue.value = 'select';
+        harness.entities.value = [createdTextBox];
+        harness.selectedIds.value = new Set([createdTextBox.identity.id]);
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, harness.surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(25)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {
+            app.unmount();
+            host.remove();
+        });
+        await nextTick();
+
+        const textBox = host.querySelector<HTMLElement>('[data-annotation-id="created-text-box"]');
+        expect(textBox).not.toBeNull();
+        textBox!.dispatchEvent(new MouseEvent('dblclick', {
+            bubbles: true,
+            detail: 2,
+            clientX: 25,
+            clientY: 25,
+        }));
+        await nextTick();
+
+        const editor = host.querySelector<HTMLElement>('[contenteditable="true"]');
+        expect(editor).not.toBeNull();
+        editor!.textContent = 'draft through save hook';
+        editor!.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            inputType: 'insertText',
+            data: 'draft through save hook',
+        }));
+        expect(harness.setTextBoxDraftPending).toHaveBeenCalledWith(createdTextBox.identity.id);
+        expect(harness.hasPendingTextBoxDrafts()).toBe(true);
+        expect(harness.registerTextBoxDraftCommitter).toHaveBeenCalledOnce();
+
+        harness.commitPendingTextBoxDraftsForSave();
+
+        expect(harness.commitGesture).toHaveBeenCalledWith(
+            createdTextBox.identity.id,
+            {text: 'draft through save hook'},
+        );
+        expect(harness.clearTextBoxDraftPending).toHaveBeenCalledWith(createdTextBox.identity.id);
+        expect(harness.hasPendingTextBoxDrafts()).toBe(false);
     });
 });

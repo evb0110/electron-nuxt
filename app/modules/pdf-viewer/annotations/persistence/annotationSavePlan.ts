@@ -376,6 +376,10 @@ interface IAnnotationVerificationDiagnostic {
     readonly pageIndex: TPageIndex;
     readonly expectedSubtype: string | null;
     readonly reopenedSubtype: string | null;
+    readonly expectedColor: string | null;
+    readonly reopenedColor: string | null;
+    readonly expectedOpacity: number | null;
+    readonly reopenedOpacity: number | null;
     readonly expectedText: IAnnotationTextFingerprint;
     readonly reopenedText: IAnnotationTextFingerprint;
     readonly expectedGeometryCount: number;
@@ -413,6 +417,19 @@ const MAX_ANNOTATION_VERIFICATION_DIAGNOSTICS = 12;
  * move the other.
  */
 const STICKY_NOTE_ANCHOR_COORDINATE_TOLERANCE = 0.0001;
+/** PDF numbers may return through PDF.js as a nearby Float32 value. */
+const ANNOTATION_OPACITY_ROUND_TRIP_TOLERANCE = 0.0001;
+
+function normalizedVerificationColor(color: string | null) {
+    return color === null ? null : color.trim().toLowerCase();
+}
+
+function opacityDiffers(left: number | null, right: number | null) {
+    if (left === right || left === null || right === null) {
+        return left !== right;
+    }
+    return Math.abs(left - right) > ANNOTATION_OPACITY_ROUND_TRIP_TOLERANCE;
+}
 
 function describeVerificationFailures(failures: readonly string[]) {
     const named = failures.slice(0, MAX_ANNOTATION_VERIFICATION_DIAGNOSTICS);
@@ -509,6 +526,14 @@ export async function verifyAnnotationSave(
         if (expected.kind === 'note' && reopened.kind === 'note' && anchorRectDiffers(reopened.position, expected.position)) {
             failures.push(`${expected.identity.id}: position mismatch`);
         }
+        if (expected.kind === 'note' && reopened.kind === 'note') {
+            if (normalizedVerificationColor(reopened.color) !== normalizedVerificationColor(expected.color)) {
+                failures.push(`${expected.identity.id}: note color mismatch`);
+            }
+            if (reopened.open !== expected.open) {
+                failures.push(`${expected.identity.id}: note open state mismatch`);
+            }
+        }
         if (expected.kind === 'text-box') {
             if (reopened.kind !== 'text-box') {
                 failures.push(`${expected.identity.id}: text-box kind mismatch`);
@@ -575,6 +600,14 @@ function verifyTextMarkupFidelity(
                 `${expected.identity.id}: markup subtype mismatch (expected ${expected.subtype}, reopened ${reopened.subtype})`,
             );
         }
+        if (normalizedVerificationColor(reopened.color) !== normalizedVerificationColor(expected.color)) {
+            failedFields.push('color');
+            failures.push(`${expected.identity.id}: markup color mismatch`);
+        }
+        if (opacityDiffers(reopened.opacity, expected.opacity)) {
+            failedFields.push('opacity');
+            failures.push(`${expected.identity.id}: markup opacity mismatch`);
+        }
         if (reopened.contents !== expected.contents) {
             failedFields.push('text');
             failures.push(
@@ -600,6 +633,10 @@ function verifyTextMarkupFidelity(
         pageIndex: expected.pageIndex,
         expectedSubtype: expected.subtype,
         reopenedSubtype: isMarkup ? reopened.subtype : null,
+        expectedColor: expected.color,
+        reopenedColor: isMarkup ? reopened.color : null,
+        expectedOpacity: expected.opacity,
+        reopenedOpacity: isMarkup ? reopened.opacity : null,
         expectedText: fingerprintAnnotationText(expected.contents),
         reopenedText: fingerprintAnnotationText(isMarkup ? reopened.contents : ''),
         expectedGeometryCount: match.expectedCount,

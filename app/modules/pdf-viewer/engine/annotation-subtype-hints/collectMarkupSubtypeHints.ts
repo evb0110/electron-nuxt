@@ -64,8 +64,8 @@ function shouldCollectMarkupSubtypeHint(comment: IAnnotationCommentSummary, subt
     return REWRITABLE_SUBTYPE_HINTS.has(subtype);
 }
 
-function shouldCollectMarkupSubtypeHintColor(comment: IAnnotationCommentSummary) {
-    return comment.colorEdited === true || comment.source === 'editor';
+function shouldCollectMarkupSubtypeHintColor(comment: IAnnotationCommentSummary, includeEditedProperties: boolean) {
+    return includeEditedProperties || comment.colorEdited === true || comment.source === 'editor';
 }
 
 export function collectMarkupSubtypeHints(
@@ -90,8 +90,11 @@ export function collectMarkupSubtypeHints(
         hints.push({
             ...(comment.appAnnotationId ? {appAnnotationId: comment.appAnnotationId} : {}),
             annotationId: comment.annotationId,
-            color: shouldCollectMarkupSubtypeHintColor(comment) ? comment.color : null,
+            color: shouldCollectMarkupSubtypeHintColor(comment, options.includeContents === true)
+                ? comment.color
+                : null,
             ...(options.includeContents ? {contents: comment.text} : {}),
+            ...(options.includeContents ? {opacity: comment.opacity ?? null} : {}),
             id: comment.id,
             subtype,
             pageIndex: requirePageIndex(comment.pageIndex),

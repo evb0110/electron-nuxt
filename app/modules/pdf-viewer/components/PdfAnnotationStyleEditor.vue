@@ -129,7 +129,6 @@ const {
 } = defineProps<IProps>();
 
 const emit = defineEmits<{
-    'set-tool': [tool: TAnnotationTool];
     'color-selected': [];
     'update-setting': [payload: {
         key: keyof IAnnotationSettings;
@@ -355,7 +354,6 @@ function applyDrawStyle(style: TDrawStyle) {
         return;
     }
 
-    emit('set-tool', 'draw');
     updateSetting('inkThickness', preset.thickness);
     updateSetting('inkOpacity', preset.opacity);
 }
@@ -461,6 +459,7 @@ function applyDrawStyle(style: TDrawStyle) {
     width: var(--app-annotation-action-size);
     height: var(--app-annotation-action-size);
     padding: 0;
+    justify-content: center;
     cursor: pointer;
 }
 

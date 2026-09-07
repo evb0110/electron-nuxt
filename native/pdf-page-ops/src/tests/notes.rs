@@ -68,6 +68,91 @@ fn updates_popup_parent_when_target_is_popup() {
     );
 }
 
+fn create_note_geometry_document() -> (Document, ObjectId, ObjectId, ObjectId) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+    });
+    document.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        },
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "P" => page_id,
+        "Rect" => vec![10.into(), 60.into(), 40.into(), 90.into()],
+    });
+    let target_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "P" => page_id,
+        "Rect" => vec![10.into(), 60.into(), 40.into(), 90.into()],
+        "Popup" => popup_id,
+        "Contents" => Object::string_literal("note"),
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(target_id));
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![Object::Reference(target_id), Object::Reference(popup_id)],
+    );
+
+    (document, page_id, target_id, popup_id)
+}
+
+#[test]
+fn updates_note_geometry_timestamp_on_target_and_popup_for_full_rewrite() {
+    let (mut document, _page_id, target_id, popup_id) = create_note_geometry_document();
+    let modified_at = "D:20260831124500Z";
+
+    apply_native_mutations(
+        &mut document,
+        &NativeMutationsFile {
+            geometry_updates: vec![NoteGeometryUpdate {
+                object_number: target_id.0,
+                generation_number: target_id.1,
+                page_index: 0,
+                marker_rect: MarkerRect {
+                    left: 0.2,
+                    top: 0.3,
+                    width: 0.15,
+                    height: 0.12,
+                },
+                color: Some(Some("#336699".to_string())),
+                open: Some(true),
+            }],
+            ..NativeMutationsFile::default()
+        },
+        modified_at,
+    )
+    .unwrap();
+
+    assert_eq!(
+        pdf_string_to_text(document.get_dictionary(target_id).unwrap().get(b"M").unwrap()),
+        Some(modified_at.to_string())
+    );
+    assert_eq!(
+        pdf_string_to_text(document.get_dictionary(popup_id).unwrap().get(b"M").unwrap()),
+        Some(modified_at.to_string())
+    );
+}
+
 #[test]
 fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
     let mut document = Document::with_version("1.7");
@@ -126,6 +211,7 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
     write(&input_path, &original_bytes).unwrap();
     write(&output_path, &original_bytes).unwrap();
 
+    let modified_at = "D:20260609123456Z";
     append_native_mutations(
         &input_path,
         &output_path,
@@ -140,10 +226,12 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
                     width: 0.15,
                     height: 0.12,
                 },
+                color: Some(Some("#336699".to_string())),
+                open: Some(true),
             }],
             ..NativeMutationsFile::default()
         },
-        "D:20260609123456Z",
+        modified_at,
     )
     .unwrap();
 
@@ -169,6 +257,15 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
     };
     let target = loaded.get_dictionary(target_id).unwrap();
     assert_eq!(
+        pdf_string_to_text(target.get(b"M").unwrap()),
+        Some(modified_at.to_string())
+    );
+    let color = target.get(b"C").unwrap().as_array().unwrap();
+    assert_approximately(color[0].as_float().unwrap() as f64, 0.2);
+    assert_approximately(color[1].as_float().unwrap() as f64, 0.4);
+    assert_approximately(color[2].as_float().unwrap() as f64, 0.6);
+    assert!(target.get(b"Open").unwrap().as_bool().unwrap());
+    assert_eq!(
         target.get(b"P").unwrap().as_reference().unwrap(),
         page_two_id
     );
@@ -181,6 +278,10 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
         expected_rect.y1,
     );
     let popup = loaded.get_dictionary(popup_id).unwrap();
+    assert_eq!(
+        pdf_string_to_text(popup.get(b"M").unwrap()),
+        Some(modified_at.to_string())
+    );
     assert_eq!(
         popup.get(b"P").unwrap().as_reference().unwrap(),
         page_two_id
@@ -1007,6 +1108,7 @@ fn appends_free_text_note_delete_by_stable_key_as_incremental_revision() {
                 author: None,
                 color: None,
                 created_at: Some(1781009077000),
+                open: false,
             }],
             deletes: Vec::new(),
             ..NativeMutationsFile::default()
@@ -1086,6 +1188,7 @@ fn appends_free_text_note_as_text_annotation_for_legacy_callers() {
                 author: Some("Tester".to_string()),
                 color: Some("rgba(255, 204, 0, 0.8)".to_string()),
                 created_at: Some(1781009077000),
+                open: false,
             }],
             deletes: Vec::new(),
             ..NativeMutationsFile::default()
@@ -1191,6 +1294,7 @@ fn canonical_notes_input_also_writes_a_text_annotation() {
                 author: Some("Canonical author".to_string()),
                 color: Some("#336699".to_string()),
                 created_at: None,
+                open: true,
             }],
             ..NativeMutationsFile::default()
         },
@@ -1225,6 +1329,7 @@ fn canonical_notes_input_also_writes_a_text_annotation() {
         Some("Canonical author")
     );
     assert_eq!(note.get(b"Name").unwrap().as_name().unwrap(), b"Note");
+    assert!(note.get(b"Open").unwrap().as_bool().unwrap());
     let rect = parse_rect(note.get(b"Rect").unwrap()).unwrap();
     assert_approximately(rect.width(), 20.0);
     assert_approximately(rect.height(), 20.0);
@@ -1493,6 +1598,8 @@ fn geometry_edit_uses_the_save_timestamp_when_converting_a_marker() {
                 width: 0.001,
                 height: 0.001,
             },
+            color: None,
+            open: None,
         }],
         modified_at,
     )
@@ -1799,6 +1906,108 @@ fn text_box_create_round_trips_canonical_properties_and_metadata() {
 }
 
 #[test]
+fn combined_note_geometry_and_text_box_save_preserves_entity_modified_at() {
+    let (mut document, page_id) = create_test_document();
+    let pdf_path = temp_pdf_path("combined-note-geometry-text-box");
+    let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&pdf_path, original_bytes).unwrap();
+
+    append_native_mutations(
+        &pdf_path,
+        &pdf_path,
+        &NativeMutationsFile {
+            text_boxes: vec![TextBoxMutation {
+                page_index: 0,
+                stable_key: "combined-text-box".to_string(),
+                annotation_id: None,
+                text: "first save".to_string(),
+                rect: [10.0, 20.0, 110.0, 80.0],
+                rotation: 0,
+                font_size: 16.0,
+                color: [17, 24, 39],
+                author: None,
+                created_at: None,
+                modified_at: Some(1_780_000_060_000),
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260831120000Z",
+    )
+    .unwrap();
+
+    let first_save = Document::load(&pdf_path).unwrap();
+    let text_box_id = get_page_annots(&first_save, page_id)
+        .unwrap()
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+        .find(|object_id| {
+            first_save
+                .get_dictionary(*object_id)
+                .ok()
+                .and_then(read_annotation_name)
+                .as_deref()
+                == Some("combined-text-box")
+        })
+        .expect("first save should create the text box");
+
+    let second_modified_at = 1_780_000_120_000;
+    let second_operation_modified_at = "D:20260831130000Z";
+    append_native_mutations(
+        &pdf_path,
+        &pdf_path,
+        &NativeMutationsFile {
+            geometry_updates: vec![NoteGeometryUpdate {
+                object_number: text_box_id.0,
+                generation_number: text_box_id.1,
+                page_index: 0,
+                marker_rect: MarkerRect {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.5,
+                    height: 0.6,
+                },
+                color: None,
+                open: None,
+            }],
+            text_boxes: vec![TextBoxMutation {
+                page_index: 0,
+                stable_key: "combined-text-box".to_string(),
+                annotation_id: Some(format_pdfjs_annotation_ref(text_box_id)),
+                text: "second save".to_string(),
+                rect: [20.0, 20.0, 120.0, 80.0],
+                rotation: 0,
+                font_size: 16.0,
+                color: [17, 24, 39],
+                author: None,
+                created_at: None,
+                modified_at: Some(second_modified_at),
+            }],
+            ..NativeMutationsFile::default()
+        },
+        second_operation_modified_at,
+    )
+    .unwrap();
+
+    let second_save = Document::load(&pdf_path).unwrap();
+    let dict = second_save.get_dictionary(text_box_id).unwrap();
+    assert_eq!(
+        pdf_string_to_text(dict.get(b"Contents").unwrap()).as_deref(),
+        Some("second save")
+    );
+    assert_eq!(
+        pdf_string_to_text(dict.get(b"M").unwrap()).as_deref(),
+        Some(shape_pdf_date(Some(second_modified_at), second_operation_modified_at).as_str())
+    );
+    let rect = parse_rect(dict.get(b"Rect").unwrap()).unwrap();
+    assert_approximately(rect.x1, 20.0);
+    assert_approximately(rect.y1, 20.0);
+    assert_approximately(rect.x2, 120.0);
+    assert_approximately(rect.y2, 80.0);
+}
+
+#[test]
 fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     let (mut document, page_id) = create_test_document();
     let old_appearance = document.add_object(Stream::new(
@@ -2060,6 +2269,7 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
                 author: None,
                 color: None,
                 created_at: Some(1_787_783_296_280),
+                open: false,
             }],
             text_boxes: vec![
                 TextBoxMutation {
@@ -2187,6 +2397,7 @@ fn repeated_free_text_note_append_updates_existing_named_note() {
                 author: None,
                 color: None,
                 created_at: None,
+                open: false,
             }],
             deletes: Vec::new(),
             ..NativeMutationsFile::default()
@@ -2212,6 +2423,7 @@ fn repeated_free_text_note_append_updates_existing_named_note() {
                 author: None,
                 color: None,
                 created_at: None,
+                open: false,
             }],
             deletes: Vec::new(),
             ..NativeMutationsFile::default()
@@ -2285,6 +2497,7 @@ fn same_page_free_text_batch_indexes_initial_annots_once_and_preserves_order() {
             author: None,
             color: None,
             created_at: None,
+            open: false,
         })
         .collect();
     let mut annotation_visits = 0;
@@ -2337,6 +2550,7 @@ fn incremental_same_batch_duplicate_note_reuses_the_indexed_annotation() {
             author: None,
             color: None,
             created_at: None,
+            open: false,
         })
         .collect();
     let mut annotation_visits = 0;

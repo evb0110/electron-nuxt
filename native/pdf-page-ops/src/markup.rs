@@ -461,7 +461,9 @@ fn create_markup_annotation(
             Object::String(encode_pdf_text_string(contents), StringFormat::Hexadecimal),
         );
     }
-    if hint.subtype == "Highlight" {
+    if let Some(opacity) = hint.opacity {
+        dict.set("CA", number_object(opacity));
+    } else if hint.subtype == "Highlight" {
         dict.set("CA", Object::Integer(1));
     }
     if let Some(appearance_ref) = appearance_ref {
@@ -480,6 +482,28 @@ pub(crate) fn apply_markup_rewrite_to_object(
     candidate: &MarkupAnnotationCandidate,
     target_subtype: &str,
     color: Option<&str>,
+    contents: Option<&str>,
+    identity_name: Option<&str>,
+    modified_at: &str,
+) -> Result<bool> {
+    apply_markup_rewrite_to_object_with_opacity(
+        document,
+        candidate,
+        target_subtype,
+        color,
+        None,
+        contents,
+        identity_name,
+        modified_at,
+    )
+}
+
+fn apply_markup_rewrite_to_object_with_opacity(
+    document: &mut Document,
+    candidate: &MarkupAnnotationCandidate,
+    target_subtype: &str,
+    color: Option<&str>,
+    opacity: Option<f64>,
     contents: Option<&str>,
     identity_name: Option<&str>,
     modified_at: &str,
@@ -520,6 +544,9 @@ pub(crate) fn apply_markup_rewrite_to_object(
     if contents.is_some() {
         modified = true;
     }
+    if opacity.is_some() {
+        modified = true;
+    }
     let identity_name = identity_name
         .map(str::trim)
         .filter(|value| !value.is_empty());
@@ -543,9 +570,12 @@ pub(crate) fn apply_markup_rewrite_to_object(
     }
     if let Some(color) = target_color {
         write_markup_color(dict, color);
-        if target_subtype == "Highlight" {
-            dict.set("CA", Object::Integer(1));
-        }
+        dict.remove(b"AP");
+    }
+    if let Some(opacity) = opacity {
+        dict.set("CA", number_object(opacity));
+        // A foreign or previously generated appearance may carry its own
+        // alpha state. Let the annotation-level opacity control rendering.
         dict.remove(b"AP");
     }
     if target_subtype != "Highlight" {
@@ -682,11 +712,12 @@ pub(crate) fn rewrite_page_markup_subtypes(
         {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
-            rewritten = apply_markup_rewrite_to_object(
+            rewritten = apply_markup_rewrite_to_object_with_opacity(
                 document,
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.opacity,
                 hint.contents.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
@@ -699,11 +730,12 @@ pub(crate) fn rewrite_page_markup_subtypes(
         {
             let hint = page_hints[hint_index].hint.clone();
             consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
-            rewritten = apply_markup_rewrite_to_object(
+            rewritten = apply_markup_rewrite_to_object_with_opacity(
                 document,
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.opacity,
                 hint.contents.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
@@ -716,11 +748,12 @@ pub(crate) fn rewrite_page_markup_subtypes(
         {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
-            rewritten = apply_markup_rewrite_to_object(
+            rewritten = apply_markup_rewrite_to_object_with_opacity(
                 document,
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.opacity,
                 hint.contents.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
@@ -755,11 +788,12 @@ pub(crate) fn rewrite_page_markup_subtypes(
         page_hints[hint_index].consumed = true;
         let hint = page_hints[hint_index].hint.clone();
         let candidate = &unmatched_candidates[candidate_index];
-        rewritten = apply_markup_rewrite_to_object(
+        rewritten = apply_markup_rewrite_to_object_with_opacity(
             document,
             candidate,
             &hint.subtype,
             hint.color.as_deref(),
+            hint.opacity,
             hint.contents.as_deref(),
             markup_annotation_name(&hint).as_deref(),
             modified_at,
@@ -858,12 +892,35 @@ pub(crate) fn apply_markup_rewrite_to_incremental_object(
     identity_name: Option<&str>,
     modified_at: &str,
 ) -> Result<bool> {
+    apply_markup_rewrite_to_incremental_object_with_opacity(
+        incremental,
+        candidate,
+        target_subtype,
+        color,
+        None,
+        contents,
+        identity_name,
+        modified_at,
+    )
+}
+
+fn apply_markup_rewrite_to_incremental_object_with_opacity(
+    incremental: &mut IncrementalDocument,
+    candidate: &MarkupAnnotationCandidate,
+    target_subtype: &str,
+    color: Option<&str>,
+    opacity: Option<f64>,
+    contents: Option<&str>,
+    identity_name: Option<&str>,
+    modified_at: &str,
+) -> Result<bool> {
     incremental.opt_clone_object_to_new_document(candidate.object_id)?;
-    let modified = apply_markup_rewrite_to_object(
+    let modified = apply_markup_rewrite_to_object_with_opacity(
         &mut incremental.new_document,
         candidate,
         target_subtype,
         color,
+        opacity,
         None,
         identity_name,
         modified_at,
@@ -907,11 +964,12 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
         ) {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
-            rewritten = apply_markup_rewrite_to_incremental_object(
+            rewritten = apply_markup_rewrite_to_incremental_object_with_opacity(
                 incremental,
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.opacity,
                 hint.contents.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
@@ -924,11 +982,12 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
         {
             let hint = page_hints[hint_index].hint.clone();
             consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
-            rewritten = apply_markup_rewrite_to_incremental_object(
+            rewritten = apply_markup_rewrite_to_incremental_object_with_opacity(
                 incremental,
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.opacity,
                 hint.contents.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
@@ -941,11 +1000,12 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
         {
             page_hints[hint_index].consumed = true;
             let hint = page_hints[hint_index].hint.clone();
-            rewritten = apply_markup_rewrite_to_incremental_object(
+            rewritten = apply_markup_rewrite_to_incremental_object_with_opacity(
                 incremental,
                 candidate,
                 &hint.subtype,
                 hint.color.as_deref(),
+                hint.opacity,
                 hint.contents.as_deref(),
                 markup_annotation_name(&hint).as_deref(),
                 modified_at,
@@ -980,11 +1040,12 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
         page_hints[hint_index].consumed = true;
         let hint = page_hints[hint_index].hint.clone();
         let candidate = &unmatched_candidates[candidate_index];
-        rewritten = apply_markup_rewrite_to_incremental_object(
+        rewritten = apply_markup_rewrite_to_incremental_object_with_opacity(
             incremental,
             candidate,
             &hint.subtype,
             hint.color.as_deref(),
+            hint.opacity,
             hint.contents.as_deref(),
             markup_annotation_name(&hint).as_deref(),
             modified_at,

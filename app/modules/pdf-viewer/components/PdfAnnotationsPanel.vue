@@ -27,7 +27,6 @@
                 :tool="styleTool"
                 :settings="settings"
                 :selected-text-box="selectedTextBox"
-                @set-tool="setTool"
                 @update-setting="updateSetting"
             />
         </div>
@@ -66,7 +65,6 @@
                         :tool="styleTool"
                         :settings="settings"
                         :selected-text-box="selectedTextBox"
-                        @set-tool="setTool"
                         @update-setting="updateSetting"
                         @color-selected="stylePopoverOpen = false"
                     />
@@ -108,6 +106,7 @@ import PdfAnnotationToolbar from '@app/modules/pdf-viewer/components/PdfAnnotati
 
 interface IProps {
     tool: TAnnotationTool;
+    isVisible?: boolean | undefined;
     keepActive: boolean;
     settings: IAnnotationSettings;
     comments: IAnnotationCommentSummary[];
@@ -125,6 +124,7 @@ const { t } = useTypedI18n();
 
 const {
     keepActive,
+    isVisible = true,
     tool,
     settings,
     comments,
@@ -138,10 +138,13 @@ const activeCommentStableKey = computed(() => rawActiveCommentStableKey ?? undef
 const styleTool = computed<TAnnotationTool>(() => (
     selectedTextBox !== null && (tool === 'select' || tool === 'none') ? 'text' : tool
 ));
-const showStyleEditor = computed(() => isAuthoringAnnotationTool(styleTool.value));
+const showStyleEditor = computed(() => isVisible && isAuthoringAnnotationTool(styleTool.value));
 const stylePopoverOpen = ref(false);
 const toolbarRef = ref<IPdfAnnotationToolbarExpose | null>(null);
-const stylePopoverReference = computed(() => toolbarRef.value?.getButtonEl(styleTool.value) ?? null);
+const stylePopoverReference = computed(() => {
+    const reference = toolbarRef.value?.getButtonEl(styleTool.value) ?? null;
+    return reference?.isConnected === false ? null : reference;
+});
 const stylePopoverContent = {
     align: 'start' as const,
     side: 'bottom' as const,
@@ -225,28 +228,51 @@ function clearStylePopoverReopenTimer() {
     stylePopoverReopenTimer = null;
 }
 
+function hasUsableStylePopoverReference() {
+    const reference = stylePopoverReference.value;
+    if (reference === null) {
+        return false;
+    }
+
+    if (typeof window === 'undefined') {
+        return true;
+    }
+
+    const rect = reference.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+        return false;
+    }
+
+    const computedStyle = window.getComputedStyle(reference);
+    return computedStyle.display !== 'none' && computedStyle.visibility !== 'hidden';
+}
+
+function canOpenStylePopover() {
+    return showStyleEditor.value
+        && commentsStatus !== 'loading'
+        && hasUsableStylePopoverReference();
+}
+
 watch(() => [
     tool,
     selectedTextBox,
+    isVisible,
+    commentsStatus,
 ], async () => {
     clearStylePopoverReopenTimer();
-    if (!showStyleEditor.value) {
+    if (!showStyleEditor.value || commentsStatus === 'loading') {
         stylePopoverOpen.value = false;
         return;
     }
 
     await nextTick();
-    stylePopoverOpen.value = true;
+    stylePopoverOpen.value = canOpenStylePopover();
 });
 
-watch(() => commentsStatus, (status) => {
-    if (status === 'loading') {
-        clearStylePopoverReopenTimer();
-        stylePopoverOpen.value = false;
-    }
+onBeforeUnmount(() => {
+    clearStylePopoverReopenTimer();
+    stylePopoverOpen.value = false;
 });
-
-onBeforeUnmount(clearStylePopoverReopenTimer);
 
 function setTool(nextTool: TAnnotationTool) {
     emit('set-tool', nextTool === tool ? 'none' : nextTool);
@@ -261,7 +287,7 @@ function updateSetting(payload: {
         clearStylePopoverReopenTimer();
         stylePopoverReopenTimer = setTimeout(() => {
             stylePopoverReopenTimer = null;
-            if (showStyleEditor.value) {
+            if (canOpenStylePopover()) {
                 stylePopoverOpen.value = true;
             }
         });

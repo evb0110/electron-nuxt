@@ -370,6 +370,13 @@ pub(crate) fn hint_colors_conflict(left: &MarkupSubtypeHint, right: &MarkupSubty
     }
 }
 
+fn hint_opacities_conflict(left: &MarkupSubtypeHint, right: &MarkupSubtypeHint) -> bool {
+    match (left.opacity, right.opacity) {
+        (Some(left), Some(right)) => (left - right).abs() > f64::EPSILON,
+        _ => false,
+    }
+}
+
 pub(crate) fn normalize_hint_annotation_ref(hint: &MarkupSubtypeHint) -> Option<String> {
     hint.annotation_id
         .as_deref()
@@ -383,6 +390,7 @@ pub(crate) fn subtype_hints_share_geometry(
     left.page_index == right.page_index
         && left.subtype == right.subtype
         && !hint_colors_conflict(left, right)
+        && !hint_opacities_conflict(left, right)
         && marker_rect_iou(Some(left.marker_rect), Some(right.marker_rect))
             >= DUPLICATE_MARKUP_SUBTYPE_HINT_IOU
 }
@@ -408,6 +416,7 @@ pub(crate) fn merge_subtype_hints(
             .clone()
             .or_else(|| incoming.annotation_id.clone()),
         color: existing.color.clone().or_else(|| incoming.color.clone()),
+        opacity: existing.opacity.or(incoming.opacity),
         contents: existing
             .contents
             .clone()

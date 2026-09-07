@@ -105,6 +105,55 @@ describe('workspace save failure surfacing', () => {
         );
     });
 
+    it('passes native identity bindings to the annotation save commit', async () => {
+        const identityBindings = [{
+            annotationId: 'note-1',
+            pdfRef: '11 0 R',
+        }];
+        const commitAnnotationSave = vi.fn();
+        const trySavePdfNativeMutations: TPdfNativeMutationSave = vi.fn(async () => ({
+            success: true,
+            outPath: requireDocumentRef('/tmp/work.pdf'),
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+            materializedIdentityBindings: identityBindings,
+        }));
+        const { deps } = createDeps({
+            originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            annotationDirty: ref(true),
+            hasAnnotationChanges: vi.fn(() => true),
+            trySavePdfNativeMutations,
+            runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
+                source: 'native' as const,
+                baseBytes: null,
+                serializedBytes: null,
+                serializedResult: null,
+                nativeMutationProjection: {
+                    mutations: {updates: []},
+                    noteTextUpdates: [],
+                    noteGeometryUpdates: [],
+                    freeTextNotes: [],
+                    freeTextEditors: [],
+                    textBoxes: [],
+                    annotationDeletes: [],
+                    hasMetadataMutations: false,
+                    hasShapeMutations: false,
+                    hasMarkupMutations: false,
+                    phase: 'persist-native-pdf-mutations',
+                },
+                fallbackDecision: null,
+                annotationSavePlan: null,
+                commitAnnotationSave,
+            })),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(true);
+
+        expect(commitAnnotationSave).toHaveBeenCalledExactlyOnceWith(identityBindings);
+    });
+
     it('reports a validation rejection instead of returning a silent false', async () => {
         const { deps } = createDeps({validatePdfPath: vi.fn(async () => ({
             isValid: false,

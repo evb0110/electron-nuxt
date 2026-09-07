@@ -902,6 +902,12 @@ pub(crate) struct NoteGeometryUpdate {
     pub(crate) generation_number: u16,
     pub(crate) page_index: u32,
     pub(crate) marker_rect: MarkerRect,
+    /// `None` leaves an imported note's existing color untouched. `Some(None)`
+    /// removes `/C`, which represents the canonical null color.
+    #[serde(default)]
+    pub(crate) color: Option<Option<String>>,
+    #[serde(default)]
+    pub(crate) open: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -923,6 +929,8 @@ pub(crate) struct TextNote {
     pub(crate) author: Option<String>,
     pub(crate) color: Option<String>,
     pub(crate) created_at: Option<u64>,
+    #[serde(default)]
+    pub(crate) open: bool,
 }
 
 /// Legacy mutation callers still send `freeTextNotes`. Keep the old Rust name
@@ -1032,6 +1040,8 @@ pub(crate) struct MarkupSubtypeHint {
     pub(crate) app_annotation_id: Option<String>,
     #[serde(default)]
     pub(crate) color: Option<String>,
+    #[serde(default)]
+    pub(crate) opacity: Option<f64>,
     #[serde(default)]
     pub(crate) contents: Option<String>,
     #[serde(default)]

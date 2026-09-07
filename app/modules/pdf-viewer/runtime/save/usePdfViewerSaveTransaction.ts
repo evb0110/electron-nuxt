@@ -37,6 +37,7 @@ import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { collectNativeTextBoxMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
@@ -78,7 +79,7 @@ interface IUsePdfViewerSaveTransactionOptions {
         verifyPath?(path: string, knownSize: number): Promise<void>;
         assertCurrent?(): Promise<void> | void;
         replaceFromDocument?(result: IPdfAnnotationParseResult): void;
-        commit(): void;
+        commit(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]): void;
     };
 }
 
@@ -216,7 +217,11 @@ export const usePdfViewerSaveTransaction = (
             verify: () => Promise.resolve(),
             verifyPath: () => Promise.resolve(),
             assertCurrent: () => application.assertSaveCurrent(session, input.documentRevisionToken),
-            commit: () => application.acknowledgeSave(session, input.documentRevisionToken),
+            commit: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => application.acknowledgeSave(
+                session,
+                input.documentRevisionToken,
+                identityBindings,
+            ),
             replaceFromDocument: (result: IPdfAnnotationParseResult) => application.store.replaceFromDocument(
                 result.entities.map(entry => mapPdfAnnotationParseEntity(entry)),
                 result.foreign.map(mapPdfAnnotationParseForeign),
@@ -384,7 +389,7 @@ export const usePdfViewerSaveTransaction = (
                 await verifyPath(path, knownSize);
                 assertSaveTargetCurrent();
             },
-            commitAnnotationSave: () => {
+            commitAnnotationSave: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => {
                 // Persistence may legitimately advance the document revision and
                 // open fence. The frozen store frontier still performs semantic
                 // CAS. If a successful Save As/reload retired this application,
@@ -395,7 +400,7 @@ export const usePdfViewerSaveTransaction = (
                 ) {
                     return;
                 }
-                canonicalSave?.commit();
+                canonicalSave?.commit(identityBindings);
             },
             assertAnnotationSaveCurrent: async () => {
                 assertSaveTargetCurrent();

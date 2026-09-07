@@ -11,6 +11,7 @@ import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotati
 import type {ISerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import type {
+    IPdfNativeAnnotationIdentityBinding,
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextEditor,
     IPdfNativeFreeTextNote,
@@ -198,7 +199,7 @@ export interface IPdfViewerSaveTransactionResult {
     verifyAnnotationSave?(bytes: Uint8Array): Promise<void>;
     verifyAnnotationSavePath?(path: string, knownSize: number): Promise<void>;
     assertAnnotationSaveCurrent?(): Promise<void> | void;
-    commitAnnotationSave?(): void;
+    commitAnnotationSave?(identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]): void;
     /**
      * Executes the exact classifier-owned fallback captured by a plan-only
      * transaction. It retains the same annotation frontier and serialization

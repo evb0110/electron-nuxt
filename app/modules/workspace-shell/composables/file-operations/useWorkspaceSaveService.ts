@@ -682,6 +682,7 @@ async function executeNativeMutationSave(
         return notSavedAfterWrite(abortReasonForPersistResult(persisted), null);
     }
 
+    const materializedIdentityBindings = persisted.materializedIdentityBindings;
     if (plan.request.kind === 'save-as') {
         const saveAsPersisted = await timedSavePhase(
             'persist-save_as-native-writer-output',
@@ -724,7 +725,9 @@ async function executeNativeMutationSave(
     if (projection.hasShapeMutations && canMarkShapeStateSaved) {
         deps.shapes.markSaved?.(preparedShapeStateSnapshot);
     }
-    saveTransaction.commitAnnotationSave?.();
+    saveTransaction.commitAnnotationSave?.(
+        persisted.materializedIdentityBindings ?? materializedIdentityBindings,
+    );
 
     const expectedWorkingPath = plan.target.expectedWorkingPath;
     // Native persistence advances the document revision after publication. The
@@ -848,7 +851,7 @@ function getCompletionBaseline(
     deps: IWorkspaceSaveDependencies,
 ) {
     if (result.annotationMaterializationBaseline === undefined) {
-        result.commitAnnotationSave?.();
+        result.commitAnnotationSave?.(result.persisted.materializedIdentityBindings);
         return plan.baseline;
     }
 
@@ -857,7 +860,7 @@ function getCompletionBaseline(
             deps.annotations.getSaveStateToken(),
             result.annotationMaterializationBaseline,
         );
-    result.commitAnnotationSave?.();
+    result.commitAnnotationSave?.(result.persisted.materializedIdentityBindings);
     return {
         ...plan.baseline,
         annotations: saveFrontierIsStillCurrent

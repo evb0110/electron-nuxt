@@ -60,6 +60,23 @@ describe('AnnotationApplication', () => {
         expect(application.store.dirtyEntities()).toHaveLength(0);
     });
 
+    it('applies native identity bindings when acknowledging a save', () => {
+        const application = new AnnotationApplication('document');
+        application.store.createNote(note());
+        const session = application.beginSave();
+
+        application.acknowledgeSave(session, null, [{
+            annotationId: 'note-1',
+            pdfRef: '11 0 R',
+        }]);
+
+        expect(application.store.get(asAnnotationId('note-1'))).toMatchObject({
+            persistedRevision: 0,
+            identity: {pdfRef: '11 0 R'},
+        });
+        expect(application.store.resolveExternal({pdfRef: '11 0 R'})).toBe(asAnnotationId('note-1'));
+    });
+
     it('maps legacy line and arrow shapes to canonical tools', () => {
         const entity = toCanonicalShapeEntity({
             id: 'shape-1',

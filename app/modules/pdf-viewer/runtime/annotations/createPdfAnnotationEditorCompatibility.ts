@@ -16,6 +16,7 @@ interface ICreatePdfAnnotationEditorCompatibilityOptions {
     annotationApplication: ShallowRef<AnnotationApplication>;
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
     canonicalMarkupSubtypeHints: Map<string, TMarkupSubtype>;
+    commitPendingFreeTextDraftsForSave?: () => void;
 }
 
 function selectedTextMarkupEntity(
@@ -120,7 +121,9 @@ export function createPdfAnnotationEditorCompatibility(
         ensureFreeTextEditorCanResize: freeTextResize.ensureFreeTextEditorCanResize,
         initAnnotationEditor: () => {},
         destroyAnnotationEditor: () => {},
-        commitPendingFreeTextDraftsForSave: () => {},
+        commitPendingFreeTextDraftsForSave: () => {
+            options.commitPendingFreeTextDraftsForSave?.();
+        },
     };
 
     function selectionMarkupStyle(subtype: TMarkupSubtype) {

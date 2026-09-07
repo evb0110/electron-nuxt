@@ -313,6 +313,111 @@ describe('usePdfAnnotationEditorSurface', () => {
         harness.stop();
     });
 
+    it('commits registered text box drafts before save and unregisters disposed editors', () => {
+        const harness = createSurfaceHarness();
+        const firstCommitter = vi.fn();
+        const secondCommitter = vi.fn();
+        const unregisterFirst = harness.surface.registerTextBoxDraftCommitter(firstCommitter);
+        harness.surface.registerTextBoxDraftCommitter(secondCommitter);
+
+        harness.surface.commitPendingTextBoxDraftsForSave();
+        expect(firstCommitter).toHaveBeenCalledOnce();
+        expect(secondCommitter).toHaveBeenCalledOnce();
+
+        unregisterFirst();
+        harness.surface.commitPendingTextBoxDraftsForSave();
+        expect(firstCommitter).toHaveBeenCalledOnce();
+        expect(secondCommitter).toHaveBeenCalledTimes(2);
+
+        harness.stop();
+    });
+
+    it('reports pending text box drafts until the editor commits or cancels them', () => {
+        const harness = createSurfaceHarness();
+        const annotationId = asAnnotationId('pending-text-box');
+        harness.annotationApplication.value.store.createTextBox({
+            kind: 'text-box',
+            ...baseEntity(annotationId),
+            text: '',
+            rect,
+            rotation: 0,
+            fontSize: 14,
+            color: '#111827',
+        });
+
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        harness.surface.setTextBoxDraftPending(annotationId);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+
+        // Repeated input events for one editor must not inflate the count.
+        harness.surface.setTextBoxDraftPending(annotationId);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+
+        harness.surface.clearTextBoxDraftPending(annotationId);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        harness.surface.clearTextBoxDraftPending(annotationId);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+
+        harness.surface.setTextBoxDraftPending(annotationId);
+        harness.annotationApplication.value = new AnnotationApplication('surface-next-document');
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+
+        harness.stop();
+    });
+
+    it('ignores stale draft input for an id that is absent from the current document', () => {
+        const harness = createSurfaceHarness();
+
+        harness.surface.setTextBoxDraftPending(asAnnotationId('stale-text-box'));
+
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        harness.stop();
+    });
+
+    it('prunes pending drafts when text boxes are discarded or deleted', () => {
+        const harness = createSurfaceHarness();
+        const createTextBox = (id: string) => harness.annotationApplication.value.store.createTextBox({
+            kind: 'text-box',
+            ...baseEntity(id),
+            text: '',
+            rect,
+            rotation: 0,
+            fontSize: 14,
+            color: '#111827',
+        });
+        const markPending = (id: string) => harness.surface.setTextBoxDraftPending(asAnnotationId(id));
+
+        const discarded = createTextBox('discarded-pending-text-box');
+        const discardUnrelated = createTextBox('discard-unrelated-pending-text-box');
+        markPending(discarded.identity.id);
+        markPending(discardUnrelated.identity.id);
+        expect(harness.surface.discardUnsavedAnnotation(discarded.identity.id)).toBe(true);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+        harness.surface.clearTextBoxDraftPending(discardUnrelated.identity.id);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+
+        const deleted = createTextBox('deleted-pending-text-box');
+        const deleteUnrelated = createTextBox('delete-unrelated-pending-text-box');
+        markPending(deleted.identity.id);
+        markPending(deleteUnrelated.identity.id);
+        expect(harness.surface.deleteAnnotation(deleted.identity.id)).toBe(true);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+        harness.surface.clearTextBoxDraftPending(deleteUnrelated.identity.id);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+
+        const selected = createTextBox('selection-pending-text-box');
+        const selectionUnrelated = createTextBox('selection-unrelated-pending-text-box');
+        markPending(selected.identity.id);
+        markPending(selectionUnrelated.identity.id);
+        harness.surface.select([selected.identity.id]);
+        harness.surface.deleteSelection();
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+        harness.surface.clearTextBoxDraftPending(selectionUnrelated.identity.id);
+        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+
+        harness.stop();
+    });
+
     it('discards a never-saved text box without leaving a tombstone or undo command', () => {
         const harness = createSurfaceHarness();
         const created = harness.surface.createTextBoxAt(0, rect);

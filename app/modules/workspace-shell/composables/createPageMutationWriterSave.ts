@@ -5,6 +5,7 @@ import type {
 } from '@app/modules/pdf-viewer/public';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import {
     consumeNativePdfMutationProjection,
     NativePdfSaveRequiredError,
@@ -69,7 +70,7 @@ export function createPageMutationWriterSave(deps: {
             });
         }
         await transaction.assertAnnotationSaveCurrent?.();
-        const reloadPromise = deps.waitForPdfReload(capturedPage);
+        let materializedIdentityBindings: readonly IPdfNativeAnnotationIdentityBinding[] = [];
         await consumeNativePdfMutationProjection({
             workingPath: capturedWorkingCopyPath,
             expectedDocumentRevisionToken: capturedDocumentRevisionToken,
@@ -77,13 +78,30 @@ export function createPageMutationWriterSave(deps: {
             operation: 'replace',
             ...(transaction.verifyAnnotationSavePath ? {verifyPathBeforeExpose: transaction.verifyAnnotationSavePath} : {}),
             ...(transaction.assertAnnotationSaveCurrent ? {assertBeforeExpose: transaction.assertAnnotationSaveCurrent} : {}),
+            onIdentityBindings: bindings => {
+                materializedIdentityBindings = bindings;
+            },
         });
+        if (!isCapturedTargetCurrent(false)) {
+            return false;
+        }
+        let didCommitAnnotationSave = false;
+        if (materializedIdentityBindings.length > 0) {
+            // Reloading the working copy advances the document revision and
+            // starts the annotation parser. Bind new native refs before that
+            // parser runs so it can reconcile the parsed object to the app id.
+            transaction.commitAnnotationSave?.(materializedIdentityBindings);
+            didCommitAnnotationSave = true;
+        }
+        const reloadPromise = deps.waitForPdfReload(capturedPage);
         await deps.loadPdfFromPath(capturedWorkingCopyPath, {markDirty: true});
         await reloadPromise;
         if (!isCapturedTargetCurrent(false)) {
             return false;
         }
-        transaction.commitAnnotationSave?.();
+        if (!didCommitAnnotationSave) {
+            transaction.commitAnnotationSave?.(materializedIdentityBindings);
+        }
         return true;
     };
 }

@@ -195,6 +195,47 @@ describe('usePdfViewerZoomRerenderQueue', () => {
         queue.cleanupZoomRerenderQueue();
     });
 
+    it('retires deferred resize work when the document becomes unavailable before the bound', async () => {
+        vi.useFakeTimers();
+        const zoomRender = Promise.withResolvers<undefined>();
+        const isLoading = ref(false);
+        const reRenderVisiblePagesAndSyncCurrentPage = vi.fn<TQueueOptions['reRenderVisiblePagesAndSyncCurrentPage']>(
+            options => options?.source === 'zoom-change' ? zoomRender.promise : Promise.resolve(),
+        );
+        const {
+            queue,
+            scheduleEndResizeTransition,
+        } = createQueueHarness({
+            isLoading,
+            reRenderVisiblePagesAndSyncCurrentPage,
+        });
+
+        queue.enqueueZoomSync({
+            source: 'zoom-change',
+            resizeAnchor: createResizeAnchor(1, 40),
+        });
+        queue.scheduleResizeAwareRerender('resize settle', {
+            source: 'resize-settle',
+            resizeAnchor: createResizeAnchor(2, 41),
+        });
+
+        await vi.advanceTimersByTimeAsync(1);
+        isLoading.value = true;
+        await vi.advanceTimersByTimeAsync(1_500);
+
+        expect(scheduleEndResizeTransition).toHaveBeenCalledWith(
+            41,
+            'deferred-resize-document-not-ready',
+            2,
+        );
+        expect(reRenderVisiblePagesAndSyncCurrentPage).not.toHaveBeenCalledWith(
+            expect.objectContaining({source: 'resize-settle'}),
+        );
+        zoomRender.resolve(undefined);
+        await Promise.resolve();
+        queue.cleanupZoomRerenderQueue();
+    });
+
     it('defers locked gesture rerenders and drains only the latest pending sync options', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1_000);

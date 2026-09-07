@@ -194,7 +194,9 @@ pub(crate) fn classify_pdf_load_error(error: Box<dyn Error>, context: &str) -> B
 
 /// The three append commands differ only in the payload schema they accept, so
 /// they are normalized to one mutation set and share a single append path.
-fn read_append_mutations(operation: &Operation) -> Result<Option<(NativeMutationsFile, &str)>> {
+pub(crate) fn read_append_mutations(
+    operation: &Operation,
+) -> Result<Option<(NativeMutationsFile, &str)>> {
     let mutations = match operation {
         Operation::UpdateNoteText {
             updates_file,
@@ -218,6 +220,7 @@ fn read_append_mutations(operation: &Operation) -> Result<Option<(NativeMutation
             (
                 NativeMutationsFile {
                     updates: changes.updates,
+                    geometry_updates: changes.geometry_updates,
                     notes: changes.notes,
                     free_text_notes: changes.free_text_notes,
                     deletes: changes.deletes,
@@ -237,7 +240,9 @@ fn read_append_mutations(operation: &Operation) -> Result<Option<(NativeMutation
     Ok(Some(mutations))
 }
 
-fn read_non_append_mutations(operation: &Operation) -> Result<Option<(NativeMutationsFile, &str)>> {
+pub(crate) fn read_non_append_mutations(
+    operation: &Operation,
+) -> Result<Option<(NativeMutationsFile, &str)>> {
     let mutations = match operation {
         Operation::UpdateNoteText {
             updates_file,
@@ -261,6 +266,7 @@ fn read_non_append_mutations(operation: &Operation) -> Result<Option<(NativeMuta
             (
                 NativeMutationsFile {
                     updates: changes.updates,
+                    geometry_updates: changes.geometry_updates,
                     notes: changes.notes,
                     free_text_notes: changes.free_text_notes,
                     deletes: changes.deletes,

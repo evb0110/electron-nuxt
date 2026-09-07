@@ -988,7 +988,11 @@ fn build_mutations(
             kind: "highlight",
             expected_color: Some(EDITED_HIGHLIGHT_STORED_COLOR),
             expected_rotation: None,
-            expected_opacity: Some(1.0),
+            expected_opacity: Some(
+                entry["opacity"]
+                    .as_f64()
+                    .expect("highlight opacity should survive an omitted rewrite hint"),
+            ),
             allowed_keys: keys(&["C", "CA", "AP", "M"]),
             ..Edit::default()
         });

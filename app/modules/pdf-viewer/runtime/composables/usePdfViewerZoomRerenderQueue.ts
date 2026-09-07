@@ -348,7 +348,11 @@ export const usePdfViewerZoomRerenderQueue = (options: IUsePdfViewerZoomRerender
             deferredResizeMaxTimer = setTimeout(() => {
                 deferredResizeMaxTimer = null;
                 const deferred = deferredResizeSyncAfterZoom;
-                if (!deferred || !isDocumentReadyForZoomRerender()) {
+                if (!deferred) {
+                    return;
+                }
+                if (!isDocumentReadyForZoomRerender()) {
+                    cancelDeferredResizeRerender('deferred-resize-document-not-ready');
                     return;
                 }
                 deferredResizeSyncAfterZoom = null;

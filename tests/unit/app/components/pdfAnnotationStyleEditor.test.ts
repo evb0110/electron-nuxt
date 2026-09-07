@@ -49,20 +49,38 @@ const IconStub = defineComponent({
 
 const activeUnmounts = new Set<() => void>();
 
-function mountEditor() {
+interface IMountEditorOptions {
+    tool?: 'draw' | 'text';
+    selectedTextBox?: {
+        color: string;
+        fontSize: number;
+    } | null;
+}
+
+function mountEditor({
+    tool = 'text',
+    selectedTextBox = {
+        color: '#123456',
+        fontSize: 14,
+    },
+}: IMountEditorOptions = {}) {
     const host = document.createElement('div');
     document.body.append(host);
     const updates: Array<{
         key: string;
         value: unknown
     }> = [];
+    const selectedTools: string[] = [];
+    let activeTool: 'draw' | 'text' | 'none' = tool;
+    const setTool = (nextTool: 'draw' | 'text' | 'none') => {
+        selectedTools.push(nextTool);
+        activeTool = activeTool === nextTool ? 'none' : nextTool;
+    };
     const app = createApp(defineComponent({setup: () => () => h(PdfAnnotationStyleEditor, {
         settings: {...DEFAULT_ANNOTATION_SETTINGS},
-        selectedTextBox: {
-            color: '#123456',
-            fontSize: 14,
-        },
-        tool: 'text',
+        selectedTextBox,
+        tool,
+        onSetTool: setTool,
         onUpdateSetting: (payload: {
             key: string;
             value: unknown
@@ -84,6 +102,10 @@ function mountEditor() {
     return {
         host,
         updates,
+        selectedTools,
+        get activeTool() {
+            return activeTool;
+        },
     };
 }
 
@@ -115,5 +137,32 @@ describe('PdfAnnotationStyleEditor', () => {
             key: 'textSize',
             value: 15,
         });
+    });
+
+    it('changes draw presets without toggling the active draw tool off', () => {
+        const editor = mountEditor({
+            tool: 'draw',
+            selectedTextBox: null,
+        });
+        const {
+            host,
+            updates,
+            selectedTools,
+        } = editor;
+
+        host.querySelector<HTMLButtonElement>('.draw-style-button:last-child')?.click();
+
+        expect(selectedTools).toEqual([]);
+        expect(editor.activeTool).toBe('draw');
+        expect(updates).toEqual([
+            {
+                key: 'inkThickness',
+                value: 6,
+            },
+            {
+                key: 'inkOpacity',
+                value: 0.42,
+            },
+        ]);
     });
 });

@@ -60,6 +60,11 @@ export interface IAnnotationEditorSurface {
     select(ids: readonly AnnotationId[], options?: { additive?: boolean }): void;
     clearSelection(): void;
     getSelectedTextBox(): ITextBoxEntity | null;
+    registerTextBoxDraftCommitter(committer: () => void): () => void;
+    commitPendingTextBoxDraftsForSave(): void;
+    setTextBoxDraftPending(annotationId: AnnotationId): void;
+    clearTextBoxDraftPending(annotationId: AnnotationId): void;
+    hasPendingTextBoxDrafts(): boolean;
     updateSelectedTextBoxProperties(
         updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
     ): boolean;
@@ -215,11 +220,38 @@ export const usePdfAnnotationEditorSurface = (
 ): IAnnotationEditorSurface => {
     const entitiesByPage = shallowRef<ReadonlyMap<number, readonly AnnotationEntity[]>>(new Map());
     const selectedIds = shallowRef<ReadonlySet<AnnotationId>>(new Set());
+    const textBoxDraftCommitters = new Set<() => void>();
+    const pendingTextBoxDraftIds = new Set<AnnotationId>();
+    const pendingTextBoxDraftCount = ref(0);
     let stopSubscription: (() => void) | null = null;
+    let subscribedApplication: AnnotationApplication | null = null;
+
+    function clearPendingTextBoxDrafts() {
+        pendingTextBoxDraftIds.clear();
+        pendingTextBoxDraftCount.value = 0;
+    }
+
+    function prunePendingTextBoxDrafts(entities: readonly AnnotationEntity[]) {
+        const liveTextBoxIds = new Set(
+            entities
+                .filter((entity): entity is ITextBoxEntity => entity.kind === 'text-box' && !entity.deleted)
+                .map(entity => entity.identity.id),
+        );
+        [...pendingTextBoxDraftIds].forEach((annotationId) => {
+            if (!liveTextBoxIds.has(annotationId)) {
+                clearTextBoxDraftPending(annotationId);
+            }
+        });
+    }
 
     function subscribeToApplication(application: AnnotationApplication) {
+        if (subscribedApplication && subscribedApplication !== application) {
+            clearPendingTextBoxDrafts();
+        }
+        subscribedApplication = application;
         stopSubscription?.();
         stopSubscription = application.store.subscribe((entities) => {
+            prunePendingTextBoxDrafts(entities);
             // The store emission is the only retained projection. Group it in
             // one pass so each page component reads the same stable snapshot.
             entitiesByPage.value = groupAnnotationEntitiesByPage(entities);
@@ -231,7 +263,46 @@ export const usePdfAnnotationEditorSurface = (
         immediate: true,
         flush: 'sync',
     });
-    onScopeDispose(() => stopSubscription?.());
+    onScopeDispose(() => {
+        stopSubscription?.();
+        textBoxDraftCommitters.clear();
+        clearPendingTextBoxDrafts();
+        subscribedApplication = null;
+    });
+
+    function registerTextBoxDraftCommitter(committer: () => void) {
+        textBoxDraftCommitters.add(committer);
+        return () => {
+            textBoxDraftCommitters.delete(committer);
+        };
+    }
+
+    function commitPendingTextBoxDraftsForSave() {
+        [...textBoxDraftCommitters].forEach(committer => committer());
+    }
+
+    function setTextBoxDraftPending(annotationId: AnnotationId) {
+        const entity = store().get(annotationId);
+        if (entity?.kind !== 'text-box' || entity.deleted) {
+            return;
+        }
+        if (pendingTextBoxDraftIds.has(annotationId)) {
+            return;
+        }
+        pendingTextBoxDraftIds.add(annotationId);
+        pendingTextBoxDraftCount.value += 1;
+    }
+
+    function clearTextBoxDraftPending(annotationId: AnnotationId) {
+        if (!pendingTextBoxDraftIds.delete(annotationId)) {
+            return;
+        }
+        pendingTextBoxDraftCount.value = Math.max(0, pendingTextBoxDraftCount.value - 1);
+    }
+
+    function hasPendingTextBoxDrafts() {
+        return pendingTextBoxDraftCount.value > 0;
+    }
 
     function store() {
         return options.annotationApplication.value.store;
@@ -611,6 +682,11 @@ export const usePdfAnnotationEditorSurface = (
         select,
         clearSelection,
         getSelectedTextBox,
+        registerTextBoxDraftCommitter,
+        commitPendingTextBoxDraftsForSave,
+        setTextBoxDraftPending,
+        clearTextBoxDraftPending,
+        hasPendingTextBoxDrafts,
         updateSelectedTextBoxProperties,
         discardUnsavedAnnotation,
         deleteAnnotation,

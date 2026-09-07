@@ -322,6 +322,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         state => options.emitAnnotationEnrichmentState(state),
         { immediate: true },
     );
+    let commitPendingEditorDraftsForSave = () => {};
     const {
         editor,
         selectionMarkupStyle,
@@ -329,6 +330,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationApplication,
         annotationSettings: options.annotationSettings,
         canonicalMarkupSubtypeHints,
+        commitPendingFreeTextDraftsForSave: () => commitPendingEditorDraftsForSave(),
     });
     function emitAnnotationOpenNoteWithReconciliation(comment: IAnnotationCommentSummary) {
         emitCanonicalAnnotationOpenNote({
@@ -391,6 +393,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             }
         },
     });
+    commitPendingEditorDraftsForSave = annotationEditorSurface.commitPendingTextBoxDraftsForSave;
     provide(annotationEditorSurfaceKey, annotationEditorSurface);
     async function createSelectionMarkup(
         range: Range,
@@ -1070,7 +1073,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         hasCanonicalAnnotationChanges: () => {
             // Keep the framework dependency on the canonical projection.
             void annotationProjection.value;
-            return annotationApplication.value.store.hasChangesSinceSavedBaseline();
+            return annotationApplication.value.store.hasChangesSinceSavedBaseline()
+                || annotationEditorSurface.hasPendingTextBoxDrafts();
         },
         hasCanonicalShapeChanges: () => {
             // Keep the framework dependency on the canonical projection.

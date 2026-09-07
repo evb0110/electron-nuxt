@@ -40,6 +40,7 @@ import {
     clickLatestVisibleNoteWindowClose,
     collectAnnotationOwnershipDebugState,
     collectStickyNoteDebugState,
+    createCanonicalTextBoxWithPointer,
     createStickyNoteWithPointer,
     createFreeTextAnnotation,
     createHighlightWithPdfjsManager,
@@ -74,6 +75,7 @@ import {
 import { getErrorMessage } from '@contracts/getErrorMessage';
 
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
+const COMMAND_MODIFIER = process.platform === 'darwin' ? 'Meta' : 'Control';
 const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
 const CANONICAL_STAMP_SELECTOR = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-stamp';
 const PLACED_IMAGE_JPEG = Buffer.from(
@@ -809,6 +811,52 @@ async function waitForSidebarAnnotationText(page: Page, expectedText: string) {
     }, { timeout: 8_000 }, expectedText);
 }
 
+async function openCanonicalTextBoxEditor(page: Page, annotationId: string) {
+    const centerHandle = await page.waitForFunction((expectedId: string) => {
+        const entity = Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+        )).find(candidate => candidate.dataset.annotationId === expectedId);
+        const rect = entity?.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+            return false;
+        }
+        return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        };
+    }, {timeout: 30_000}, annotationId);
+    const center = await centerHandle.jsonValue() as {
+        x: number;
+        y: number;
+    };
+    await page.mouse.click(center.x, center.y, {count: 2});
+    await page.waitForFunction((expectedId: string) => {
+        const entity = Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+        )).find(candidate => candidate.dataset.annotationId === expectedId);
+        const editor = entity?.querySelector('[contenteditable="true"]');
+        return Boolean(
+            entity?.classList.contains('is-editing')
+            && editor
+            && document.activeElement === editor,
+        );
+    }, {timeout: 30_000}, annotationId);
+}
+
+async function readCanonicalTextBoxEditorState(page: Page, annotationId: string) {
+    return page.evaluate((expectedId: string) => {
+        const entity = Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+        )).find(candidate => candidate.dataset.annotationId === expectedId);
+        const editor = entity?.querySelector<HTMLElement>('[contenteditable="true"]');
+        return {
+            focused: editor !== null && document.activeElement === editor,
+            editing: entity?.classList.contains('is-editing') ?? false,
+            text: (editor?.textContent ?? entity?.textContent ?? '').replace(/[\u200B\uFEFF]/gu, '').trim(),
+        };
+    }, annotationId);
+}
+
 async function openThumbnailsTab(page: Page) {
     const result = await page.evaluate(() => {
         const isVisible = (candidate: HTMLElement) => {
@@ -1097,10 +1145,26 @@ async function editCanonicalNoteText(page: Page, currentText: string, nextText: 
         throw new Error('Canonical note editor did not provide a textarea for keyboard editing');
     }
     await textarea.click();
-    const selectAllModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-    await page.keyboard.down(selectAllModifier);
-    await page.keyboard.press('A');
-    await page.keyboard.up(selectAllModifier);
+    const client = await page.createCDPSession();
+    const modifier = process.platform === 'darwin' ? 4 : 2;
+    try {
+        await client.send('Input.dispatchKeyEvent', {
+            type: 'keyDown',
+            key: 'a',
+            code: 'KeyA',
+            modifiers: modifier,
+            commands: ['selectAll'],
+        });
+        await client.send('Input.dispatchKeyEvent', {
+            type: 'keyUp',
+            key: 'a',
+            code: 'KeyA',
+            modifiers: modifier,
+        });
+    }
+    finally {
+        await client.detach();
+    }
     await page.keyboard.type(nextText, {delay: 10});
     await page.keyboard.press('Tab');
     return waitForCanonicalNote(page, nextText);
@@ -1397,6 +1461,14 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             }
             await clickEntity(entity.id);
             await waitForSelectedCount(1);
+            if (kind === 'note') {
+                await clickLatestVisibleNoteWindowClose(page);
+                await waitForNoOpenNoteWindows(page);
+            }
+            // Note markers translate by one pixel while hovered. Move the
+            // pointer away before reading layout geometry so the undo checks
+            // compare the annotation position rather than hover styling.
+            await page.mouse.move(0, 0);
             await focusEditorLayer();
             const before = (await readGeometry()).find(candidate => candidate.id === entity.id);
             if (!before) {
@@ -1404,9 +1476,9 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             }
             await page.keyboard.press('ArrowRight');
             const moved = await waitForGeometry(entity.id, (initial, next) => next.left > initial.left, before);
-            await page.keyboard.down('Control');
+            await page.keyboard.down(COMMAND_MODIFIER);
             await page.keyboard.press('z');
-            await page.keyboard.up('Control');
+            await page.keyboard.up(COMMAND_MODIFIER);
             await page.waitForFunction((input: {
                 annotationId: string;
                 left: number;
@@ -1424,11 +1496,11 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                 left: before.left,
                 top: before.top,
             });
-            await page.keyboard.down('Control');
+            await page.keyboard.down(COMMAND_MODIFIER);
             await page.keyboard.down('Shift');
             await page.keyboard.press('z');
             await page.keyboard.up('Shift');
-            await page.keyboard.up('Control');
+            await page.keyboard.up(COMMAND_MODIFIER);
             await page.waitForFunction((input: {
                 annotationId: string;
                 left: number;
@@ -1449,9 +1521,9 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                     `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
                 )
             ), {timeout: 10_000}, entity.id);
-            await page.keyboard.down('Control');
+            await page.keyboard.down(COMMAND_MODIFIER);
             await page.keyboard.press('z');
-            await page.keyboard.up('Control');
+            await page.keyboard.up(COMMAND_MODIFIER);
             await page.waitForFunction((annotationId: string) => Boolean(
                 document.querySelector(
                     `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
@@ -1515,9 +1587,9 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             expect(after?.left).toBeGreaterThan(before?.left ?? Number.POSITIVE_INFINITY);
             expect(after?.top).toBeGreaterThan(before?.top ?? Number.POSITIVE_INFINITY);
         });
-        await page.keyboard.down('Control');
+        await page.keyboard.down(COMMAND_MODIFIER);
         await page.keyboard.press('z');
-        await page.keyboard.up('Control');
+        await page.keyboard.up(COMMAND_MODIFIER);
         await page.waitForFunction((input: Array<{
             id: string;
             left: number;
@@ -1737,6 +1809,111 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         const latestText = await latestTextHandle.jsonValue();
         expect(latestText).toContain(typedText);
     });
+
+    it('saves focused canonical text-box drafts across two saves and reopen', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `annotation-lifecycle-${Date.now()}-focused-text-box-save.pdf`,
+            1,
+        );
+        const reopenPath = fixturePath.replace(/\.pdf$/u, '-reopen.pdf');
+        onTestFinished(() => rmSync(reopenPath, {force: true}));
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+
+        const initialText = `Focused text box ${Date.now()}`;
+        const firstDraft = `${initialText} first`;
+        const secondDraft = `${firstDraft} second`;
+        const annotationId = await createCanonicalTextBoxWithPointer(page, initialText, {
+            x: 0.34,
+            y: 0.28,
+        });
+
+        await openCanonicalTextBoxEditor(page, annotationId);
+        await page.keyboard.press('End');
+        await page.keyboard.type(' first', {delay: 10});
+        await expect.poll(
+            () => readCanonicalTextBoxEditorState(page, annotationId),
+            {timeout: 10_000},
+        ).toMatchObject({
+            focused: true,
+            editing: true,
+            text: firstDraft,
+        });
+        await waitForActiveTabDirtyState(page, true);
+
+        const firstSave = await saveViaWindowHandle(page, 30_000);
+        expect(realpathSync(String(firstSave.detail.path))).toBe(realpathSync(fixturePath));
+        await expect.poll(
+            () => readCanonicalTextBoxEditorState(page, annotationId),
+            {timeout: 10_000},
+        ).toMatchObject({
+            editing: false,
+            text: firstDraft,
+        });
+        await waitForActiveTabDirtyState(page, false);
+        const firstRecords = (await readPdfTextAnnotationRecords(fixturePath))
+            .filter(record => record.subtype === '/FreeText');
+        expect(firstRecords).toEqual([expect.objectContaining({
+            contents: firstDraft,
+            subtype: '/FreeText',
+        })]);
+
+        await openCanonicalTextBoxEditor(page, annotationId);
+        await page.keyboard.press('End');
+        await page.keyboard.type(' second', {delay: 10});
+        await expect.poll(
+            () => readCanonicalTextBoxEditorState(page, annotationId),
+            {timeout: 10_000},
+        ).toMatchObject({
+            focused: true,
+            editing: true,
+            text: secondDraft,
+        });
+        await waitForActiveTabDirtyState(page, true);
+
+        const secondSave = await saveViaWindowHandle(page, 30_000);
+        expect(realpathSync(String(secondSave.detail.path))).toBe(realpathSync(fixturePath));
+        await expect.poll(
+            () => readCanonicalTextBoxEditorState(page, annotationId),
+            {timeout: 10_000},
+        ).toMatchObject({
+            editing: false,
+            text: secondDraft,
+        });
+        await waitForActiveTabDirtyState(page, false);
+        const secondRecords = (await readPdfTextAnnotationRecords(fixturePath))
+            .filter(record => record.subtype === '/FreeText');
+        expect(secondRecords).toEqual([expect.objectContaining({
+            contents: secondDraft,
+            subtype: '/FreeText',
+        })]);
+
+        copyFileSync(fixturePath, reopenPath);
+        await openPdfInApp(page, reopenPath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await waitForSidebarAnnotationText(page, secondDraft);
+        await page.waitForFunction((expectedText: string) => Array.from(
+            document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+            ),
+        ).filter(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText).length === 1,
+        {timeout: 30_000}, secondDraft);
+        const reopenedRecords = (await readPdfTextAnnotationRecords(reopenPath))
+            .filter(record => record.subtype === '/FreeText');
+        expect(reopenedRecords).toEqual([expect.objectContaining({
+            contents: secondDraft,
+            subtype: '/FreeText',
+        })]);
+    }, 120_000);
 
     it('opens writer annotations in the canonical sidebar and excludes link annotations', async () => {
         const session = sessionFixture.getSession();

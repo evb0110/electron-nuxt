@@ -3,6 +3,7 @@
 // why. Kept beside the save service rather than inside it so the reasons and
 // the shapes that use them stay one unit.
 import type { IPdfPersistResult } from '@app/types/pdfUi';
+import type { IPdfNativeAnnotationIdentityBinding } from '@contracts/electronApiDocuments';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TWorkspaceSaveFailureReason } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
@@ -60,7 +61,7 @@ export type TWorkspaceSaveExecutionResult =
          */
         preparedShapeState?: unknown;
         annotationMaterializationBaseline?: unknown;
-        commitAnnotationSave?: () => void;
+        commitAnnotationSave?: (identityBindings?: readonly IPdfNativeAnnotationIdentityBinding[]) => void;
     }
     | {
         status: 'not-saved';

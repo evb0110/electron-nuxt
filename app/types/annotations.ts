@@ -207,6 +207,7 @@ interface IAnnotationCommentSummaryFields {
     color: string | null;
     colorEdited?: boolean | undefined;
     fillColor?: string | null;
+    open?: boolean;
     opacity?: number | null;
     strokeWidth?: number | null;
     uid: string | null;

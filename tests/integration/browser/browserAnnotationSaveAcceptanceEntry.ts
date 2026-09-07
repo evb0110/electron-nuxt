@@ -83,11 +83,21 @@ async function runUnderCapFlow() {
 
         const applied = await capability.applyPdfNativeMutationsToWorkingCopy!(
             workingPath,
-            {updates: [{
-                objectNumber: note.objectNumber,
-                generationNumber: note.generationNumber,
-                text: 'after',
-            }]},
+            {
+                updates: [{
+                    objectNumber: note.objectNumber,
+                    generationNumber: note.generationNumber,
+                    text: 'after',
+                }],
+                geometryUpdates: [{
+                    objectNumber: note.objectNumber,
+                    generationNumber: note.generationNumber,
+                    pageIndex: note.pageIndex,
+                    markerRect: note.position,
+                    color: '#00aaff',
+                    open: true,
+                }],
+            },
             requirePdfDateString('D:20260102000000Z'),
             {expectedDocumentRevisionToken: openedRevision.token},
         );
@@ -113,7 +123,9 @@ async function runUnderCapFlow() {
         return {
             openedWithAnnotations: note.contents === 'before',
             canonicalWriterVerified: committed.nativeMutationPostconditionsVerified,
-            savedAndReopened: reopenedNote?.contents === 'after',
+            savedAndReopened: reopenedNote?.contents === 'after'
+                && reopenedNote.color === '#00aaff'
+                && reopenedNote.open === true,
         };
     } finally {
         if (workingPath) {

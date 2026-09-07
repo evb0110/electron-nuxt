@@ -407,6 +407,14 @@ function normalizeFreeTextNotes(
             author: normalizeOptionalString(note.author, `${label}[${index}].author`, options),
             color: normalizeOptionalString(note.color, `${label}[${index}].color`, options),
             createdAt: normalizeOptionalTimestamp(note.createdAt, `${label}[${index}].createdAt`, options),
+            ...(note.open === undefined
+                ? {}
+                : (() => {
+                    if (typeof note.open !== 'boolean') {
+                        fail(`${label}[${index}].open must be a boolean`, options);
+                    }
+                    return {open: note.open};
+                })()),
         };
     });
 }
@@ -609,6 +617,17 @@ function normalizePdfNativeNoteGeometryUpdates(
             generationNumber,
             pageIndex: requirePageIndex(pageIndex),
             markerRect: normalizeNativeMarkerRect(update.markerRect, `${label}[${index}].markerRect`, options),
+            ...(update.color === undefined
+                ? {}
+                : {color: normalizeOptionalString(update.color, `${label}[${index}].color`, options)}),
+            ...(update.open === undefined
+                ? {}
+                : (() => {
+                    if (typeof update.open !== 'boolean') {
+                        fail(`${label}[${index}].open must be a boolean`, options);
+                    }
+                    return {open: update.open};
+                })()),
         };
     });
 }
@@ -1044,7 +1063,7 @@ function normalizeMarkupHint(
     if (canonicalAppAnnotationId !== null && canonicalAppAnnotationId.length === 0) {
         fail(`${label}.appAnnotationId must be a non-empty string or null`, options);
     }
-    return {
+    const normalized = {
         subtype: normalizeMarkupSubtype(value.subtype, `${label}.subtype`, options),
         pageIndex: requirePageIndex(pageIndex),
         markerRect: normalizeMarkupMarkerRect(value.markerRect, `${label}.markerRect`, options),
@@ -1058,6 +1077,13 @@ function normalizeMarkupHint(
         id: normalizeMarkupOptionalString(value.id, `${label}.id`, options),
         pageMarkupIndex: normalizeMarkupOptionalIndex(value.pageMarkupIndex, `${label}.pageMarkupIndex`, options),
         source: normalizeMarkupOptionalString(value.source, `${label}.source`, options),
+    };
+    if (value.opacity === undefined) {
+        return normalized;
+    }
+    return {
+        ...normalized,
+        opacity: normalizeOptionalFiniteUnitNumber(value.opacity, `${label}.opacity`, options),
     };
 }
 

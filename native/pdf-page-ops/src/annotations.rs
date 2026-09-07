@@ -136,9 +136,15 @@ fn find_annotation_page_from_annots(
     .into())
 }
 
-fn set_annotation_geometry_dict(dict: &mut Dictionary, page_id: ObjectId, pdf_rect: PdfRect) {
+fn set_annotation_geometry_dict(
+    dict: &mut Dictionary,
+    page_id: ObjectId,
+    pdf_rect: PdfRect,
+    modified_at: &str,
+) {
     dict.set("Rect", rect_object(pdf_rect));
     dict.set("P", Object::Reference(page_id));
+    set_annotation_modified_at(dict, modified_at);
 }
 
 fn remove_annotation_refs_from_page(
@@ -233,14 +239,20 @@ pub(crate) fn update_note_geometry(
 
         {
             let target_dict = document.get_dictionary_mut(target.annotation_id)?;
-            set_annotation_geometry_dict(target_dict, destination_page_id, pdf_rect);
+            set_annotation_geometry_dict(target_dict, destination_page_id, pdf_rect, modified_at);
+            apply_note_style_update(target_dict, update);
             if let Ok(Object::Dictionary(popup_dict)) = target_dict.get_mut(b"Popup") {
-                set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect);
+                set_annotation_geometry_dict(
+                    popup_dict,
+                    destination_page_id,
+                    pdf_rect,
+                    modified_at,
+                );
             }
         }
         if let Some(popup_id) = target.popup_ref {
             let popup_dict = document.get_dictionary_mut(popup_id)?;
-            set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect);
+            set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect, modified_at);
         }
 
         let mut refs = vec![target.annotation_id];
@@ -376,15 +388,21 @@ pub(crate) fn update_note_geometry_incremental(
             let target_dict = incremental
                 .new_document
                 .get_dictionary_mut(target.annotation_id)?;
-            set_annotation_geometry_dict(target_dict, destination_page_id, pdf_rect);
+            set_annotation_geometry_dict(target_dict, destination_page_id, pdf_rect, modified_at);
+            apply_note_style_update(target_dict, update);
             if let Ok(Object::Dictionary(popup_dict)) = target_dict.get_mut(b"Popup") {
-                set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect);
+                set_annotation_geometry_dict(
+                    popup_dict,
+                    destination_page_id,
+                    pdf_rect,
+                    modified_at,
+                );
             }
         }
         if let Some(popup_id) = target.popup_ref {
             incremental.opt_clone_object_to_new_document(popup_id)?;
             let popup_dict = incremental.new_document.get_dictionary_mut(popup_id)?;
-            set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect);
+            set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect, modified_at);
         }
 
         let mut refs = vec![target.annotation_id];
@@ -1500,7 +1518,20 @@ pub(crate) fn set_text_note_annotation_fields(
         write_annotation_name(dict, note_name);
     }
     set_rgb_color(dict, "C", note.color.as_deref());
-    dict.set("Open", Object::Boolean(false));
+    dict.set("Open", Object::Boolean(note.open));
+}
+
+fn apply_note_style_update(dict: &mut Dictionary, update: &NoteGeometryUpdate) {
+    if let Some(color) = update.color.as_ref() {
+        set_rgb_color(dict, "C", color.as_deref());
+    }
+    if let Some(open) = update.open {
+        dict.set("Open", Object::Boolean(open));
+    }
+}
+
+fn set_annotation_modified_at(dict: &mut Dictionary, modified_at: &str) {
+    dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
 }
 
 pub(crate) fn build_text_note_annotation_dict(
@@ -2515,7 +2546,7 @@ pub(crate) fn set_annotation_dict_contents(dict: &mut Dictionary, text: &str, mo
         "Contents",
         Object::String(encode_pdf_text_string(text), StringFormat::Hexadecimal),
     );
-    dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
+    set_annotation_modified_at(dict, modified_at);
 }
 
 pub(crate) fn pdf_string_to_text(object: &Object) -> Option<String> {

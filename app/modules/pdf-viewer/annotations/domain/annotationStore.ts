@@ -28,6 +28,7 @@ import {
     semanticSnapshot,
     semanticSnapshotsEqual,
     snapshotOfKind,
+    toLegacyShapeStableKey,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     AnnotationPersistenceIdentityLedger,
@@ -186,6 +187,21 @@ function cloneCanonicalEntity<T extends AnnotationEntity>(entity: T): T {
 
 function identityWithPdfRef(identity: IAnnotationIdentity, pdfRef: string | undefined) {
     return rebaseAnnotationPersistenceIdentity(identity, pdfRef);
+}
+
+/**
+ * Native shape creation reports the managed stable key because the new PDF
+ * object has no PDF.js reference yet. Keep the store's canonical id as the
+ * owner while accepting that writer-facing alias during acknowledgement.
+ */
+function nativeBindingAliasesForEntity(entity: AnnotationEntity): readonly string[] {
+    if (entity.kind !== 'shape') {
+        return [entity.identity.id];
+    }
+    return [
+        entity.identity.id,
+        toLegacyShapeStableKey(entity.identity.id),
+    ];
 }
 
 function hasRectLineEndpoints(entity: IShapeEntity) {
@@ -761,16 +777,32 @@ export class AnnotationStore {
         currentDocumentRevisionToken: TDocumentRevisionToken | null = frontier.documentRevisionToken,
     ) {
         this.assertSaveFrontierCurrent(frontier, currentDocumentRevisionToken);
+        const bindingAliasToId = new Map<string, AnnotationId | null>();
+        frontier.revisions.forEach((_revision, id) => {
+            const entity = this.#entities.get(id);
+            if (!entity) {
+                return;
+            }
+            nativeBindingAliasesForEntity(entity).forEach((alias) => {
+                const existing = bindingAliasToId.get(alias);
+                if (existing !== undefined && existing !== id) {
+                    bindingAliasToId.set(alias, null);
+                    return;
+                }
+                bindingAliasToId.set(alias, id);
+            });
+        });
         const bindingById = new Map<AnnotationId, string>();
         const refs = new Set<string>();
         bindings.forEach((binding) => {
-            const id = binding.annotationId as AnnotationId;
-            if (!frontier.revisions.has(id)) {
+            const externalId = binding.annotationId.trim();
+            const id = bindingAliasToId.get(externalId);
+            if (!id || !frontier.revisions.has(id)) {
                 throw new Error(`Unexpected persisted annotation identity ${binding.annotationId}`);
             }
             const pdfRef = binding.pdfRef.trim();
             if (!pdfRef || bindingById.has(id) || refs.has(pdfRef)) {
-                throw new Error(`Conflicting persisted annotation identity for ${binding.annotationId}`);
+                throw new Error(`Conflicting persisted annotation identity for ${externalId}`);
             }
             bindingById.set(id, pdfRef);
             refs.add(pdfRef);
@@ -784,7 +816,10 @@ export class AnnotationStore {
             }
             const nextIdentity = entity.deleted
                 ? identityWithPdfRef(entity.identity, undefined)
-                : identityWithPdfRef(entity.identity, bindingById.get(id));
+                : identityWithPdfRef(
+                    entity.identity,
+                    bindingById.get(id) ?? entity.identity.pdfRef,
+                );
             updates.push({
                 id,
                 before: entity,

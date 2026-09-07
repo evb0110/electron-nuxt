@@ -6,6 +6,7 @@ import {
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {
     asAnnotationId,
+    type IShapeEntity,
     type ITextBoxEntity,
     type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -54,6 +55,31 @@ function textBox(id: string): ITextBoxEntity {
         rotation: 0,
         fontSize: 12,
         color: '#123456',
+    };
+}
+
+function shape(id: string): IShapeEntity {
+    return {
+        identity: {id: asAnnotationId(id)},
+        pageIndex: requirePageIndex(0),
+        revision: 0,
+        persistedRevision: -1,
+        deleted: false,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
+        author: null,
+        kind: 'shape',
+        tool: 'rectangle',
+        rect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.2,
+        },
+        strokeColor: '#123456',
+        strokeWidth: 2,
+        fill: null,
+        opacity: 1,
     };
 }
 
@@ -117,6 +143,47 @@ describe('AnnotationStore dirty and persistence projection', () => {
             persistedRevision: 0,
             identity: {pdfRef: '12R'},
         });
+    });
+
+    it('accepts a managed shape stable-key binding from the native writer', () => {
+        const store = new AnnotationStore();
+        const created = store.createShape(shape('shape-native-binding'));
+
+        store.markPersisted(store.beginSave(), [{
+            annotationId: 'evb-shape:shape-native-binding',
+            pdfRef: '13 0 R',
+        }]);
+
+        expect(store.dirtyEntities()).toEqual([]);
+        expect(store.get(created.identity.id)).toMatchObject({
+            persistedRevision: 0,
+            identity: {pdfRef: '13 0 R'},
+        });
+        expect(store.resolveExternal({pdfRef: '13 0 R'})).toBe(created.identity.id);
+    });
+
+    it('preserves an existing PDF reference when the save returns no new binding', () => {
+        const store = new AnnotationStore();
+        const annotationId = asAnnotationId('existing');
+        store.replaceFromDocument([note('existing', {
+            identity: {
+                id: annotationId,
+                pdfRef: '11 0 R',
+            },
+            persistedRevision: 0,
+        })], []);
+
+        store.updateNote(annotationId, {contents: 'edited'});
+        const frontier = store.beginSave();
+
+        store.markPersisted(frontier);
+
+        expect(store.get(annotationId)).toMatchObject({
+            contents: 'edited',
+            persistedRevision: 1,
+            identity: {pdfRef: '11 0 R'},
+        });
+        expect(store.resolveExternal({pdfRef: '11 0 R'})).toBe(annotationId);
     });
 
     it('rejects a binding conflict without partially changing entities', () => {

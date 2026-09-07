@@ -2362,6 +2362,7 @@ mod tests {
                     id: Some("app-highlight".to_string()),
                     page_markup_index: Some(0),
                     source: Some("editor".to_string()),
+                    opacity: None,
                 }],
             },
             "D:20260830130000Z",

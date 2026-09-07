@@ -146,6 +146,7 @@ export function toNativeMarkupHint(hint: IMarkupSubtypeHint): IPdfNativeMarkupSu
             : {}),
         annotationId: hint.annotationId ?? null,
         color: hint.color ?? null,
+        ...(hint.opacity !== undefined ? {opacity: hint.opacity} : {}),
         ...(hint.contents !== undefined ? {contents: hint.contents} : {}),
         id: hint.id ?? null,
         pageMarkupIndex: typeof hint.pageMarkupIndex === 'number' && Number.isSafeInteger(hint.pageMarkupIndex)

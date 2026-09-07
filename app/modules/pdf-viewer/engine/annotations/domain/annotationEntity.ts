@@ -128,6 +128,10 @@ function toLegacyLineEndpoints(entity: IShapeEntity) {
     };
 }
 
+export function toLegacyShapeStableKey(id: AnnotationId): string {
+    return id.startsWith('evb-shape:') ? id : `evb-shape:${id}`;
+}
+
 /**
  * Temporary projection for the shape tools and serializers that still accept
  * IShapeAnnotation. Remove it when #165 and #166 move those consumers to the
@@ -161,9 +165,7 @@ export function toLegacyShapeAnnotation(entity: IShapeEntity): IShapeAnnotation 
         lineEndStyle: entity.tool === 'arrow' ? 'closedArrow' : 'none',
         createdAt: entity.createdAt,
         modifiedAt: entity.modifiedAt,
-        stableKey: entity.identity.id.startsWith('evb-shape:')
-            ? entity.identity.id
-            : `evb-shape:${entity.identity.id}`,
+        stableKey: toLegacyShapeStableKey(entity.identity.id),
     };
 }
 

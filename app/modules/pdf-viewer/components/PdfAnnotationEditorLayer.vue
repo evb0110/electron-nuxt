@@ -56,6 +56,7 @@
                 :display-rect="displayRectFor(entity)"
                 @pointer-down="handleTextBoxPointerDown(entity, $event)"
                 @edit="beginTextBoxEdit(entity.identity.id)"
+                @draft-change="surface.setTextBoxDraftPending(entity.identity.id)"
                 @commit="commitTextBox(entity.identity.id, $event)"
                 @cancel="cancelTextBox(entity.identity.id)"
             />
@@ -161,9 +162,13 @@ const textBoxRefs = new Map<AnnotationId, IPdfTextBoxAnnotationExpose>();
 let suppressNextClick = false;
 let suppressClickTimer: ReturnType<typeof setTimeout> | null = null;
 let capturedClickAnnotationId: AnnotationId | null = null;
+let unregisterTextBoxDraftCommitter: (() => void) | null = null;
 
 onMounted(() => {
     editorReady.value = true;
+    unregisterTextBoxDraftCommitter = surface.registerTextBoxDraftCommitter(
+        commitActiveTextBoxDraftForSave,
+    );
 });
 
 const pointerGesture = useAnnotationPointerGesture({
@@ -442,6 +447,23 @@ function textBoxIdAtPoint(event: Pick<MouseEvent, 'clientX' | 'clientY'>) {
 function beginTextBoxEdit(annotationId: AnnotationId) {
     surface.select([annotationId]);
     editingId.value = annotationId;
+}
+
+function commitActiveTextBoxDraftForSave() {
+    const annotationId = editingId.value;
+    if (annotationId === null) {
+        return;
+    }
+    const textBox = textBoxRefs.get(annotationId);
+    if (textBox) {
+        textBox.commitDraft();
+    } else {
+        // The entity may have been deleted while its editor was still open.
+        // Do not leave the workspace dirty forever for a DOM editor that no
+        // longer exists.
+        surface.clearTextBoxDraftPending(annotationId);
+        editingId.value = null;
+    }
 }
 
 function handleTextBoxPointerDown(entity: ITextBoxEntity, event: PointerEvent) {
@@ -793,6 +815,7 @@ function commitTextBox(annotationId: AnnotationId, text: string) {
     }
     const entity = currentTextBox(annotationId);
     if (!entity) {
+        surface.clearTextBoxDraftPending(annotationId);
         editingId.value = null;
         return;
     }
@@ -801,6 +824,7 @@ function commitTextBox(annotationId: AnnotationId, text: string) {
     } else if (entity.text !== text) {
         surface.commitGesture(annotationId, {text});
     }
+    surface.clearTextBoxDraftPending(annotationId);
     newTextBoxIds.delete(annotationId);
     editingId.value = null;
 }
@@ -813,6 +837,7 @@ function cancelTextBox(annotationId: AnnotationId) {
     if (entity && newTextBoxIds.has(annotationId)) {
         surface.discardUnsavedAnnotation(annotationId);
     }
+    surface.clearTextBoxDraftPending(annotationId);
     newTextBoxIds.delete(annotationId);
     editingId.value = null;
 }
@@ -824,6 +849,8 @@ onBeforeUnmount(() => {
     if (editingId.value !== null) {
         textBoxRefs.get(editingId.value)?.commitDraft();
     }
+    unregisterTextBoxDraftCommitter?.();
+    unregisterTextBoxDraftCommitter = null;
     newTextBoxIds.forEach(annotationId => surface.discardUnsavedAnnotation(annotationId));
     newTextBoxIds.clear();
     textBoxRefs.clear();

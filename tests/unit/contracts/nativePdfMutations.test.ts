@@ -26,6 +26,8 @@ const validNoteGeometryUpdate = {
         width: 0.15,
         height: 0.12,
     },
+    color: '#336699',
+    open: true,
 };
 
 const validFreeTextNote = {
@@ -38,6 +40,7 @@ const validFreeTextNote = {
         width: 0.0016,
         height: 0.0016,
     },
+    open: true,
 };
 
 const validFreeTextEditor = {
@@ -262,6 +265,7 @@ describe('native PDF mutation contracts', () => {
                         },
                     ],
                     annotationId: '44R',
+                    opacity: 0.45,
                 }],
             },
             placedImages: [validImage],
@@ -273,6 +277,9 @@ describe('native PDF mutation contracts', () => {
             pageIndex: 0,
             pageYRatio: 0.25,
         });
+        expect(preloadPayload.geometryUpdates).toEqual([validNoteGeometryUpdate]);
+        expect(preloadPayload.freeTextNotes?.[0]?.open).toBe(true);
+        expect(preloadPayload.markup?.hints[0]?.opacity).toBe(0.45);
         expect(preloadPayload.textBoxes).toEqual([validFreeTextEditor]);
         expect(preloadPayload.geometryUpdates).toEqual([validNoteGeometryUpdate]);
         expect(preloadPayload.markup?.hints[0]?.appAnnotationId).toBe('app-markup-1');

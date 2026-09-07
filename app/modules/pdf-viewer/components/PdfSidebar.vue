@@ -11,6 +11,7 @@
     >
             <PdfAnnotationsPanel
                 v-show="effectiveTab === 'annotations'"
+                :is-visible="isActive && isOpen && effectiveTab === 'annotations'"
                 :tool="annotationTool"
                 :settings="annotationSettings"
                 :comments="annotationComments"

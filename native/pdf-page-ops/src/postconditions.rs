@@ -18,7 +18,12 @@ pub(crate) fn validate_appended_revision_postconditions(
     modified_at: &str,
 ) -> Result<()> {
     validate_note_text_document_postconditions(document, &mutations.updates, modified_at)?;
-    validate_note_geometry_document_postconditions(document, &mutations.geometry_updates)?;
+    validate_note_geometry_document_postconditions(
+        document,
+        &mutations.geometry_updates,
+        &mutations.text_boxes,
+        modified_at,
+    )?;
     validate_text_note_document_postconditions(document, &mutations.notes, modified_at)?;
     validate_free_text_note_document_postconditions(
         document,
@@ -150,6 +155,8 @@ pub(crate) fn validate_note_text_document_postconditions(
 pub(crate) fn validate_note_geometry_document_postconditions(
     document: &impl PdfObjectSource,
     updates: &[NoteGeometryUpdate],
+    text_boxes: &[TextBoxMutation],
+    modified_at: &str,
 ) -> Result<()> {
     if updates.is_empty() {
         return Ok(());
@@ -170,6 +177,17 @@ pub(crate) fn validate_note_geometry_document_postconditions(
         if target_subtype != "text" && target_subtype != "freetext" {
             return Err("Note geometry target has an unsupported subtype".into());
         }
+        let target_modified_at = note_geometry_target_modified_at(
+            target.annotation_id,
+            target_dict,
+            text_boxes,
+            modified_at,
+        );
+        validate_annotation_modified_at(
+            target_dict,
+            &target_modified_at,
+            "Note geometry annotation",
+        )?;
         let expected_rect = if target_subtype == "text" {
             text_note_pdf_rect(update.marker_rect, page_view, page_rotation)?
         } else {
@@ -197,6 +215,11 @@ pub(crate) fn validate_note_geometry_document_postconditions(
         }
 
         if let Ok(Object::Dictionary(popup_dict)) = target_dict.get(b"Popup") {
+            validate_annotation_modified_at(
+                popup_dict,
+                modified_at,
+                "Note geometry embedded Popup",
+            )?;
             validate_rect_approximately(
                 parse_rect(popup_dict.get(b"Rect")?)?,
                 expected_rect,
@@ -214,6 +237,7 @@ pub(crate) fn validate_note_geometry_document_postconditions(
             if annotation_subtype(popup_dict) != "popup" {
                 return Err("Note geometry Popup has the wrong subtype".into());
             }
+            validate_annotation_modified_at(popup_dict, modified_at, "Note geometry Popup")?;
             validate_rect_approximately(
                 parse_rect(popup_dict.get(b"Rect")?)?,
                 expected_rect,
@@ -233,6 +257,30 @@ pub(crate) fn validate_note_geometry_document_postconditions(
         }
     }
     Ok(())
+}
+
+fn note_geometry_target_modified_at(
+    target_id: ObjectId,
+    target_dict: &Dictionary,
+    text_boxes: &[TextBoxMutation],
+    modified_at: &str,
+) -> String {
+    text_boxes
+        .iter()
+        .find(|editor| {
+            let annotation_id_matches = editor
+                .annotation_id
+                .as_deref()
+                .and_then(parse_pdfjs_annotation_object_id)
+                == Some(target_id);
+            let stable_name_matches = editor.annotation_id.is_none()
+                && read_annotation_name(target_dict).is_some_and(|actual_name| {
+                    annotation_names_match(&actual_name, &text_box_name(editor), &["evb-freetext:"])
+                });
+            annotation_id_matches || stable_name_matches
+        })
+        .map(|editor| shape_pdf_date(editor.modified_at, modified_at))
+        .unwrap_or_else(|| modified_at.to_string())
 }
 
 pub(crate) fn validate_free_text_note_document_postconditions(
@@ -691,6 +739,24 @@ pub(crate) fn validate_annotation_text_fields(
         return Err(format!("{label} Contents did not match requested text").into());
     }
 
+    let modified = dict
+        .get(b"M")
+        .ok()
+        .and_then(pdf_string_to_text)
+        .ok_or_else(|| format!("{label} is missing modification timestamp"))?;
+    if modified != modified_at {
+        return Err(
+            format!("{label} modification timestamp did not match requested timestamp").into(),
+        );
+    }
+    Ok(())
+}
+
+fn validate_annotation_modified_at(
+    dict: &Dictionary,
+    modified_at: &str,
+    label: &str,
+) -> Result<()> {
     let modified = dict
         .get(b"M")
         .ok()
@@ -1181,6 +1247,7 @@ pub(crate) fn validate_markup_target(
     object_id: ObjectId,
     target_subtype: &str,
     color: Option<&str>,
+    opacity: Option<f64>,
     contents: Option<&str>,
 ) -> Result<()> {
     let dict = document.dictionary(object_id)?;
@@ -1203,14 +1270,15 @@ pub(crate) fn validate_markup_target(
         if actual_color != expected_color {
             return Err("Text-markup target color did not match requested rewrite".into());
         }
-        if target_subtype == "Highlight" {
-            let ca = dict
-                .get(b"CA")
-                .ok()
-                .and_then(|object| object_to_f64(object).ok());
-            if ca != Some(1.0) {
-                return Err("Highlight text-markup target opacity was not normalized".into());
-            }
+    }
+    if let Some(expected_opacity) = opacity {
+        let actual_opacity = dict
+            .get(b"CA")
+            .ok()
+            .and_then(|object| document.resolved(object).ok())
+            .and_then(|object| object_to_f64(object).ok());
+        if actual_opacity.is_none_or(|actual| (actual - expected_opacity).abs() > 0.01) {
+            return Err("Text-markup target opacity did not match requested value".into());
         }
     }
     if let Some(expected_contents) = contents {
@@ -1282,7 +1350,7 @@ pub(crate) fn validate_markup_document_postconditions(
         {
             continue;
         }
-        validate_markup_target(document, object_id, subtype, None, None)?;
+        validate_markup_target(document, object_id, subtype, None, None, None)?;
     }
     for hint in &markup.hints {
         match hint
@@ -1296,6 +1364,7 @@ pub(crate) fn validate_markup_document_postconditions(
                     object_id,
                     &hint.subtype,
                     hint.color.as_deref(),
+                    hint.opacity,
                     hint.contents.as_deref(),
                 )?;
             }
@@ -1349,6 +1418,8 @@ fn validate_new_markup_target(
         object_id,
         &hint.subtype,
         hint.color.as_deref(),
+        hint.opacity
+            .or_else(|| (hint.subtype == "Highlight").then_some(1.0)),
         hint.contents.as_deref(),
     )?;
     let page_view = resolve_page_view(document, page_id)?;

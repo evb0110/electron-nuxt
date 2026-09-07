@@ -31,6 +31,7 @@ import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
 } from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
+import { nativeNoteGeometryProjection } from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteGeometryProjection';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -234,6 +235,36 @@ describe('native FreeText note builders', () => {
         });
 
         expect(toNativeFreeTextNote(comment)).toEqual(expect.objectContaining({stableKey: 'anno_sticky_note'}));
+    });
+
+    it('keeps the canonical open state for a new sticky note', () => {
+        const comment = createEditorFreeTextComment({
+            appAnnotationId: 'sticky-note-1',
+            subtype: 'Text',
+            open: true,
+        });
+
+        expect(toNativeFreeTextNote(comment)).toEqual(expect.objectContaining({open: true}));
+    });
+});
+
+describe('native imported note geometry builders', () => {
+    it('carries note color and open state with an imported note geometry update', () => {
+        const comment = createComment({
+            open: true,
+            color: '#336699',
+            markerRect: {
+                left: 0.2,
+                top: 0.3,
+                width: 0.02,
+                height: 0.02,
+            },
+        });
+
+        expect(nativeNoteGeometryProjection([comment]).value).toEqual([expect.objectContaining({
+            color: '#336699',
+            open: true,
+        })]);
     });
 });
 
@@ -445,6 +476,7 @@ describe('native markup builders', () => {
             pageMarkupIndex: 3,
             source: 'editor',
             contents: 'Edited markup note',
+            opacity: 0.45,
             consumed: false,
         })).toEqual({
             subtype: 'Highlight',
@@ -457,6 +489,7 @@ describe('native markup builders', () => {
             pageMarkupIndex: 3,
             source: 'editor',
             contents: 'Edited markup note',
+            opacity: 0.45,
         });
 
         const mutation = buildNativeMarkupMutationForSave({
@@ -474,6 +507,33 @@ describe('native markup builders', () => {
                     stableKey: 'ann:0:45R0',
                     subtype: 'Squiggly',
                     annotationId: '45R0',
+                    markerRect,
+                }),
+                createComment({
+                    stableKey: 'ann:0:46R0',
+                    subtype: 'Underline',
+                    annotationId: '46R0',
+                    color: '#224466',
+                    opacity: 0.4,
+                    markerRect,
+                }),
+            ],
+            changedComments: [
+                createComment({
+                    stableKey: 'ann:0:44R0',
+                    subtype: 'Highlight',
+                    color: '#ffee00',
+                    colorEdited: true,
+                    annotationId: '44R0',
+                    markerRect,
+                    markupGeometry: [markerRect],
+                }),
+                createComment({
+                    stableKey: 'ann:0:46R0',
+                    subtype: 'Underline',
+                    annotationId: '46R0',
+                    color: '#224466',
+                    opacity: 0.4,
                     markerRect,
                 }),
             ],
@@ -508,6 +568,12 @@ describe('native markup builders', () => {
                 subtype: 'Highlight',
                 annotationId: '44R0',
                 markupGeometry: [markerRect],
+            }),
+            expect.objectContaining({
+                subtype: 'Underline',
+                annotationId: '46R0',
+                color: '#224466',
+                opacity: 0.4,
             }),
         ]);
     });

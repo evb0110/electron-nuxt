@@ -47,6 +47,7 @@ export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNa
         author: comment.author ?? null,
         color: comment.color ?? null,
         createdAt: parseEpochMs(comment.createdAt),
+        ...(comment.open === undefined ? {} : {open: comment.open}),
     };
 }
 
@@ -93,6 +94,8 @@ export function buildNativeFreeTextNotesForSave(
                 existing.text !== note.text
                 || existing.pageIndex !== note.pageIndex
                 || existing.createdAt !== note.createdAt
+                || existing.color !== note.color
+                || existing.open !== note.open
             ) {
                 return skip('conflicting-native-free-text-note-aliases', {stableKey: note.stableKey});
             }

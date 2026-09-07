@@ -15,6 +15,7 @@
             author: None,
             color: None,
             created_at: Some(1_781_009_077_000),
+            open: false,
         }
     }
 

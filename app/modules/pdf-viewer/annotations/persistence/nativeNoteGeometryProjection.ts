@@ -89,6 +89,8 @@ export function nativeNoteGeometryProjection(
             generationNumber: targetRef.generationNumber,
             pageIndex: requirePageIndex(comment.pageIndex),
             markerRect: structuredClone(markerRect),
+            color: comment.color,
+            ...(comment.open === undefined ? {} : {open: comment.open}),
         });
     }
 

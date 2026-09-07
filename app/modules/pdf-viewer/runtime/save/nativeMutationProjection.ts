@@ -151,6 +151,7 @@ function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
             text: entity.contents,
             subtype: 'Text',
             color: entity.color,
+            open: entity.open,
             hasNote: true,
             markerRect: structuredClone(entity.position),
         };

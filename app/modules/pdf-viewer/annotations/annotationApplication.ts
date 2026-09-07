@@ -4,6 +4,7 @@ import type {
     TDrawableShapeType,
 } from '@app/types/annotations';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {createEpochMs} from '@contracts/timestamps';
@@ -224,6 +225,7 @@ export class AnnotationApplication {
                     ? entity.color
                     : null,
                 ...(entity.kind === 'text-markup' ? {opacity: entity.opacity} : {}),
+                ...(entity.kind === 'note' ? {open: entity.open} : {}),
                 uid: null,
                 annotationId: entity.identity.pdfRef ?? null,
                 annotationName: null,
@@ -294,10 +296,11 @@ export class AnnotationApplication {
     acknowledgeSave(
         session: IAnnotationSaveSession,
         currentDocumentRevisionToken: TDocumentRevisionToken | null = session.frontier.documentRevisionToken,
+        identityBindings: readonly IPdfNativeAnnotationIdentityBinding[] = [],
     ) {
         this.store.markPersisted(
             session.frontier,
-            [],
+            identityBindings,
             currentDocumentRevisionToken,
         );
     }

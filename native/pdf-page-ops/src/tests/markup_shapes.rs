@@ -43,6 +43,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
                     app_annotation_id: None,
                     annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
                     color: Some("#00ff00".to_string()),
+                    opacity: Some(0.45),
                     contents: None,
                     id: None,
                     page_markup_index: Some(0),
@@ -76,6 +77,10 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
     assert_approximately(color[0].as_float().unwrap() as f64, 0.0);
     assert_approximately(color[1].as_float().unwrap() as f64, 1.0);
     assert_approximately(color[2].as_float().unwrap() as f64, 0.0);
+    assert_approximately(
+        markup.get(b"CA").unwrap().as_float().unwrap() as f64,
+        0.45,
+    );
 
     let _ = remove_file(input_path);
     let _ = remove_file(output_path);
@@ -144,6 +149,7 @@ fn resolves_a_legacy_markup_prefix_without_rewriting_it() {
         id: Some("legacy-markup".to_string()),
         page_markup_index: Some(0),
         source: Some("editor".to_string()),
+        opacity: None,
     };
     let mut states = vec![MarkupHintState {
         annotation_ref: None,
@@ -206,6 +212,7 @@ fn creates_new_text_markup_annotations_with_quad_geometry() {
         id: Some(id.to_string()),
         page_markup_index: None,
         source: Some("editor".to_string()),
+        opacity: None,
     })
     .collect();
 
@@ -291,6 +298,7 @@ fn recreates_markup_after_deleted_pdf_ref_without_null_override_failure() {
             id: Some(format_pdfjs_annotation_ref(markup_id)),
             page_markup_index: None,
             source: Some("editor".to_string()),
+            opacity: None,
         }],
     };
     apply_markup_mutations_incremental(&mut incremental, &mutation, "D:20260829120500+04'00'")
@@ -341,6 +349,7 @@ fn emits_exact_identity_binding_for_new_native_markup() {
             id: Some("new-highlight".to_string()),
             page_markup_index: None,
             source: Some("editor".to_string()),
+            opacity: None,
         }],
     };
     let mut bindings = Vec::new();
@@ -399,6 +408,7 @@ fn rejects_new_native_markup_without_a_canonical_identity_binding() {
             id: Some("new-highlight".to_string()),
             page_markup_index: None,
             source: Some("editor".to_string()),
+            opacity: None,
         }],
     };
     let error = apply_markup_mutations_incremental_with_bindings(
@@ -496,6 +506,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
                 id: Some(id.to_string()),
                 page_markup_index: None,
                 source: Some("editor".to_string()),
+                opacity: None,
             })
             .collect(),
         }),
@@ -586,6 +597,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
                     id: None,
                     page_markup_index: Some(0),
                     source: Some("pdf".to_string()),
+                    opacity: None,
                 }],
             }),
             placed_images: Vec::new(),
@@ -602,9 +614,52 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
     assert_approximately(color[0].as_float().unwrap() as f64, 1.0);
     assert_approximately(color[1].as_float().unwrap() as f64, 166.0 / 255.0);
     assert_approximately(color[2].as_float().unwrap() as f64, 166.0 / 255.0);
-    assert_eq!(markup.get(b"CA").unwrap().as_i64().unwrap(), 1);
+    assert!(markup.get(b"CA").is_err());
 
     let _ = remove_file(pdf_path);
+}
+
+#[test]
+fn opacity_only_markup_rewrite_drops_a_foreign_appearance() {
+    let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
+    let appearance_id = document.add_object(Stream::new(Dictionary::new(), Vec::new()));
+    document
+        .get_dictionary_mut(markup_id)
+        .unwrap()
+        .set("AP", dictionary! {"N" => appearance_id});
+
+    apply_markup_mutations(
+        &mut document,
+        &MarkupMutation {
+            overrides: Vec::new(),
+            hints: vec![MarkupSubtypeHint {
+                subtype: "Highlight".to_string(),
+                page_index: 0,
+                marker_rect: MarkerRect {
+                    left: 0.1,
+                    top: 0.5,
+                    width: 0.4,
+                    height: 0.3,
+                },
+                markup_geometry: None,
+                app_annotation_id: None,
+                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                color: None,
+                opacity: Some(0.45),
+                contents: None,
+                id: None,
+                page_markup_index: Some(0),
+                source: Some("pdf".to_string()),
+            }],
+        },
+        "D:20260831123456Z",
+    )
+    .unwrap();
+
+    let updated = document.get_dictionary(markup_id).unwrap();
+    assert_approximately(updated.get(b"CA").unwrap().as_float().unwrap() as f64, 0.45);
+    assert!(updated.get(b"AP").is_err());
+    assert!(document.get_dictionary(page_id).is_ok());
 }
 
 #[test]
@@ -636,6 +691,7 @@ fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
                 id: Some("9R".to_string()),
                 page_markup_index: Some(0),
                 source: Some("editor".to_string()),
+                opacity: None,
             }],
         }),
         ..NativeMutationsFile::default()
@@ -745,6 +801,7 @@ fn imported_markup_note_mutation(markup_id: ObjectId) -> NativeMutationsFile {
                 id: None,
                 page_markup_index: Some(0),
                 source: Some("pdf".to_string()),
+                opacity: None,
             }],
         }),
         ..NativeMutationsFile::default()
@@ -912,6 +969,7 @@ fn rewrites_high_index_markup_by_page_hint_without_a_page_walk() {
             id: Some("high-index-page-hint".to_string()),
             page_markup_index: Some(0),
             source: None,
+            opacity: None,
         }],
     };
 
@@ -1000,6 +1058,7 @@ fn stale_markup_page_hint_uses_the_annotation_owner_without_a_page_walk() {
             id: Some("stale-markup-page-hint".to_string()),
             page_markup_index: Some(0),
             source: Some("editor-live".to_string()),
+            opacity: None,
         }],
     };
 
@@ -1218,6 +1277,7 @@ fn test_markup_hint(index: usize) -> MarkupSubtypeHint {
         id: Some(format!("hint-{index}")),
         page_markup_index: Some(index as u32),
         source: None,
+        opacity: None,
     }
 }
 
@@ -1275,6 +1335,20 @@ fn rejects_text_markup_geometry_budget_during_validation() {
     assert!(error
         .to_string()
         .contains("Too many text-markup geometry rectangles"));
+}
+
+#[test]
+fn rejects_text_markup_opacity_outside_unit_range() {
+    let mut hint = test_markup_hint(0);
+    hint.opacity = Some(1.01);
+
+    let error = validate_markup_mutation(&MarkupMutation {
+        overrides: Vec::new(),
+        hints: vec![hint],
+    })
+    .expect_err("text-markup opacity must stay within the PDF unit range");
+
+    assert!(error.to_string().contains("Invalid text-markup opacity"));
 }
 
 #[test]
@@ -1355,6 +1429,7 @@ fn spatial_markup_assignment_preserves_best_geometry_matches() {
             id: Some(format!("spatial-{index}")),
             page_markup_index: Some(index as u32),
             source: None,
+            opacity: None,
         })
         .collect::<Vec<_>>();
     let hint_states = dedupe_markup_subtype_hints(&hints).expect("dedupe hints");

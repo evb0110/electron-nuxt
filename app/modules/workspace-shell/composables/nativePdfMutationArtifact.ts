@@ -1,5 +1,6 @@
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import type {
     IPdfViewerSaveTransactionRequest,
@@ -44,6 +45,7 @@ export interface IConsumeNativePdfMutationProjectionOptions {
     originalPath?: TDocumentRef | null;
     verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
     assertBeforeExpose?: () => Promise<void> | void;
+    onIdentityBindings?: (bindings: readonly IPdfNativeAnnotationIdentityBinding[]) => void;
 }
 
 /**
@@ -124,6 +126,7 @@ export async function consumeNativePdfMutationProjection(
                 detail: 'Native PDF mutation did not replace the working copy',
             });
         }
+        options.onIdentityBindings?.(applied.identityBindings ?? []);
         return null;
     } finally {
         // If verification failed before handing the receipt to a consumer,

@@ -21,7 +21,7 @@
             role="textbox"
             :aria-label="entity.text || t('annotations.text')"
             spellcheck="false"
-            @input="handleInput"
+            @input="handleInputEvent"
             @keydown="handleKeydown"
             @blur="handleBlur"
         ></div>
@@ -44,6 +44,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     'pointer-down': [event: PointerEvent];
     edit: [];
+    'draft-change': [];
     commit: [text: string];
     cancel: [];
 }>();
@@ -62,6 +63,11 @@ const {
     handleKeydown,
     handleBlur,
 } = inlineEdit;
+
+function handleInputEvent(event: Event) {
+    handleInput(event);
+    emit('draft-change');
+}
 
 interface IPdfTextBoxAnnotationExpose {commitDraft: () => void;}
 

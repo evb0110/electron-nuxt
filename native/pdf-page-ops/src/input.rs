@@ -5,6 +5,7 @@ const MAX_NOTE_GEOMETRY_UPDATES: usize = 256;
 const MAX_NOTE_CHANGES: usize = 256;
 const MAX_TEXT_BOXES: usize = 256;
 const MAX_TEXT_BOX_TEXT_BYTES: usize = 64 * 1024;
+const MAX_NOTE_GEOMETRY_COLOR_BYTES: usize = 2_048;
 const MAX_PAGE_LABEL_RANGES: usize = 2_048;
 
 pub(crate) fn parse_margin(value: &str, label: &str) -> Result<f64> {
@@ -186,6 +187,19 @@ pub(crate) fn validate_note_geometry_updates(updates: &[NoteGeometryUpdate]) -> 
             return Err("Invalid note geometry update object number".into());
         }
         validate_marker_rect(update.marker_rect)?;
+        if let Some(Some(color)) = update.color.as_ref() {
+            if color.len() > MAX_NOTE_GEOMETRY_COLOR_BYTES {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    format!(
+                        "Note geometry color exceeds the {MAX_NOTE_GEOMETRY_COLOR_BYTES}-byte admission ceiling"
+                    ),
+                ));
+            }
+            if parse_pdf_color(Some(color)).is_none() {
+                return Err("Invalid note geometry color".into());
+            }
+        }
     }
     Ok(())
 }
@@ -496,6 +510,9 @@ pub(crate) fn validate_markup_mutation(markup: &MarkupMutation) -> Result<()> {
     for hint in &markup.hints {
         if !is_supported_markup_subtype(&hint.subtype) {
             return Err("Invalid text-markup hint subtype".into());
+        }
+        if hint.opacity.is_some_and(|opacity| !is_unit_number(opacity)) {
+            return Err("Invalid text-markup opacity".into());
         }
         validate_marker_rect(hint.marker_rect)?;
         if hint
@@ -856,6 +873,11 @@ fn validate_note_changes_text_budget(changes: &NoteChangesFile) -> Result<()> {
     for update in &changes.updates {
         consume_text_bytes(&mut total, &update.text)?;
     }
+    for update in &changes.geometry_updates {
+        if let Some(Some(color)) = update.color.as_ref() {
+            consume_text_bytes(&mut total, color)?;
+        }
+    }
     for note in changes.notes.iter().chain(changes.free_text_notes.iter()) {
         consume_text_bytes(&mut total, &note.stable_key)?;
         consume_text_bytes(&mut total, &note.text)?;
@@ -892,6 +914,11 @@ fn validate_native_mutation_text_budget(mutations: &NativeMutationsFile) -> Resu
     let mut total = 0usize;
     for update in &mutations.updates {
         consume_text_bytes(&mut total, &update.text)?;
+    }
+    for update in &mutations.geometry_updates {
+        if let Some(Some(color)) = update.color.as_ref() {
+            consume_text_bytes(&mut total, color)?;
+        }
     }
     for note in mutations
         .notes
@@ -1128,6 +1155,66 @@ mod bounded_input_tests {
         canonical.text_boxes[0].annotation_id = Some("not-a-pdf-reference".to_string());
         let error = validate_text_boxes(&canonical.text_boxes).unwrap_err();
         assert_eq!(error.to_string(), "Invalid text box annotation id");
+    }
+
+    fn note_geometry_update(color: String) -> NoteGeometryUpdate {
+        NoteGeometryUpdate {
+            object_number: 1,
+            generation_number: 0,
+            page_index: 0,
+            marker_rect: MarkerRect {
+                left: 0.1,
+                top: 0.1,
+                width: 0.01,
+                height: 0.01,
+            },
+            color: Some(Some(color)),
+            open: None,
+        }
+    }
+
+    #[test]
+    fn note_geometry_color_is_bounded_before_color_parsing() {
+        let color = "x".repeat(MAX_NOTE_GEOMETRY_COLOR_BYTES + 1);
+        let error = validate_note_geometry_updates(&[note_geometry_update(color)])
+            .expect_err("oversized note geometry colors must be rejected before parsing");
+        let native_error = error
+            .downcast_ref::<NativeError>()
+            .expect("oversized color errors should carry a native error");
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
+        assert!(native_error.message.contains("Note geometry color"));
+    }
+
+    #[test]
+    fn note_geometry_colors_count_toward_both_text_budgets() {
+        let color = "x".repeat(MAX_NOTE_GEOMETRY_COLOR_BYTES);
+        let geometry_updates = (0..=MAX_AGGREGATE_TEXT_BYTES / color.len())
+            .map(|_| note_geometry_update(color.clone()))
+            .collect::<Vec<_>>();
+        let changes = NoteChangesFile {
+            updates: Vec::new(),
+            geometry_updates,
+            notes: Vec::new(),
+            free_text_notes: Vec::new(),
+            deletes: Vec::new(),
+        };
+        let error = validate_note_changes_text_budget(&changes)
+            .expect_err("note changes must count geometry colors in the text budget");
+        let native_error = error
+            .downcast_ref::<NativeError>()
+            .expect("text budget errors should carry a native error");
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
+
+        let mutations = NativeMutationsFile {
+            geometry_updates: changes.geometry_updates,
+            ..NativeMutationsFile::default()
+        };
+        let error = validate_native_mutation_text_budget(&mutations)
+            .expect_err("native mutations must count geometry colors in the text budget");
+        let native_error = error
+            .downcast_ref::<NativeError>()
+            .expect("text budget errors should carry a native error");
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
     }
 
     #[test]
