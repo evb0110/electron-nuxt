@@ -370,6 +370,10 @@ mod tests {
     use super::manifest_cache;
     use super::*;
     use crate::engine::page_statistics::{derive_page_ink_contexts, derive_page_ink_sample};
+    use crate::engine::staged_input::{
+        with_announced_staged_page_input, LeaseEvent, StagedInputBatch, StagedLeaseDescriptor,
+        StagedPageDescriptor,
+    };
     use crate::protocol::manifest_v3::{
         AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, PageOutput, RenderMode, VERSION,
     };
@@ -403,6 +407,284 @@ mod tests {
             trusted_foreground_mask_path: page.trusted_foreground_mask_path.clone(),
             trusted_mrc_background_path: page.trusted_mrc_background_path.clone(),
         }
+    }
+
+    #[derive(Clone)]
+    struct TypedTestManifest {
+        operation: PlanningOperation,
+        host_memory_bytes: Option<u64>,
+        staged_input_window: Option<usize>,
+        staged_input_peak_pixels: Option<u64>,
+        raster_window: usize,
+        pages: Vec<PageDescriptor>,
+    }
+
+    impl PlanningManifest for TypedTestManifest {
+        fn operation(&self) -> PlanningOperation {
+            self.operation
+        }
+        fn host_memory_bytes(&self) -> Option<u64> {
+            self.host_memory_bytes
+        }
+        fn staged_input_window(&self) -> Option<usize> {
+            self.staged_input_window
+        }
+        fn staged_input_peak_pixels(&self) -> Option<u64> {
+            self.staged_input_peak_pixels
+        }
+        fn page_count(&self) -> usize {
+            self.pages.len()
+        }
+        fn page(&self, index: usize) -> PageDescriptor {
+            self.pages[index].clone()
+        }
+
+        fn run_stream_page_jobs<T, F>(&self, task: F) -> Result<Vec<T>, Box<dyn Error>>
+        where
+            T: Send,
+            F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
+        {
+            let batch = StagedInputBatch {
+                raster_window: self.raster_window,
+                pages: self
+                    .pages
+                    .iter()
+                    .map(|page| StagedPageDescriptor {
+                        input_path: page.input_path.clone(),
+                        metadata_path: page.input_path.with_extension("json"),
+                        source_page_index: page.source_page_index,
+                        max_bytes: crate::io::MAX_STREAM_INPUT_BYTES,
+                        stream_input: page.stream_input,
+                    })
+                    .collect(),
+            };
+            crate::engine::staged_input::run_stream_page_jobs(&batch, move |(index, staged)| {
+                let original = &self.pages[index];
+                let descriptor = PageDescriptor {
+                    input_path: staged.input_path.clone(),
+                    stream_input: false,
+                    ..original.clone()
+                };
+                task((index, &descriptor))
+            })
+        }
+    }
+
+    fn typed_test_manifest(
+        dir: &Path,
+        page_count: usize,
+        raster_window: usize,
+        stream_input: bool,
+        staged_input_window: Option<usize>,
+    ) -> TypedTestManifest {
+        TypedTestManifest {
+            operation: PlanningOperation::Analyze,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            staged_input_window,
+            staged_input_peak_pixels: None,
+            raster_window,
+            pages: (0..page_count)
+                .map(|index| PageDescriptor {
+                    input_path: dir.join(format!("page-{index}.png")),
+                    source_page_index: index,
+                    options: CleanupOptionsView {
+                        max_pixels: 1_000_000,
+                        max_dimension: 4_096,
+                        output_mode: OutputMode::Bw,
+                        source_has_bilevel_layer: false,
+                        thickness: 0,
+                    },
+                    stream_input,
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn streamed_inputs_use_one_page_worker_to_avoid_fifo_pool_deadlock() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-stream-worker-sizing-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let fifo = dir.join("page.fifo");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        let manifest = typed_test_manifest(&dir, 8, 1, true, None);
+        assert_eq!(page_worker_threads(&manifest).unwrap(), 1);
+        let _ = fs::remove_file(fifo);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn staged_page_inputs_are_produced_on_demand_within_the_window() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-staged-window-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let window = 2usize;
+        let manifest = typed_test_manifest(&dir, 8, 1, false, Some(window));
+        let leases: Mutex<Vec<(LeaseEvent, usize)>> = Mutex::new(Vec::new());
+        /// What a real producer keeps: which rasters are on disk, and which of
+        /// them the sidecar currently holds a lease on. Both live under one
+        /// lock so an eviction decision cannot race a lease it must honour.
+        #[derive(Default)]
+        struct ProducerWindow {
+            resident: Vec<usize>,
+            leased: Vec<usize>,
+        }
+        let producer: Mutex<ProducerWindow> = Mutex::new(ProducerWindow::default());
+        let peak_resident = AtomicUsize::new(0);
+        let announce = |stage: LeaseEvent, page_number: usize, total_pages: usize| {
+            assert_eq!(total_pages, 8);
+            leases.lock().unwrap().push((stage, page_number));
+            let page_index = page_number - 1;
+            match stage {
+                LeaseEvent::Required => {
+                    // The producer window: publish the requested page, first
+                    // evicting a resident raster nothing holds a lease on. Pages
+                    // can be analysed concurrently, so evicting the oldest
+                    // resident page regardless of its lease would delete a
+                    // raster another worker is still reading.
+                    let mut producer = producer.lock().unwrap();
+                    while producer.resident.len() >= window {
+                        let Some(victim) = producer
+                            .resident
+                            .iter()
+                            .position(|resident| !producer.leased.contains(resident))
+                        else {
+                            // Every resident raster is leased. The peak
+                            // assertion below is what reports the overshoot;
+                            // dropping a leased raster here would hide it as a
+                            // read failure instead.
+                            break;
+                        };
+                        let evicted = producer.resident.remove(victim);
+                        fs::remove_file(dir.join(format!("page-{evicted}.png"))).unwrap();
+                    }
+                    fs::write(
+                        dir.join(format!("page-{page_index}.png")),
+                        format!("page-{page_index}"),
+                    )
+                    .unwrap();
+                    if !producer.resident.contains(&page_index) {
+                        producer.resident.push(page_index);
+                    }
+                    producer.leased.push(page_index);
+                    peak_resident.fetch_max(producer.resident.len(), Ordering::AcqRel);
+                }
+                LeaseEvent::Released => {
+                    let mut producer = producer.lock().unwrap();
+                    let held = producer
+                        .leased
+                        .iter()
+                        .position(|leased| *leased == page_index)
+                        .expect("a release must name a page this producer leased");
+                    producer.leased.remove(held);
+                }
+            }
+            Ok(())
+        };
+
+        let processed = run_page_jobs(&manifest, |(index, page)| {
+            let page_descriptor = &manifest.pages[index];
+            with_announced_staged_page_input(
+                &StagedLeaseDescriptor {
+                    input_path: page_descriptor.input_path.clone(),
+                    page_number: page_descriptor.source_page_index.saturating_add(1),
+                    total_pages: manifest.pages.len(),
+                    enabled: manifest.staged_input_window.is_some(),
+                },
+                &announce,
+                || {
+                    let bytes = fs::read(&page.input_path).map_err(|error| {
+                        NativeError::new(NativeErrorCode::Io, format!("page {index}: {error}"))
+                    })?;
+                    assert_eq!(bytes, format!("page-{index}").as_bytes());
+                    Ok(index)
+                },
+            )
+        })
+        .unwrap();
+
+        assert_eq!(processed, (0..8).collect::<Vec<_>>());
+        assert!(
+            peak_resident.load(Ordering::Acquire) <= window,
+            "the producer must never exceed the staged window"
+        );
+        let leases = leases.into_inner().unwrap();
+        // Every acquisition is paired with exactly one release, and no page is
+        // read without announcing its lease first.
+        for page_number in 1..=8 {
+            let required = leases
+                .iter()
+                .filter(|(stage, number)| *stage == LeaseEvent::Required && *number == page_number)
+                .count();
+            let released = leases
+                .iter()
+                .filter(|(stage, number)| *stage == LeaseEvent::Released && *number == page_number)
+                .count();
+            assert_eq!((page_number, required), (page_number, 1));
+            assert_eq!((page_number, released), (page_number, 1));
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_page_pool_never_exceeds_the_staged_window() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-staged-threads-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let mut manifest = typed_test_manifest(&dir, 64, 1, false, Some(2));
+        // The unbounded baseline needs measurable inputs; the staged variants
+        // below are the ones that must hold with the rasters still unrendered.
+        for page in &manifest.pages {
+            fs::write(
+                &page.input_path,
+                crate::png::encode_gray(&GrayImage::new(64, 64, 240)).unwrap(),
+            )
+            .unwrap();
+        }
+        let unbounded = {
+            let mut manifest = manifest.clone();
+            manifest.staged_input_window = None;
+            page_worker_threads(&manifest).unwrap()
+        };
+        assert!(unbounded >= 1);
+        assert_eq!(
+            page_worker_threads(&manifest).unwrap(),
+            unbounded.min(2),
+            "a two-page window may never lease more than two pages"
+        );
+        manifest.staged_input_window = Some(1);
+        assert_eq!(page_worker_threads(&manifest).unwrap(), 1);
+
+        // With the rasters not yet staged the pool is still sized, and the
+        // producer's declared document peak is what bounds it.
+        manifest.staged_input_window = Some(16);
+        for page in &manifest.pages {
+            fs::remove_file(&page.input_path).unwrap();
+        }
+        let unmeasured = page_worker_threads(&manifest).unwrap();
+        assert!(unmeasured >= 1);
+        manifest.staged_input_peak_pixels = Some(1_000_000_000);
+        assert_eq!(
+            page_worker_threads(&manifest).unwrap(),
+            1,
+            "a declared gigapixel peak must collapse the pool to one page"
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -574,17 +574,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::resource_planning::{page_worker_threads, run_page_jobs};
-    use crate::protocol::manifest_v3::{
-        AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, RenderMode,
-        MAX_STAGED_INPUT_PEAK_PIXELS, VERSION,
-    };
-    use crate::CleanupOptions;
     use evb_native_support::{NativeError, NativeErrorCode};
-    use scan_primitives::GrayImage;
     use std::{
         fs,
-        path::{Path, PathBuf},
+        path::PathBuf,
         sync::{atomic::AtomicUsize, Mutex},
         thread,
         time::Duration,
@@ -625,53 +618,6 @@ mod tests {
             total_pages,
             enabled,
         }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn streamed_inputs_use_one_page_worker_to_avoid_fifo_pool_deadlock() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-stream-worker-sizing-{}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let fifo = dir.join("page.fifo");
-        assert!(std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()
-            .unwrap()
-            .success());
-        let manifest = ManifestV3 {
-            version: VERSION,
-            operation: Operation::Analyze,
-            analysis_purpose: AnalysisPurpose::Classification,
-            render_mode: RenderMode::Preview,
-            canvas_scope: CanvasScope::default(),
-            document_canvas: None,
-            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
-            raster_window: 1,
-            staged_input_window: None,
-            staged_input_peak_pixels: None,
-            pages: (0..8)
-                .map(|index| Page {
-                    input_path: fifo.clone(),
-                    analysis_input_path: None,
-                    analysis_dpi: None,
-                    trusted_foreground_mask_path: None,
-                    trusted_mrc_background_path: None,
-                    source_page_index: index,
-                    page_metadata_path: dir.join(format!("page-{index}.json")),
-                    options: CleanupOptions::default(),
-                    document_prior: None,
-                    detail_render_plan: None,
-                    outputs: Vec::new(),
-                })
-                .collect(),
-        };
-
-        assert_eq!(page_worker_threads(&manifest).unwrap(), 1);
-        let _ = fs::remove_file(fifo);
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[cfg(unix)]
@@ -831,152 +777,6 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
-    fn staged_input_manifest(dir: &Path, page_count: usize, window: usize) -> ManifestV3 {
-        ManifestV3 {
-            version: VERSION,
-            operation: Operation::Analyze,
-            analysis_purpose: AnalysisPurpose::PagePlan,
-            render_mode: RenderMode::Preview,
-            canvas_scope: CanvasScope::default(),
-            document_canvas: None,
-            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
-            raster_window: 1,
-            staged_input_window: Some(window),
-            staged_input_peak_pixels: None,
-            pages: (0..page_count)
-                .map(|index| Page {
-                    input_path: dir.join(format!("page-{index}.png")),
-                    analysis_input_path: None,
-                    analysis_dpi: None,
-                    trusted_foreground_mask_path: None,
-                    trusted_mrc_background_path: None,
-                    source_page_index: index,
-                    page_metadata_path: dir.join(format!("page-{index}.json")),
-                    options: CleanupOptions::default(),
-                    document_prior: None,
-                    detail_render_plan: None,
-                    outputs: Vec::new(),
-                })
-                .collect(),
-        }
-    }
-
-    #[test]
-    fn staged_page_inputs_are_produced_on_demand_within_the_window() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-staged-window-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let window = 2usize;
-        let manifest = staged_input_manifest(&dir, 8, window);
-        let leases: Mutex<Vec<(LeaseEvent, usize)>> = Mutex::new(Vec::new());
-        /// What a real producer keeps: which rasters are on disk, and which of
-        /// them the sidecar currently holds a lease on. Both live under one
-        /// lock so an eviction decision cannot race a lease it must honour.
-        #[derive(Default)]
-        struct ProducerWindow {
-            resident: Vec<usize>,
-            leased: Vec<usize>,
-        }
-        let producer: Mutex<ProducerWindow> = Mutex::new(ProducerWindow::default());
-        let peak_resident = AtomicUsize::new(0);
-        let announce = |stage: LeaseEvent, page_number: usize, total_pages: usize| {
-            assert_eq!(total_pages, 8);
-            leases.lock().unwrap().push((stage, page_number));
-            let page_index = page_number - 1;
-            match stage {
-                LeaseEvent::Required => {
-                    // The producer window: publish the requested page, first
-                    // evicting a resident raster nothing holds a lease on. Pages
-                    // can be analysed concurrently, so evicting the oldest
-                    // resident page regardless of its lease would delete a
-                    // raster another worker is still reading.
-                    let mut producer = producer.lock().unwrap();
-                    while producer.resident.len() >= window {
-                        let Some(victim) = producer
-                            .resident
-                            .iter()
-                            .position(|resident| !producer.leased.contains(resident))
-                        else {
-                            // Every resident raster is leased. The peak
-                            // assertion below is what reports the overshoot;
-                            // dropping a leased raster here would hide it as a
-                            // read failure instead.
-                            break;
-                        };
-                        let evicted = producer.resident.remove(victim);
-                        fs::remove_file(dir.join(format!("page-{evicted}.png"))).unwrap();
-                    }
-                    fs::write(
-                        dir.join(format!("page-{page_index}.png")),
-                        format!("page-{page_index}"),
-                    )
-                    .unwrap();
-                    if !producer.resident.contains(&page_index) {
-                        producer.resident.push(page_index);
-                    }
-                    producer.leased.push(page_index);
-                    peak_resident.fetch_max(producer.resident.len(), Ordering::AcqRel);
-                }
-                LeaseEvent::Released => {
-                    let mut producer = producer.lock().unwrap();
-                    let held = producer
-                        .leased
-                        .iter()
-                        .position(|leased| *leased == page_index)
-                        .expect("a release must name a page this producer leased");
-                    producer.leased.remove(held);
-                }
-            }
-            Ok(())
-        };
-
-        let processed = run_page_jobs(&manifest, |(index, page)| {
-            let protocol_page = &manifest.pages[index];
-            with_announced_staged_page_input(
-                &staged_lease(
-                    protocol_page.input_path.clone(),
-                    protocol_page.source_page_index.saturating_add(1),
-                    manifest.pages.len(),
-                    manifest.staged_input_window.is_some(),
-                ),
-                &announce,
-                || {
-                    let bytes = fs::read(&page.input_path).map_err(|error| {
-                        NativeError::new(NativeErrorCode::Io, format!("page {index}: {error}"))
-                    })?;
-                    assert_eq!(bytes, format!("page-{index}").as_bytes());
-                    Ok(index)
-                },
-            )
-        })
-        .unwrap();
-
-        assert_eq!(processed, (0..8).collect::<Vec<_>>());
-        assert!(
-            peak_resident.load(Ordering::Acquire) <= window,
-            "the producer must never exceed the staged window"
-        );
-        let leases = leases.into_inner().unwrap();
-        // Every acquisition is paired with exactly one release, and no page is
-        // read without announcing its lease first.
-        for page_number in 1..=8 {
-            let required = leases
-                .iter()
-                .filter(|(stage, number)| *stage == LeaseEvent::Required && *number == page_number)
-                .count();
-            let released = leases
-                .iter()
-                .filter(|(stage, number)| *stage == LeaseEvent::Released && *number == page_number)
-                .count();
-            assert_eq!((page_number, required), (page_number, 1));
-            assert_eq!((page_number, released), (page_number, 1));
-        }
-        let _ = fs::remove_dir_all(dir);
-    }
-
     #[test]
     fn a_released_staged_input_is_replayable_for_a_second_read() {
         let dir = std::env::temp_dir().join(format!(
@@ -1102,55 +902,6 @@ mod tests {
             .unwrap();
         producer.join().unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"late");
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn the_page_pool_never_exceeds_the_staged_window() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-staged-threads-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let mut manifest = staged_input_manifest(&dir, 64, 2);
-        // The unbounded baseline needs measurable inputs; the staged variants
-        // below are the ones that must hold with the rasters still unrendered.
-        for page in &manifest.pages {
-            fs::write(
-                &page.input_path,
-                crate::png::encode_gray(&GrayImage::new(64, 64, 240)).unwrap(),
-            )
-            .unwrap();
-        }
-        let unbounded = {
-            let mut manifest = manifest.clone();
-            manifest.staged_input_window = None;
-            page_worker_threads(&manifest).unwrap()
-        };
-        assert!(unbounded >= 1);
-        assert_eq!(
-            page_worker_threads(&manifest).unwrap(),
-            unbounded.min(2),
-            "a two-page window may never lease more than two pages"
-        );
-        manifest.staged_input_window = Some(1);
-        assert_eq!(page_worker_threads(&manifest).unwrap(), 1);
-
-        // With the rasters not yet staged the pool is still sized, and the
-        // producer's declared document peak is what bounds it.
-        manifest.staged_input_window = Some(16);
-        for page in &manifest.pages {
-            fs::remove_file(&page.input_path).unwrap();
-        }
-        let unmeasured = page_worker_threads(&manifest).unwrap();
-        assert!(unmeasured >= 1);
-        manifest.staged_input_peak_pixels = Some(MAX_STAGED_INPUT_PEAK_PIXELS);
-        assert_eq!(
-            page_worker_threads(&manifest).unwrap(),
-            1,
-            "a declared gigapixel peak must collapse the pool to one page"
-        );
         let _ = fs::remove_dir_all(dir);
     }
 
