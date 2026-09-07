@@ -27,6 +27,143 @@ fn analysis_stage_preserves_synthetic_page_dimensions() {
 }
 
 #[test]
+fn analysis_plane_stage_pins_rotation_dimensions_and_independent_scales() {
+    let source = GrayImage::from_vec(
+        20,
+        12,
+        20,
+        (0..12)
+            .flat_map(|y| (0..20).map(move |x| if x == y + 2 { 0 } else { 220 }))
+            .collect(),
+    )
+    .expect("synthetic raster dimensions must be valid");
+    let options = CleanupOptions {
+        rotation: OrthogonalRotation::Clockwise90,
+        dpi: 600.0,
+        ..CleanupOptions::default()
+    };
+    let output = prepare_analysis_plane(AnalysisPlaneInput {
+        source: &source,
+        color_source: None,
+        options: &options,
+        timings: &mut PageStageTimings::default(),
+    });
+
+    assert_eq!((output.full_width, output.full_height), (12, 20));
+    assert_eq!((output.rotated.width(), output.rotated.height()), (3, 5));
+    assert_eq!(output.scale_x, 0.25);
+    assert_eq!(output.scale_y, 0.25);
+    assert!(!output.blank_scan_candidate);
+}
+
+#[test]
+fn layout_picture_stage_returns_calibration_and_picture_evidence() {
+    let image = GrayImage::new(32, 24, 255);
+    let output = prepare_layout_picture_evidence(LayoutPictureEvidenceInput {
+        rotated: &image,
+        effective_dpi: 150.0,
+        full_width: 32,
+        full_height: 24,
+        blank_scan_candidate: true,
+        render_policy: PageRenderPolicy::COMPLETE,
+        calibration_config: CalibrationConfig::default(),
+        options: &CleanupOptions::default(),
+        trusted_mrc_background: None,
+        timings: &mut PageStageTimings::default(),
+    });
+
+    assert_eq!(
+        (
+            output.layout_normalized.width(),
+            output.layout_normalized.height()
+        ),
+        (image.width(), image.height())
+    );
+    assert!(output.illumination_preparation.is_some());
+    assert!(output.calibration.effective_dpi.is_finite());
+    assert_eq!(
+        output.continuous_tone_mask.as_ref().unwrap().count_black(),
+        0
+    );
+    assert_eq!(
+        output.detected_picture_mask.as_ref().unwrap().count_black(),
+        0
+    );
+}
+
+#[test]
+fn text_evidence_stage_returns_threshold_and_abstains_for_contrasted_rows() {
+    let image = GrayImage::from_vec(
+        64,
+        32,
+        64,
+        (0..32)
+            .flat_map(|y| std::iter::repeat_n(if y % 4 < 2 { 40 } else { 220 }, 64))
+            .collect(),
+    )
+    .expect("synthetic raster dimensions must be valid");
+    let output = prepare_text_evidence(TextEvidenceInput {
+        layout_normalized: &image,
+        render_policy: PageRenderPolicy::COMPLETE,
+        timings: &mut PageStageTimings::default(),
+    });
+
+    assert!(output.analysis_threshold.is_some());
+    assert_eq!(output.text_axis, None);
+}
+
+#[test]
+fn content_text_stage_exposes_masks_for_picture_backed_text_evidence() {
+    let image = GrayImage::from_vec(
+        96,
+        64,
+        96,
+        (0..64)
+            .flat_map(|y| {
+                (0..96).map(move |x| {
+                    if (12..84).contains(&x) && (20..44).contains(&y) {
+                        30
+                    } else {
+                        240
+                    }
+                })
+            })
+            .collect(),
+    )
+    .expect("synthetic raster dimensions must be valid");
+    let mut picture = BinaryImage::new(96, 64);
+    for y in 16..48 {
+        for x in 8..88 {
+            picture.set(x, y, true);
+        }
+    }
+    let output = prepare_content_text_evidence(ContentTextEvidenceInput {
+        rotated: &image,
+        layout_normalized: &image,
+        picture_mask: Some(&picture),
+        trusted_mrc_tone_mask: None,
+        render_policy: PageRenderPolicy::COMPLETE,
+        prepare_quality_raster: true,
+        options: &CleanupOptions {
+            output_mode: OutputMode::Mixed,
+            ..CleanupOptions::default()
+        },
+        effective_dpi: 300.0,
+        calibration: PageCalibration::estimate(&image, 300.0, CalibrationConfig::default()),
+    });
+
+    assert!(output.text_mask.is_some());
+    assert!(output.text_vicinity_mask.is_some());
+    assert_eq!(
+        (
+            output.text_mask.as_ref().unwrap().width(),
+            output.text_mask.as_ref().unwrap().height(),
+        ),
+        (image.width(), image.height())
+    );
+}
+
+#[test]
 fn final_picture_ownership_applies_manual_zones_before_crop_extension() {
     let rotated = GrayImage::from_vec(
         128,

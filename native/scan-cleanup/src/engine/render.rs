@@ -1910,7 +1910,7 @@ pub(crate) fn analyze_page_with_color_and_document_prior_cached(
     )
 }
 
-#[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn analyze_page_with_document_prior_cached(
     source: &GrayImage,
     options: &CleanupOptions,
@@ -3034,34 +3034,6 @@ fn prepare_page<'a>(
         use_soft_alpha_foreground,
         resolved_output_mode,
     }
-}
-
-#[cfg(test)]
-#[allow(clippy::too_many_arguments)]
-fn prepare_analysis_page(
-    source: &GrayImage,
-    color_source: Option<&RgbImage>,
-    options: &CleanupOptions,
-    prepare_quality_raster: bool,
-    render_policy: PageRenderPolicy,
-    document_prior: Option<DocumentPrior>,
-    calibration_config: CalibrationConfig,
-    cache: Option<&PageCache>,
-    trusted_mrc_background: Option<&GrayImage>,
-    timings: &mut PageStageTimings,
-) -> PreparedAnalysis {
-    document_analysis::run(document_analysis::Input {
-        source,
-        color_source,
-        options,
-        prepare_quality_raster,
-        render_policy,
-        document_prior,
-        calibration_config,
-        cache,
-        trusted_mrc_background,
-        timings,
-    })
 }
 
 fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
@@ -5292,16 +5264,6 @@ fn crop_binary(source: &BinaryImage, rect: Rect) -> BinaryImage {
     output
 }
 
-#[cfg(test)]
-fn crop_gray_to_fit(
-    source: &GrayImage,
-    rect: Rect,
-    max_width: usize,
-    max_height: usize,
-) -> GrayImage {
-    crop_gray(source, rect).downscale_to_fit(max_width, max_height)
-}
-
 /// Builds the sole Auto-routing input before working-resolution rendering.
 /// Picture ownership is removed on the fixed analysis grid. The classifier
 /// owns its bounded measurement sample so pixel-valued route diagnostics stay
@@ -5828,30 +5790,6 @@ fn sample_bilinear_white(source: &GrayImage, x: f64, y: f64) -> u8 {
     let top = sample(x0, y0) * (1.0 - fx) + sample(x0 + 1, y0) * fx;
     let bottom = sample(x0, y0 + 1) * (1.0 - fx) + sample(x0 + 1, y0 + 1) * fx;
     (top * (1.0 - fy) + bottom * fy).round().clamp(0.0, 255.0) as u8
-}
-
-#[cfg(test)]
-fn render_affine_gray_supersampled_reference(
-    source: &GrayImage,
-    width: usize,
-    height: usize,
-    inverse: Affine,
-) -> GrayImage {
-    let mut output = GrayImage::new(width, height, 255);
-    let offsets = [0.125, 0.375, 0.625, 0.875];
-    for y in 0..height {
-        for x in 0..width {
-            let mut sum = 0u32;
-            for &oy in &offsets {
-                for &ox in &offsets {
-                    let mapped = inverse.apply(Point::new(x as f64 + ox, y as f64 + oy));
-                    sum += u32::from(sample_bilinear_white(source, mapped.x, mapped.y));
-                }
-            }
-            output.set(x, y, (sum / 16) as u8);
-        }
-    }
-    output
 }
 
 fn sampled_dewarp_grid(plan: &ComposedRenderPlan, region: Rect) -> DewarpMappingGrid {

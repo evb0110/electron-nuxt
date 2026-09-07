@@ -53,6 +53,146 @@ fn blank_single_region_has_pinned_raster_and_blankness() {
 }
 
 #[test]
+fn nonblank_region_crosses_named_stages_and_keeps_semantic_planes() {
+    let source = GrayImage::new(12, 10, 32);
+    let options = CleanupOptions {
+        layout: crate::LayoutMode::Single,
+        output_mode: OutputMode::Grayscale,
+        ..CleanupOptions::default()
+    };
+    let split = crate::split::single_page(source.width(), source.height());
+    let result = run(Input {
+        source: &source,
+        routing_source: &source,
+        normalized: &source,
+        analysis_normalized: &source,
+        analysis_scale_x: 1.0,
+        analysis_scale_y: 1.0,
+        canonical_routing_sample: &source,
+        canonical_leaf_source: &source,
+        canonical_routing_dpi: options.dpi,
+        calibration: PageCalibration::estimate(&source, options.dpi, CalibrationConfig::default()),
+        color_source: None,
+        analysis_picture_mask: None,
+        source_picture_mask: None,
+        halftone_zone_mask: None,
+        spatial_tone_mask: None,
+        chroma_picture_mask: None,
+        tone_picture_mask: None,
+        preserve_confirmed_photo_tones: false,
+        use_soft_alpha_foreground: false,
+        tone_preservation_alpha: None,
+        text_mask: None,
+        text_vicinity_mask: None,
+        trusted_foreground_mask: None,
+        options: &options,
+        source_page_index: 0,
+        split: &split,
+        spread_plan: None,
+        region: Rect::new(0.0, 0.0, source.width() as f64, source.height() as f64),
+        half: PageHalf::Full,
+        cache: None,
+        split_cache_key: None,
+        source_effectively_blank: false,
+        create_mixed_layers: false,
+        create_mixed_composite: false,
+        timings: &mut PageStageTimings::default(),
+    })
+    .expect("nonblank synthetic region should render");
+
+    assert!(!result.effectively_blank);
+    assert_eq!((result.image.width(), result.image.height()), (12, 10));
+    assert_eq!(result.image.get(0, 0), 32);
+    assert!(result.picture_mask.is_none());
+}
+
+#[test]
+fn transform_stage_returns_the_requested_masks_and_invertible_mapping() {
+    let analysis = GrayImage::from_vec(8, 6, 8, (0..48).map(|value| value as u8).collect())
+        .expect("synthetic analysis dimensions must be valid");
+    let mut picture = BinaryImage::new(8, 6);
+    picture.set(3, 2, true);
+    let mut manual = BinaryImage::new(8, 6);
+    manual.set(1, 1, true);
+    let options = CleanupOptions {
+        manual_skew_degrees: Some(0.0),
+        ..CleanupOptions::default()
+    };
+    let output = prepare_region_transforms(TransformPreparationInput {
+        analysis_working: analysis.clone(),
+        analysis_picture_working: Some(picture.clone()),
+        manual_picture_crop_authority: Some(manual.clone()),
+        options: &options,
+        half: PageHalf::Full,
+        region: Rect::new(0.0, 0.0, 8.0, 6.0),
+        working_width: 8,
+        working_height: 6,
+        local_scale_x: 1.0,
+        local_scale_y: 1.0,
+        calibration: PageCalibration::estimate(&analysis, 300.0, CalibrationConfig::default()),
+        cache: None,
+        split_cache_key: None,
+        timings: &mut PageStageTimings::default(),
+    })
+    .expect("identity transform stage should succeed");
+
+    assert!(output.deskew.accepted);
+    assert_eq!(output.deskewed_analysis, analysis);
+    assert_eq!(output.deskewed_picture_mask.expect("picture mask"), picture);
+    assert_eq!(
+        output
+            .deskewed_manual_picture_crop_authority
+            .expect("manual picture authority"),
+        manual
+    );
+    assert!(output.dewarp_model.is_none());
+}
+
+#[test]
+fn content_stage_maps_manual_content_to_source_and_preserves_diagnostics() {
+    let source = GrayImage::new(20, 12, 210);
+    let mut options = CleanupOptions::default();
+    options.manual_content_boxes.full = Some(crate::NormalizedRect {
+        x: 0.2,
+        y: 0.25,
+        width: 0.5,
+        height: 0.5,
+        rotation: OrthogonalRotation::None,
+    });
+    let output = detect_region_content(ContentDetectionInput {
+        content_analysis: &source,
+        content_picture_mask: None,
+        manual_picture_crop_authority: None,
+        normalized: &source,
+        options: &options,
+        source_effectively_blank: false,
+        cache: None,
+        deskew_key: None,
+        source_page_index: 0,
+        calibration: PageCalibration::estimate(&source, 300.0, CalibrationConfig::default()),
+        local_scale_x: 1.0,
+        local_scale_y: 1.0,
+        working_width: source.width(),
+        working_height: source.height(),
+        routing_source: &source,
+        region: Rect::new(0.0, 0.0, 20.0, 12.0),
+        local_deskew_forward: Affine::IDENTITY,
+        local_deskew_inverse: Affine::IDENTITY,
+        dewarp_model: None,
+        half: PageHalf::Full,
+        timings: &mut PageStageTimings::default(),
+    })
+    .expect("manual content mapping should succeed");
+
+    assert_eq!(output.diagnostics, None);
+    assert_eq!(
+        output.source_content_box,
+        Some(Rect::new(4.0, 3.0, 10.0, 6.0))
+    );
+    assert_eq!(output.detected_content, output.source_content_box);
+}
+
+#[test]
 fn geometry_stage_keeps_full_page_canvas_and_region_origin() {
     let options = CleanupOptions {
         output_mode: OutputMode::Color,
