@@ -2932,7 +2932,7 @@ async function runPreview(
             allowedPathRoot: dependencies.getTempDir(),
         });
         await writeFile(manifestPath, JSON.stringify(manifest));
-        await dependencies.runSidecar(
+        const sidecarCapabilities = await dependencies.runSidecar(
             binary,
             manifestPath,
             signal,
@@ -3269,7 +3269,9 @@ async function runPreview(
                         warnings: [
                             ...[
                                 ...previewWarningEvents,
-                                ...nativeMetadata.warningEvents ?? [],
+                                ...(sidecarCapabilities?.structuredWarningEventsSupported === true
+                                    ? nativeMetadata.warningEvents ?? []
+                                    : []),
                             ].map(event => formatScanCleanupWarningEvent(event)),
                             ...describeScanCleanupNativeWarnings({warnings: nativeMetadata.warnings}),
                         ],

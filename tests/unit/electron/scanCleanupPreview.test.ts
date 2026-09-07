@@ -5916,7 +5916,10 @@ describe('scan cleanup preview', () => {
         }
     });
 
-    it('carries a page the engine fitted below the document scale across the bridge', async () => {
+    it.each([
+        true,
+        false,
+    ])('gates native warning events on negotiated capabilities (%s)', async (structuredWarningEventsSupported) => {
         const dir = await setup();
         const deps = dependencies(dir);
         const originalSidecar = deps.runSidecar;
@@ -5959,12 +5962,13 @@ describe('scan cleanup preview', () => {
                     documentCanvasHeight: 180,
                 }],
             }));
+            return {structuredWarningEventsSupported};
         });
 
         const result = await previewOf(createScanCleanupPreviewService(deps), sender(), request);
 
-        // The page arrives whole — no blank frame, no error — and it still
-        // says that it had to be fitted.
+        // The page arrives whole, and only a sidecar that negotiated the
+        // structured event capability contributes the native event sentence.
         expect(decodeScanCleanupPreviewResult(result)).toMatchObject({outputs: [{metadata: {
             outputWidthPx: 252,
             outputHeightPx: 232,
@@ -5974,18 +5978,18 @@ describe('scan cleanup preview', () => {
             matchedCanvasContentHeightPx: 180,
             placementOffsetXPx: 2,
             canvasOverflow: true,
-            // The condition arrives as a code and leaves as the sentence the
-            // final run reports for the same placement.
-            warnings: [formatScanCleanupWarningEvent({
-                code: 'matched-canvas-content-fitted',
-                unit: 'px',
-                contentWidth: 196,
-                contentHeight: 180,
-                innerWidth: 196,
-                innerHeight: 180,
-                documentCanvasWidth: 200,
-                documentCanvasHeight: 180,
-            })],
+            warnings: structuredWarningEventsSupported
+                ? [formatScanCleanupWarningEvent({
+                    code: 'matched-canvas-content-fitted',
+                    unit: 'px',
+                    contentWidth: 196,
+                    contentHeight: 180,
+                    innerWidth: 196,
+                    innerHeight: 180,
+                    documentCanvasWidth: 200,
+                    documentCanvasHeight: 180,
+                })]
+                : [],
         }}]});
     });
 
