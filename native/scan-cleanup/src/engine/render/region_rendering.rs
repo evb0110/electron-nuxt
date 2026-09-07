@@ -3,6 +3,212 @@ use crate::auto_dewarp::AutoDewarpResult;
 use crate::content::ContentResult;
 use crate::DewarpOptions;
 
+struct RegionAssemblyInput<'a> {
+    image: CleanupRaster,
+    color_image: Option<RgbImage>,
+    picture_mask: Option<BinaryImage>,
+    tone_alpha: Option<GrayImage>,
+    mixed_layers: Option<MixedLayers>,
+    effectively_blank: bool,
+    timings: &'a mut PageStageTimings,
+    output_processing_started: Instant,
+    render_started: Instant,
+    deskew: DeskewResult,
+    effective_dewarp: Option<DewarpOptions>,
+    automatic_dewarp: Option<AutoDewarpResult>,
+    conservation_warnings: Vec<String>,
+    options: &'a CleanupOptions,
+    crop_enabled: bool,
+    content: ContentResult,
+    content_diagnostics: Option<ContentDiagnostics>,
+    source_page_index: usize,
+    half: PageHalf,
+    split: &'a SplitResult,
+    region: Rect,
+    source_content_box: Option<Rect>,
+    output_rect: Rect,
+    render_region: Option<Rect>,
+    text_tone_diagnostics: Option<TextToneDiagnostics>,
+    binarization_mode: Option<crate::BinarizationMode>,
+    binarization_diagnostics: Option<BinarizationDiagnostics>,
+    ink_consistency_diagnostics: Option<InkConsistencyDiagnostics>,
+    despeckle_fallback: bool,
+    forward_transform: Option<Affine>,
+    inverse_transform: Option<Affine>,
+    dewarp_mapping: Option<DewarpMappingGrid>,
+    output_width: usize,
+    output_height: usize,
+    source: &'a GrayImage,
+    emitted_output_mode: OutputMode,
+    trusted_mrc_background_preserved: bool,
+    trusted_selection_applied: bool,
+}
+
+fn assemble_region_result(input: RegionAssemblyInput<'_>) -> Result<RegionSemanticOutput, String> {
+    let RegionAssemblyInput {
+        image,
+        color_image,
+        picture_mask,
+        tone_alpha,
+        mixed_layers,
+        effectively_blank,
+        timings,
+        output_processing_started,
+        render_started,
+        deskew,
+        effective_dewarp,
+        automatic_dewarp,
+        mut conservation_warnings,
+        options,
+        crop_enabled,
+        content,
+        content_diagnostics,
+        source_page_index,
+        half,
+        split,
+        region,
+        source_content_box,
+        output_rect,
+        render_region,
+        text_tone_diagnostics,
+        binarization_mode,
+        binarization_diagnostics,
+        ink_consistency_diagnostics,
+        despeckle_fallback,
+        forward_transform,
+        inverse_transform,
+        dewarp_mapping,
+        output_width,
+        output_height,
+        source,
+        emitted_output_mode,
+        trusted_mrc_background_preserved,
+        trusted_selection_applied,
+    } = input;
+    timings.output_processing_ms += output_processing_started.elapsed().as_secs_f64() * 1_000.0;
+    timings.render_ms += render_started.elapsed().as_secs_f64() * 1_000.0;
+    let mut warnings = if deskew.accepted || effective_dewarp.is_some() {
+        Vec::new()
+    } else {
+        vec![format!(
+            "Deskew confidence {:.3} was below the 2.0 acceptance threshold",
+            deskew.confidence
+        )]
+    };
+    warnings.append(&mut conservation_warnings);
+    if options.crop_content && !crop_enabled && content.content.is_none() {
+        warnings.push("Content crop was skipped because no content box was detected".into());
+    }
+    if let Some(auto) = &automatic_dewarp {
+        if auto.model.is_none() && auto.confidence < 0.6 {
+            warnings.push(format!(
+                "Experimental automatic dewarp confidence {:.3} was below 0.6; no dewarp was applied",
+                auto.confidence
+            ));
+        }
+    }
+    let source_dpi = options.source_dpi();
+    let requested_render_dpi = options.requested_render_dpi();
+    let raster_scale_limited = options.dpi + f64::EPSILON < requested_render_dpi;
+    let mut warning_events = Vec::new();
+    if raster_scale_limited {
+        warning_events.push(CleanupWarningEvent::RenderDpiLimited {
+            applied_dpi_thousandths: quantize_decimal(options.dpi, 3),
+            requested_dpi_thousandths: quantize_decimal(requested_render_dpi, 3),
+        });
+    }
+    Ok(RegionSemanticOutput {
+        image,
+        color_image,
+        picture_mask,
+        tone_preservation_alpha: tone_alpha,
+        mixed_layers,
+        effectively_blank,
+        metadata: RegionSemanticMetadata {
+            source_page_index,
+            half,
+            detected_skew_degrees: deskew.angle_degrees,
+            skew_confidence: deskew.confidence,
+            skew_applied: deskew.accepted,
+            manual_skew: options.manual_skew_degrees.is_some(),
+            layout_classification: split.classification,
+            layout_confidence: split.confidence,
+            cutter_x: split.cutter_x,
+            split_geometry: split.pages.clone(),
+            split_seam: split.split_seam.as_ref().map(|seam| RegionSeamPolyline {
+                points: seam.points.clone(),
+            }),
+            source_region: region,
+            content_box: source_content_box,
+            crop_rect: output_rect,
+            content_diagnostics,
+            applied_margins: if crop_enabled {
+                content.margins
+            } else {
+                [0.0; 4]
+            }
+            .into(),
+            soft_margins_pixels: [0; 4],
+            uniform_canvas: false,
+            canvas_policy: MatchedCanvasPolicy::Intrinsic,
+            canvas_overflow: false,
+            matched_canvas_target_width: None,
+            matched_canvas_target_height: None,
+            matched_canvas_target_width_points: None,
+            matched_canvas_target_height_points: None,
+            matched_canvas_content_width: None,
+            matched_canvas_content_height: None,
+            matched_canvas_optical_placement: false,
+            matched_canvas_optical_content_left: None,
+            matched_canvas_optical_content_right: None,
+            matched_canvas_intrinsic_overflow_left: 0,
+            matched_canvas_intrinsic_overflow_right: 0,
+            matched_canvas_intrinsic_overflow_top: 0,
+            fold_clip_left: 0,
+            fold_clip_right: 0,
+            pdf_image_placement: None,
+            output_mode: emitted_output_mode,
+            bilevel_written: false,
+            layered_written: false,
+            layered_foreground_kind: None,
+            layered_background_dpi: None,
+            layered_foreground_dpi: None,
+            trusted_mrc_background_preserved,
+            trusted_selection_applied,
+            illumination_normalized: options.normalize_illumination,
+            text_tone_diagnostics,
+            binarization_mode,
+            binarization_diagnostics,
+            ink_consistency_diagnostics,
+            despeckle_fallback,
+            forward_transform,
+            inverse_transform,
+            dewarp_model: effective_dewarp,
+            dewarp_mapping,
+            dewarp_confidence: automatic_dewarp.as_ref().map(|result| result.confidence),
+            input_width: source.width(),
+            input_height: source.height(),
+            output_width,
+            output_height,
+            intrinsic_raster_width: Some(output_width),
+            intrinsic_raster_height: Some(output_height),
+            render_region,
+            canvas_width: output_width,
+            canvas_height: output_height,
+            placement_offset_x: 0,
+            placement_offset_y: 0,
+            rotation: options.rotation,
+            resample_passes: 1,
+            source_dpi,
+            render_dpi: options.dpi,
+            requested_render_dpi,
+            raster_scale_limited,
+            warnings,
+            warning_events,
+        },
+    })
+}
+
 pub(crate) struct TransformPreparationInput<'a> {
     pub analysis_working: GrayImage,
     pub analysis_picture_working: Option<BinaryImage>,
@@ -1125,19 +1331,20 @@ fn process_bilevel_output(input: BilevelProcessingInput<'_>) -> BilevelProcessin
                 && pale_tonal_structure
                 && pale_bilevel_collapse(trusted_foreground, pale_tonal_structure)
             {
-                let (_, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
-                    trusted_foreground,
-                    rendered_picture_mask,
-                    rendered_text_mask,
-                    rendered_text_vicinity_mask,
+                let fold_output = fold_edge_filtering::run(fold_edge_filtering::Input {
+                    binary: trusted_foreground,
+                    picture_mask: rendered_picture_mask,
+                    text_mask: rendered_text_mask,
+                    text_vicinity_mask: rendered_text_vicinity_mask,
                     half,
                     split,
                     region,
                     render_plan,
                     source_content_box,
-                    fold_edge_blank_leaf,
-                    options.dpi,
-                );
+                    blank_leaf: fold_edge_blank_leaf,
+                    dpi: options.dpi,
+                });
+                let fold_removed_edge_bands = fold_output.removed;
                 conservation_warnings.push(format!(
                     "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
                     source_page_index + 1,
@@ -1185,19 +1392,20 @@ fn process_bilevel_output(input: BilevelProcessingInput<'_>) -> BilevelProcessin
                         stabilized
                     },
                 );
-                let trusted_foreground = filter_fold_edge_fragments(
-                    &trusted_foreground,
-                    rendered_picture_mask,
-                    rendered_text_mask,
-                    rendered_text_vicinity_mask,
+                let trusted_foreground = fold_edge_filtering::run(fold_edge_filtering::Input {
+                    binary: &trusted_foreground,
+                    picture_mask: rendered_picture_mask,
+                    text_mask: rendered_text_mask,
+                    text_vicinity_mask: rendered_text_vicinity_mask,
                     half,
                     split,
                     region,
                     render_plan,
                     source_content_box,
-                    fold_edge_blank_leaf,
-                    options.dpi,
-                );
+                    blank_leaf: fold_edge_blank_leaf,
+                    dpi: options.dpi,
+                })
+                .kept;
                 (
                     CleanupRaster::Bilevel(trusted_foreground),
                     Some(mode),
@@ -1282,19 +1490,21 @@ fn process_bilevel_output(input: BilevelProcessingInput<'_>) -> BilevelProcessin
                 half,
                 &mut conservation_warnings,
             );
-            let (binary, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
-                &binary,
-                rendered_picture_mask,
-                rendered_text_mask,
-                rendered_text_vicinity_mask,
+            let fold_output = fold_edge_filtering::run(fold_edge_filtering::Input {
+                binary: &binary,
+                picture_mask: rendered_picture_mask,
+                text_mask: rendered_text_mask,
+                text_vicinity_mask: rendered_text_vicinity_mask,
                 half,
                 split,
                 region,
                 render_plan,
                 source_content_box,
-                fold_edge_blank_leaf,
-                options.dpi,
-            );
+                blank_leaf: fold_edge_blank_leaf,
+                dpi: options.dpi,
+            });
+            let binary = fold_output.kept;
+            let fold_removed_edge_bands = fold_output.removed;
             if !effectively_blank && pale_bilevel_collapse(&binary, pale_tonal_structure) {
                 conservation_warnings.push(format!(
                     "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
@@ -1502,19 +1712,21 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
                 half,
                 &mut conservation_warnings,
             );
-            let (binary, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
-                &binary,
-                rendered_picture_mask.as_ref(),
-                rendered_text_mask.as_ref(),
-                rendered_text_vicinity_mask.as_ref(),
+            let fold_output = fold_edge_filtering::run(fold_edge_filtering::Input {
+                binary: &binary,
+                picture_mask: rendered_picture_mask.as_ref(),
+                text_mask: rendered_text_mask.as_ref(),
+                text_vicinity_mask: rendered_text_vicinity_mask.as_ref(),
                 half,
                 split,
                 region,
                 render_plan,
                 source_content_box,
-                fold_edge_blank_leaf,
-                options.dpi,
-            );
+                blank_leaf: fold_edge_blank_leaf,
+                dpi: options.dpi,
+            });
+            let binary = fold_output.kept;
+            let fold_removed_edge_bands = fold_output.removed;
             if !effectively_blank && pale_bilevel_collapse(&binary, pale_tonal_structure) {
                 conservation_warnings.push(format!(
                             "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
@@ -1665,19 +1877,21 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
                 half,
                 &mut conservation_warnings,
             );
-            let (binary, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
-                &binary,
-                Some(picture_mask),
-                rendered_text_mask.as_ref(),
-                rendered_text_vicinity_mask.as_ref(),
+            let fold_output = fold_edge_filtering::run(fold_edge_filtering::Input {
+                binary: &binary,
+                picture_mask: Some(picture_mask),
+                text_mask: rendered_text_mask.as_ref(),
+                text_vicinity_mask: rendered_text_vicinity_mask.as_ref(),
                 half,
                 split,
                 region,
                 render_plan,
                 source_content_box,
-                fold_edge_blank_leaf,
-                options.dpi,
-            );
+                blank_leaf: fold_edge_blank_leaf,
+                dpi: options.dpi,
+            });
+            let binary = fold_output.kept;
+            let fold_removed_edge_bands = fold_output.removed;
             let removed_edge_bands = if !conserved {
                 Some(removed_edge_bands.or(&fold_removed_edge_bands))
             } else if fold_removed_edge_bands.count_black() > 0 {
@@ -1695,22 +1909,25 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
                 effective_dewarp,
                 create_mixed_layers,
             );
-            let (mixed_gray, mixed_color, layers) = compose_mixed(
-                &rendered_gray,
-                Some(&rendered_source_gray),
-                rendered_color.as_ref(),
-                &binary,
+            let final_output = final_composition::run(final_composition::Input {
+                gray: &rendered_gray,
+                raw_gray: Some(&rendered_source_gray),
+                color: rendered_color.as_ref(),
+                binary: &binary,
                 picture_mask,
-                rendered_chroma_picture_mask.as_ref(),
-                removed_edge_bands.as_ref(),
-                text_recall.as_ref(),
-                rendered_text_vicinity_mask.as_ref(),
-                options.dpi,
+                chroma_picture_mask: rendered_chroma_picture_mask.as_ref(),
+                removed_edge_bands: removed_edge_bands.as_ref(),
+                text_mask: text_recall.as_ref(),
+                text_vicinity_mask: rendered_text_vicinity_mask.as_ref(),
+                dpi: options.dpi,
                 preserve_confirmed_photo_tones,
                 use_soft_alpha_foreground,
-                create_mixed_layers,
-                create_mixed_composite,
-            );
+                create_layers: create_mixed_layers,
+                create_composite: create_mixed_composite,
+            });
+            let mixed_gray = final_output.gray;
+            let mixed_color = final_output.color;
+            let layers = final_output.mixed_layers;
             let layers = layers.map(|mut layers| {
                 layers.source_mrc = reuse_source_mrc_foreground;
                 layers
