@@ -669,3 +669,57 @@ fn mixed_stage_exposes_soft_alpha_for_picture_owned_foreground() {
         (8, 8)
     );
 }
+
+#[test]
+fn continuous_stage_keeps_grayscale_pixels_and_omits_color() {
+    let mut gray = GrayImage::new(5, 4, 255);
+    gray.set(2, 1, 37);
+    let output = process_continuous_output(ContinuousOutputInput {
+        output_mode: OutputMode::Grayscale,
+        rendered_gray: gray,
+        rendered_color: None,
+        rendered_width: 5,
+        rendered_height: 4,
+        create_mixed_layers: true,
+    });
+
+    let CleanupRaster::Gray(image) = output.image else {
+        panic!("grayscale stage must emit a gray raster");
+    };
+    assert_eq!((image.width(), image.height()), (5, 4));
+    assert_eq!(image.get(2, 1), 37);
+    assert!(output.color_image.is_none());
+    assert!(output.mixed_layers.is_none());
+}
+
+#[test]
+fn continuous_stage_keeps_color_pixels_and_can_build_color_layers() {
+    let gray = GrayImage::new(5, 4, 180);
+    let mut color = RgbImage::new(5, 4, [255; 3]);
+    color.set(2, 1, [18, 96, 210]);
+    let output = process_continuous_output(ContinuousOutputInput {
+        output_mode: OutputMode::Color,
+        rendered_gray: gray,
+        rendered_color: Some(color.clone()),
+        rendered_width: 5,
+        rendered_height: 4,
+        create_mixed_layers: true,
+    });
+
+    let CleanupRaster::Gray(image) = output.image else {
+        panic!("color stage must retain the gray geometry plane");
+    };
+    assert_eq!((image.width(), image.height()), (5, 4));
+    assert_eq!(
+        output.color_image.as_ref().unwrap().get(2, 1),
+        [18, 96, 210]
+    );
+    let layers = output
+        .mixed_layers
+        .expect("color layers should be available");
+    assert_eq!(layers.color_background.as_ref().unwrap(), &color);
+    assert_eq!(
+        (layers.background.width(), layers.background.height()),
+        (5, 4)
+    );
+}
