@@ -2451,7 +2451,10 @@ mod tests {
     use crate::engine::staged_input::StagedPageDescriptor;
     use crate::io::raster::RasterReadError;
     use crate::io::MAX_STREAM_INPUT_BYTES;
-    use crate::protocol::manifest_v3::{CanvasScope, Page, SplitSeamPolyline};
+    use crate::protocol::manifest_v3::{
+        AnalysisPurpose, CanvasScope, DetailPixelRect, DetailRenderPlan, Operation, Page,
+        PageOutput, RenderMode, SplitSeamPolyline, VERSION,
+    };
     use crate::protocol::progress::PageStageTimings;
     use crate::split::{ClusterDimensions, DocumentPrior, LayoutClassification};
     use crate::{CleanupOptions, OrthogonalRotation, OutputMode};
@@ -2751,6 +2754,346 @@ mod tests {
                 LayoutClassification::TwoPageSpread
             );
         }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    fn assert_manifest_paths_within_root(
+        manifest: &ManifestV3,
+        root: &Path,
+    ) -> Result<(), NativeError> {
+        super::assert_paths_within_root(&super::staged_path_plan(manifest), root)
+    }
+
+    fn preflight_manifest_paths(manifest: &ManifestV3) -> Result<(), NativeError> {
+        super::preflight_paths(&super::staged_path_plan(manifest))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn allowed_path_root_rejects_symlink_escapes_and_keeps_real_descendants() {
+        use std::os::unix::fs::symlink;
+
+        let base = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-allowed-root-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let root = base.join("root");
+        let outside = base.join("outside");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::write(root.join("input.png"), b"input").unwrap();
+        fs::write(outside.join("secret.png"), b"secret").unwrap();
+        symlink(outside.join("secret.png"), root.join("input-link.png")).unwrap();
+        symlink(&outside, root.join("escape-dir")).unwrap();
+        symlink(root.join("input.png"), root.join("inside-link.png")).unwrap();
+        symlink(outside.join("missing.png"), root.join("dangling.png")).unwrap();
+
+        let manifest_with = |input: PathBuf, output: PathBuf| ManifestV3 {
+            version: VERSION,
+            operation: Operation::Render,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Final,
+            canvas_scope: CanvasScope::Page,
+            document_canvas: None,
+            host_memory_bytes: None,
+            raster_window: 1,
+            staged_input_window: None,
+            staged_input_peak_pixels: None,
+            pages: vec![Page {
+                input_path: input,
+                analysis_input_path: None,
+                analysis_dpi: None,
+                trusted_foreground_mask_path: None,
+                trusted_mrc_background_path: None,
+                source_page_index: 0,
+                page_metadata_path: root.join("page.json"),
+                options: CleanupOptions {
+                    match_page_size: false,
+                    ..CleanupOptions::default()
+                },
+                document_prior: None,
+                detail_render_plan: None,
+                outputs: vec![PageOutput {
+                    output_path: output,
+                    metadata_path: root.join("output.json"),
+                    bilevel_output_path: None,
+                    background_output_path: None,
+                    foreground_mask_output_path: None,
+                    foreground_alpha_output_path: None,
+                    picture_mask_output_path: None,
+                    tone_preservation_alpha_output_path: None,
+                }],
+            }],
+        };
+
+        // A real input and a not-yet-created output below a real directory.
+        assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap();
+
+        // A symlink that resolves back inside the root stays valid.
+        assert_manifest_paths_within_root(
+            &manifest_with(root.join("inside-link.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap();
+
+        // An existing input symlink pointing outside the root.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input-link.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("escapes the allowed path root"));
+
+        // A missing output below a symlinked external ancestor.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("escape-dir/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("escapes the allowed path root"));
+
+        // A lexical escape that never touches the filesystem.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("../outside/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("escapes the allowed path root"));
+
+        // A dangling symlink resolves to nothing this root can vouch for.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("dangling.png"), root.join("nested/output.png")),
+            &root,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("cannot be resolved"));
+
+        // input_paths() and destination_paths() carry more than inputPath and
+        // the primary output. Every auxiliary entry is judged by the same root,
+        // so each slot is filled twice: once with a symlink that resolves back
+        // inside the root, once with one that resolves outside it.
+        let inside_link = root.join("inside-link.png");
+        let outside_link = root.join("input-link.png");
+        let detail_plan = |base_metadata: PathBuf, base_raster: PathBuf, base_cleaned: PathBuf| {
+            let region = DetailPixelRect {
+                x_px: 0.0,
+                y_px: 0.0,
+                width_px: 16.0,
+                height_px: 16.0,
+            };
+            DetailRenderPlan {
+                base_metadata_path: base_metadata,
+                base_raster_path: base_raster,
+                base_cleaned_raster_path: Some(base_cleaned),
+                source_crop: region.clone(),
+                full_source_width_px: 32,
+                full_source_height_px: 32,
+                scale: 1.0,
+                render_region: region.clone(),
+                sampled_region: region,
+            }
+        };
+        let detail_slot = |select: fn(PathBuf, PathBuf) -> (PathBuf, PathBuf, PathBuf)| {
+            let inside = inside_link.clone();
+            move |page: &mut Page, path: PathBuf| {
+                let (base_metadata, base_raster, base_cleaned) = select(path, inside.clone());
+                page.detail_render_plan =
+                    Some(detail_plan(base_metadata, base_raster, base_cleaned));
+            }
+        };
+        type AuxiliarySlot = (&'static str, Box<dyn Fn(&mut Page, PathBuf)>);
+        let auxiliary_slots: Vec<AuxiliarySlot> = vec![
+            (
+                "analysisInputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.analysis_input_path = Some(path);
+                    page.analysis_dpi = Some(150.0);
+                }),
+            ),
+            (
+                "trustedForegroundMaskPath",
+                Box::new(|page: &mut Page, path| page.trusted_foreground_mask_path = Some(path)),
+            ),
+            (
+                "trustedMrcBackgroundPath",
+                Box::new(|page: &mut Page, path| page.trusted_mrc_background_path = Some(path)),
+            ),
+            (
+                "detailRenderPlan.baseMetadataPath",
+                Box::new(detail_slot(|path, inside| (path, inside.clone(), inside))),
+            ),
+            (
+                "detailRenderPlan.baseRasterPath",
+                Box::new(detail_slot(|path, inside| (inside.clone(), path, inside))),
+            ),
+            (
+                "detailRenderPlan.baseCleanedRasterPath",
+                Box::new(detail_slot(|path, inside| (inside.clone(), inside, path))),
+            ),
+            (
+                "pageMetadataPath",
+                Box::new(|page: &mut Page, path| page.page_metadata_path = path),
+            ),
+            (
+                "outputs.metadataPath",
+                Box::new(|page: &mut Page, path| page.outputs[0].metadata_path = path),
+            ),
+            (
+                "outputs.bilevelOutputPath",
+                Box::new(|page: &mut Page, path| page.outputs[0].bilevel_output_path = Some(path)),
+            ),
+            (
+                "outputs.backgroundOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].background_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.foregroundMaskOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].foreground_mask_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.foregroundAlphaOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].foreground_alpha_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.pictureMaskOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].picture_mask_output_path = Some(path)
+                }),
+            ),
+            (
+                "outputs.tonePreservationAlphaOutputPath",
+                Box::new(|page: &mut Page, path| {
+                    page.outputs[0].tone_preservation_alpha_output_path = Some(path)
+                }),
+            ),
+        ];
+        for (label, fill) in &auxiliary_slots {
+            let mut accepted =
+                manifest_with(root.join("input.png"), root.join("nested/output.png"));
+            fill(&mut accepted.pages[0], inside_link.clone());
+            assert!(
+                assert_manifest_paths_within_root(&accepted, &root).is_ok(),
+                "{label} resolving inside the root must be accepted",
+            );
+
+            let mut rejected =
+                manifest_with(root.join("input.png"), root.join("nested/output.png"));
+            fill(&mut rejected.pages[0], outside_link.clone());
+            let error = assert_manifest_paths_within_root(&rejected, &root)
+                .expect_err(&format!(
+                    "{label} resolving outside the root must be rejected"
+                ))
+                .to_string();
+            assert!(
+                error.contains("escapes the allowed path root"),
+                "{label}: {error}"
+            );
+        }
+
+        // A missing or non-directory root is rejected before any path check.
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("nested/output.png")),
+            &base.join("no-such-root"),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("not an existing directory"));
+        assert!(assert_manifest_paths_within_root(
+            &manifest_with(root.join("input.png"), root.join("nested/output.png")),
+            &root.join("input.png"),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("not a directory"));
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_path_preflight_rejects_hardlink_aliases() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-manifest-aliases-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("input.png");
+        let input_alias = dir.join("input-alias.png");
+        fs::write(&input, b"input").unwrap();
+        fs::hard_link(&input, &input_alias).unwrap();
+        let mut manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::PagePlan,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes: None,
+            raster_window: 1,
+            staged_input_window: None,
+            staged_input_peak_pixels: None,
+            pages: vec![Page {
+                input_path: input,
+                analysis_input_path: None,
+                analysis_dpi: None,
+                trusted_foreground_mask_path: None,
+                trusted_mrc_background_path: None,
+                source_page_index: 0,
+                page_metadata_path: input_alias,
+                options: CleanupOptions::default(),
+                document_prior: None,
+                detail_render_plan: None,
+                outputs: Vec::new(),
+            }],
+        };
+        manifest.validate().unwrap();
+        assert!(preflight_manifest_paths(&manifest)
+            .unwrap_err()
+            .to_string()
+            .contains("aliases an input file"));
+
+        let shared_destination = dir.join("shared-destination");
+        let destination_alias = dir.join("destination-alias");
+        fs::write(&shared_destination, b"old output").unwrap();
+        fs::hard_link(&shared_destination, &destination_alias).unwrap();
+        manifest.operation = Operation::Render;
+        manifest.pages[0].options.match_page_size = false;
+        manifest.pages[0].page_metadata_path = shared_destination.clone();
+        manifest.pages[0].outputs.push(PageOutput {
+            output_path: dir.join("output.png"),
+            metadata_path: destination_alias.clone(),
+            bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
+        });
+        manifest.validate().unwrap();
+        assert!(preflight_manifest_paths(&manifest)
+            .unwrap_err()
+            .to_string()
+            .contains("different files"));
+        assert_eq!(fs::read(&shared_destination).unwrap(), b"old output");
+        assert_eq!(fs::read(&destination_alias).unwrap(), b"old output");
+
         let _ = fs::remove_dir_all(dir);
     }
 
