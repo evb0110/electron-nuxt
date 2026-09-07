@@ -374,9 +374,6 @@ mod tests {
         with_announced_staged_page_input, LeaseEvent, StagedInputBatch, StagedLeaseDescriptor,
         StagedPageDescriptor,
     };
-    use crate::protocol::manifest_v3::{
-        AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, PageOutput, RenderMode, VERSION,
-    };
     use crate::{CleanupOptions, OutputMode};
     use evb_native_support::{NativeError, NativeErrorCode};
     use scan_primitives::GrayImage;
@@ -390,24 +387,6 @@ mod tests {
         thread,
         time::Duration,
     };
-
-    fn planning_page(page: &Page) -> PageDescriptor {
-        PageDescriptor {
-            input_path: page.input_path.clone(),
-            source_page_index: page.source_page_index,
-            options: CleanupOptionsView {
-                max_pixels: page.options.max_pixels,
-                max_dimension: page.options.max_dimension,
-                output_mode: page.options.output_mode,
-                source_has_bilevel_layer: page.options.source_has_bilevel_layer,
-                thickness: page.options.thickness,
-            },
-            stream_input: fs::metadata(&page.input_path)
-                .is_ok_and(|metadata| !metadata.file_type().is_file()),
-            trusted_foreground_mask_path: page.trusted_foreground_mask_path.clone(),
-            trusted_mrc_background_path: page.trusted_mrc_background_path.clone(),
-        }
-    }
 
     #[derive(Clone)]
     struct TypedTestManifest {
@@ -502,6 +481,42 @@ mod tests {
         }
     }
 
+    fn typed_manifest_with(
+        operation: PlanningOperation,
+        host_memory_bytes: Option<u64>,
+        pages: Vec<PageDescriptor>,
+    ) -> TypedTestManifest {
+        TypedTestManifest {
+            operation,
+            host_memory_bytes,
+            staged_input_window: None,
+            staged_input_peak_pixels: None,
+            raster_window: 1,
+            pages,
+        }
+    }
+
+    fn typed_page(
+        input_path: PathBuf,
+        source_page_index: usize,
+        output_mode: OutputMode,
+    ) -> PageDescriptor {
+        PageDescriptor {
+            input_path,
+            source_page_index,
+            options: CleanupOptionsView {
+                max_pixels: 1_000_000_000,
+                max_dimension: 100_000,
+                output_mode,
+                source_has_bilevel_layer: false,
+                thickness: 0,
+            },
+            stream_input: false,
+            trusted_foreground_mask_path: None,
+            trusted_mrc_background_path: None,
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn streamed_inputs_use_one_page_worker_to_avoid_fifo_pool_deadlock() {
@@ -516,7 +531,29 @@ mod tests {
             .status()
             .unwrap()
             .success());
-        let manifest = typed_test_manifest(&dir, 8, 1, true, None);
+        let manifest = TypedTestManifest {
+            operation: PlanningOperation::Analyze,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            staged_input_window: None,
+            staged_input_peak_pixels: None,
+            raster_window: 1,
+            pages: (0..8)
+                .map(|source_page_index| PageDescriptor {
+                    input_path: fifo.clone(),
+                    source_page_index,
+                    options: CleanupOptionsView {
+                        max_pixels: 1_000_000_000,
+                        max_dimension: 100_000,
+                        output_mode: OutputMode::Bw,
+                        source_has_bilevel_layer: false,
+                        thickness: 0,
+                    },
+                    stream_input: true,
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                })
+                .collect(),
+        };
         assert_eq!(page_worker_threads(&manifest).unwrap(), 1);
         let _ = fs::remove_file(fifo);
         let _ = fs::remove_dir_all(dir);
@@ -719,26 +756,14 @@ mod tests {
             crate::png::encode_gray(&GrayImage::new(32, 24, 240)).unwrap(),
         )
         .unwrap();
-        let page = Page {
-            input_path: input,
-            analysis_input_path: None,
-            analysis_dpi: None,
-            trusted_foreground_mask_path: None,
-            trusted_mrc_background_path: None,
-            source_page_index: 0,
-            page_metadata_path: dir.join("page.json"),
-            options: CleanupOptions {
-                output_mode: OutputMode::Color,
-                ..CleanupOptions::default()
-            },
-            document_prior: None,
-            detail_render_plan: None,
-            outputs: Vec::new(),
-        };
+        let page = typed_page(input, 0, OutputMode::Color);
         let render_cache = manifest_cache(PlanningOperation::Render, None);
-        let render_page_cache = page_cache_for(&planning_page(&page), &render_cache).unwrap();
-        let render_key =
-            crate::cache::StageCacheKey::decoded(&render_page_cache.source, true, &page.options);
+        let render_page_cache = page_cache_for(&page, &render_cache).unwrap();
+        let render_key = crate::cache::StageCacheKey::decoded(
+            &render_page_cache.source,
+            true,
+            &CleanupOptions::default(),
+        );
         assert!(render_cache
             .lock()
             .unwrap()
@@ -746,7 +771,7 @@ mod tests {
             .is_none());
 
         let analyze_cache = manifest_cache(PlanningOperation::Analyze, None);
-        let analyze_page_cache = page_cache_for(&planning_page(&page), &analyze_cache).unwrap();
+        let analyze_page_cache = page_cache_for(&page, &analyze_cache).unwrap();
         assert_eq!(analyze_page_cache.source, render_page_cache.source);
         assert!(analyze_cache
             .lock()
@@ -780,38 +805,28 @@ mod tests {
         }
         crate::png::write_gray_atomic(&mask, &selection).unwrap();
         crate::png::write_gray_atomic(&background, &GrayImage::new(50, 25, 240)).unwrap();
-        let pages = (0..12)
-            .map(|index| Page {
-                input_path: input.clone(),
-                analysis_input_path: None,
-                analysis_dpi: None,
-                trusted_foreground_mask_path: Some(mask.clone()),
-                trusted_mrc_background_path: Some(background.clone()),
-                source_page_index: index,
-                page_metadata_path: dir.join(format!("page-{index}.json")),
-                options: CleanupOptions {
-                    output_mode: OutputMode::Bw,
-                    source_has_bilevel_layer: true,
-                    thickness: 0,
-                    ..CleanupOptions::default()
-                },
-                document_prior: None,
-                detail_render_plan: None,
-                outputs: Vec::new(),
-            })
-            .collect::<Vec<_>>();
-        let manifest = ManifestV3 {
-            version: VERSION,
-            operation: Operation::Render,
-            analysis_purpose: AnalysisPurpose::PagePlan,
-            render_mode: RenderMode::Final,
-            canvas_scope: CanvasScope::Page,
-            document_canvas: None,
+        let manifest = TypedTestManifest {
+            operation: PlanningOperation::Render,
             host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
-            raster_window: 1,
             staged_input_window: None,
             staged_input_peak_pixels: None,
-            pages,
+            raster_window: 1,
+            pages: (0..12)
+                .map(|index| PageDescriptor {
+                    input_path: input.clone(),
+                    source_page_index: index,
+                    options: CleanupOptionsView {
+                        max_pixels: 1_000_000_000,
+                        max_dimension: 100_000,
+                        output_mode: OutputMode::Bw,
+                        source_has_bilevel_layer: true,
+                        thickness: 0,
+                    },
+                    stream_input: false,
+                    trusted_foreground_mask_path: Some(mask.clone()),
+                    trusted_mrc_background_path: Some(background.clone()),
+                })
+                .collect(),
         };
 
         assert!(manifest_worker_threads(&manifest).unwrap() > 1);
@@ -823,45 +838,20 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
-    fn scheduler_test_manifest(dir: &Path, page_count: usize) -> ManifestV3 {
+    fn scheduler_test_manifest(dir: &Path, page_count: usize) -> TypedTestManifest {
         let input = dir.join("scheduler-input.png");
         fs::write(
             &input,
             crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
         )
         .unwrap();
-        ManifestV3 {
-            version: VERSION,
-            operation: Operation::Render,
-            analysis_purpose: AnalysisPurpose::PagePlan,
-            render_mode: RenderMode::Preview,
-            canvas_scope: CanvasScope::Page,
-            document_canvas: None,
-            // For a 100x50 bilevel page this leaves exactly two page slots in
-            // the memory-derived bound, independent of host CPU count.
-            host_memory_bytes: Some(1_400_000),
-            raster_window: 1,
-            staged_input_window: None,
-            staged_input_peak_pixels: None,
-            pages: (0..page_count)
-                .map(|index| Page {
-                    input_path: input.clone(),
-                    analysis_input_path: None,
-                    analysis_dpi: None,
-                    trusted_foreground_mask_path: None,
-                    trusted_mrc_background_path: None,
-                    source_page_index: index,
-                    page_metadata_path: dir.join(format!("scheduler-page-{index}.json")),
-                    options: CleanupOptions {
-                        output_mode: OutputMode::Bw,
-                        ..CleanupOptions::default()
-                    },
-                    document_prior: None,
-                    detail_render_plan: None,
-                    outputs: Vec::new(),
-                })
+        typed_manifest_with(
+            PlanningOperation::Render,
+            Some(1_400_000),
+            (0..page_count)
+                .map(|index| typed_page(input.clone(), index, OutputMode::Bw))
                 .collect(),
-        }
+        )
     }
 
     #[test]
@@ -1073,112 +1063,32 @@ mod tests {
             crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
         )
         .unwrap();
-        let manifest = |operation, output_mode| ManifestV3 {
-            version: VERSION,
-            operation,
-            analysis_purpose: AnalysisPurpose::PagePlan,
-            render_mode: RenderMode::Preview,
-            canvas_scope: CanvasScope::default(),
-            document_canvas: None,
-            // 600 kB remains after the process/cache split: enough for two
-            // 40-Bpp pages, but only one 80-Bpp page.
-            host_memory_bytes: Some(2_000_000),
-            raster_window: 1,
-            staged_input_window: None,
-            staged_input_peak_pixels: None,
-            pages: (0..2)
-                .map(|source_page_index| Page {
-                    input_path: input.clone(),
-                    analysis_input_path: None,
-                    analysis_dpi: None,
-                    trusted_foreground_mask_path: None,
-                    trusted_mrc_background_path: None,
-                    source_page_index,
-                    page_metadata_path: dir.join(format!("page-{source_page_index}.json")),
-                    options: CleanupOptions {
-                        output_mode,
-                        ..CleanupOptions::default()
-                    },
-                    document_prior: None,
-                    detail_render_plan: None,
-                    outputs: Vec::new(),
-                })
-                .collect(),
+        let manifest = |operation, output_mode| {
+            typed_manifest_with(
+                operation,
+                Some(2_000_000),
+                (0..2)
+                    .map(|source_page_index| {
+                        typed_page(input.clone(), source_page_index, output_mode)
+                    })
+                    .collect(),
+            )
         };
 
         assert_eq!(
-            manifest_worker_threads(&manifest(Operation::Render, OutputMode::Bw)).unwrap(),
+            manifest_worker_threads(&manifest(PlanningOperation::Render, OutputMode::Bw)).unwrap(),
             2
         );
         assert_eq!(
-            manifest_worker_threads(&manifest(Operation::Analyze, OutputMode::Bw)).unwrap(),
+            manifest_worker_threads(&manifest(PlanningOperation::Analyze, OutputMode::Bw)).unwrap(),
             1
         );
         assert_eq!(
-            manifest_worker_threads(&manifest(Operation::Render, OutputMode::Auto)).unwrap(),
+            manifest_worker_threads(&manifest(PlanningOperation::Render, OutputMode::Auto))
+                .unwrap(),
             1
         );
 
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn analyze_workers_ignore_duplicate_unused_render_outputs() {
-        let dir = std::env::temp_dir().join(format!(
-            "evb-scan-cleanup-analyze-output-contract-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let input = dir.join("page.png");
-        fs::write(
-            &input,
-            crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
-        )
-        .unwrap();
-        let duplicate_output = PageOutput {
-            output_path: dir.join("unused.png"),
-            metadata_path: dir.join("unused-output.json"),
-            bilevel_output_path: None,
-            background_output_path: None,
-            foreground_mask_output_path: None,
-            foreground_alpha_output_path: None,
-            picture_mask_output_path: None,
-            tone_preservation_alpha_output_path: None,
-        };
-        let manifest = ManifestV3 {
-            version: VERSION,
-            operation: Operation::Analyze,
-            analysis_purpose: AnalysisPurpose::Classification,
-            render_mode: RenderMode::Preview,
-            canvas_scope: CanvasScope::Page,
-            document_canvas: None,
-            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
-            raster_window: 1,
-            staged_input_window: None,
-            staged_input_peak_pixels: None,
-            pages: (0..2)
-                .map(|index| Page {
-                    input_path: input.clone(),
-                    analysis_input_path: None,
-                    analysis_dpi: None,
-                    trusted_foreground_mask_path: None,
-                    trusted_mrc_background_path: None,
-                    source_page_index: index,
-                    page_metadata_path: dir.join(format!("page-{index}.json")),
-                    options: CleanupOptions::default(),
-                    document_prior: None,
-                    detail_render_plan: None,
-                    outputs: vec![duplicate_output.clone()],
-                })
-                .collect(),
-        };
-
-        // Analyze does not publish PageOutput destinations. Validation accepts
-        // the duplicated unused values, while the worker bound still follows
-        // the memory-derived page limit instead of a destination scan.
-        manifest.validate().unwrap();
-        assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -1195,32 +1105,14 @@ mod tests {
             crate::png::encode_gray(&GrayImage::new(2_000, 1_500, 240)).unwrap(),
         )
         .unwrap();
-        let manifest = |host_memory_bytes| ManifestV3 {
-            version: VERSION,
-            operation: Operation::Render,
-            analysis_purpose: AnalysisPurpose::PagePlan,
-            render_mode: RenderMode::Final,
-            canvas_scope: CanvasScope::default(),
-            document_canvas: None,
-            host_memory_bytes,
-            raster_window: 1,
-            staged_input_window: None,
-            staged_input_peak_pixels: None,
-            pages: (0..8)
-                .map(|index| Page {
-                    input_path: input.clone(),
-                    analysis_input_path: None,
-                    analysis_dpi: None,
-                    trusted_foreground_mask_path: None,
-                    trusted_mrc_background_path: None,
-                    source_page_index: index,
-                    page_metadata_path: PathBuf::from("page.json"),
-                    options: CleanupOptions::default(),
-                    document_prior: None,
-                    detail_render_plan: None,
-                    outputs: Vec::new(),
-                })
-                .collect(),
+        let manifest = |host_memory_bytes| {
+            typed_manifest_with(
+                PlanningOperation::Render,
+                host_memory_bytes,
+                (0..8)
+                    .map(|index| typed_page(input.clone(), index, OutputMode::Bw))
+                    .collect(),
+            )
         };
         let constrained = manifest_worker_threads(&manifest(Some(64 * 1024 * 1024))).unwrap();
         let roomy = manifest_worker_threads(&manifest(Some(32 * 1024 * 1024 * 1024))).unwrap();

@@ -2446,7 +2446,7 @@ mod tests {
     use crate::engine::batch_reconciliation::{
         reconcile_classification_batch, ReconciliationAction, ReconciliationPolicy,
     };
-    use crate::engine::resource_planning::{manifest_cache, page_cache_for};
+    use crate::engine::resource_planning::{manifest_cache, page_cache_for, page_worker_threads};
     use crate::engine::resource_planning::{CleanupOptionsView, PageDescriptor, PlanningOperation};
     use crate::engine::staged_input::StagedPageDescriptor;
     use crate::io::raster::RasterReadError;
@@ -2460,6 +2460,66 @@ mod tests {
     use crate::{CleanupOptions, OrthogonalRotation, OutputMode};
     use evb_native_support::{NativeError, NativeErrorCode};
     use scan_primitives::{BinaryImage, GrayImage, Point};
+
+    #[test]
+    fn analyze_workers_ignore_duplicate_unused_render_outputs() {
+        let dir = std::env::temp_dir().join(format!(
+            "evb-scan-cleanup-analyze-output-contract-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("page.png");
+        fs::write(
+            &input,
+            crate::png::encode_gray(&GrayImage::new(100, 50, 240)).unwrap(),
+        )
+        .unwrap();
+        let duplicate_output = PageOutput {
+            output_path: dir.join("unused.png"),
+            metadata_path: dir.join("unused-output.json"),
+            bilevel_output_path: None,
+            background_output_path: None,
+            foreground_mask_output_path: None,
+            foreground_alpha_output_path: None,
+            picture_mask_output_path: None,
+            tone_preservation_alpha_output_path: None,
+        };
+        let manifest = ManifestV3 {
+            version: VERSION,
+            operation: Operation::Analyze,
+            analysis_purpose: AnalysisPurpose::Classification,
+            render_mode: RenderMode::Preview,
+            canvas_scope: CanvasScope::Page,
+            document_canvas: None,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            raster_window: 1,
+            staged_input_window: None,
+            staged_input_peak_pixels: None,
+            pages: (0..2)
+                .map(|index| Page {
+                    input_path: input.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                    source_page_index: index,
+                    page_metadata_path: dir.join(format!("page-{index}.json")),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: vec![duplicate_output.clone()],
+                })
+                .collect(),
+        };
+
+        // Analyze does not publish PageOutput destinations. Validation accepts
+        // the duplicated unused values, while the worker bound still follows
+        // the memory-derived page limit instead of a destination scan.
+        manifest.validate().unwrap();
+        assert_eq!(page_worker_threads(&manifest).unwrap(), 2);
+        let _ = fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn prior_rerun_preserves_unbiased_tier1_provenance() {

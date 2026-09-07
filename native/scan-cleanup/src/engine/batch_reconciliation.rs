@@ -246,12 +246,13 @@ mod tests {
         verdict: LayoutClassification,
         confidence: f64,
         cutter_x: Option<f64>,
+        candidate_cutter_ratio: Option<f64>,
     ) -> ReconciliationCandidate {
         ReconciliationCandidate {
             cutter_x,
             tier1_verdict: verdict,
             tier1_confidence: confidence,
-            candidate_cutter_ratio: cutter_x.map(|x| x / 240.0),
+            candidate_cutter_ratio,
             whitespace_score: 0.9,
             rotated_width: 240,
             rotated_height: 200,
@@ -266,10 +267,25 @@ mod tests {
     #[test]
     fn pure_rerun_action_preserves_every_tier1_fact() {
         let candidates = vec![
-            candidate(LayoutClassification::TwoPageSpread, 0.92, Some(120.0)),
-            candidate(LayoutClassification::TwoPageSpread, 0.91, Some(120.0)),
-            candidate(LayoutClassification::TwoPageSpread, 0.90, Some(120.0)),
-            candidate(LayoutClassification::SingleUncutPage, 0.40, None),
+            candidate(
+                LayoutClassification::TwoPageSpread,
+                0.92,
+                Some(120.0),
+                Some(0.5),
+            ),
+            candidate(
+                LayoutClassification::TwoPageSpread,
+                0.91,
+                Some(120.0),
+                Some(0.5),
+            ),
+            candidate(
+                LayoutClassification::TwoPageSpread,
+                0.90,
+                Some(120.0),
+                Some(0.5),
+            ),
+            candidate(LayoutClassification::SingleUncutPage, 0.40, None, Some(0.5)),
         ];
         let actions = super::reconcile_classification_batch(
             &candidates,
@@ -294,16 +310,31 @@ mod tests {
         assert_eq!(rerun.1.cutter_ratio_median, Some(0.5));
         assert_eq!(rerun.2.verdict, LayoutClassification::SingleUncutPage);
         assert_eq!(rerun.2.confidence, 0.40);
-        assert_eq!(rerun.2.candidate_cutter_ratio, None);
+        assert_eq!(rerun.2.candidate_cutter_ratio, Some(0.5));
         assert_eq!(rerun.2.whitespace_score, 0.9);
     }
 
     #[test]
     fn pure_update_action_contains_publication_facts_without_wire_types() {
         let candidates = vec![
-            candidate(LayoutClassification::TwoPageSpread, 0.92, Some(120.0)),
-            candidate(LayoutClassification::TwoPageSpread, 0.91, Some(120.0)),
-            candidate(LayoutClassification::TwoPageSpread, 0.90, Some(120.0)),
+            candidate(
+                LayoutClassification::TwoPageSpread,
+                0.92,
+                Some(120.0),
+                Some(0.5),
+            ),
+            candidate(
+                LayoutClassification::TwoPageSpread,
+                0.91,
+                Some(120.0),
+                Some(0.5),
+            ),
+            candidate(
+                LayoutClassification::TwoPageSpread,
+                0.90,
+                Some(120.0),
+                Some(0.5),
+            ),
         ];
         let actions = super::reconcile_classification_batch(
             &candidates,
