@@ -14,6 +14,7 @@ native/scan-cleanup/src/protocol/manifest_v3.rs
   s_0eef0df46a6ce9::t_88895d3a1e36d5 1033
   s_0eef0df46a6ce9::t_98e77487f1b75e 1034,1061
   s_0eef0df46a6ce9::t_0fb4ae74bdf980 1045-1047
+  s_c63d7a8363f7e9::t_5a00ee3aa04e18 1027-1032
 ---
 {
   "schema_version": "authorship/3.0.0",
@@ -25,6 +26,14 @@ native/scan-cleanup/src/protocol/manifest_v3.rs
       "agent_id": {
         "tool": "codex",
         "id": "01a07c93-fb5c-7210-a225-da996191963d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
         "model": "gpt-5.6-luna"
       },
       "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
