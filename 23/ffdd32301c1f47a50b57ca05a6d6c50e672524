@@ -1,0 +1,60 @@
+native/scan-cleanup/src/adapters/batch_cli.rs
+  s_dcc6defac936b2::t_0c49f530fa149f 46
+  s_dcc6defac936b2::t_bc2d5681484c8b 1981-1986
+  s_dcc6defac936b2::t_8ba9b36df668c1 128,135-171,198
+  s_dcc6defac936b2::t_f0e238afccc157 62
+  s_dcc6defac936b2::t_f9dbcf218c54f6 2308-2309
+  s_dcc6defac936b2::t_540721c8b3b3ff 17-22
+  s_dcc6defac936b2::t_3cbb2874395647 1949
+  s_dcc6defac936b2::t_48f113b9f549f1 14,16
+  s_dcc6defac936b2::t_77e17c0c1bc68d 134
+  s_dcc6defac936b2::t_128e9db0b253c0 12-13
+  s_dcc6defac936b2::t_a4b77db21c56ad 205-457
+  s_dcc6defac936b2::t_3c2a61a6272ae7 458-651
+  s_dcc6defac936b2::t_866de953ecf210 3
+  s_dcc6defac936b2::t_9f2575e568f0c9 11,746-748
+  s_dcc6defac936b2::t_f13dbfa09fa763 175-178,186
+  s_dcc6defac936b2::t_9ea6146ed23286 652-659
+  s_dcc6defac936b2::t_4f4f6dff5f86c5 926-929
+  s_dcc6defac936b2::t_fa2557660d886d 1966-1971
+  s_dcc6defac936b2::t_1674967fd2ca6d 27
+  s_dcc6defac936b2::t_c01f6aa86cf4af 2291-2296
+  s_dcc6defac936b2::t_45c823ca694b22 661-745,749-785
+  s_dcc6defac936b2::t_cae5436b49216a 15
+  s_dcc6defac936b2::t_3dbe18d7777775 919,1956
+  s_dcc6defac936b2::t_240175ceb14a7f 930-933,943
+  s_dcc6defac936b2::t_902fe7f624438e 172-174,179-185,187-197
+  s_dcc6defac936b2::t_8820eea89d1ea3 28
+native/scan-cleanup/src/engine/output_geometry.rs
+  s_dcc6defac936b2::t_79c9d3240ed349 24-28,445,452,455,464-465,468,487-488,491
+  s_dcc6defac936b2::t_cd9899f5ee85f4 12,17-18,23
+  s_dcc6defac936b2::t_e06832df65fb14 29
+  s_dcc6defac936b2::t_79070dde92d290 63-84
+  s_dcc6defac936b2::t_cae5436b49216a 8
+  s_dcc6defac936b2::t_f9f788bb8cb0d5 95,269,447,502,569,635,658,683,720,908,975,1010,1144,1147,1425,1458,1517,1584,1627,1724,1760,1815,1878,1935,1977,2028,2058,2107,2149,2215,2278,2356,2400,2439,2489,2540,2583,2636,2660-2661,2893-2894
+  s_dcc6defac936b2::t_6d120133f31627 124,501,504,568,2224,2284
+  s_dcc6defac936b2::t_3c569e72e09eac 910,924-925,935,941,946,952,955,958,961-962,2955-2956,2977,2993,3007,3023,3042-3043,3058-3059
+  s_dcc6defac936b2::t_3861e0f44ea485 2
+  s_dcc6defac936b2::t_9b71db2160972d 4-5
+  s_dcc6defac936b2::t_6f3ca6acf407d4 51-57
+  s_dcc6defac936b2::t_5bb846d8babdb2 462,485
+  s_dcc6defac936b2::t_8820eea89d1ea3 472-478
+  s_dcc6defac936b2::t_ebf15d3985db81 19-22,30-50,58-62
+  s_dcc6defac936b2::t_240175ceb14a7f 500
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "23ffdd32301c1f47a50b57ca05a6d6c50e672524",
+  "prompts": {},
+  "sessions": {
+    "s_dcc6defac936b2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c6-6997-78f1-aa1b-45a3adb5a218",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
