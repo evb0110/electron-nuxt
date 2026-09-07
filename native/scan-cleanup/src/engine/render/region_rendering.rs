@@ -656,7 +656,6 @@ pub(crate) struct Input<'a> {
 
 struct RenderGeometryInput<'a> {
     detected: CachedContentDetection,
-    source_effectively_blank: bool,
     options: &'a CleanupOptions,
     region: Rect,
     working_width: usize,
@@ -670,7 +669,6 @@ struct RenderGeometryOutput {
     content: ContentResult,
     source_content_box: Option<Rect>,
     content_diagnostics: Option<ContentDiagnostics>,
-    force_clean_blank: bool,
     crop_enabled: bool,
     output_rect: Rect,
     output_width: usize,
@@ -685,7 +683,6 @@ struct RenderGeometryOutput {
 fn plan_render_geometry(input: RenderGeometryInput<'_>) -> Result<RenderGeometryOutput, String> {
     let RenderGeometryInput {
         detected,
-        source_effectively_blank,
         options,
         region,
         working_width,
@@ -694,7 +691,6 @@ fn plan_render_geometry(input: RenderGeometryInput<'_>) -> Result<RenderGeometry
         local_deskew_inverse,
         dewarp_model,
     } = input;
-    let force_clean_blank = source_effectively_blank;
     if options.match_page_size {
         // See the analysis path above: placement owns matched margins, while
         // the renderer still rejects arithmetic that could not be represented.
@@ -772,7 +768,6 @@ fn plan_render_geometry(input: RenderGeometryInput<'_>) -> Result<RenderGeometry
         content,
         source_content_box,
         content_diagnostics,
-        force_clean_blank,
         crop_enabled,
         output_rect,
         output_width,
@@ -2280,7 +2275,6 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, String> {
         content,
         source_content_box,
         content_diagnostics,
-        force_clean_blank,
         crop_enabled,
         output_rect,
         output_width,
@@ -2292,7 +2286,6 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, String> {
         rendered_height,
     } = plan_render_geometry(RenderGeometryInput {
         detected,
-        source_effectively_blank,
         options,
         region,
         working_width,
@@ -2374,7 +2367,7 @@ pub(crate) fn run(input: Input<'_>) -> Result<RegionSemanticOutput, String> {
     } = resolve_blankness_policy(BlanknessPolicyInput {
         canonical_leaf_source,
         canonical_routing_dpi,
-        force_clean_blank,
+        force_clean_blank: source_effectively_blank,
         content_present: content.content.is_some(),
         rendered_picture_mask,
         rendered_text_mask,

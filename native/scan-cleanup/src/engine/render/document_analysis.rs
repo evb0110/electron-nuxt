@@ -931,7 +931,6 @@ struct ModePreservationOutput {
     resolved_output_mode: OutputMode,
     chroma_picture_mask: Option<Arc<BinaryImage>>,
     significant_picture: bool,
-    refine_picture_ownership: bool,
     output_picture_mask: Option<Arc<BinaryImage>>,
     photographic_picture_mask: Option<Arc<BinaryImage>>,
     coherent_photo_mask: Option<Arc<BinaryImage>>,
@@ -1044,7 +1043,6 @@ fn normalize_and_assemble_analysis_artifact(
         use_soft_alpha_foreground,
         protect_tonal_text_vicinity,
         significant_picture,
-        refine_picture_ownership: _,
     } = mode;
 
     let quality_normalization_started = Instant::now();
@@ -1376,7 +1374,6 @@ fn resolve_mode_and_preservation(input: ModePreservationInput<'_>) -> ModePreser
         resolved_output_mode,
         chroma_picture_mask,
         significant_picture,
-        refine_picture_ownership,
         output_picture_mask,
         photographic_picture_mask,
         coherent_photo_mask,
@@ -1523,21 +1520,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
         content_evidence_complete,
         content_picture_mask,
     });
-    let ModePreservationOutput {
-        output_mode_recommendation,
-        resolved_output_mode,
-        chroma_picture_mask,
-        significant_picture,
-        refine_picture_ownership: _refine_picture_ownership,
-        output_picture_mask,
-        photographic_picture_mask,
-        coherent_photo_mask,
-        photo_preservation_alpha,
-        tone_preservation_alpha,
-        preserve_confirmed_photo_tones,
-        use_soft_alpha_foreground,
-        protect_tonal_text_vicinity,
-    } = resolve_mode_and_preservation(ModePreservationInput {
+    let mode = resolve_mode_and_preservation(ModePreservationInput {
         rotated: &rotated,
         layout_normalized: &layout_normalized,
         analysis_rgb: analysis_rgb.as_ref(),
@@ -1591,21 +1574,7 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
                 calibration,
                 effective_dpi,
             },
-            mode: ModePreservationOutput {
-                output_mode_recommendation,
-                resolved_output_mode,
-                chroma_picture_mask,
-                significant_picture,
-                refine_picture_ownership: _refine_picture_ownership,
-                output_picture_mask,
-                photographic_picture_mask,
-                coherent_photo_mask,
-                photo_preservation_alpha,
-                tone_preservation_alpha,
-                preserve_confirmed_photo_tones,
-                use_soft_alpha_foreground,
-                protect_tonal_text_vicinity,
-            },
+            mode,
         });
     artifact
 }

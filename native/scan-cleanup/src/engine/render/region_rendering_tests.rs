@@ -71,6 +71,7 @@ fn nonblank_region_crosses_named_stages_and_keeps_semantic_planes() {
         canonical_routing_sample: &source,
         canonical_leaf_source: &source,
         canonical_routing_dpi: options.dpi,
+        source_effectively_blank: false,
         calibration: PageCalibration::estimate(&source, options.dpi, CalibrationConfig::default()),
         color_source: None,
         analysis_picture_mask: None,
@@ -93,7 +94,6 @@ fn nonblank_region_crosses_named_stages_and_keeps_semantic_planes() {
         half: PageHalf::Full,
         cache: None,
         split_cache_key: None,
-        source_effectively_blank: false,
         create_mixed_layers: false,
         create_mixed_composite: false,
         timings: &mut PageStageTimings::default(),
@@ -104,6 +104,66 @@ fn nonblank_region_crosses_named_stages_and_keeps_semantic_planes() {
     assert_eq!((result.image.width(), result.image.height()), (12, 10));
     assert_eq!(result.image.get(0, 0), 32);
     assert!(result.picture_mask.is_none());
+}
+
+#[test]
+fn mixed_region_processes_an_explicit_empty_picture_mask() {
+    let source = GrayImage::new(12, 10, 32);
+    let empty_picture = BinaryImage::new(12, 10);
+    let options = CleanupOptions {
+        layout: crate::LayoutMode::Single,
+        output_mode: OutputMode::Mixed,
+        ..CleanupOptions::default()
+    };
+    let split = crate::split::single_page(source.width(), source.height());
+    let result = run(Input {
+        source: &source,
+        routing_source: &source,
+        normalized: &source,
+        analysis_normalized: &source,
+        analysis_scale_x: 1.0,
+        analysis_scale_y: 1.0,
+        canonical_routing_sample: &source,
+        canonical_leaf_source: &source,
+        canonical_routing_dpi: options.dpi,
+        source_effectively_blank: false,
+        calibration: PageCalibration::estimate(&source, options.dpi, CalibrationConfig::default()),
+        color_source: None,
+        analysis_picture_mask: None,
+        source_picture_mask: Some(&empty_picture),
+        halftone_zone_mask: None,
+        spatial_tone_mask: None,
+        chroma_picture_mask: None,
+        tone_picture_mask: None,
+        preserve_confirmed_photo_tones: false,
+        use_soft_alpha_foreground: false,
+        tone_preservation_alpha: None,
+        text_mask: None,
+        text_vicinity_mask: None,
+        trusted_foreground_mask: None,
+        options: &options,
+        source_page_index: 0,
+        split: &split,
+        spread_plan: None,
+        region: Rect::new(0.0, 0.0, source.width() as f64, source.height() as f64),
+        half: PageHalf::Full,
+        cache: None,
+        split_cache_key: None,
+        create_mixed_layers: true,
+        create_mixed_composite: true,
+        timings: &mut PageStageTimings::default(),
+    })
+    .expect("Mixed processing with an empty picture mask should succeed");
+
+    assert!(!result.effectively_blank);
+    assert_eq!(
+        result
+            .picture_mask
+            .expect("empty mask is preserved")
+            .count_black(),
+        0
+    );
+    assert_eq!((result.image.width(), result.image.height()), (12, 10));
 }
 
 #[test]
@@ -204,7 +264,6 @@ fn geometry_stage_keeps_full_page_canvas_and_region_origin() {
             source_content_box: None,
             diagnostics: None,
         },
-        source_effectively_blank: false,
         options: &options,
         region: Rect::new(0.0, 0.0, 32.0, 24.0),
         working_width: 32,
@@ -244,7 +303,6 @@ fn geometry_stage_pins_split_region_crop_coordinates_and_scale() {
             source_content_box: None,
             diagnostics: None,
         },
-        source_effectively_blank: false,
         options: &options,
         region: Rect::new(10.0, 4.0, 20.0, 12.0),
         working_width: 20,
