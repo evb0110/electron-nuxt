@@ -1,0 +1,19 @@
+scripts/windows-test/oracles/pdfjsNodeRuntime.ts
+  s_c63d7a8363f7e9::t_936264d5216e27 45-46,74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "b62e6f49a0be37e7800758e011d28f3e5eab2e99",
+  "prompts": {},
+  "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
