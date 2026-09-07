@@ -1579,17 +1579,29 @@ fn build_analysis_artifact(input: ArtifactInput<'_>) -> Arc<AnalysisArtifact> {
     artifact
 }
 pub(crate) fn run(input: Input<'_>) -> PreparedAnalysis {
+    let Input {
+        source,
+        color_source,
+        options,
+        prepare_quality_raster,
+        render_policy,
+        document_prior,
+        calibration_config,
+        cache,
+        trusted_mrc_background,
+        timings,
+    } = input;
     prepare_analysis_page_impl(
-        input.source,
-        input.color_source,
-        input.options,
-        input.prepare_quality_raster,
-        input.render_policy,
-        input.document_prior,
-        input.calibration_config,
-        input.cache,
-        input.trusted_mrc_background,
-        input.timings,
+        source,
+        color_source,
+        options,
+        prepare_quality_raster,
+        render_policy,
+        document_prior,
+        calibration_config,
+        cache,
+        trusted_mrc_background,
+        timings,
     )
 }
 

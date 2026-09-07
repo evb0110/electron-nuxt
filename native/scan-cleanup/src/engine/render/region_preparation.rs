@@ -41,46 +41,46 @@ pub(crate) fn prepare(input: Input<'_>) -> Output {
         input.analysis_normalized.height(),
     )
     .map(|mask| crop_binary(&mask, analysis_region));
-    let tone_picture_working = input
-        .tone_picture_mask
-        .map(|mask| crop_binary(mask, analysis_region));
-    let text_working = input
-        .text_mask
-        .map(|mask| crop_binary(mask, analysis_region));
-    let text_vicinity_working = input
-        .text_vicinity_mask
-        .map(|mask| crop_binary(mask, analysis_region));
     let text_tone_diagnostics = if matches!(
         input.options.output_mode,
         OutputMode::Grayscale | OutputMode::Mixed
     ) {
-        input
+        if let Some(diagnostics) = input
             .options
             .resolved_text_tone_diagnostics
             .for_half(input.half)
-            .or_else(|| {
-                text_working
-                    .as_ref()
-                    .zip(text_vicinity_working.as_ref())
-                    .map(|(text_mask, text_vicinity_mask)| {
-                        let empty_picture_mask;
-                        let picture_mask = if let Some(mask) = tone_picture_working.as_ref() {
-                            mask
-                        } else {
-                            empty_picture_mask = BinaryImage::new(
-                                analysis_working.width(),
-                                analysis_working.height(),
-                            );
-                            &empty_picture_mask
-                        };
-                        derive_text_tone_diagnostics(
-                            &analysis_working,
-                            text_mask,
-                            text_vicinity_mask,
-                            picture_mask,
-                        )
-                    })
-            })
+        {
+            Some(diagnostics)
+        } else {
+            let tone_picture_working = input
+                .tone_picture_mask
+                .map(|mask| crop_binary(mask, analysis_region));
+            let text_working = input
+                .text_mask
+                .map(|mask| crop_binary(mask, analysis_region));
+            let text_vicinity_working = input
+                .text_vicinity_mask
+                .map(|mask| crop_binary(mask, analysis_region));
+            text_working
+                .as_ref()
+                .zip(text_vicinity_working.as_ref())
+                .map(|(text_mask, text_vicinity_mask)| {
+                    let empty_picture_mask;
+                    let picture_mask = if let Some(mask) = tone_picture_working.as_ref() {
+                        mask
+                    } else {
+                        empty_picture_mask =
+                            BinaryImage::new(analysis_working.width(), analysis_working.height());
+                        &empty_picture_mask
+                    };
+                    derive_text_tone_diagnostics(
+                        &analysis_working,
+                        text_mask,
+                        text_vicinity_mask,
+                        picture_mask,
+                    )
+                })
+        }
     } else {
         None
     };
