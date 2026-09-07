@@ -544,11 +544,6 @@ pub(crate) fn paper_edge_runs(planes: &GeometryPlaneView<'_>) -> (usize, NearPap
     (fold, outer)
 }
 
-pub(crate) fn placement_near_paper_edge_runs(planes: &GeometryPlaneView<'_>) -> NearPaperEdgeRuns {
-    let (fold_side_run, outer) = paper_edge_runs(planes);
-    near_paper_edge_runs_with_fold_side(outer, planes.half, fold_side_run)
-}
-
 pub(crate) fn content_ownership(planes: &GeometryPlaneView<'_>) -> Option<BinaryImage> {
     let mut ownership = match &planes.image {
         GeometryRasterView::Gray(_) => None,
@@ -666,19 +661,7 @@ pub(crate) struct CanvasPlacement {
 
 pub(crate) struct CanvasMetadataFacts {
     pub(crate) soft_margins_pixels: [usize; 4],
-    pub(crate) requested_margins: [usize; 4],
     pub(crate) canvas_overflow: bool,
-    pub(crate) optical_content_centered: bool,
-    pub(crate) optical_content_bounds_x: Option<(f64, f64)>,
-    pub(crate) intrinsic_overflow_left: usize,
-    pub(crate) intrinsic_overflow_right: usize,
-    pub(crate) intrinsic_overflow_top: usize,
-    pub(crate) fold_clip_left: usize,
-    pub(crate) fold_clip_right: usize,
-    pub(crate) content_width: usize,
-    pub(crate) content_height: usize,
-    pub(crate) left: usize,
-    pub(crate) top: usize,
 }
 
 pub(crate) fn canvas_metadata_facts(
@@ -696,22 +679,10 @@ pub(crate) fn canvas_metadata_facts(
             (canvas.width_px as isize - effective_right).max(0) as usize,
             (canvas.height_px as isize - effective_bottom).max(0) as usize,
         ],
-        requested_margins: placement.requested_margins,
         canvas_overflow: placement.overflow
             || placement.intrinsic_overflow_left > 0
             || placement.intrinsic_overflow_right > 0
             || placement.intrinsic_overflow_top > 0,
-        optical_content_centered: placement.optical_content_centered,
-        optical_content_bounds_x: placement.optical_content_bounds_x,
-        intrinsic_overflow_left: placement.intrinsic_overflow_left,
-        intrinsic_overflow_right: placement.intrinsic_overflow_right,
-        intrinsic_overflow_top: placement.intrinsic_overflow_top,
-        fold_clip_left: placement.fold_clip_left,
-        fold_clip_right: placement.fold_clip_right,
-        content_width: placement.content_width,
-        content_height: placement.content_height,
-        left: placement.left,
-        top: placement.top,
     }
 }
 #[derive(Clone, Copy, Debug)]
@@ -751,13 +722,6 @@ impl FoldSideTrim {
 pub(crate) struct SharedSpreadOverflowPlan {
     pub(crate) shared_fit: f64,
     pub(crate) trims: Vec<FoldSideTrim>,
-}
-#[derive(Clone, Copy)]
-pub(crate) struct DeferredSpreadVerticalPlacement {
-    pub(crate) source_page_index: usize,
-    pub(crate) half: PageHalf,
-    pub(crate) intrinsic_height: usize,
-    pub(crate) content_top: Option<f64>,
 }
 pub(crate) fn matched_output_paper_dimensions_for(
     input_width: usize,
@@ -1019,31 +983,24 @@ pub(crate) fn plan_canvas_placements(
     canvas: &GeometryCanvas,
 ) -> Vec<CanvasPlacement> {
     let shared_fits = shared_spread_overflow_fits_for_geometry_outputs(outputs, canvas);
+    let mut trim_indices = HashMap::<usize, usize>::new();
     let mut placements = outputs
         .iter()
         .map(|output| {
+            let trim_index = trim_indices.entry(output.source_page_index).or_default();
+            let fold_trim = shared_fits
+                .get(&output.source_page_index)
+                .and_then(|plan| plan.trims.get(*trim_index).copied());
+            *trim_index += 1;
             plan_canvas_placement_with_shared_fit(
                 output,
                 canvas,
                 shared_fits.get(&output.source_page_index),
+                fold_trim,
             )
         })
         .collect::<Vec<_>>();
-    let deferred_outputs = outputs
-        .iter()
-        .map(|output| DeferredSpreadVerticalPlacement {
-            source_page_index: output.source_page_index,
-            half: output.half,
-            intrinsic_height: output.height,
-            content_top: output.spread_content_top,
-        })
-        .collect::<Vec<_>>();
-    align_deferred_spread_vertical_placements(
-        &mut placements,
-        &deferred_outputs,
-        &shared_fits,
-        canvas,
-    );
+    align_deferred_spread_vertical_placements(&mut placements, outputs, &shared_fits, canvas);
     placements
 }
 
@@ -1051,6 +1008,7 @@ pub(crate) fn plan_canvas_placement_with_shared_fit(
     output: &GeometryOutput,
     canvas: &GeometryCanvas,
     shared_overflow_plan: Option<&SharedSpreadOverflowPlan>,
+    shared_fold_trim: Option<FoldSideTrim>,
 ) -> CanvasPlacement {
     if shared_overflow_plan.is_none() && output.optical_content_bounds_x.is_none() {
         return plan_canvas_placement_for(
@@ -1064,8 +1022,8 @@ pub(crate) fn plan_canvas_placement_with_shared_fit(
             canvas,
         );
     }
-    let fold_trim = shared_overflow_plan
-        .map(|_| {
+    let fold_trim = shared_fold_trim.or_else(|| {
+        shared_overflow_plan.map(|_| {
             let own_fit = canvas_fit_for(
                 output.width,
                 output.height,
@@ -1082,7 +1040,7 @@ pub(crate) fn plan_canvas_placement_with_shared_fit(
                 own_fit,
             )
         })
-        .unwrap_or_default();
+    });
     let placement_near_paper_edge_runs = near_paper_edge_runs_with_fold_side(
         output.outer_near_paper_edge_runs,
         output.half,
@@ -1099,7 +1057,7 @@ pub(crate) fn plan_canvas_placement_with_shared_fit(
             half: output.half,
             optical_content_bounds_x: PLACEMENT_CENTERING_BOUNDS_X,
             shared_overflow_fit: shared_overflow_plan.map(|plan| plan.shared_fit),
-            fold_trim,
+            fold_trim: fold_trim.unwrap_or_default(),
             outer_near_paper_runs: placement_near_paper_edge_runs,
         },
         canvas,
@@ -1486,7 +1444,7 @@ pub(crate) fn resample_rgb_if_needed(source: &RgbImage, width: usize, height: us
 }
 pub(crate) fn align_deferred_spread_vertical_placements<T>(
     placements: &mut [CanvasPlacement],
-    outputs: &[DeferredSpreadVerticalPlacement],
+    outputs: &[GeometryOutput],
     shared_spread_fits: &HashMap<usize, T>,
     canvas: &GeometryCanvas,
 ) {
@@ -1513,8 +1471,8 @@ pub(crate) fn align_deferred_spread_vertical_placements<T>(
         ];
         align_spread_vertical_placements(
             &mut pair_placements,
-            &[pair[0].1.intrinsic_height, pair[1].1.intrinsic_height],
-            &[pair[0].1.content_top, pair[1].1.content_top],
+            &[pair[0].1.height, pair[1].1.height],
+            &[pair[0].1.spread_content_top, pair[1].1.spread_content_top],
             canvas,
         );
         for ((index, _), aligned) in pair.into_iter().zip(pair_placements) {
@@ -1889,6 +1847,28 @@ mod tests {
     use super::*;
     use crate::CleanupOptions;
     use scan_primitives::{BinaryImage, GrayImage};
+
+    fn deferred_output(
+        source_page_index: usize,
+        half: PageHalf,
+        height: usize,
+        spread_content_top: Option<f64>,
+    ) -> GeometryOutput {
+        GeometryOutput {
+            options: CleanupOptions::default(),
+            source_page_index,
+            half,
+            width: 700,
+            height,
+            paper_width: 700.0,
+            paper_height: height as f64,
+            content_detected: false,
+            spread_content_top,
+            optical_content_bounds_x: None,
+            fold_side_near_paper_run: 0,
+            outer_near_paper_edge_runs: NearPaperEdgeRuns::default(),
+        }
+    }
 
     #[test]
     fn matched_canvas_dimension_uses_nearest_rank_ninetieth_percentile() {
@@ -2325,18 +2305,8 @@ mod tests {
         };
         let mut placements = vec![placement(100), placement(100)];
         let outputs = [
-            DeferredSpreadVerticalPlacement {
-                source_page_index: 7,
-                half: crate::pipeline::PageHalf::Left,
-                intrinsic_height: 1_000,
-                content_top: Some(20.0),
-            },
-            DeferredSpreadVerticalPlacement {
-                source_page_index: 7,
-                half: crate::pipeline::PageHalf::Right,
-                intrinsic_height: 1_000,
-                content_top: Some(120.0),
-            },
+            deferred_output(7, PageHalf::Left, 1_000, Some(20.0)),
+            deferred_output(7, PageHalf::Right, 1_000, Some(120.0)),
         ];
 
         align_deferred_spread_vertical_placements(
@@ -2387,12 +2357,7 @@ mod tests {
             undersized_paper: false,
         };
         let mut placements = vec![original];
-        let outputs = [DeferredSpreadVerticalPlacement {
-            source_page_index: 3,
-            half: crate::pipeline::PageHalf::Full,
-            intrinsic_height: 1_000,
-            content_top: Some(60.0),
-        }];
+        let outputs = [deferred_output(3, PageHalf::Full, 1_000, Some(60.0))];
 
         align_deferred_spread_vertical_placements(
             &mut placements,
@@ -2715,7 +2680,7 @@ mod tests {
             outer_near_paper_edge_runs: NearPaperEdgeRuns::default(),
         };
 
-        let placed = plan_canvas_placement_with_shared_fit(&output, &canvas, None);
+        let placed = plan_canvas_placement_with_shared_fit(&output, &canvas, None, None);
         let geometric = plan_canvas_placement_for(
             output.width,
             output.height,
@@ -2785,7 +2750,12 @@ mod tests {
             }],
         };
 
-        let deferred = plan_canvas_placement_with_shared_fit(&output, &canvas, Some(&shared_plan));
+        let deferred = plan_canvas_placement_with_shared_fit(
+            &output,
+            &canvas,
+            Some(&shared_plan),
+            Some(shared_plan.trims[0]),
+        );
         let in_memory = plan_canvas_placement(
             CanvasPlacementRequest {
                 width: output.width,
@@ -3331,18 +3301,8 @@ mod tests {
         align_deferred_spread_vertical_placements(
             &mut deferred,
             &[
-                DeferredSpreadVerticalPlacement {
-                    source_page_index: 4,
-                    half: crate::pipeline::PageHalf::Left,
-                    intrinsic_height: 400,
-                    content_top: Some(20.0),
-                },
-                DeferredSpreadVerticalPlacement {
-                    source_page_index: 4,
-                    half: crate::pipeline::PageHalf::Right,
-                    intrinsic_height: 400,
-                    content_top: Some(120.0),
-                },
+                deferred_output(4, PageHalf::Left, 400, Some(20.0)),
+                deferred_output(4, PageHalf::Right, 400, Some(120.0)),
             ],
             &HashMap::from([(4, 1.0)]),
             &canvas,
@@ -3643,7 +3603,7 @@ mod tests {
 
         assert_eq!(facts.soft_margins_pixels, [0, 15, 105, 285]);
         assert!(facts.canvas_overflow);
-        assert_eq!(facts.content_width, 900);
-        assert_eq!(facts.top, 20);
+        assert_eq!(placement.content_width, 900);
+        assert_eq!(placement.top, 20);
     }
 }
