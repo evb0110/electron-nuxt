@@ -95,6 +95,11 @@ const INTERNAL_MOCK_BOUNDARY_PATTERNS = [
     /^@electron\/ocr\/worker\/runOcrCommand$/u,
     /^@electron\/features\/[^/]+\/(?:native|public)(?:\/|$)/u,
     /^@app\/platform(?:\/|$)/u,
+    /^@app\/(?:composables\/useSettings|composables\/useTypedI18n)$/u,
+    /^@app\/modules\/pdf-viewer\/components\/PdfAnnotation(?:CommentsList|StyleEditor|Toolbar)\.vue$/u,
+    /^@app\/modules\/workspace-shell\/composables\/nativePdfMutationArtifact$/u,
+    /^@app\/modules\/workspace-shell\/splits\/cleanupSplitPayloadSnapshot$/u,
+    /^@app\/utils\/(?:platformDocuments|performanceProfile|platformWindowTabs)$/u,
 ];
 
 export function getInternalMockAllowlistGrowth(allowlist, baseline) {

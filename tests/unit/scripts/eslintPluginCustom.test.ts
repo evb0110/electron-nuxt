@@ -98,12 +98,12 @@ describe('no-internal-test-mocks rule', () => {
                     filename: 'tests/unit/electron/example.test.ts',
                 },
                 {
-                    code: 'vi.doMock(\'node:child_process\', () => ({}));',
-                    filename: 'tests/unit/electron/example.test.ts',
-                },
-                {
-                    code: 'import * as fs from \'fs\'; vi.spyOn(fs, \'readFile\');',
-                    filename: 'tests/unit/electron/example.test.ts',
+                    code: `vi.mock('@app/composables/useSettings', () => ({}));
+vi.mock('@app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue', () => ({}));
+vi.mock('@app/modules/workspace-shell/composables/nativePdfMutationArtifact', () => ({}));
+vi.doMock('@app/utils/platformDocuments', () => ({}));
+vi.mock('@app/utils/platformWindowTabs', () => ({}));`,
+                    filename: 'tests/unit/app/boundary.test.ts',
                 },
             ],
             invalid: [
