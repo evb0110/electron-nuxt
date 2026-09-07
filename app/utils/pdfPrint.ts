@@ -1,12 +1,13 @@
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 import { range } from 'es-toolkit/math';
 import pdfjsLib, {
     createPdfjsDocumentOptions,
     preparePdfjsBrowserRuntime,
 } from '@app/services/pdfjs/runtimeLib';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
 import {
     BROWSER_PRINT_ROOT_SELECTOR,
     normalizePrintPageNumbers,
@@ -178,10 +179,10 @@ export async function renderPdfPagesForBrowserPrint(
         data: pdfData,
         ...createPdfjsDocumentOptions(pdfjsLib),
     });
-    let pdfDocument: PDFDocumentProxy;
+    let pdfDocument: IPdfDocument;
     try {
         throwIfBrowserPrintAborted(options.signal);
-        pdfDocument = await loadingTask.promise;
+        pdfDocument = adaptPdfjsDocument(await loadingTask.promise);
         throwIfBrowserPrintAborted(options.signal);
     } catch (error) {
         await loadingTask.destroy();
@@ -205,7 +206,7 @@ export async function renderPdfPagesForBrowserPrint(
 
 export async function renderPdfDocumentPagesForBrowserPrint(
     targetDocument: IBrowserPrintDocument,
-    pdfDocument: PDFDocumentProxy,
+    pdfDocument: IPdfDocument,
     pageNumbers: number[],
     options: IRenderPdfPagesForBrowserPrintOptions = {},
 ) {
@@ -224,7 +225,7 @@ async function renderPdfPageNumbersForBrowserPrint(
     targetDocument: IBrowserPrintDocument,
     root: IBrowserPrintRoot,
     pageNumbers: number[],
-    getPage: (pageNumber: number) => Promise<PDFPageProxy>,
+    getPage: (pageNumber: number) => Promise<IPdfPage>,
     options: IRenderPdfPagesForBrowserPrintOptions,
 ) {
     let firstPageSize: {

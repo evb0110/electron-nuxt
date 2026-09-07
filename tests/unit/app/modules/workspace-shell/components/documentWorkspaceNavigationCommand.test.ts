@@ -28,7 +28,8 @@ import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { isRecord } from '@contracts/runtimeGuards';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
+import { cast } from '@tests/helpers/cast';
 
 interface IToolbarNavigationCommand {
     page: number;
@@ -152,25 +153,8 @@ function readToolbarAttrs() {
     return latest;
 }
 
-function isToolbarNavigationCommand(value: unknown): value is IToolbarNavigationCommand {
-    return isRecord(value)
-        && typeof value.page === 'number'
-        && typeof value.revision === 'number';
-}
-
 function readToolbarNavigationCommand() {
-    const value = readToolbarAttrs()['navigation-command'] ?? null;
-    if (value === null) {
-        return null;
-    }
-    if (!isToolbarNavigationCommand(value)) {
-        throw new TypeError('The workspace toolbar published an invalid navigation command.');
-    }
-    return value;
-}
-
-function isPageNavigationHandler(value: unknown): value is (page: number) => void {
-    return typeof value === 'function';
+    return cast<IToolbarNavigationCommand | null>(readToolbarAttrs()['navigation-command'] ?? null);
 }
 
 async function mountDocumentWorkspace(options: {
@@ -215,7 +199,7 @@ async function mountDocumentWorkspace(options: {
         },
     });
     const app = createApp(defineComponent({setup() {
-        return () => h(DocumentWorkspace, {
+        return () => h(cast<never>(DocumentWorkspace), {
             tabId: 'tab-1',
             isActive: true,
             isRenderActive: true,
@@ -233,11 +217,10 @@ async function mountDocumentWorkspace(options: {
             onExposeReady: (expose: IWorkspaceExpose) => exposes.push(expose),
         });
     }}));
-    const components = new Proxy<Record<string, typeof designSystemStub>>({}, {
+    cast<{_context: {components: unknown}}>(app)._context.components = new Proxy({}, {
         get: () => designSystemStub,
         has: () => true,
     });
-    app._context.components = components;
     app.provide(documentOpenSurfaceSessionKey, createDocumentOpenSurfaceSession());
     // The shell teleports its toolbar into the app-owned host element, so the
     // toolbar only renders when that target exists.
@@ -304,15 +287,20 @@ describe('DocumentWorkspace navigation command', () => {
 
     it('shares one revision stream between the toolbar and the rest of the workspace', async () => {
         const workspace = await mountDocumentWorkspace();
-        const toolbarGoToPageValue = readToolbarAttrs()['onGoToPage'];
-        if (!isPageNavigationHandler(toolbarGoToPageValue)) {
-            throw new TypeError('The workspace toolbar did not publish a page navigation handler.');
-        }
-        const toolbarGoToPage = toolbarGoToPageValue;
+        const toolbarGoToPage = cast<(page: number, options?: IScrollToPageOptions) => void>(readToolbarAttrs()['onGoToPage']);
+        const navigationOptions: IScrollToPageOptions = {
+            navigationSource: 'annotation',
+            markerRect: {
+                left: 0.25,
+                top: 0.7,
+                width: 0.2,
+                height: 0.1,
+            },
+        };
 
         workspace.expose.handleGoToPage(4);
         await nextTick();
-        toolbarGoToPage(9);
+        toolbarGoToPage(9, navigationOptions);
         await nextTick();
 
         // A second publisher would restart its own revisions, leaving the

@@ -89,6 +89,10 @@ jobs:
             .devkit/cache/typecheck
           key: quality-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('pnpm-lock.yaml', 'eslint.config.mjs', 'eslint-plugin-custom.mjs', 'landing/eslint.config.mjs', 'stylelint.config.mjs', 'tsconfig*.json', 'electron/tsconfig.json', 'landing/tsconfig.json', 'packages/*/tsconfig.json', 'scripts/tsconfig.json', 'server/tsconfig.json', 'tests/tsconfig.json') }}
 
+      - name: Install PDF test tools
+        timeout-minutes: 15
+        run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf
+
       # Provisioning ends here so every gate below can report on its own:
       # a failing gate must not hide the ones after it, while a broken
       # runner still skips them all rather than blaming the code.

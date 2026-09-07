@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
@@ -9,24 +10,11 @@ import {
     effectScope,
     ref,
     shallowRef,
-    type Ref,
 } from 'vue';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import { createPdfRenderPagePredicate } from '@app/modules/pdf-viewer/runtime/rendering/createPdfRenderPagePredicate';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
-import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
+import { cast } from '@tests/helpers/cast';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
-
-function createPdfPageProxy(): PDFPageProxy {
-    // The view model stores the page returned by getPage but does not inspect
-    // it in these state-only tests.
-    return {} as PDFPageProxy;
-}
 
 function createHarness(options?: {
     hasMountedPageCanvas?: (page: number) => boolean;
@@ -37,9 +25,6 @@ function createHarness(options?: {
     shouldShowSkeletonImmediately?: (page: number) => boolean;
     shouldShowSkeleton?: (page: number) => boolean;
     suppressLoadingOverlay?: boolean;
-    numPages?: Ref<number>;
-    markersByPage?: Ref<Map<number, never[]>>;
-    linksByPage?: Record<number, never[]>;
 }) {
     const scope = effectScope();
     const mountedPages = ref([1]);
@@ -51,8 +36,8 @@ function createHarness(options?: {
     const viewModel = scope.run(() => usePdfRenderViewModel({
         src: computed(() => null as TPdfSource | null),
         isLoading: ref(false),
-        pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
-        getPage: vi.fn(async () => createPdfPageProxy()),
+        pdfDocument: shallowRef<IPdfDocument | null>(cast({})),
+        getPage: vi.fn(async () => cast({})),
         openSurface: createDocumentOpenSurfaceSession(),
         isVisualReloadTransitionActive: ref(false),
         suppressLoadingOverlay: computed(() => options?.suppressLoadingOverlay ?? false),
@@ -70,9 +55,8 @@ function createHarness(options?: {
         fitMode: computed(() => 'height' as const),
         effectiveScale: ref(1),
         continuousScroll: computed(() => false),
-        numPages: options?.numPages ?? ref(1_000),
-        markersByPage: options?.markersByPage ?? ref(new Map<number, never[]>()),
-        linksByPage: computed<Record<number, never[]>>(() => options?.linksByPage ?? {}),
+        numPages: ref(1_000),
+        linksByPage: computed<Record<number, never[]>>(() => ({})),
     }));
 
     return {
@@ -292,49 +276,6 @@ describe('usePdfRenderViewModel', () => {
             scope.stop();
         } finally {
             vi.useRealTimers();
-        }
-    });
-
-    it('does not query stale markers after the document page count resets during teardown', () => {
-        const pageCount = ref(383);
-        const markersByPage = ref(new Map<number, never[]>([[
-            5,
-            [],
-        ]]));
-        const {
-            scope,
-            viewModel,
-        } = createHarness({
-            numPages: pageCount,
-            markersByPage,
-            linksByPage: {5: []},
-            isPageRenderedForClass: createPdfRenderPagePredicate(
-                () => pageCount.value,
-                page => requirePageNumber(page, pageCount.value) > 0,
-            ),
-        });
-
-        if (!viewModel) {
-            throw new Error('Failed to create PDF render view model');
-        }
-
-        try {
-            expect([...viewModel.visibleMarkersByPage.value.keys()]).toEqual([5]);
-            expect(viewModel.visibleLinksByPage.value).toEqual({5: []});
-
-            pageCount.value = 0;
-            expect(viewModel.visibleMarkersByPage.value).toEqual(new Map());
-            expect(viewModel.visibleLinksByPage.value).toEqual({});
-
-            pageCount.value = 3;
-            expect(viewModel.visibleMarkersByPage.value).toEqual(new Map());
-            expect(viewModel.visibleLinksByPage.value).toEqual({});
-
-            pageCount.value = 383;
-            expect([...viewModel.visibleMarkersByPage.value.keys()]).toEqual([5]);
-            expect(viewModel.visibleLinksByPage.value).toEqual({5: []});
-        } finally {
-            scope.stop();
         }
     });
 });

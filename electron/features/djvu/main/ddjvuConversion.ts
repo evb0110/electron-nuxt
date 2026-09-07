@@ -504,7 +504,7 @@ async function convertPageRangeToPdf(
     if (!result.success) {
         return {
             success: false,
-            error: result.error ?? `Failed to convert pages ${pages}`,
+            error: result.error,
         };
     }
 
@@ -550,7 +550,7 @@ async function mergePdfChunks(
 
     throw createDjvuNativeCapabilityError(
         'native-failure',
-        `DjVu PDF chunk merge failed: ${qpdfResult.error ?? 'qpdf failed without a diagnostic'}`,
+        `DjVu PDF chunk merge failed: ${qpdfResult.error}`,
         qpdfResult.cause,
     );
 }

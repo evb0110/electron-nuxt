@@ -345,7 +345,7 @@ function waitForRangeReadHandleCloseBeforeMutation(
             signal.removeEventListener('abort', handleAbort);
             settle();
         }
-        timeout.unref?.();
+        timeout.unref();
         signal.addEventListener('abort', handleAbort, {once: true});
         if (signal.aborted) {
             handleAbort();

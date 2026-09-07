@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     Ref,
     ShallowRef,
@@ -6,13 +7,12 @@ import {
     useBookmarkState,
     usePageLabelState,
 } from '@app/modules/pdf-viewer/public';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
 import { useWorkspaceCommandLedger } from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 
 interface IMetadataSessionOptions {
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
     totalPages: Ref<number>;
     markDirty: () => void;
     fileHistoryMutationVersion?: Readonly<Ref<number>> | undefined;
@@ -38,6 +38,8 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         register: workspaceUndoTimeline.registerCommand,
         reset: workspaceUndoTimeline.resetSource,
         forget: workspaceUndoTimeline.forgetSourceEntries,
+        undo: workspaceUndoTimeline.undoTimeline,
+        redo: workspaceUndoTimeline.redoTimeline,
     };
     setWorkspaceCommandSink?.(commandSink);
 

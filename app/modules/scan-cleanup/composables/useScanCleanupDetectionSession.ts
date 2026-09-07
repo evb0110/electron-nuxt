@@ -1094,7 +1094,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     function cacheIsFresh(entry: IDetectionSessionCacheEntry, lifecycleDocumentKey: string) {
-        const documentIdentity = lifecycleDocumentKey?.split('\u0000', 1)[0] ?? '';
+        const documentIdentity = lifecycleDocumentKey.split('\u0000', 1)[0] ?? '';
         const authoritativeIdentity = isScanCleanupSourceSha256(options.sourceSha256.value)
             && documentIdentity === options.sourceSha256.value.toLowerCase();
         const documentPageCount = options.totalPages.value > 0

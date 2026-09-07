@@ -1171,7 +1171,7 @@ export async function sendAgentAssistantMessage(
             codexProviderRuntime.runtimeState = 'error';
             errorSessionTurn(
                 session,
-                turnGeneration ?? session.turnOwner.generation,
+                turnGeneration,
                 codexProviderRuntime.lastError,
             );
             addMessage(session, {

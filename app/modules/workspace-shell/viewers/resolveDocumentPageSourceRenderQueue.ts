@@ -23,11 +23,17 @@ export function resolveDocumentPageSourceRenderQueue(
     const inFlightPageSet = new Set(input.inFlightPages);
     const visiblePageSet = new Set(input.visiblePages);
     const bufferPageSet = new Set(input.bufferPages);
+    const nonCurrentVisiblePages = input.visiblePages.filter(pageNumber => pageNumber !== input.currentPage);
+    const currentPageIsOutsideVisibleBand = input.preferredDirection > 0
+        ? (nonCurrentVisiblePages.at(0) ?? input.currentPage) > input.currentPage + 1
+        : input.preferredDirection < 0
+            ? (nonCurrentVisiblePages.at(-1) ?? input.currentPage) < input.currentPage - 1
+            : false;
     const leadingEdge = input.preferredDirection < 0
         ? input.visiblePages.at(0) ?? input.currentPage
         : input.visiblePages.at(-1) ?? input.currentPage;
     const rankPage = (pageNumber: number) => {
-        if (pageNumber === input.currentPage) {
+        if (pageNumber === input.currentPage && !currentPageIsOutsideVisibleBand) {
             return 0;
         }
         const isLeadingBuffer = input.preferredDirection !== 0
@@ -37,6 +43,9 @@ export function resolveDocumentPageSourceRenderQueue(
             return 1 + input.guardRadius - Math.abs(pageNumber - leadingEdge);
         }
         if (visiblePageSet.has(pageNumber)) {
+            if (pageNumber === input.currentPage && currentPageIsOutsideVisibleBand) {
+                return 150;
+            }
             return 100 + Math.abs(pageNumber - input.currentPage);
         }
         return 200 + Math.abs(pageNumber - input.currentPage);

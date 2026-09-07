@@ -8,25 +8,32 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import type {IShapeEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {
     buildNativeFreeTextNotesForSave,
     isReplayableEditorOnlyFreeTextNote,
     toNativeFreeTextNote,
-} from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
-import { buildNativeNoteTextUpdatesForSave } from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
-import { buildNativeAnnotationDeletesForSave } from '@app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave';
+} from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';
+import { buildNativeNoteTextUpdatesForSave } from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteTextUpdateProjection';
+import { projectNativeAnnotationDeletes } from '@app/modules/pdf-viewer/annotations/persistence/nativeAnnotationDeleteProjection';
 import {
     buildNativeShapesMutationForSave,
     isNativeShapeEligible,
     toNativeShapeAnnotation,
 } from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
 import {
+    buildNativePdfMutationProjection,
+    type IPdfSaveRouteCapabilities,
+} from '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection';
+import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
-} from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
+} from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { requireEpochMs } from '@contracts/timestamps';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
@@ -59,7 +66,7 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
 function createEditorFreeTextComment(overrides: Partial<IAnnotationCommentSummary> = {}) {
     return createComment({
         id: 'editor:0:pdfjs_internal_editor_0',
-        stableKey: 'uid:0:pdfjs_internal_editor_0',
+        stableKey: 'ann:0:pdfjs_internal_editor_0',
         text: 'Editor note',
         subtype: 'FreeText',
         annotationId: null,
@@ -96,6 +103,80 @@ function createShape(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotatio
     };
 }
 
+function createShapeEntity(overrides: Partial<IShapeEntity> = {}): IShapeEntity {
+    return {
+        kind: 'shape',
+        identity: {
+            id: asAnnotationId('shape-entity'),
+            pdfRef: '22R0',
+        },
+        pageIndex: requirePageIndex(0),
+        revision: 1,
+        persistedRevision: 0,
+        deleted: false,
+        createdAt: requireEpochMs(1781009077123),
+        modifiedAt: requireEpochMs(1781009077999),
+        author: 'Tester',
+        tool: 'rectangle',
+        rect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.4,
+        },
+        strokeColor: '#00aaff',
+        strokeWidth: 2,
+        fill: null,
+        opacity: 0.75,
+        ...overrides,
+    };
+}
+
+function createNativeRouteCapabilities(
+    overrides: Partial<IPdfSaveRouteCapabilities> = {},
+): IPdfSaveRouteCapabilities {
+    return {
+        saveFlowMode: 'save',
+        availableBackends: ['native-append'],
+        nativeCapabilities: {
+            hasNativePdfMutationCapability: true,
+            canPersistNativeMetadataMutations: true,
+        },
+        dirtyState: {
+            annotationDirty: true,
+            hasAnnotationChanges: true,
+            shapeStateDirty: true,
+        },
+        documentStructure: {
+            pageLabelsDirty: false,
+            pageLabelRanges: [],
+            bookmarksDirty: false,
+            bookmarkItems: [],
+            untitledBookmarkLabel: 'Untitled',
+            totalPages: 1,
+        },
+        liveAnnotationChanges: {
+            ids: new Set(),
+            replayableEditorNoteIds: new Set(),
+            nativeFreeTextEditors: new Map(),
+            hasChanges: false,
+            hasUnknownChanges: false,
+            fingerprint: 'empty',
+        },
+        hasLoadedSource: true,
+        forceWriterSave: false,
+        rewriteShapeState: true,
+        totalPageCount: 1,
+        shapes: [createShape()],
+        deletedEmbeddedShapeAnnotationIds: [],
+        deletedEmbeddedShapeStableKeys: [],
+        markupSubtypeOverrides: undefined,
+        markupSubtypeHints: [],
+        nativeTextBoxes: [],
+        ...overrides,
+    };
+}
+
 function createMutationProjectionInput(overrides: Partial<{
     canonicalComments: IAnnotationCommentSummary[];
     pendingTexts: Map<string, string>;
@@ -116,7 +197,7 @@ describe('native FreeText note builders', () => {
         expect(isReplayableEditorOnlyFreeTextNote(comment)).toBe(true);
         expect(toNativeFreeTextNote(comment)).toEqual({
             pageIndex: requirePageIndex(0),
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             text: 'Editor note',
             markerRect: {
                 left: 0.1,
@@ -140,6 +221,19 @@ describe('native FreeText note builders', () => {
 
         expect(notes.value).toEqual([expect.objectContaining({stableKey: comment.stableKey})]);
         expect(notes.skipEvents).toEqual([]);
+    });
+
+    it('uses the canonical app identity for a new sticky note', () => {
+        const comment = createComment({
+            appAnnotationId: 'anno_sticky_note',
+            id: 'anno_sticky_note',
+            stableKey: 'ann:0:editor:anno_sticky_note',
+            annotationId: null,
+            source: 'editor',
+            subtype: 'Text',
+        });
+
+        expect(toNativeFreeTextNote(comment)).toEqual(expect.objectContaining({stableKey: 'anno_sticky_note'}));
     });
 });
 
@@ -183,7 +277,7 @@ describe('native note text and delete builders', () => {
     });
 
     it('builds native deletes for PDF refs and editor-only FreeText stable keys', () => {
-        const deletes = buildNativeAnnotationDeletesForSave(createMutationProjectionInput({pendingDeletes: [
+        const deletes = projectNativeAnnotationDeletes(createMutationProjectionInput({pendingDeletes: [
             createComment(),
             createEditorFreeTextComment(),
         ]}));
@@ -196,7 +290,7 @@ describe('native note text and delete builders', () => {
             },
             {
                 pageIndex: requirePageIndex(0),
-                stableKey: 'uid:0:pdfjs_internal_editor_0',
+                stableKey: 'ann:0:pdfjs_internal_editor_0',
                 createdAt: requireEpochMs(1781009077123),
             },
         ]);
@@ -284,6 +378,48 @@ describe('native shape builders', () => {
                 annotationId: null,
                 stableKey: null,
                 pdfSubtype: 'Ink',
+            })],
+        });
+    });
+});
+
+describe('native PDF save route', () => {
+    it('admits managed shape mutations when the native shape payload is available', () => {
+        const shape = createShapeEntity();
+        const nativeShape = createShape({annotationId: shape.identity.pdfRef});
+        const plan = buildSerializationPlan(
+            {
+                documentRevisionToken: null,
+                epoch: 1,
+                entityBaselineHash: 'shape-baseline',
+                revisions: new Map([[
+                    shape.identity.id,
+                    shape.persistedRevision,
+                ]]),
+            },
+            [shape],
+            [shape],
+            {routeConstraints: {
+                allowedBackends: ['native-append'],
+                preserveLoadedSource: true,
+            }},
+        );
+
+        const decision = buildNativePdfMutationProjection(
+            plan,
+            createNativeRouteCapabilities({shapes: [nativeShape]}),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') {
+            throw new Error(`Expected native append, got ${decision.nativeRejection}`);
+        }
+        expect(decision.nativeMutationProjection.mutations.shapes).toMatchObject({
+            rewriteShapeState: true,
+            shapes: [expect.objectContaining({
+                annotationId: '22R',
+                stableKey: nativeShape.stableKey,
+                type: 'rectangle',
             })],
         });
     });
@@ -414,7 +550,7 @@ describe('native markup builders', () => {
             canonicalComments: [createComment({
                 appAnnotationId: 'app-markup-1',
                 id: 'current-runtime-id',
-                stableKey: 'src:editor:0:current-runtime-id',
+                stableKey: 'ann:0:current-runtime-id',
                 subtype: 'Highlight',
                 source: 'editor',
                 annotationId: null,
@@ -453,7 +589,7 @@ describe('native markup builders', () => {
             canonicalComments: [createComment({
                 appAnnotationId: 'app-markup-1',
                 id: '9R',
-                stableKey: 'src:editor:0:9R',
+                stableKey: 'ann:0:9R',
                 subtype: 'Highlight',
                 source: 'editor',
                 annotationId: null,

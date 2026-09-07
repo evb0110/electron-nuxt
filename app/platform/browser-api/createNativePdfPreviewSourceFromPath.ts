@@ -69,7 +69,11 @@ export function createNativePdfPreviewSourceFromPath(
     const createPreviewRequestId = (pageNumber: number, options?: IPdfNativePagePreviewOptions) => {
         const requestId = options?.previewRequestId;
         if (requestId) {
-            return requestId;
+            const parsedRequestId = parseRequestId(requestId);
+            if (parsedRequestId === null) {
+                throw new TypeError('Invalid native preview request ID');
+            }
+            return parsedRequestId;
         }
         nextPreviewRequestId += 1;
         return createRequestId(`pdf-native-preview-${sourceInstanceId}-${pageNumber}-${nextPreviewRequestId}`);

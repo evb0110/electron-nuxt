@@ -22,6 +22,7 @@ import {
     createTestEventSender,
     type ITestEventSender,
 } from '@tests/helpers/electronEventEmitterHarness';
+import {cast} from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => {
     class MockDjvuPdfWorkerStartupError extends Error {
@@ -202,11 +203,11 @@ function isDjvuWebContentsTestDouble(value: ITestEventSender): value is ITestEve
 
 function createOperationContext(senderId: number): TDjvuOperationContext {
     const event = createEvent(senderId);
-    return {
+    return cast<TDjvuOperationContext>({
         ...event,
         senderId,
         parentWindow: null,
-    };
+    });
 }
 
 describe('handleDjvuConvertToPdf', () => {

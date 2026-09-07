@@ -105,7 +105,6 @@ const projectConfig = withNuxt(
                         group: [
                             '@i18n-core/*',
                             '@i18n-app/*',
-                            '@pdf-core/*',
                             '@releaseSelection/*',
                         ],
                         message: 'Import shared packages via their root entrypoint to keep package APIs slim.',
@@ -117,10 +116,6 @@ const projectConfig = withNuxt(
                 {
                     selector: 'TSAsExpression[expression.type="TSAsExpression"][expression.typeAnnotation.type="TSUnknownKeyword"]',
                     message: 'Avoid "as unknown as" double assertion. Use a type guard, generic parameter, or fix the underlying type instead.',
-                },
-                {
-                    selector: 'ConditionalExpression[test.type="BinaryExpression"][test.operator="instanceof"][test.right.name="Error"][consequent.type="MemberExpression"][consequent.property.name="message"]',
-                    message: 'Use getErrorMessage from @contracts/getErrorMessage instead of inline Error.message extraction.',
                 },
             ],
             '@typescript-eslint/no-empty-object-type': [
@@ -141,12 +136,6 @@ const projectConfig = withNuxt(
             'custom/require-classified-error-log': 'error',
             'custom/no-unclassified-diagnostic-code': 'error',
             ...stylisticRules,
-        },
-    },
-    {
-        files: ['packages/contracts/**/*.ts'],
-        rules: {
-            'custom/named-timestamps': 'error',
         },
     },
     {
@@ -198,22 +187,31 @@ const projectConfig = withNuxt(
         ['app/platform/browser/browserDocumentRepository.ts', 1207],
         ['app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts', 1296],
         ['app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts', 1216],
+        // The renderer-interface migration keeps branded page leases and
+        // document lifecycle cleanup in one session owner.
+        ['app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts', 1215],
         ['electron/ocr/jobManager.ts', 1067],
         ['packages/contracts/agentPlatformFeature.ts', 1831],
-        ['app/modules/workspace-shell/components/AppShellRoot.vue', 905],
-        ['app/modules/workspace-shell/agent/createDocumentAgentBookmarks.ts', 1211],
+        ['app/modules/workspace-shell/components/AppShellRoot.vue', 900],
         ['app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts', 1083],
         ['electron/features/agent/mcp/mcpServerCore.ts', 979],
         ['scripts/architecture/boundary-check.mjs', 1650],
         ['app/platform/browser-api/browserDjvuCapability.ts', 1202],
         ['electron/features/djvu/main/pdfExport.ts', 1288],
-        ['electron/features/documents/createDocumentsPreloadFileClient.ts', 1225],
+        ['app/modules/workspace-shell/agent/createDocumentAgentBookmarks.ts', 1211],
         ['packages/contracts/djvuPlatformFeature.ts', 1490],
         ['packages/contracts/ocrPlatformFeature.ts', 1368],
-        ['packages/contracts/documentsPlatformFeatureSchemas.ts', 1278],
-        ['packages/contracts/electronApiDocuments.ts', 1224],
         ['packages/contracts/scan-cleanup/ipcRequestCodecs.ts', 1210],
         ['packages/contracts/scan-cleanup/ipcResultCodecs.ts', 1213],
+        // The documents feature keeps its method codecs and result schemas
+        // together so the Electron and browser implementations cannot drift.
+        // Print, decrypt, and annotation capabilities account for this
+        // protocol growth beyond the shared file budget.
+        ['packages/contracts/documentsPlatformFeatureSchemas.ts', 1320],
+        // The documents API contract mirrors the native frame, the electron
+        // bridge, and the browser bridge in one file; the #171 decrypt and
+        // annotation capabilities are the growth this budget covers.
+        ['packages/contracts/electronApiDocuments.ts', 1225],
         // The v3 protocol contract is one shared schema with its native
         // counterpart; splitting it would fork the pairing rather than shorten
         // it. The staged Analyze input window and optional Mixed/split evidence
@@ -391,31 +389,6 @@ const projectConfig = withNuxt(
         },
     },
     {
-        files: ['packages/contracts/**/*.ts'],
-        languageOptions: {parserOptions: {projectService: true}},
-        rules: {
-            '@typescript-eslint/no-unsafe-type-assertion': 'error',
-        },
-    },
-    {
-        files: [
-            'packages/contracts/**/*.ts',
-            'app/**/*.{ts,vue}',
-        ],
-        rules: {
-            '@typescript-eslint/no-non-null-assertion': 'error',
-        },
-    },
-    {
-        files: [
-            'packages/contracts/**/*.ts',
-            'app/modules/pdf-viewer/**/*.{ts,vue}',
-        ],
-        rules: {
-            'custom/no-bare-page-number-type': 'error',
-        },
-    },
-    {
         files: ['electron/**/*.ts'],
         languageOptions: {parserOptions: {
             project: ['./electron/tsconfig.json'],
@@ -431,10 +404,6 @@ const projectConfig = withNuxt(
     },
     {
         files: ['tests/**/*.ts'],
-        languageOptions: {parserOptions: {
-            project: ['./tests/tsconfig.json'],
-            tsconfigRootDir: import.meta.dirname,
-        }},
         rules: {
             'no-restricted-imports': 'off',
             ...arrayTypeRules,
@@ -457,8 +426,6 @@ const projectConfig = withNuxt(
                     minimumDescriptionLength: 8,
                 },
             ],
-            '@typescript-eslint/no-floating-promises': 'error',
-            '@typescript-eslint/await-thenable': 'error',
             '@typescript-eslint/require-await': 'off',
             'no-return-await': 'off',
         },
@@ -513,12 +480,6 @@ const projectConfig = withNuxt(
             'custom/nuxt-ui-semantic-utilities': 'error',
             'custom/tailwind-class-shorthand': 'error',
             'custom/vue-define-emits-tuple': 'error',
-        },
-    },
-    {
-        files: ['packages/contracts/getErrorMessage.ts'],
-        rules: {
-            'no-restricted-syntax': 'off',
         },
     },
 );

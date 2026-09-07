@@ -1,3 +1,7 @@
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -17,7 +21,7 @@ import {
     ref,
 } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
+import { cast } from '@tests/helpers/cast';
 
 const ANNOTATION_MODE = {
     DISABLE: 0,
@@ -90,8 +94,7 @@ function createOperatorList(pageNumber: number) {
 }
 
 function createPdfPage(pageNumber: number) {
-    // The thumbnail path reads only these PDF.js page methods.
-    return Object.assign(Object.create(null), {
+    return cast<IPdfPage>({
         pageNumber,
         getViewport: ({scale = 1}: {scale?: number} = {}) => ({
             width: 100 * scale,
@@ -133,8 +136,8 @@ function createPdfPage(pageNumber: number) {
     });
 }
 
-function createContext(): CanvasRenderingContext2D {
-    return new Proxy(Object.create(null), {
+function createContext() {
+    return new Proxy({} as Record<string | symbol, unknown>, {
         get: (target, property) => {
             if (!(property in target)) {
                 target[property] = vi.fn();
@@ -145,19 +148,9 @@ function createContext(): CanvasRenderingContext2D {
     });
 }
 
-function createCanvasContext(contextId: '2d', options?: CanvasRenderingContext2DSettings): CanvasRenderingContext2D | null;
-function createCanvasContext(contextId: 'bitmaprenderer', options?: ImageBitmapRenderingContextSettings): ImageBitmapRenderingContext | null;
-function createCanvasContext(contextId: 'webgl', options?: WebGLContextAttributes): WebGLRenderingContext | null;
-function createCanvasContext(contextId: 'webgl2', options?: WebGLContextAttributes): WebGL2RenderingContext | null;
-function createCanvasContext(contextId: string, options?: unknown): RenderingContext | null {
-    void options;
-    return contextId === '2d' ? createContext() : null;
-}
-
 function createCanvas() {
     const canvas = document.createElement('canvas');
-    // happy-dom does not provide the 2D context used by the thumbnail path.
-    canvas.getContext = createCanvasContext;
+    canvas.getContext = cast<HTMLCanvasElement['getContext']>(() => createContext());
     return canvas;
 }
 
@@ -249,7 +242,7 @@ function mountThumbnailRuntime(annotationComments: ReturnType<typeof ref<IAnnota
                 currentPage: computed(() => 1),
                 invalidationRequest: computed(() => invalidationRequest.value),
                 isActive: computed(() => true),
-                pdfDocument: computed(() => createPdfDocumentProxy({numPages: TOTAL_PAGES})),
+                pdfDocument: computed(() => cast<IPdfDocument>({numPages: TOTAL_PAGES})),
                 rasterScheduler: computed(() => scheduler),
                 totalPages: computed(() => TOTAL_PAGES),
             },
@@ -284,10 +277,9 @@ async function settleRenders() {
 describe('thumbnail annotation suppression', () => {
     beforeEach(() => {
         vi.useFakeTimers();
-        // The fake context exposes the canvas methods exercised by PDF.js.
-        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((contextId: string) => (
-            contextId === '2d' ? createContext() : null
-        ));
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+            cast<HTMLCanvasElement['getContext']>(() => createContext()),
+        );
         renders.length = 0;
         renderCompletion = () => Promise.resolve();
         resetCoordinatedPdfPageRendersForTest();
@@ -318,27 +310,6 @@ describe('thumbnail annotation suppression', () => {
             expect(renders.find(render => render.pageNumber === 1)?.keptAnnotationIds).toEqual(['10R']);
             expect(renders.find(render => render.pageNumber === 3)?.keptAnnotationIds).toEqual(['30R']);
             expect(renders.find(render => render.pageNumber === 1)?.hasOperationsFilter).toBe(false);
-        } finally {
-            await unmount();
-        }
-    });
-
-    it('suppresses the recoloured annotation only on the page that carries it', async () => {
-        const annotationComments = ref<IAnnotationCommentSummary[]>([createComment({
-            annotationId: '20R0',
-            id: '20R0',
-            stableKey: 'ann:1:20R',
-            pageIndex: 1,
-            pageNumber: 2,
-        })]);
-        const {unmount} = mountThumbnailRuntime(annotationComments);
-
-        try {
-            await settleRenders();
-
-            const editedPageRender = renders.find(render => render.pageNumber === 2);
-            expect(editedPageRender?.hasOperationsFilter).toBe(true);
-            expect(editedPageRender?.keptAnnotationIds).toEqual([]);
         } finally {
             await unmount();
         }

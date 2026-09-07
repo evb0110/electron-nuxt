@@ -1,14 +1,7 @@
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
-
-import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import type {
-    Ref,
-    ShallowRef,
-} from 'vue';
-import type { IPdfjsL10n } from '@app/types/pdfjs';
+import type {Ref} from 'vue';
 import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
-import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 import type {
     IPageRange,
     IPdfPageMatches,
@@ -18,14 +11,11 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import { usePdfRendererSearchController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController';
-import { usePdfSearchHighlightHandoff } from '@app/modules/pdf-viewer/runtime/rendering/usePdfSearchHighlightHandoff';
 import { createPdfRendererPageDom } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/createPdfRendererPageDom';
 import { usePdfRendererAnnotationLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
 import { usePdfRendererTextLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererTextLayerController';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { createPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
-import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import type {
     IPdfLayerRenderResult,
     IPdfPageLayerRenderContext,
@@ -37,13 +27,9 @@ export type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf
 const EMPTY_ID_SET: ReadonlySet<string> = new Set<string>();
 
 interface IPdfAnnotationProjection {
-    readonly annotationUiManager: ShallowRef<AnnotationEditorUIManager | null>;
-    readonly annotationL10n: ShallowRef<IPdfjsL10n | null>;
     readonly hiddenAnnotationIds: Readonly<Ref<Set<string>>>;
+    readonly annotationProjectionReady: Readonly<Ref<boolean>>;
     readonly canvasHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
-    readonly managedAnnotationIds: Readonly<Ref<Set<string>>>;
-    readonly textMarkupPresentation?: ITextMarkupPresentationController | undefined;
-    replaceAnnotationUiManager(manager: AnnotationEditorUIManager): void;
     pageCommitted(pageNumber: TPageNumber): void;
 }
 
@@ -67,10 +53,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const viewport = options.viewport;
     const projection = shallowRef<IPdfAnnotationProjection | null>(null);
     const hiddenAnnotationIds = computed(() => projection.value?.hiddenAnnotationIds.value ?? EMPTY_ID_SET as Set<string>);
+    const annotationProjectionReady = computed(() => projection.value?.annotationProjectionReady.value ?? true);
     const canvasHiddenAnnotationIds = computed(() => projection.value?.canvasHiddenAnnotationIds.value ?? EMPTY_ID_SET as Set<string>);
-    const managedAnnotationIds = computed(() => projection.value?.managedAnnotationIds.value ?? EMPTY_ID_SET as Set<string>);
-    const annotationUiManager = computed(() => projection.value?.annotationUiManager.value ?? null);
-    const annotationL10n = computed(() => projection.value?.annotationL10n.value ?? null);
     const {
         pdfDocument,
         numPages,
@@ -87,18 +71,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const outputScale = options.outputScale
         ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
     const renderSupervisor = options.renderSupervisor ?? createPdfRenderSupervisor();
-    const highlightHandoff = usePdfSearchHighlightHandoff({
-        currentSearchMatch,
-        navigationId: currentSearchMatchNavigationId,
-        authority: viewport.singlePageScroll.viewportAuthority,
-        applyHighlights: pages => {
-            const root = options.container.value;
-            if (root) textLayerRenderer.applySearchHighlightHandoff(root, pages);
-        },
-    });
     const textLayerRenderer = usePdfTextLayerRenderer({
         searchPageMatches,
-        currentSearchMatch: highlightHandoff.currentHighlightMatch,
+        currentSearchMatch,
         workingCopyPath,
         documentRevisionToken,
         effectiveScale: viewport.scale.effectiveScale,
@@ -110,13 +85,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         pdfDocument,
         showAnnotations,
         hiddenAnnotationIds,
-        managedAnnotationIds,
-        annotationUiManager,
-        annotationL10n,
+        annotationProjectionReady,
+        linkAnnotations: options.linkAnnotations,
         renderSupervisor,
-        replaceAnnotationUiManager: manager => projection.value?.replaceAnnotationUiManager(manager),
         scrollToPage: pageNumber => {
-            viewport.singlePageScroll.scrollToPage(pageNumber);
+            viewport.singlePageScroll.scrollToPage(requirePageNumber(pageNumber));
         },
     });
     const pageRenderState = options.pageRenderState;
@@ -292,18 +265,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         cancelActiveTextLayerRender(pageNumber);
         annotationLayerController.cancel(pageNumber);
         cleanupTextLayer(pageNumber);
-        annotationLayerRenderer.cleanupEditorLayer(pageNumber);
         const textLayer = container?.querySelector<HTMLDivElement>('.text-layer');
         const annotationLayer = container?.querySelector<HTMLElement>('.annotation-layer');
-        const editorLayer = container?.querySelector<HTMLElement>('.annotation-editor-layer');
         if (textLayer) textLayerRenderer.cleanupTextLayerDom(textLayer);
-        for (const layer of [
-            annotationLayer,
-            editorLayer,
-        ]) {
-            if (!layer) continue;
-            zeroCanvasDescendants(layer);
-            layer.replaceChildren();
+        if (annotationLayer) {
+            zeroCanvasDescendants(annotationLayer);
+            annotationLayer.replaceChildren();
         }
         if (container) {
             delete container.dataset.pageLayerReadiness;
@@ -364,7 +331,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const annotationLayerController = usePdfRendererAnnotationLayerController({
         annotationLayerRenderer,
         showAnnotations,
-        annotationUiManager,
         getRenderVersion: options.getRenderVersion,
         cleanupPageIfCurrentRender,
         logNonCriticalStageError,
@@ -623,71 +589,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
-    async function renderAnnotationEditorLayerForPage(pageNumber: TPageNumber) {
-        if (!toValue(isActive)) {
-            return false;
-        }
-        const container = getMountedPageContainer(pageNumber, options.container.value);
-        const manager = annotationUiManager.value;
-        if (!container || !manager) {
-            return false;
-        }
-        const editorLayer = container.querySelector<HTMLElement>('.annotation-editor-layer');
-        if (!editorLayer) {
-            return false;
-        }
-        const version = options.getRenderVersion();
-        const lease = await options.document.leasePage(pageNumber);
-        const controller = new AbortController();
-        const unregister = annotationLayerController.register(pageNumber, controller);
-        const shouldContinue = () => (
-            options.getRenderVersion() === version
-            && toValue(isActive)
-            && container.isConnected !== false
-            && container.dataset.page === String(pageNumber)
-        );
-        try {
-            const pageViewport = lease.page.getViewport({
-                scale: toValue(viewport.scale.effectiveScale),
-                rotation: resolvePdfPageViewportRotation(
-                    lease.page.rotate,
-                    toValue(options.viewRotation ?? (() => 0)),
-                ),
-            });
-            const result = await withPageStageTimeout(
-                annotationLayerRenderer.renderAnnotationEditorLayer(
-                    container,
-                    editorLayer,
-                    container.querySelector<HTMLDivElement>('.text-layer'),
-                    pageViewport,
-                    pageNumber,
-                    null,
-                    {
-                        signal: controller.signal,
-                        shouldContinue,
-                    },
-                ),
-                {
-                    pageNumber,
-                    stage: 'annotation-editor-layer',
-                    timeoutMs: PDF_PAGE_RENDER_TIMEOUT_MS,
-                },
-                shouldContinue,
-                () => controller.abort(),
-                undefined,
-                renderSupervisor,
-                controller.signal,
-            );
-            return result.ok && result.rendered && shouldContinue();
-        } catch (error) {
-            logNonCriticalStageError(pageNumber, 'annotation editor layer', error);
-            return false;
-        } finally {
-            unregister();
-            lease.release();
-        }
-    }
-
     function resolveLayerPromotionDemand(pages: readonly number[]) {
         const promotionPages = pages
             .map(page => requirePageNumber(page, numPages.value))
@@ -755,33 +656,21 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         dispose,
         releasePageLayers,
         applySearchHighlights: searchController.applySearchHighlights,
-        hideManagedAnnotationEditors: (pageNumber?: TPageNumber) => {
-            annotationLayerRenderer.hideHiddenManagedEditors(pageNumber);
-        },
         requestScrollToCurrentResult: searchController.requestScrollToCurrentResult,
+        annotationProjectionReady,
         cancelPendingSearchScroll: searchController.invalidatePendingRequests,
-        renderAnnotationEditorLayerForPage,
         // The raster bakes pixels that survive until the page is re-rendered, so it
         // must follow the store alone. Deferring suppression until a managed shape's
         // overlay is mounted — as the annotation layer does, where the decision is
         // revisited on every DOM sync — would bake native ink under the overlay.
         canvasHiddenAnnotationIds,
-        attachAnnotationProjection(
-            attached: IPdfAnnotationProjection,
-            presentation?: Ref<IPdfAnnotationProjection['textMarkupPresentation'] | null>,
-        ) {
+        attachAnnotationProjection(attached: IPdfAnnotationProjection) {
             projection.value = attached;
-            if (presentation) {
-                presentation.value = attached.textMarkupPresentation ?? null;
-            }
             return () => {
                 if (projection.value !== attached) {
                     return;
                 }
                 projection.value = null;
-                if (presentation) {
-                    presentation.value = null;
-                }
             };
         },
     };

@@ -128,6 +128,52 @@ describe('restoreWorkspaceCheckpoint', () => {
         expect(activateTab).toHaveBeenCalledWith('restored-tab');
     });
 
+    it('reopens a clean checkpoint through the source path to restore its process registration', async () => {
+        const openPathInReservedTab = vi.fn().mockResolvedValue(true);
+
+        await restoreWorkspaceCheckpoint({
+            version: 1,
+            capturedAt: requireEpochMs(123),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('tab-1'),
+            layout: {
+                type: 'leaf',
+                paneId: requirePaneId('pane-1'),
+            },
+            panes: [{
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('tab-1')],
+                activeTabId: requireTabId('tab-1'),
+            }],
+            tabs: [{
+                tabId: requireTabId('tab-1'),
+                paneId: requirePaneId('pane-1'),
+                fileName: 'saved.pdf',
+                sourceRef: requireDocumentRef('/documents/saved.pdf'),
+                workingCopyRef: requireDocumentRef('/tmp/working/saved.pdf'),
+                isDirty: false,
+                isDjvu: false,
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+            }],
+        }, {
+            tabs: ref([{
+                id: requireTabId('tab-1'),
+                fileName: 'saved.pdf',
+                originalPath: requireDocumentRef('/documents/saved.pdf'),
+                isDirty: false,
+                isDjvu: false,
+            }]),
+            workspaceRefs: ref(new Map()),
+            restoreGraph: vi.fn(),
+            openPathInReservedTab,
+            activateTab: vi.fn(),
+        });
+
+        expect(openPathInReservedTab).toHaveBeenCalledWith('tab-1', '/documents/saved.pdf');
+    });
+
     it('restores an unsaved generated PDF from its working copy without losing Save As semantics', async () => {
         const workspace = createWorkspaceExposeFixture({
             waitForDocumentOpenSettled: vi.fn().mockResolvedValue(undefined),

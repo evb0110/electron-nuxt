@@ -1,4 +1,4 @@
-import type {PDFDocumentProxy} from '@app/types/pdfContracts';
+import type {PDFDocumentProxy} from 'pdfjs-dist';
 
 type TPdfDocumentProxyFixture = Omit<Partial<PDFDocumentProxy>, 'annotationStorage'>
     & {annotationStorage?: object}

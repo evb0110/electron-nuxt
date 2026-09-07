@@ -74,4 +74,19 @@ describe('document viewport resize anchor', () => {
 
         expect(captureDocumentViewportResizeAnchor(viewport)?.pageNumber).toBe(2);
     });
+
+    it('prefers the committed page when it is mounted but not nearest to centre', () => {
+        const viewport = document.createElement('div');
+        document.body.append(viewport);
+        viewport.getBoundingClientRect = () => rect(0, 0, 400, 400);
+        const first = document.createElement('section');
+        first.dataset.documentPageNumber = '1';
+        first.getBoundingClientRect = () => rect(50, -300, 300, 350);
+        const second = document.createElement('section');
+        second.dataset.documentPageNumber = '2';
+        second.getBoundingClientRect = () => rect(50, 230, 300, 350);
+        viewport.append(first, second);
+
+        expect(captureDocumentViewportResizeAnchor(viewport, {preferredPageNumber: 1})?.pageNumber).toBe(1);
+    });
 });

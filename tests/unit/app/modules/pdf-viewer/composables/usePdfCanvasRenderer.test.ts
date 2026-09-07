@@ -11,6 +11,7 @@ import {
 } from 'vue';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
+import {cast} from '@tests/helpers/cast';
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({ AnnotationMode: {
     DISABLE: 0,
@@ -129,6 +130,27 @@ describe('usePdfCanvasRenderer', () => {
         }));
         // Vitest records PDF.js render options as an untyped mock argument.
         const renderContext = pdfPage.render.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+        expect(renderContext).not.toHaveProperty('annotationCanvasMap');
+        expect(result?.annotationCanvasMap).toBeNull();
+    });
+
+    it('disables annotation appearances while the canonical projection is pending', async () => {
+        const { canvas } = installCanvasDocument();
+        const annotationProjectionReady = ref(false);
+        const pdfPage = createPdfPage({ getOperatorList: vi.fn() });
+        const renderer = usePdfCanvasRenderer({
+            outputScale: 1,
+            annotationProjectionReady,
+        });
+
+        const result = await renderer.renderCanvas(pdfPage as never, 1);
+
+        expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
+        expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
+            annotationMode: AnnotationMode.DISABLE,
+            canvas,
+        }));
+        const renderContext = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls)[0]?.[0];
         expect(renderContext).not.toHaveProperty('annotationCanvasMap');
         expect(result?.annotationCanvasMap).toBeNull();
     });

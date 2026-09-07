@@ -551,7 +551,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                     return;
                 }
                 if (failedCheckpointPaths.length === 0) {
-                    await windowTabsCapability.acknowledgeWorkspaceCheckpoint?.();
+                    await windowTabsCapability.acknowledgeWorkspaceCheckpoint();
                 } else {
                     BrowserLogger.warn(
                         'tabs-shell',

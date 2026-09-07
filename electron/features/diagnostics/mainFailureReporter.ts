@@ -1,32 +1,29 @@
-import {
-    decodeDiagnosticContext,
-    DIAGNOSTIC_DEFINITIONS,
-    isDiagnosticCode,
-    isDiagnosticOperation,
-    type DiagnosticCode,
-    type DiagnosticContext,
-    type DiagnosticOperation,
-    type DiagnosticStackPolicy,
-} from '@contracts/diagnostics/diagnosticCodes';
+import type {DiagnosticCode} from '@contracts/diagnostics/diagnosticCodes';
 import {
     createDiagnosticEventId,
-    isDiagnosticEventId,
     type DiagnosticEventId,
 } from '@contracts/diagnostics/diagnosticEventId';
+import {
+    createDiagnosticFallbackEventId,
+    createSafeDiagnosticEventId,
+    safeDiagnosticNow,
+} from '@contracts/diagnostics/diagnosticReporterIdentity';
 import {
     decodeDiagnosticRecord,
     type DiagnosticRecord,
     type DiagnosticRuntime,
-    type FailureSeverity,
 } from '@contracts/diagnostics/diagnosticRecord';
 import type {
     CaptureFailureInput,
     FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
+import {buildDiagnosticRecord} from '@contracts/diagnostics/buildDiagnosticRecord';
 import {
-    normalizeCanonicalApplicationFrames,
-    type CanonicalAppFrame,
-} from '@contracts/diagnostics/canonicalAppFrames';
+    createDiagnosticBurstAdmissionReserver,
+    createDiagnosticFailureReceipt,
+    createDiagnosticBurstDecider,
+    createDiagnosticSchemaDroppedReceiptFactory,
+} from '@contracts/diagnostics/diagnosticReporterShared';
 import {
     decodeDiagnosticsSuppressedCount,
     DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
@@ -115,12 +112,6 @@ interface IBurstState {
     suppressedCount: number;
 }
 
-interface IBurstDecision {
-    key: string;
-    send: boolean;
-    suppressedCount: number;
-}
-
 interface IHealthState extends IMainDiagnosticsHealthSnapshot {}
 
 let fallbackEventIdCounter = 0;
@@ -159,165 +150,24 @@ function addSuppressedCounts(...counts: readonly number[]) {
     return total;
 }
 
-function safeNow(now: () => number) {
-    try {
-        const value = now();
-        return Number.isSafeInteger(value) && value >= 0 ? value : 0;
-    } catch {
-        return 0;
-    }
-}
-
-function createFallbackEventId(): DiagnosticEventId {
+function nextFallbackEventIdCounter() {
     fallbackEventIdCounter = (fallbackEventIdCounter + 1) >>> 0;
-    let timestamp = 0;
-    try {
-        timestamp = Date.now();
-    } catch {
-        // Keep the fallback ID valid even if the clock is unavailable.
-    }
-    const value = `${timestamp.toString(16)}${fallbackEventIdCounter.toString(16)}`;
-    return value.slice(-32).padStart(32, '0') as DiagnosticEventId;
+    return fallbackEventIdCounter;
 }
 
-function createSafeEventId(factory: () => DiagnosticEventId) {
-    try {
-        const eventId = factory();
-        return isDiagnosticEventId(eventId) ? eventId : createFallbackEventId();
-    } catch {
-        try {
-            return createDiagnosticEventId();
-        } catch {
-            return createFallbackEventId();
-        }
-    }
-}
+const createFallbackEventId = () => createDiagnosticFallbackEventId(nextFallbackEventIdCounter);
 
-function readStack(value: unknown): string | undefined {
-    if (typeof value === 'string') {
-        return value;
-    }
-    if (typeof value !== 'object' || value === null) {
-        return undefined;
-    }
-    try {
-        const stack = (value as {stack?: unknown}).stack;
-        return typeof stack === 'string' ? stack : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-function captureCallSiteStack() {
-    try {
-        return new Error().stack ?? '';
-    } catch {
-        return '';
-    }
-}
-
-function removeReporterFrames(frames: readonly CanonicalAppFrame[]) {
-    return frames.filter(frame => !MAIN_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES.some(suffix => (
-        frame.module === suffix || frame.module.endsWith(`/${suffix}`)
-    )));
-}
-
-function buildFrames(input: CaptureFailureInput, stackPolicy: DiagnosticStackPolicy) {
-    const stack = stackPolicy === 'source'
-        ? readStack(input.local?.cause) ?? captureCallSiteStack()
-        : captureCallSiteStack();
-
-    try {
-        return removeReporterFrames(normalizeCanonicalApplicationFrames(stack).frames);
-    } catch {
-        return [];
-    }
-}
-
-function fallbackContext(code: DiagnosticCode): DiagnosticContext<DiagnosticCode> {
-    return decodeDiagnosticContext(code, {}) ?? {};
-}
-
-function buildClosedRecord(
+function buildMainDiagnosticRecord(
     input: CaptureFailureInput,
     eventId: DiagnosticEventId,
     occurredAt: number,
-): DiagnosticRecord {
-    let code: DiagnosticCode = 'UNCLASSIFIED_MAIN_ERROR';
-    let severity: FailureSeverity = DIAGNOSTIC_DEFINITIONS.UNCLASSIFIED_MAIN_ERROR.defaultSeverity;
-    let operation: DiagnosticOperation = DIAGNOSTIC_DEFINITIONS.UNCLASSIFIED_MAIN_ERROR.operation;
-    let context: DiagnosticContext<DiagnosticCode> = fallbackContext(code);
-    let frames: readonly CanonicalAppFrame[] = [];
-
-    try {
-        if (isDiagnosticCode(input.code)) {
-            code = input.code;
-        }
-        const definition = DIAGNOSTIC_DEFINITIONS[code];
-        severity = input.severity === 'fatal' || input.severity === 'error'
-            ? input.severity
-            : definition.defaultSeverity;
-        operation = isDiagnosticOperation(input.operation)
-            ? input.operation
-            : definition.operation;
-        context = decodeDiagnosticContext(code, input.context) ?? fallbackContext(code);
-        frames = buildFrames(input, definition.stackPolicy);
-    } catch {
-        // The logger is a last-resort failure path. The fallback below remains closed.
-    }
-
-    const decoded = decodeDiagnosticRecord({
-        schemaVersion: 1,
-        eventId,
-        code,
-        severity,
+) {
+    return buildDiagnosticRecord(input, eventId, occurredAt, {
+        fallbackCode: 'UNCLASSIFIED_MAIN_ERROR',
+        fallbackOperation: 'main-error',
+        internalFrameSuffixes: MAIN_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES,
         runtime: MAIN_DIAGNOSTICS_RUNTIME,
-        operation,
-        occurredAt,
-        frames,
-        context,
     });
-    if (decoded !== null) {
-        return decoded;
-    }
-
-    return decodeDiagnosticRecord({
-        schemaVersion: 1,
-        eventId,
-        code: 'UNCLASSIFIED_MAIN_ERROR',
-        severity: 'error',
-        runtime: MAIN_DIAGNOSTICS_RUNTIME,
-        operation: 'main-error',
-        occurredAt,
-        frames: [],
-        context: {},
-    })!;
-}
-
-function createReceipt(record: DiagnosticRecord): FailureReceipt {
-    return {
-        eventId: record.eventId,
-        code: record.code,
-        occurredAt: record.occurredAt,
-        severity: record.severity,
-    };
-}
-
-function getTopFrameKey(record: DiagnosticRecord) {
-    const frame = record.frames[0];
-    if (!frame) {
-        return '<none>';
-    }
-    return [
-        frame.module,
-        frame.function ?? '',
-        frame.line === undefined ? '' : String(frame.line),
-        frame.column === undefined ? '' : String(frame.column),
-    ].join('|');
-}
-
-function getBurstKey(record: DiagnosticRecord) {
-    return `${record.code}|${getTopFrameKey(record)}`;
 }
 
 function createHealthState(preference: TMainDiagnosticsPreference): IHealthState {
@@ -499,67 +349,27 @@ export function createMainFailureReporter(
         }
     }
 
-    function decideBurst(
-        record: DiagnosticRecord,
-        currentTime: number,
-        inheritedSuppressedCount: number,
-    ): IBurstDecision {
-        const key = getBurstKey(record);
-        const previous = burstStates.get(key);
-        if (!previous || currentTime - previous.startedAt >= burstWindowMs) {
-            burstStates.set(key, {
-                sentCount: 0,
-                startedAt: currentTime,
-                suppressedCount: 0,
-            });
-            pruneBurstStates();
-            return {
-                key,
-                send: true,
-                suppressedCount: Math.min(
-                    previous?.suppressedCount ?? 0,
-                    MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
-                ),
-            };
-        }
-
-        if (previous.sentCount >= burstLimit) {
-            previous.suppressedCount = addSuppressedCounts(
-                previous.suppressedCount,
-                1,
-                inheritedSuppressedCount,
-            );
-            health.burstSuppressed = incrementBy(
-                health.burstSuppressed,
-                1 + inheritedSuppressedCount,
-            );
+    const decideBurst = createDiagnosticBurstDecider({
+        burstStates,
+        burstLimit,
+        burstWindowMs,
+        maxSuppressedCount: MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
+        pruneBurstStates,
+        onSuppressed: count => {
+            health.burstSuppressed = incrementBy(health.burstSuppressed, count);
             setDropReason('burst-suppressed');
-            return {
-                key,
-                send: false,
-                suppressedCount: 0,
-            };
-        }
+        },
+    });
 
-        return {
-            key,
-            send: true,
-            suppressedCount: 0,
-        };
-    }
-
-    function reserveAdmission(record: DiagnosticRecord, currentTime: number, decision: IBurstDecision) {
-        const state = burstStates.get(decision.key);
-        if (state) {
-            state.sentCount = increment(state.sentCount);
-            state.suppressedCount = 0;
-        }
-        recentIds.set(record.eventId, currentTime);
-        pruneRecentIds(currentTime);
-    }
+    const reserveAdmission = createDiagnosticBurstAdmissionReserver({
+        burstStates,
+        recentIds,
+        pruneRecentIds,
+        increment,
+    });
 
     function processRecord(record: DiagnosticRecord, inheritedSuppressedCount = 0): FailureReceipt {
-        const receipt = createReceipt(record);
+        const receipt = createDiagnosticFailureReceipt(record);
         health.attempted = increment(health.attempted);
 
         // Policy must run before either dedupe set is touched. A later grant may
@@ -570,7 +380,7 @@ export function createMainFailureReporter(
             return receipt;
         }
 
-        const currentTime = safeNow(now);
+        const currentTime = safeDiagnosticNow(now);
         pruneRecentIds(currentTime);
         if (recentIds.has(record.eventId)) {
             health.duplicate = increment(health.duplicate);
@@ -601,6 +411,19 @@ export function createMainFailureReporter(
         return receipt;
     }
 
+    const createSchemaDroppedReceipt = createDiagnosticSchemaDroppedReceiptFactory(
+        () => buildMainDiagnosticRecord(
+            {} as CaptureFailureInput,
+            createSafeDiagnosticEventId(createEventId, createFallbackEventId),
+            safeDiagnosticNow(now),
+        ),
+        () => {
+            health.attempted = increment(health.attempted);
+            health.schemaDropped = increment(health.schemaDropped);
+            setDropReason('schema-dropped');
+        },
+    );
+
     function applyPreference(value: unknown) {
         const nextPreference = normalizePreference(value);
         if (nextPreference !== 'granted') {
@@ -620,17 +443,17 @@ export function createMainFailureReporter(
     const reporter: IMainFailureReporter = {
         capture: <C extends DiagnosticCode>(input: CaptureFailureInput<C>) => {
             try {
-                const record = buildClosedRecord(
+                const record = buildMainDiagnosticRecord(
                     input,
-                    createSafeEventId(createEventId),
-                    safeNow(now),
+                    createSafeDiagnosticEventId(createEventId, createFallbackEventId),
+                    safeDiagnosticNow(now),
                 );
                 return processRecord(record);
             } catch {
-                const record = buildClosedRecord(
+                const record = buildMainDiagnosticRecord(
                     {} as CaptureFailureInput,
                     createFallbackEventId(),
-                    safeNow(now),
+                    safeDiagnosticNow(now),
                 );
                 return processRecord(record);
             }
@@ -646,21 +469,13 @@ export function createMainFailureReporter(
                     health.attempted = increment(health.attempted);
                     health.schemaDropped = increment(health.schemaDropped);
                     setDropReason('schema-dropped');
-                    return createReceipt(record);
+                    return createSchemaDroppedReceipt(record);
                 }
             } catch {
                 // A malformed external record is counted below and never crosses transport.
             }
 
-            health.attempted = increment(health.attempted);
-            health.schemaDropped = increment(health.schemaDropped);
-            setDropReason('schema-dropped');
-            const fallbackRecord = buildClosedRecord(
-                {} as CaptureFailureInput,
-                createSafeEventId(createEventId),
-                safeNow(now),
-            );
-            return createReceipt(fallbackRecord);
+            return createSchemaDroppedReceipt(null);
         },
         getHealthSnapshot: () => serializeHealthState(health),
         getPreference: () => preference,

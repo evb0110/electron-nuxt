@@ -11,17 +11,11 @@ import {
     shallowRef,
 } from 'vue';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
-import type {
-    IAnnotationEditorState,
-    TAnnotationTool,
-} from '@app/types/annotations';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { requireRequestId } from '@contracts/shared';
 import {requireDocumentRevisionToken} from '@contracts';
+import { cast } from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     replaceWorkingCopyFromPath: vi.fn(),
@@ -46,12 +40,12 @@ vi.mock('@app/utils/getSearchCapability', () => ({getSearchCapability: () => ({w
 
 function createLifecycle(overrides: Record<string, unknown> = {}) {
     const scope = effectScope();
-    const result = scope.run(() => useWorkspaceDocumentLifecycleEffects({
+    const result = scope.run(() => useWorkspaceDocumentLifecycleEffects(cast({
         documentRevisionInfo: ref(null),
         documentRevisionToken: ref(requireDocumentRevisionToken('revision-token')),
         currentPage: ref(7),
         totalPages: ref(12),
-        workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/work.pdf')),
+        workingCopyPath: ref('/tmp/work.pdf'),
         pdfViewerRef: ref(null),
         showSettings: ref(false),
         emitOpenSettings: vi.fn(),
@@ -63,19 +57,12 @@ function createLifecycle(overrides: Record<string, unknown> = {}) {
         dragMode: ref(false),
         showSidebar: ref(false),
         sidebarTab: ref('thumbnails'),
-        annotationTool: ref<TAnnotationTool>('none'),
+        annotationTool: ref(null),
         annotationComments: ref([]),
         markAnnotationCommentsLoading: vi.fn(),
         clearAnnotationComments: vi.fn(),
         annotationActiveCommentStableKey: ref(null),
-        annotationEditorState: ref<IAnnotationEditorState>({
-            isEditing: false,
-            isEmpty: true,
-            hasSomethingToUndo: false,
-            hasSomethingToRedo: false,
-            hasSelectedEditor: false,
-        }),
-        annotationPlacingPageNote: ref(false),
+        annotationEditorState: ref(null),
         bookmarkItems: ref([]),
         bookmarksDirty: ref(false),
         bookmarkEditMode: ref(false),
@@ -97,7 +84,7 @@ function createLifecycle(overrides: Record<string, unknown> = {}) {
         reloadWorkingCopyIntoHistory: vi.fn(async () => true),
         waitForPdfReload: vi.fn(async () => undefined),
         ...overrides,
-    }));
+    })));
     return {
         ...result!,
         scope,

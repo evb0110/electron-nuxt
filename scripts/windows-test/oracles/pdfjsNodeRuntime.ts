@@ -40,6 +40,10 @@ function toDirectoryUrl(directory: string) {
 
 export interface IPdfjsNodeOptions {repositoryRoot: string;}
 
+interface IPdfjsDocumentWithDestroy extends Awaited<ReturnType<typeof pdfjs.getDocument>['promise']> {destroy(): Promise<void>;}
+
+interface IPdfjsDocumentLifecycle {destroy?: () => Promise<void>;}
+
 /**
  * Runs PDF.js at the ERRORS verbosity so a missing optional standard-font file
  * cannot write a warning that the unit setup treats as a test failure.
@@ -58,10 +62,28 @@ export function createPdfjsNodeOptions({ repositoryRoot }: IPdfjsNodeOptions) {
     };
 }
 
-export async function loadPdfjsDocument(bytes: Uint8Array, options: IPdfjsNodeOptions) {
+export async function loadPdfjsDocument(
+    bytes: Uint8Array,
+    options: IPdfjsNodeOptions,
+): Promise<IPdfjsDocumentWithDestroy> {
     const task = pdfjs.getDocument({
         data: new Uint8Array(bytes),
         ...createPdfjsNodeOptions(options),
     });
-    return task.promise;
+    const document = await task.promise;
+    const nativeDestroy = (document as IPdfjsDocumentLifecycle).destroy?.bind(document);
+    if (nativeDestroy) {
+        return document as IPdfjsDocumentWithDestroy;
+    }
+    Object.defineProperty(document, 'destroy', {
+        configurable: true,
+        value: async () => {
+            try {
+                await document.cleanup();
+            } finally {
+                await task.destroy();
+            }
+        },
+    });
+    return document as IPdfjsDocumentWithDestroy;
 }

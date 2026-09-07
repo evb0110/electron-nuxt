@@ -11,7 +11,7 @@ import type {
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type { IShapeAnnotationConstructionOptions } from '@app/types/shapeAnnotationConstructionOptions';
 import type { ICropSelectionResult } from '@app/types/crop';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -22,7 +22,8 @@ import type {
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import type {IPdfAnnotationStorageDebugState} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
+import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 export type TPdfSidebarTab = TDocumentSidebarTab;
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
@@ -99,8 +100,7 @@ export interface IDocumentViewerExpose {
 }
 
 export interface IPdfViewerLoadExpose {
-    preserveNextSourceReloadVisibleContent?: (request?: {pageToRestore?: number | null;}) => void;
-    applyFitWidthToCurrentPage?: () => Promise<boolean>;
+    applyFitWidthToCurrentPage?: (options?: {page?: number | null | undefined}) => Promise<boolean>;
     waitForViewerLoadSettled?: () => Promise<void>;
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
     getPageMetricsSnapshot?: () => IPdfPageMetric[];
@@ -129,8 +129,6 @@ export interface IPdfViewerSaveExpose {
     runSaveTransaction: (
         request: IPdfViewerSaveTransactionRequest,
     ) => Promise<IPdfViewerSaveTransactionResult>;
-    saveDocument: () => Promise<Uint8Array | null>;
-    materializePdfJsDocumentForInternalUse: () => Promise<Uint8Array | null>;
     commitPdfEditorsForSave?: () => Promise<void>;
 }
 
@@ -144,7 +142,9 @@ export interface IPdfViewerAnnotationCommandExpose {
     annotationHistoryMutationVersion?: number | undefined;
     annotationHistoryResetVersion?: number | undefined;
     hasCanonicalAnnotationChanges?: (() => boolean) | undefined;
-    collectLiveAnnotationChanges?: (() => IPdfLiveAnnotationChangeSummary) | undefined;
+    getAnnotationDirtyEntityCount?: (() => number) | undefined;
+    hasCanonicalShapeChanges?: (() => boolean) | undefined;
+    getAnnotationStorageDebugState?: (() => IPdfAnnotationStorageDebugState) | undefined;
     getDeletedCanonicalAnnotationIds?: (() => string[]) | undefined;
     getDeletedPersistedCanonicalAnnotationCount?: (() => number) | undefined;
     clearAnnotationHistory?: () => void;
@@ -166,12 +166,15 @@ export interface IPdfViewerAnnotationCommandExpose {
     createShapeAnnotation: (
         options: ICreateShapeAnnotationOptions,
     ) => Promise<ICreateShapeAnnotationResult>;
-    startCommentPlacement: () => void;
-    cancelCommentPlacement: () => void;
     registerAnnotationHistoryCommand?: (command: {
         cmd: () => void;
         undo: () => void;
     }) => void;
+    selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
+    getSelectedTextBox?: () => ITextBoxEntity | null;
+    updateSelectedTextBoxProperties?: (
+        updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
+    ) => boolean;
 }
 
 export interface IPdfViewerAnnotationCommentExpose {
@@ -209,6 +212,10 @@ export interface IPdfViewerAnnotationCommentExpose {
         color: string,
         selected: ITextMarkupAnnotationProperties,
     ) => boolean;
+    updateSelectedTextMarkupAnnotationProperties?: (
+        updates: Partial<Pick<ITextMarkupAnnotationProperties, 'color' | 'opacity' | 'contents'>>,
+        selected: ITextMarkupAnnotationProperties,
+    ) => boolean;
     updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;
 }
 
@@ -221,6 +228,7 @@ export interface IPdfViewerShapeExpose {
     clearShapes: () => void;
     clearSelectedShape: () => void;
     deleteSelectedShape: () => void;
+    deleteShapeById: (id: string) => boolean;
     hasShapes: boolean;
     selectedShapeId: string | null;
     updateShape: (id: string, updates: TShapeAnnotationPatch) => void;

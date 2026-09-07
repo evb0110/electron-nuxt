@@ -153,6 +153,18 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(setResizeTransitionVisible).not.toHaveBeenCalled();
     });
 
+    it('keeps the resize preview active for an inactive pane during layout collapse', () => {
+        const isResizing = ref(true);
+        const { computeFitWidthScale } = createResizeLifecycle(ref(false), {isResizing});
+
+        resizeObserverMock.callback?.();
+
+        expect(computeFitWidthScale).toHaveBeenCalledWith(null, {
+            page: 4,
+            preview: true,
+        });
+    });
+
     it('cancels pending resize rerenders when inactive before debounce settles', async () => {
         vi.useFakeTimers();
         const {
@@ -274,6 +286,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
     it('uses a pending navigation page as the resize observer anchor', async () => {
         vi.useFakeTimers();
         const {
+            computeFitWidthScale,
             scheduleResizeAwareRerender,
             setResizeTransitionVisible,
             submitResizeIntent,
@@ -283,6 +296,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
 
         await vi.advanceTimersByTimeAsync(400);
 
+        expect(computeFitWidthScale).toHaveBeenCalledWith(null, {page: 8});
         expect(submitResizeIntent).toHaveBeenCalledOnce();
         expect(setResizeTransitionVisible).toHaveBeenCalledWith({
             active: true,
@@ -323,7 +337,9 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         });
 
         resizeObserverMock.callback?.();
+        expect(submitResizeIntent).not.toHaveBeenCalled();
         await nextTick();
+        await Promise.resolve();
 
         expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(2);
         expect(submitResizeIntent).toHaveBeenCalledOnce();
@@ -333,6 +349,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(3);
         expect(applyResizeAnchorPreview).toHaveBeenNthCalledWith(3, semanticAnchor);
         await nextTick();
+        await Promise.resolve();
 
         expect(applyResizeAnchorPreview).toHaveBeenCalledTimes(4);
         expect(applyResizeAnchorPreview).toHaveBeenLastCalledWith(semanticAnchor);
@@ -630,6 +647,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         resizeObserverMock.callback?.();
         resizeObserverMock.callback?.();
         await nextTick();
+        await Promise.resolve();
 
         expect(computeFitWidthScale).toHaveBeenCalledWith(null, {
             page: 4,
@@ -646,6 +664,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         isResizing.value = false;
         resizeObserverMock.callback?.();
         await vi.advanceTimersByTimeAsync(25);
+        await Promise.resolve();
 
         expect(submitResizeIntent).toHaveBeenCalledTimes(3);
         expect(submitResizeIntent).toHaveBeenNthCalledWith(3, semanticAnchor);
@@ -703,7 +722,7 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         }));
     });
 
-    it('reapplies the drag anchor when viewport geometry changes without a fit-scale delta', () => {
+    it('reapplies the drag anchor when viewport geometry changes without a fit-scale delta', async () => {
         const isResizing = ref(false);
         const viewerContainer = ref({
             clientWidth: 1200,
@@ -730,6 +749,8 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         isResizing.value = true;
         (viewerContainer.value as {clientWidth: number}).clientWidth = 1100;
         resizeObserverMock.callback?.();
+        await nextTick();
+        await Promise.resolve();
 
         expect(submitResizeIntent).toHaveBeenCalledOnce();
         expect(submitResizeIntent).toHaveBeenCalledWith(semanticAnchor);

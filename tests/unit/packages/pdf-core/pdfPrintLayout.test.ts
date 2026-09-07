@@ -12,7 +12,10 @@ import {
     buildPrintSpreadGroups,
 } from '@pdf-core';
 
-async function createRotatedSourcePdf(rotations: readonly number[]) {
+async function createRotatedSourcePdf(
+    rotations: readonly number[],
+    {withContent = true}: {withContent?: boolean} = {},
+) {
     const sourcePdf = await PDFDocument.create();
 
     for (const rotation of rotations) {
@@ -21,12 +24,14 @@ async function createRotatedSourcePdf(rotations: readonly number[]) {
             200,
         ]);
         page.setRotation(degrees(rotation));
-        page.drawRectangle({
-            x: 10,
-            y: 20,
-            width: 30,
-            height: 50,
-        });
+        if (withContent) {
+            page.drawRectangle({
+                x: 10,
+                y: 20,
+                width: 30,
+                height: 50,
+            });
+        }
     }
 
     return sourcePdf.save();
@@ -136,7 +141,10 @@ describe('pdf print layout', () => {
         ]);
         expect(firstSingleGroups.at(-1)).toEqual([486]);
 
-        const sourcePdfData = await createRotatedSourcePdf(Array<number>(486).fill(0));
+        const sourcePdfData = await createRotatedSourcePdf(
+            Array<number>(486).fill(0),
+            {withContent: false},
+        );
         const originalSourcePdfData = sourcePdfData.slice();
         const printablePdfData = await buildPrintablePdfData(sourcePdfData, {
             pageNumbers,

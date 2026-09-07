@@ -9,14 +9,14 @@ import type {
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import type { TDocumentRef } from '@contracts/documentRef';
-import {
-    requirePageNumber,
-    pageSelectionCount,
-} from '@contracts/pageNumbers';
 import type { ICropMargins } from '@app/types/crop';
 import type {
     TPageMoveOperation,
     TPageSelection,
+} from '@contracts/pageNumbers';
+import {
+    pageSelectionCount,
+    parsePageNumber,
 } from '@contracts/pageNumbers';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type {
@@ -36,6 +36,7 @@ import type {
 } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import {
     createWorkspaceExposeCommandHandlers,
@@ -98,7 +99,7 @@ export interface ICreateWorkspaceExposeDeps extends
     pdfAutomationViewerRef?: Ref<IWorkspacePdfViewerExposeAutomationPort | null>;
     documentViewerRef?: Ref<IWorkspaceDocumentViewerNavigationPort | null>;
     handleFitMode: (mode: TFitMode) => void;
-    handleGoToPage: (page: number) => void;
+    handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     handleToggleSidebar: () => void;
     handleToggleContinuousScroll: () => void;
     handleEnableDragMode: () => void;
@@ -134,7 +135,6 @@ export interface ICreateWorkspaceExposeDeps extends
     waitForDocumentOpenSettled: IWorkspaceExpose['waitForDocumentOpenSettled'];
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
-    djvuSourcePath: Ref<TDocumentRef | null>;
     pdfData: Ref<Uint8Array | null>;
     pdfReloadSrc: Ref<TPdfSource | null>;
     requiresSaveAsOnFirstSave?: Ref<boolean>;
@@ -144,9 +144,7 @@ export interface ICreateWorkspaceExposeDeps extends
     annotationDirty: Ref<boolean>;
     isDirty?: Ref<boolean>;
     hasAnnotationChanges?: () => boolean;
-    hasLivePdfJsAnnotationChanges?: () => boolean;
-    hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
-    hasPreservedAnnotationSourceChanges?: () => boolean;
+    getAnnotationDirtyEntityCount?: () => number;
     hasPendingUnsavedChanges?: ComputedRef<boolean>;
     pendingEmbeddedAnnotationDeleteCount?: ComputedRef<number>;
     pageLabelsDirty?: Ref<boolean>;
@@ -405,10 +403,6 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
 
     function getAutomationStateSnapshot(): IWorkspaceAutomationStateSnapshot {
         const reloadSrc = deps.pdfReloadSrc.value;
-        const livePdfJsAnnotationChanges = deps.pdfAutomationViewerRef?.value?.collectLiveAnnotationChanges?.();
-        const originalPath = deps.isDjvuMode.value
-            ? deps.djvuSourcePath.value ?? deps.originalPath.value
-            : deps.originalPath.value;
         return {
             annotationComments: [...deps.annotationComments.value],
             annotationCommentsStatus: deps.annotationCommentsStatus.value,
@@ -424,23 +418,12 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 bookmarksDirty: deps.bookmarksDirty?.value ?? false,
                 fileDirty: deps.isDirty?.value ?? false,
                 hasAnnotationChanges: deps.hasAnnotationChanges?.() ?? false,
-                hasLivePdfJsAnnotationChanges: deps.hasLivePdfJsAnnotationChanges?.() ?? false,
+                annotationDirtyEntityCount: deps.getAnnotationDirtyEntityCount?.() ?? 0,
                 hasPendingUnsavedChanges: deps.hasPendingUnsavedChanges?.value ?? false,
-                hasPreservedAnnotationSourceChanges: deps.hasPreservedAnnotationSourceChanges?.() ?? false,
-                hasSavedPdfJsAnnotationBaselineChanges: deps.hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
                 pageLabelsDirty: deps.pageLabelsDirty?.value ?? false,
                 pendingEmbeddedAnnotationDeleteCount: deps.pendingEmbeddedAnnotationDeleteCount?.value ?? 0,
-                pdfJsAnnotationStorage: livePdfJsAnnotationChanges
-                    ? {
-                        fingerprint: livePdfJsAnnotationChanges.fingerprint,
-                        hasChanges: livePdfJsAnnotationChanges.hasChanges,
-                        hasUnknownChanges: livePdfJsAnnotationChanges.hasUnknownChanges,
-                        ids: [...livePdfJsAnnotationChanges.ids],
-                        replayableEditorNoteIds: [...livePdfJsAnnotationChanges.replayableEditorNoteIds],
-                    }
-                    : null,
             },
-            originalPath,
+            originalPath: deps.originalPath.value,
             pdfSourceState: {
                 hasInMemoryData: deps.pdfData.value !== null,
                 reloadKind: reloadSrc instanceof Blob
@@ -603,14 +586,13 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         getDeletedEmbeddedShapeAnnotationIds: () => deps.pdfAutomationViewerRef?.value?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
         getDeletedEmbeddedShapeStableKeys: () => deps.pdfAutomationViewerRef?.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
         highlightSelection: () => deps.pdfAutomationViewerRef?.value?.highlightSelection?.() ?? Promise.resolve(false),
-        commentAtPoint: (pageNumber, pageX, pageY, options) => (
-            deps.pdfAutomationViewerRef?.value?.commentAtPoint?.(
-                requirePageNumber(pageNumber),
-                pageX,
-                pageY,
-                options,
-            ) ?? Promise.resolve(false)
-        ),
+        commentAtPoint: (pageNumber, pageX, pageY, options) => {
+            const parsedPageNumber = parsePageNumber(pageNumber);
+            return parsedPageNumber === null
+                ? Promise.resolve(false)
+                : deps.pdfAutomationViewerRef?.value?.commentAtPoint?.(parsedPageNumber, pageX, pageY, options)
+                    ?? Promise.resolve(false);
+        },
     };
 
     const depsHandlers: Partial<TWorkspaceExposeCommandHandlerMap> = deps;
@@ -627,7 +609,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             }
             if (descriptor.group === 'pageOps') {
                 return createWorkspaceExposeCommandRunner(() => (
-                    descriptor.deferred === 'mountWaitBoolean'
+                    descriptor.kind === 'async' && descriptor.deferred === 'mountWaitBoolean'
                         ? Promise.resolve(false)
                         : undefined
                 ));
@@ -683,7 +665,9 @@ export function createWorkspaceExposeFromOwners(
         canRepairSave: options.canRepairSave,
         canOptimizePdf: options.canOptimizePdf,
         canExportDocx: options.canExportDocx,
-        isPlacingPageNote: annotationSession.annotationPlacingPageNote,
+        // Preserve the automation/toolbar snapshot field as a compatibility
+        // projection. The note tool is the only placement state now.
+        isPlacingPageNote: computed(() => annotationSession.annotationTool.value === 'note'),
         handleGoToPage: options.handleGoToPage,
         handleToggleSidebar: () => { viewerShell.showSidebar.value = !viewerShell.showSidebar.value; },
         handleToggleContinuousScroll: () => {
@@ -713,7 +697,7 @@ export function createWorkspaceExposeFromOwners(
         handlePageReorder: options.handlePageReorder,
         handlePageMove: options.handlePageMove,
         pdfAutomationViewerRef: viewerShell.pdfViewerRef,
-        hasPreservedAnnotationSourceChanges: annotationSession.hasPreservedAnnotationSourceChanges,
+        getAnnotationDirtyEntityCount: () => viewerShell.pdfViewerRef.value?.getAnnotationDirtyEntityCount?.() ?? 0,
         handleOcrComplete: payload => saveWorkflow.handleOcrComplete(
             payload as Parameters<typeof saveWorkflow.handleOcrComplete>[0],
         ),

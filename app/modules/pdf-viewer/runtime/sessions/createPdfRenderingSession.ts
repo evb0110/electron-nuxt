@@ -2,7 +2,6 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type * as Vue from 'vue';
 import { Mutex } from 'es-toolkit/promise';
-import type { RenderTask } from 'pdfjs-dist';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
@@ -57,6 +56,7 @@ import type {
     IPdfViewportDemand,
     TPdfViewportSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type { ILinkAnnotation } from '@app/types/annotations';
 import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/utils/document-viewer/input/documentWheelInteraction';
 import type {
     IPdfViewportRasterJob,
@@ -89,6 +89,8 @@ export interface ICreatePdfRenderingSessionOptions {
     workingCopyPath: Vue.ComputedRef<TDocumentRef | null>;
     documentRevisionToken: Vue.ComputedRef<TDocumentRevisionToken | null>;
     maxBufferCanvasPixels: number;
+    /** Shared with the annotation session so renderer-owned PDF links reach the portal layer. */
+    linkAnnotations?: Vue.Ref<ILinkAnnotation[]> | undefined;
     consumeZoomViewportAnchor: () => IZoomViewportAnchor | null;
     isZoomInteractionLocked: () => boolean;
     setZoomRerenderBusy: TPdfZoomRerenderBusySetter;
@@ -118,6 +120,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         outputScale: options.outputScale,
         ...(options.viewRotation === undefined ? {} : {viewRotation: options.viewRotation}),
         defaultMaxCanvasPixels: performanceProfile.settledMaxCanvasPixels,
+        annotationProjectionReady: () => pageRenderer.annotationProjectionReady.value,
     });
     const pageRenderState = createPdfPageRenderState();
     const pageCanvases = new Map<TPageNumber, HTMLCanvasElement>();
@@ -306,7 +309,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 render,
             };
         },
-        start: prepared => prepared.render.startRender() as RenderTask,
+        start: prepared => prepared.render.startRender(),
         onRenderStall: payload => handlePageRenderStall(payload),
         commit(prepared, demand) {
             if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand) {
@@ -574,8 +577,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 sourceId: 'pdf-viewport',
                 input: schedulableJobs.map(job => job.demand),
                 policy: {
-                    expand: input => input,
-                    compareWithinLane: (left, right) => left.ordinal - right.ordinal,
+                    expand: (input: readonly IPdfRasterDemand[]) => input,
+                    compareWithinLane: (left: IPdfRasterDemand, right: IPdfRasterDemand) => left.ordinal - right.ordinal,
                 },
                 target: viewportRasterTarget,
             });
@@ -596,13 +599,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         currentSearchMatchNavigationId: options.currentSearchMatchNavigationId,
         workingCopyPath: options.workingCopyPath,
         documentRevisionToken: options.documentRevisionToken,
+        linkAnnotations: options.linkAnnotations,
         onPageRendered: options.markDelayedSkeletonPageRendered,
-        onPageLayersCommitted: (signal, fence) => {
-            if (!documentSession.isCurrent(fence)) {
-                return;
-            }
-            textMarkupPresentation.value?.notify(signal);
-        },
         onRenderedPageStateChanged: () => {
             renderedPageStateVersion.value += 1;
             pageTextLayerReadyWaiter.resolveReady();
@@ -620,7 +618,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             prioritizeTextLayer: true,
         }),
     });
-    const textMarkupPresentation = shallowRef<NonNullable<Parameters<typeof pageRenderer.attachAnnotationProjection>[0]['textMarkupPresentation']> | null>(null);
     function bumpRenderVersion(reauthorizeCommittedCanvases = true) {
         renderVersion += 1;
         viewportDemandGeneration += 1;
@@ -885,7 +882,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }, {flush: 'sync'});
     const stopVisualReadyWatch = watch(viewport.visualReadySignal, (signal, previous) => {
         if (signal.revision !== previous.revision && signal.pageNumber !== null) {
-            initialVisual.adoptResidentCanvas(signal.pageNumber);
+            initialVisual.adoptResidentCanvas(requirePageNumber(signal.pageNumber, documentSession.numPages.value));
         }
     }, {flush: 'sync'});
     const chassisOpenSurface = options.chassisAuthority?.openSurface;
@@ -920,7 +917,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         )
         : () => {};
     const stopNavigationCommitWatch = watch(viewport.navigationCommittedSignal, (signal, previous) => {
-        if (signal.revision !== previous?.revision) {
+        if (signal.revision !== previous.revision) {
             initialVisual.reconcileInitialVisual();
         }
     }, {flush: 'sync'});
@@ -1004,7 +1001,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         zoomMode: options.zoomMode,
         syncHorizontalScrollForZoomMode: viewport.viewModel.syncHorizontalScrollForZoomMode,
         setupPagePlaceholders: viewport.setupPagePlaceholders,
-        scrollToPage: (pageNumber, scrollOptions) => viewport.singlePageScroll.scrollToPage(pageNumber, scrollOptions),
+        scrollToPage: (pageNumber, scrollOptions) => viewport.singlePageScroll.scrollToPage(
+            requirePageNumber(pageNumber, documentSession.numPages.value),
+            scrollOptions,
+        ),
         getMostVisiblePage: viewport.scroll.getMostVisiblePage,
         resetContinuousScrollState: () => viewport.singlePageScroll.resetContinuousScrollState(),
         cancelDestinationNavigationTarget: () => viewport.singlePageScroll.cancelDestinationNavigationTarget(),
@@ -1097,7 +1097,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             return;
         }
         if (transition.phase === 'loading') {
-            textMarkupPresentation.value?.notify({kind: 'document-invalidated'});
             initialVisual.setPendingReadyToken(transition.fence.loadToken);
             initialVisual.reconcileInitialVisual();
             if (transition.plan.isSelectiveReload && transition.plan.pagesToInvalidate) {
@@ -1108,7 +1107,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 await cleanupRenderedPages();
             }
         } else if (transition.phase === 'invalidated') {
-            textMarkupPresentation.value?.notify({kind: 'document-invalidated'});
             initialVisual.setPendingReadyToken(null);
             pageRenderer.cancelPendingSearchScroll();
             await cancelInFlightRenders();
@@ -1162,14 +1160,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         cleanupResizeLifecycle();
         await cancelRasterDemand();
         pageTextLayerReadyWaiter.settleAll();
-        await cleanupRenderedPages(); pageRenderer.dispose?.();
+        await cleanupRenderedPages(); pageRenderer.dispose();
     });
     return {
         ...pageRenderer,
-        attachAnnotationProjection(attached: Parameters<typeof pageRenderer.attachAnnotationProjection>[0]) {
-            textMarkupPresentation.value = attached.textMarkupPresentation ?? null;
-            return pageRenderer.attachAnnotationProjection(attached, textMarkupPresentation);
-        },
         renderVisiblePages,
         reRenderAllVisiblePages,
         cancelInFlightRenders,

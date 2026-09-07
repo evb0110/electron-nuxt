@@ -12,7 +12,7 @@ import {
     isAbortError,
 } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
-import { assembleSearchablePageText } from '@pdf-core';
+import { assembleSearchablePageText } from '@pdf-core/pdfSearchCore';
 import type { IPageText } from '@electron/search/pageText';
 
 const log = createLogger('pdfTextExtractor');
@@ -210,7 +210,7 @@ export async function extractTextFromPdf(
                 commandOptions,
             );
             const texts = splitPdfTextOutput(
-                result.stdout ?? '',
+                result.stdout,
                 lastPage - firstPage + 1,
             );
             for (let index = 0; index < texts.length; index += 1) {
@@ -267,7 +267,7 @@ export async function extractTextFromPdf(
                 pdfinfoOptions.signal = signal;
             }
             const infoResult = await runElectronCommand(pdfinfo, [pdfPath], pdfinfoOptions);
-            pageCount = parsePdfInfoPageCount(infoResult.stdout ?? '');
+            pageCount = parsePdfInfoPageCount(infoResult.stdout);
             if (pageCount === null) {
                 throw new PdfTextExtractionCapabilityError(
                     'native-failure',

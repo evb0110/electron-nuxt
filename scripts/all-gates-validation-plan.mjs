@@ -83,7 +83,9 @@ export function createAllGatesValidationStages({
             dependsOn: ['build.prepare'],
             env: {
                 ...coverageChangeScope,
-                VITEST_MAX_WORKERS: '6',
+                // Keep the 5 s unit-test contract reliable while coverage
+                // shares the 8-slot acceptance pool with typecheck and smoke.
+                VITEST_MAX_WORKERS: '4',
             },
             heavyWeight: 5,
             priority: 90,

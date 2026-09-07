@@ -1,5 +1,5 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { clamp } from 'es-toolkit/math';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type {
@@ -39,7 +39,7 @@ function normalizedPointRect(top: number): IAnnotationMarkerRect {
 
 export async function resolvePdfNavigationTarget(
     target: TPdfNavigationTarget,
-    pdfDocument: PDFDocumentProxy | null,
+    pdfDocument: IPdfDocument | null,
 ): Promise<IResolvedPdfNavigationTarget> {
     if (target.kind === 'page') {
         return {
@@ -153,7 +153,7 @@ export function resolveTextAnchorRect(
     }
     const needle = `${target.prefix ?? ''}${target.text}${target.suffix ?? ''}`.normalize('NFKC');
     const matchingSpan = spans.find((span) => {
-        const value = (span.textContent ?? '').normalize('NFKC');
+        const value = span.textContent.normalize('NFKC');
         return value.includes(needle) || value.includes(target.text.normalize('NFKC'));
     });
     if (!matchingSpan) {
@@ -192,5 +192,7 @@ export function isPdfNavigationReady(
         const textLayer = pageElement?.querySelector<HTMLElement>('.text-layer, .textLayer');
         return textLayer?.dataset.pdfTextLayerReady === 'true';
     }
-    return Boolean(pageElement?.querySelector('.annotation-editor-layer, .annotationEditorLayer'));
+    return Boolean(pageElement?.querySelector(
+        '.pdf-annotation-editor-layer, .annotation-editor-layer, .annotationEditorLayer',
+    ));
 }

@@ -1,8 +1,12 @@
 import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { clamp } from 'es-toolkit/math';
+import {
+    parsePageIndex,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
 import type {
     IBookmarkItem,
     IBookmarkLocation,
@@ -10,8 +14,7 @@ import type {
     TBookmarkStyleFlagState,
     TCreateBookmarkId,
 } from '@app/types/pdfOutline';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import { parsePageIndex } from '@contracts/pageNumbers';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     getOptionalArray,
@@ -267,7 +270,6 @@ function getDestinationTopValue(destinationArray: unknown[], destinationKind: st
         case 'FitR':
             return getFiniteDestinationNumber(destinationArray[5]);
         case null:
-            return null;
         default:
             return null;
     }
@@ -282,7 +284,7 @@ function shouldAlignDestinationToPageTop(destinationKind: string | null) {
         || destinationKind === 'FitR';
 }
 
-function getPageViewBounds(page: PDFPageProxy): IPageViewBounds | null {
+function getPageViewBounds(page: IPdfPage): IPageViewBounds | null {
     const view = Array.isArray(page.view) ? page.view : null;
     const top = view ? getFiniteDestinationNumber(view[3]) : null;
     const bottom = view ? getFiniteDestinationNumber(view[1]) : null;
@@ -309,7 +311,7 @@ function getPageViewBounds(page: PDFPageProxy): IPageViewBounds | null {
 }
 
 async function resolveDestinationPageYRatio(
-    pdfDocument: PDFDocumentProxy,
+    pdfDocument: IPdfDocument,
     page: number,
     destinationArray: unknown[],
 ) {
@@ -338,7 +340,7 @@ async function resolveDestinationPageYRatio(
 }
 
 async function resolveDestinationArray(
-    pdfDocument: PDFDocumentProxy,
+    pdfDocument: IPdfDocument,
     dest: IOutlineItemRaw['dest'],
     destinationCache?: Map<string, unknown[] | null>,
 ): Promise<unknown[] | null> {
@@ -368,7 +370,7 @@ async function resolveDestinationArray(
 }
 
 async function resolvePageIndexFromDestinationArray(
-    pdfDocument: PDFDocumentProxy,
+    pdfDocument: IPdfDocument,
     destinationArray: unknown[],
     refIndexCache?: Map<string, number | null>,
 ) {
@@ -403,7 +405,7 @@ async function resolvePageIndexFromDestinationArray(
 }
 
 export async function resolvePageIndex(
-    pdfDocument: PDFDocumentProxy,
+    pdfDocument: IPdfDocument,
     dest: IOutlineItemRaw['dest'],
     destinationCache: Map<string, unknown[] | null>,
     refIndexCache: Map<string, number | null>,
@@ -422,7 +424,7 @@ export async function resolvePageIndex(
 }
 
 async function resolveDestinationTarget(
-    pdfDocument: PDFDocumentProxy,
+    pdfDocument: IPdfDocument,
     dest: IOutlineItemRaw['dest'],
     destinationCache: Map<string, unknown[] | null>,
     refIndexCache: Map<string, number | null>,
@@ -436,11 +438,7 @@ async function resolveDestinationTarget(
         return null;
     }
 
-    const rawPageIndex = await resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache);
-    if (rawPageIndex === null) {
-        return null;
-    }
-    const pageIndex = parsePageIndex(rawPageIndex);
+    const pageIndex = await resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache);
     if (pageIndex === null) {
         return null;
     }
@@ -454,7 +452,7 @@ async function resolveDestinationTarget(
 
 export async function buildResolvedOutline(
     items: IOutlineItemRaw[],
-    pdfDocument: PDFDocumentProxy,
+    pdfDocument: IPdfDocument,
     destinationCache: Map<string, unknown[] | null>,
     refIndexCache: Map<string, number | null>,
     createId: TCreateBookmarkId,
@@ -492,17 +490,21 @@ export async function buildResolvedOutline(
             refIndexCache,
         );
         const children: IBookmarkItem[] = [];
+        const resolvedPageIndex = destinationTarget?.pageIndex ?? null;
+        const pageIndex = resolvedPageIndex === null
+            ? null
+            : requirePageIndex(resolvedPageIndex);
         const id = createId({
             parentId: frame.parentId,
             title: frame.item.title,
-            pageIndex: destinationTarget?.pageIndex ?? null,
+            pageIndex,
             dest: frame.item.dest,
         });
         frame.target.push({
             title: frame.item.title,
             dest: frame.item.dest,
             id,
-            pageIndex: destinationTarget?.pageIndex ?? null,
+            pageIndex,
             ...(destinationTarget?.pageYRatio === null || destinationTarget?.pageYRatio === undefined
                 ? {}
                 : {pageYRatio: destinationTarget.pageYRatio}),
@@ -623,7 +625,7 @@ export function buildOutlineFromBookmarkEntries(
 }
 
 export async function resolveBookmarkDestinationPage(
-    pdfDocument: PDFDocumentProxy,
+    pdfDocument: IPdfDocument,
     dest: string | unknown[] | null,
 ) {
     const target = await resolveBookmarkDestinationTarget(pdfDocument, dest);
@@ -631,7 +633,7 @@ export async function resolveBookmarkDestinationPage(
 }
 
 export async function resolveBookmarkDestinationTarget(
-    pdfDocument: PDFDocumentProxy,
+    pdfDocument: IPdfDocument,
     dest: string | unknown[] | null,
 ): Promise<IBookmarkDestinationTarget | null> {
     if (!dest) {
@@ -835,11 +837,9 @@ function normalizeExplicitBookmarkColor(color: string | null | undefined) {
         if (!triple) {
             return null;
         }
-        const [
-            r = '',
-            g = '',
-            b = '',
-        ] = triple.split('');
+        const r = triple.charAt(0);
+        const g = triple.charAt(1);
+        const b = triple.charAt(2);
         return `#${r}${r}${g}${g}${b}${b}`;
     }
 

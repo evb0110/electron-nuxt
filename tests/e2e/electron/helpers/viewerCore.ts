@@ -19,7 +19,6 @@ import {
     getLatestAutomationEventId,
     getWorkspaceToolbarSnapshot,
     installWorkspaceExposeProbe,
-    readWorkspaceStateValues,
     waitForAutomationEvent,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
@@ -1312,37 +1311,6 @@ export async function waitForToolbarCurrentPage(
 ) {
     await waitForWorkspaceToolbarSnapshot(page, {currentPage: expectedPage}, {timeoutMs});
 }
-
-interface IWorkspaceLiveAnnotationState {
-    [key: string]: unknown;
-    dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};
-}
-
-export async function waitForLivePdfJsAnnotationChange(
-    page: Page,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-) {
-    const startedAt = Date.now();
-    let dirtyState = (await readWorkspaceStateValues<IWorkspaceLiveAnnotationState>(
-        page,
-        ['dirtyState'],
-    )).dirtyState;
-
-    while (Date.now() - startedAt < timeoutMs) {
-        if (dirtyState?.hasLivePdfJsAnnotationChanges === true) {
-            return;
-        }
-        await delay(150);
-        dirtyState = (await readWorkspaceStateValues<IWorkspaceLiveAnnotationState>(
-            page,
-            ['dirtyState'],
-        )).dirtyState;
-    }
-
-    throw new Error(`FreeText editor did not enter PDF.js annotation storage: ${JSON.stringify(dirtyState)}`);
-}
-
-
 
 export async function saveViaWindowHandle(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const saveBaselineEventId = await getLatestAutomationEventId(page);

@@ -1,11 +1,15 @@
+/* eslint-disable max-lines */
+import type {
+    IPdfPage,
+    IPdfTextContent,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
-    pageIndexToPageNumber,
     pageNumberToPageIndex,
     requirePageNumber,
     type TPageIndex,
     type TPageNumber,
 } from '@contracts/pageNumbers';
-import type { PDFPageProxy } from 'pdfjs-dist';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
@@ -15,12 +19,7 @@ import type {
 } from '@app/types/pdfUi';
 import type { IOcrWord } from '@contracts/shared';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
 import { buildOcrWordKey } from '@contracts/ocrText';
-import type { TextContent } from 'pdfjs-dist/types/src/display/api';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import { useTextLayerSelection } from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
 import { usePdfWordBoxes } from '@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes';
@@ -46,18 +45,23 @@ import {
     registerTextLayerTextMapping,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { createPdfSearchHighlightRefresh } from '@app/modules/pdf-viewer/runtime/rendering/createPdfSearchHighlightRefresh';
+import { measureDevPerf } from '@app/utils/devPerf';
 import { logPdfNav } from '@app/utils/logPdfNav';
 import { guardAsync } from '@app/utils/asyncGuard';
-import { createPdfjsTextLayer } from '@app/services/pdfjs/pdfViewerFacade';
+import {
+    createPdfjsTextLayer,
+    type IPdfTextLayer,
+} from '@app/services/pdfjs/pdfViewerFacade';
 import {
     applyPdfViewportWrite,
     type IPdfViewportWritePort,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+const HIGHLIGHT_REFRESH_BUDGET_MS = 8;
+const HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE = 4;
 interface IRenderedTextLayer {
-    textLayer: ReturnType<typeof createPdfjsTextLayer>;
-    pdfPage: PDFPageProxy;
+    textLayer: IPdfTextLayer;
+    pdfPage: IPdfPage;
     workingCopyPath: TDocumentRef | null;
     documentRevisionToken: TDocumentRevisionToken | null;
 }
@@ -75,7 +79,7 @@ function throwIfAborted(signal?: AbortSignal) {
 export const usePdfTextLayerRenderer = (deps: {
     searchPageMatches: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
-    workingCopyPath: MaybeRefOrGetter<string | null>;
+    workingCopyPath: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevisionToken: MaybeRefOrGetter<TDocumentRevisionToken | null>;
     effectiveScale: MaybeRefOrGetter<number>;
     viewportWritePort: IPdfViewportWritePort;
@@ -132,7 +136,11 @@ export const usePdfTextLayerRenderer = (deps: {
         return Array.from(wordsByKey.values());
     }
 
-    function isSamePageMatchEntry(match: TPageMatchEntry, matchIndex: number, currentMatchValue: IPdfSearchMatch) {
+    function isSamePageMatchEntry(
+        match: TPageMatchEntry,
+        matchIndex: number,
+        currentMatchValue: IPdfSearchMatch,
+    ) {
         return matchIndex === currentMatchValue.pageMatchIndex
             || match.matchIndex === currentMatchValue.matchIndex
             || (
@@ -150,9 +158,8 @@ export const usePdfTextLayerRenderer = (deps: {
             return [];
         }
 
-        const currentWords = currentMatchValue.words;
-        if (currentWords !== undefined && currentWords.length > 0) {
-            return currentWords;
+        if (currentMatchValue.words && currentMatchValue.words.length > 0) {
+            return currentMatchValue.words;
         }
 
         const currentPageMatch = pageMatchData?.matches.find((match, index) => (
@@ -229,7 +236,10 @@ export const usePdfTextLayerRenderer = (deps: {
         return Boolean(currentMatchValue && currentMatchValue.pageIndex === pageIndex);
     }
 
-    function buildPageHighlightSignature(pageMatchData: IPdfPageMatches | null, currentMatchValue: IPdfSearchMatch | null) {
+    function buildPageHighlightSignature(
+        pageMatchData: IPdfPageMatches | null,
+        currentMatchValue: IPdfSearchMatch | null,
+    ) {
         if (!pageMatchData || pageMatchData.matches.length === 0) {
             return isCurrentMatchForPage(currentMatchValue, pageMatchData?.pageIndex)
                 ? `empty|current=${currentMatchValue.matchIndex}:${currentMatchValue.pageMatchIndex ?? -1}`
@@ -308,12 +318,20 @@ export const usePdfTextLayerRenderer = (deps: {
         return Boolean(pageMatchData?.matches.some(hasRenderableGeometryMatch));
     }
 
-    function hasSearchGeometryForPage(pageMatchData: IPdfPageMatches | null, currentMatchValue: IPdfSearchMatch | null, pageIndex: TPageIndex) {
+    function hasSearchGeometryForPage(
+        pageMatchData: IPdfPageMatches | null,
+        currentMatchValue: IPdfSearchMatch | null,
+        pageIndex: TPageIndex,
+    ) {
         return hasPageMatchWordBoxes(pageMatchData)
             || hasRenderableCurrentMatchGeometry(currentMatchValue, pageIndex);
     }
 
-    function hasRenderedSearchGeometry(container: HTMLElement, currentMatchValue: IPdfSearchMatch | null, pageIndex: TPageIndex) {
+    function hasRenderedSearchGeometry(
+        container: HTMLElement,
+        currentMatchValue: IPdfSearchMatch | null,
+        pageIndex: TPageIndex,
+    ) {
         if (!container.querySelector('.pdf-word-box')) {
             return false;
         }
@@ -325,21 +343,21 @@ export const usePdfTextLayerRenderer = (deps: {
         return true;
     }
 
-    function hasUsablePdfTextContent(textContent: TextContent | null) {
+    function hasUsablePdfTextContent(textContent: IPdfTextContent | null) {
         return Boolean(textContent?.items.some(item => (
             'str' in item
-            && item.str.trim().length > 0
+            && String(item.str ?? '').trim().length > 0
         )));
     }
 
-    async function getPdfjsTextContent(pdfPage: PDFPageProxy) {
+    async function getPdfjsTextContent(pdfPage: IPdfPage) {
         return pdfPage.getTextContent({
             includeMarkedContent: true,
             disableNormalization: true,
         });
     }
 
-    async function getPdfjsTextContentSource(pdfPage: PDFPageProxy): Promise<TTextLayerTextContentSource> {
+    async function getPdfjsTextContentSource(pdfPage: IPdfPage): Promise<TTextLayerTextContentSource> {
         if (typeof pdfPage.streamTextContent === 'function') {
             return pdfPage.streamTextContent({
                 includeMarkedContent: true,
@@ -348,6 +366,28 @@ export const usePdfTextLayerRenderer = (deps: {
         }
 
         return getPdfjsTextContent(pdfPage);
+    }
+
+    function getCurrentTime() {
+        return typeof performance !== 'undefined'
+            ? performance.now()
+            : Date.now();
+    }
+
+    function runPendingHighlightRefresh(
+        flushSearchHighlightRefresh: (root: HTMLElement | null, refreshVersion: number) => void,
+    ) {
+        const pendingRoot = pageHighlightState.pendingRoot;
+        pageHighlightState.pendingRoot = null;
+        if (pendingRoot) {
+            flushSearchHighlightRefresh(pendingRoot, pageHighlightState.refreshVersion);
+        }
+    }
+
+    function shouldPauseHighlightRefreshSlice(processedPages: number, sliceStartedAt: number) {
+        const elapsed = getCurrentTime() - sliceStartedAt;
+        return processedPages >= HIGHLIGHT_REFRESH_MAX_PAGES_PER_SLICE
+            || elapsed >= HIGHLIGHT_REFRESH_BUDGET_MS;
     }
 
     function pageHasSearchMatches(pageMatchData: IPdfPageMatches | null) {
@@ -367,7 +407,10 @@ export const usePdfTextLayerRenderer = (deps: {
         return textLength > 0 && Boolean(textLayerDiv.querySelector?.('span'));
     }
 
-    function shouldWaitForSearchTextLayer(textLayerDiv: HTMLElement, pageMatchData: IPdfPageMatches | null) {
+    function shouldWaitForSearchTextLayer(
+        textLayerDiv: HTMLElement,
+        pageMatchData: IPdfPageMatches | null,
+    ) {
         if (!pageHasSearchMatches(pageMatchData)) {
             return false;
         }
@@ -384,7 +427,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function deferSearchHighlightsUntilTextLayerReady(
-        pageNumber: TPageNumber,
+        pageNumber: number,
         textLayerDiv: HTMLElement,
         pageMatchData: IPdfPageMatches | null,
     ) {
@@ -399,18 +442,22 @@ export const usePdfTextLayerRenderer = (deps: {
 
     function refreshSearchHighlightsForPage(
         container: HTMLElement,
-        mountedPageNumber: TPageNumber,
+        mountedPageNumber: number,
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
     ) {
-        const pageIndex = pageNumberToPageIndex(mountedPageNumber);
+        const pageIndex = pageNumberToPageIndex(requirePageNumber(mountedPageNumber));
         const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
         if (!textLayerDiv) {
             pageHighlightState.signatureByPage.delete(mountedPageNumber);
             return;
         }
 
-        const hasGeometryHighlights = hasSearchGeometryForPage(pageMatchData, currentMatchValue, pageIndex);
+        const hasGeometryHighlights = hasSearchGeometryForPage(
+            pageMatchData,
+            currentMatchValue,
+            pageIndex,
+        );
         if (!hasGeometryHighlights && deferSearchHighlightsUntilTextLayerReady(
             mountedPageNumber,
             textLayerDiv,
@@ -434,7 +481,11 @@ export const usePdfTextLayerRenderer = (deps: {
                 clearHighlights(textLayerDiv);
                 renderWordBoxesForPageMatch(container, pageMatchData, currentMatchValue, pageIndex);
             } else if (pageMatchData && pageMatchData.matches.length > 0) {
-                highlightPage(textLayerDiv, pageMatchData, currentMatchValue);
+                highlightPage(
+                    textLayerDiv,
+                    pageMatchData,
+                    currentMatchValue,
+                );
                 clearWordBoxes(container);
             } else {
                 clearHighlights(textLayerDiv);
@@ -442,7 +493,7 @@ export const usePdfTextLayerRenderer = (deps: {
             }
 
             if (canvas) {
-                maybeLogHighlightDebug(pageIndexToPageNumber(pageIndex), pageMatchData, canvas, textLayerDiv);
+                maybeLogHighlightDebug(pageIndex + 1, pageMatchData, canvas, textLayerDiv);
             }
         } catch (error) {
             BrowserLogger.warn('pdf-text-layer', 'Failed to refresh search highlights', {
@@ -454,12 +505,113 @@ export const usePdfTextLayerRenderer = (deps: {
         pageHighlightState.signatureByPage.set(mountedPageNumber, signature);
     }
 
-    const highlightRefresh = createPdfSearchHighlightRefresh({
-        state: pageHighlightState,
-        getPageMatches: () => toValue(deps.searchPageMatches),
-        getCurrentMatch: () => toValue(deps.currentSearchMatch),
-        refreshPage: refreshSearchHighlightsForPage,
-    });
+    function scheduleSearchHighlightRefresh(containerRoot: HTMLElement) {
+        const scheduleContinuation = (callback: () => void) => {
+            if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+                callback();
+                return;
+            }
+
+            pageHighlightState.continuationRafId = window.requestAnimationFrame(() => {
+                pageHighlightState.continuationRafId = 0;
+                callback();
+            });
+        };
+
+        const flushSearchHighlightRefresh = (
+            root: HTMLElement | null,
+            refreshVersion: number,
+        ) => {
+            if (!root || ('isConnected' in root && root.isConnected === false)) {
+                return;
+            }
+
+            const pageContainers = Array.from(root.querySelectorAll<HTMLElement>('.page_container'));
+            const searchMatchesValue = toValue(deps.searchPageMatches);
+            const currentMatchValue = toValue(deps.currentSearchMatch);
+            let nextIndex = 0;
+
+            const processSlice = () => {
+                if (refreshVersion !== pageHighlightState.refreshVersion) {
+                    runPendingHighlightRefresh(flushSearchHighlightRefresh);
+                    return;
+                }
+
+                const sliceStartedAt = getCurrentTime();
+
+                measureDevPerf('pdf:highlight-refresh-slice', () => {
+                    let processedPages = 0;
+
+                    while (nextIndex < pageContainers.length) {
+                        const container = pageContainers[nextIndex]!;
+                        nextIndex += 1;
+                        processedPages += 1;
+
+                        const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
+                        if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
+                            continue;
+                        }
+
+                        const pageIndex = pageNumberToPageIndex(requirePageNumber(mountedPageNumber));
+                        const pageMatchData = searchMatchesValue?.get(pageIndex) ?? null;
+                        refreshSearchHighlightsForPage(
+                            container,
+                            mountedPageNumber,
+                            pageMatchData,
+                            currentMatchValue,
+                        );
+
+                        if (shouldPauseHighlightRefreshSlice(processedPages, sliceStartedAt)) {
+                            break;
+                        }
+                    }
+                }, {
+                    thresholdMs: 8,
+                    details: {
+                        mountedPages: pageContainers.length,
+                        remainingPages: Math.max(0, pageContainers.length - nextIndex),
+                    },
+                });
+
+                if (nextIndex < pageContainers.length) {
+                    scheduleContinuation(processSlice);
+                    return;
+                }
+
+                if (pageHighlightState.pendingRoot && pageHighlightState.pendingRoot !== root) {
+                    runPendingHighlightRefresh(flushSearchHighlightRefresh);
+                }
+            };
+
+            processSlice();
+        };
+
+        pageHighlightState.pendingRoot = containerRoot;
+        pageHighlightState.refreshVersion += 1;
+
+        if (pageHighlightState.continuationRafId !== 0) {
+            return;
+        }
+
+        if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+            const root = pageHighlightState.pendingRoot;
+            pageHighlightState.pendingRoot = null;
+            flushSearchHighlightRefresh(root, pageHighlightState.refreshVersion);
+            return;
+        }
+
+        if (pageHighlightState.rafId !== 0) {
+            return;
+        }
+
+        pageHighlightState.rafId = window.requestAnimationFrame(() => {
+            pageHighlightState.rafId = 0;
+
+            const root = pageHighlightState.pendingRoot;
+            pageHighlightState.pendingRoot = null;
+            flushSearchHighlightRefresh(root, pageHighlightState.refreshVersion);
+        });
+    }
 
     function isHighlightDebugEnabled() {
         return isHighlightDebugEnabledFromStorage();
@@ -470,7 +622,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function getHighlightDebugGuard(
-        pageNumber: TPageNumber,
+        pageNumber: number,
         pageMatchData: IPdfPageMatches | null,
     ): IHighlightDebugGuard | null {
         if (!isHighlightDebugEnabled()) {
@@ -522,7 +674,7 @@ export const usePdfTextLayerRenderer = (deps: {
             `spanTransform=${JSON.stringify(spanStyle.transform)}`,
             `spanScaleX=${JSON.stringify(scaleX)}`,
             `spanFontHeightVar=${JSON.stringify(fontHeight)}`,
-            `spanText=${JSON.stringify(span.textContent.slice(0, 60))}`,
+            `spanText=${JSON.stringify(span.textContent?.slice(0, 60) ?? '')}`,
         ].join(' ');
     }
 
@@ -557,7 +709,10 @@ export const usePdfTextLayerRenderer = (deps: {
         };
     }
 
-    function formatHighlightDebugInfo(debugInfo: IHighlightDebugInfo | undefined, computedTotalScaleFactor: string) {
+    function formatHighlightDebugInfo(
+        debugInfo: IHighlightDebugInfo | undefined,
+        computedTotalScaleFactor: string,
+    ) {
         if (!debugInfo) {
             return [
                 '',
@@ -576,7 +731,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function buildHighlightDebugMessage(
-        pageNumber: TPageNumber,
+        pageNumber: number,
         guard: IHighlightDebugGuard,
         rects: IHighlightDebugRects,
         debugInfo?: IHighlightDebugInfo,
@@ -612,7 +767,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function maybeLogHighlightDebug(
-        pageNumber: TPageNumber,
+        pageNumber: number,
         pageMatchData: IPdfPageMatches | null,
         canvas: HTMLCanvasElement,
         textLayerDiv: HTMLElement,
@@ -625,14 +780,19 @@ export const usePdfTextLayerRenderer = (deps: {
 
         BrowserLogger.debug(
             'PDF-HIGHLIGHT',
-            buildHighlightDebugMessage(pageNumber, guard, collectHighlightDebugRects(canvas, textLayerDiv), debugInfo),
+            buildHighlightDebugMessage(
+                pageNumber,
+                guard,
+                collectHighlightDebugRects(canvas, textLayerDiv),
+                debugInfo,
+            ),
         );
     }
 
     async function renderTextLayer(
-        pdfPage: PDFPageProxy,
+        pdfPage: IPdfPage,
         textLayerDiv: HTMLElement,
-        viewport: ReturnType<PDFPageProxy['getViewport']>,
+        viewport: ReturnType<IPdfPage['getViewport']>,
         _scale: number,
         _userUnit: number,
         _totalScaleFactor: number,
@@ -641,7 +801,7 @@ export const usePdfTextLayerRenderer = (deps: {
     ) {
         throwIfAborted(signal);
 
-        const currentWorkingCopyPath = parseDocumentRef(toValue(deps.workingCopyPath));
+        const currentWorkingCopyPath = toValue(deps.workingCopyPath);
         const currentDocumentRevisionToken = toValue(deps.documentRevisionToken);
 
         const rendered = renderedTextLayers.get(textLayerDiv);
@@ -755,14 +915,14 @@ export const usePdfTextLayerRenderer = (deps: {
     function applyPageSearchHighlights(
         container: HTMLElement,
         textLayerDiv: HTMLElement,
-        pageNumber: TPageNumber,
+        pageNumber: number,
         canvas: HTMLCanvasElement | null,
         debugInfo?: IHighlightDebugInfo,
     ) {
-        const pageIndex = pageNumberToPageIndex(pageNumber);
+        const pageIndex = pageNumberToPageIndex(requirePageNumber(pageNumber));
         const searchMatches = toValue(deps.searchPageMatches);
         const currentMatch = toValue(deps.currentSearchMatch) ?? null;
-        if (searchMatches.size === 0) {
+        if (!searchMatches || searchMatches.size === 0) {
             clearHighlights(textLayerDiv);
             clearWordBoxes(container);
             pageHighlightState.signatureByPage.set(pageNumber, buildPageHighlightSignature(null, currentMatch));
@@ -815,13 +975,17 @@ export const usePdfTextLayerRenderer = (deps: {
             || highlightResult.elements.length > 0
             || highlightResult.currentMatchRanges.length > 0;
 
-        if (!hasInTextHighlights) {
+        if (!hasInTextHighlights && pageMatchData && pageMatchData.matches.length > 0) {
             renderWordBoxesForPageMatch(container, pageMatchData, currentMatch, pageIndex);
         } else {
             clearWordBoxes(container);
         }
 
         pageHighlightState.signatureByPage.set(pageNumber, signature);
+    }
+
+    function applyAllSearchHighlights(containerRoot: HTMLElement) {
+        scheduleSearchHighlightRefresh(containerRoot);
     }
 
     function scrollToCurrentMatch(containerRoot: HTMLElement) {
@@ -984,7 +1148,7 @@ export const usePdfTextLayerRenderer = (deps: {
         const pageMatchData = toValue(deps.searchPageMatches)?.get(pageIndex) ?? null;
         refreshSearchHighlightsForPage(
             targetContainer,
-            pageIndexToPageNumber(pageIndex),
+            pageIndex + 1,
             pageMatchData,
             currentMatchValue,
         );
@@ -1068,7 +1232,7 @@ export const usePdfTextLayerRenderer = (deps: {
         pageNumber: TPageNumber,
         wcPath: TDocumentRef,
         documentRevisionToken: TDocumentRevisionToken,
-        viewport: ReturnType<PDFPageProxy['getViewport']>,
+        viewport: ReturnType<IPdfPage['getViewport']>,
         rawPageWidth: number,
         rawPageHeight: number,
     ) {
@@ -1095,7 +1259,7 @@ export const usePdfTextLayerRenderer = (deps: {
         context: {
             container: HTMLElement;
             renderResult: {
-                viewport: ReturnType<PDFPageProxy['getViewport']>;
+                viewport: ReturnType<IPdfPage['getViewport']>;
                 rawDims: {
                     pageWidth: number;
                     pageHeight: number;
@@ -1107,7 +1271,7 @@ export const usePdfTextLayerRenderer = (deps: {
             return;
         }
 
-        const wcPath = parseDocumentRef(toValue(deps.workingCopyPath));
+        const wcPath = toValue(deps.workingCopyPath);
         const documentRevisionToken = toValue(deps.documentRevisionToken);
         if (!wcPath || !documentRevisionToken) {
             return;
@@ -1132,8 +1296,7 @@ export const usePdfTextLayerRenderer = (deps: {
         renderTextLayer,
         setupTextLayerInteraction,
         applyPageSearchHighlights,
-        applyAllSearchHighlights: highlightRefresh.scheduleSearchHighlightRefresh,
-        applySearchHighlightHandoff: highlightRefresh.applySearchHighlightHandoff,
+        applyAllSearchHighlights,
         scrollToCurrentMatch,
         cleanupTextLayerDom,
         clearOcrDebug,

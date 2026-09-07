@@ -18,9 +18,10 @@ import {
     isSupportedOpenPath,
 } from '@electron/image/pdfConversion';
 import {
-    createWorkingCopy,
     createWorkingCopyFromPath,
+    createWorkingCopyWithOutcome,
 } from '@electron/file-access/workingCopyCreation';
+import {PdfDecryptAttemptError} from '@electron/file-access/workingCopyDecryption';
 import { cleanupWorkingCopy } from '@electron/file-access/workingCopyCleanup';
 import {
     allowOpenPaths,
@@ -32,7 +33,7 @@ import { addRecentInputs } from '@electron/features/documents/main/addRecentInpu
 import {getErrorMessage} from '@electron/utils/error';
 import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
 import type { TOpenFileResult } from '@electron/features/documents/contract';
-import { parseDocumentRef } from '@contracts/documentRef';
+import {parseDocumentRef} from '@contracts/documentRef';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { abortErrorFromSignal } from '@electron/utils/abort';
@@ -59,6 +60,7 @@ interface IOpenInputPathsOptions {
     onCombineProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;
     signal?: AbortSignal;
     forceCombine?: boolean;
+    password?: string;
 }
 
 interface IOpenInputPathsAbortLifecycle {
@@ -83,6 +85,7 @@ function getOwnerWebContentsId(owner?: TOpenPathOwner) {
 
 function isWebContentsOwner(owner?: TOpenPathOwner): owner is Electron.WebContents {
     return typeof owner === 'object'
+        && owner !== null
         && typeof owner.id === 'number'
         && typeof owner.once === 'function'
         && typeof owner.removeListener === 'function';
@@ -248,32 +251,49 @@ export async function openInputPaths(
                 },
             });
             throwIfAborted(signal);
-            unownedWorkingPath = await createWorkingCopy(
-                requireOpenPath(originalPath, owner),
-                ownerWebContentsId,
-            );
-            throwIfAborted(signal);
-            if (isGenerated) {
-                // Generated outputs stay out of Recent Files, so opening one is
-                // the only signal that the user still wants it: it has to
-                // restart the retention window the cleanup sweep measures.
-                await touchScanCleanupGeneratedOutput(originalPath);
-            } else {
-                persistRecentInputsAfterOpen([originalPath], owner);
+            try {
+                const trustedOriginalPath = requireOpenPath(originalPath, owner);
+                const workingCopy = await createWorkingCopyWithOutcome(
+                    trustedOriginalPath,
+                    ownerWebContentsId,
+                    options.password,
+                    signal,
+                );
+                unownedWorkingPath = workingCopy.workingPath;
+                throwIfAborted(signal);
+                if (isGenerated) {
+                    // Generated outputs stay out of Recent Files, so opening one is
+                    // the only signal that the user still wants it: it has to
+                    // restart the retention window the cleanup sweep measures.
+                    await touchScanCleanupGeneratedOutput(originalPath);
+                } else {
+                    persistRecentInputsAfterOpen([originalPath], owner);
+                }
+                throwIfAborted(signal);
+                logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({
+                    recentPersistence: 'background',
+                    totalMs: Math.round((performance.now() - sourceCriticalStartedAt) * 10) / 10,
+                })}`);
+                const result: TOpenFileResult = {
+                    kind: 'pdf',
+                    workingPath: requireDocumentRef(unownedWorkingPath),
+                    originalPath: requireDocumentRef(originalPath),
+                    ...(isGenerated ? {isGenerated: true} : {}),
+                    ...(workingCopy.wasEncrypted ? {wasEncrypted: true as const} : {}),
+                };
+                unownedWorkingPath = null;
+                return result;
+            } catch (error) {
+                if (error instanceof PdfDecryptAttemptError) {
+                    return {
+                        kind: error.outcome === 'needs-password'
+                            ? 'pdf-needs-password'
+                            : 'pdf-unsupported-encryption',
+                        originalPath: requireDocumentRef(originalPath),
+                    };
+                }
+                throw error;
             }
-            throwIfAborted(signal);
-            logger.debug(`openInputPaths PDF source-critical timings: ${JSON.stringify({
-                recentPersistence: 'background',
-                totalMs: Math.round((performance.now() - sourceCriticalStartedAt) * 10) / 10,
-            })}`);
-            const result: TOpenFileResult = {
-                kind: 'pdf',
-                workingPath: requireDocumentRef(unownedWorkingPath),
-                originalPath: requireDocumentRef(originalPath),
-                ...(isGenerated ? {isGenerated: true} : {}),
-            };
-            unownedWorkingPath = null;
-            return result;
         } finally {
             openLease?.release();
             lifecycle.cleanup();

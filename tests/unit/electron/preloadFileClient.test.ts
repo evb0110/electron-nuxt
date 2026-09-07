@@ -38,6 +38,7 @@ import {
 import type {TRequestId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 
 // These values deliberately violate their brands so the preload runtime guards are tested.
 const invalidDocumentRef = 'relative.pdf' as TDocumentRef;
@@ -206,6 +207,28 @@ describe('createDocumentsPreloadFileClient', () => {
 
     afterEach(() => {
         vi.unstubAllGlobals();
+    });
+
+    it('rejects invalid working-copy passwords before invoking IPC', () => {
+        const ipcRenderer = {
+            invoke: vi.fn(),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const oversizedPassword = 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1);
+
+        expect(() => client.createWorkingCopyFromData(
+            'protected.pdf',
+            Uint8Array.of(1),
+            undefined,
+            oversizedPassword,
+        )).toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        expect(() => client.createWorkingCopyFromPath(
+            requireDocumentRef('/tmp/protected.pdf'),
+            undefined,
+            null as never,
+        )).toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
     it('validates and forwards native path print layout options', async () => {
@@ -537,6 +560,31 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(() => client.saveFileStructured(requireDocumentRef('/tmp/working.pdf')))
             .toThrow('saveFileStructured.options.expectedDocumentRevisionToken must be a non-empty string');
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    });
+
+    it('forwards the one-shot annotation parse through the working-copy channel', async () => {
+        const revision = requireDocumentRevisionToken('preload-parse-revision');
+        const parsed = {
+            documentRevisionToken: revision,
+            pageCount: 1,
+            entities: [],
+            foreign: [],
+        };
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                expect(channel).toBe(DOCUMENTS_CHANNELS.parsePdfAnnotations);
+                return parsed;
+            }),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.parsePdfAnnotations(requireDocumentRef('/tmp/working.pdf'), {expectedDocumentRevisionToken: revision})).resolves.toEqual(parsed);
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.parsePdfAnnotations,
+            requireDocumentRef('/tmp/working.pdf'),
+            {expectedDocumentRevisionToken: revision},
+        );
     });
 
     it('rejects invalid optimize-as-copy options before invoking IPC', async () => {
@@ -1579,7 +1627,9 @@ describe('createDocumentsPreloadFileClient', () => {
                         height: 0.0016,
                     },
                 })),
-                freeTextEditors: Array.from({length: cap.freeTextEditors + 1}, (_, index) => ({
+                // Keep an old renderer payload here to prove the preload
+                // normalizes the compatibility key to textBoxes.
+                freeTextEditors: Array.from({length: cap.textBoxes + 1}, (_, index) => ({
                     ...createNativeFreeTextEditor(),
                     stableKey: `editor-${index}`,
                 })),
@@ -1639,7 +1689,7 @@ describe('createDocumentsPreloadFileClient', () => {
             updates: unknown[];
             geometryUpdates: unknown[];
             freeTextNotes: unknown[];
-            freeTextEditors: unknown[];
+            textBoxes: unknown[];
             deletes: unknown[];
             pageLabels: {ranges: unknown[]};
             bookmarks: {items: unknown[]};
@@ -1650,7 +1700,7 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(normalizedPayload.updates).toHaveLength(cap.noteTextUpdates + 1);
         expect(normalizedPayload.geometryUpdates).toHaveLength(cap.noteGeometryUpdates + 1);
         expect(normalizedPayload.freeTextNotes).toHaveLength(cap.noteChanges + 1);
-        expect(normalizedPayload.freeTextEditors).toHaveLength(cap.freeTextEditors + 1);
+        expect(normalizedPayload.textBoxes).toHaveLength(cap.textBoxes + 1);
         expect(normalizedPayload.deletes).toHaveLength(cap.noteChanges + 1);
         expect(normalizedPayload.pageLabels.ranges).toHaveLength(cap.pageLabelRanges + 1);
         expect(normalizedPayload.bookmarks.items).toHaveLength(cap.bookmarkItems + 1);
@@ -1666,7 +1716,7 @@ describe('createDocumentsPreloadFileClient', () => {
             stableKey: `note-${cap.noteChanges}`,
             text: `Editor note ${cap.noteChanges}`,
         });
-        expect(normalizedPayload.freeTextEditors.at(-1)).toMatchObject({stableKey: `editor-${cap.freeTextEditors}`});
+        expect(normalizedPayload.textBoxes.at(-1)).toMatchObject({stableKey: `editor-${cap.textBoxes}`});
         expect(normalizedPayload.deletes.at(-1)).toMatchObject({objectNumber: cap.noteChanges + 1});
         expect(normalizedPayload.pageLabels.ranges.at(-1)).toMatchObject({
             startPage: cap.pageLabelRanges + 1,

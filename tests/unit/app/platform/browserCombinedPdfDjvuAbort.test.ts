@@ -58,7 +58,7 @@ describe('browser combine DjVu abort window', () => {
         const controller = new AbortController();
         browserDocumentStoreMock.createStoredDocument.mockImplementation(async () => {
             controller.abort(new DOMException('PDF combine was canceled.', 'AbortError'));
-            return 'stored://converted.pdf';
+            return 'browser://documents/converted.pdf';
         });
 
         await expect(createCombinedPdfFromPaths(
@@ -67,6 +67,6 @@ describe('browser combine DjVu abort window', () => {
         )).rejects.toMatchObject({name: 'AbortError'});
 
         expect(browserDjvuCapabilityMock.runConversion).not.toHaveBeenCalled();
-        expect(browserDocumentStoreMock.remove).toHaveBeenCalledWith('stored://converted.pdf');
+        expect(browserDocumentStoreMock.remove).toHaveBeenCalledWith('browser://documents/converted.pdf');
     });
 });

@@ -1,4 +1,7 @@
-import { parsePageNumber } from '@contracts/pageNumbers';
+import {
+    parsePageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
@@ -122,6 +125,7 @@ export function cacheTrustedPdfOpenGeometry(
     const entry: IPdfTrustedOpenGeometry = {
         documentId,
         ...openingGeometry,
+        pageNumber: requirePageNumber(openingGeometry.pageNumber),
         size: options.sourceRevision?.size ?? openingGeometry.size,
         modifiedAt: options.sourceRevision?.modifiedAt ?? openingGeometry.modifiedAt,
         savedAt: Date.now(),

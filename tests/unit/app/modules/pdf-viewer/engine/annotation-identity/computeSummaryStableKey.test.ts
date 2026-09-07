@@ -31,7 +31,7 @@ describe('computeSummaryStableKey', () => {
             pageIndex: requirePageIndex(1),
             source: 'editor',
             uid: 'uid-1',
-        })).toBe('uid:1:uid-1');
+        })).toBe('ann:1:uid-1');
 
         expect(computeSummaryStableKey({
             annotationId: null,
@@ -39,6 +39,22 @@ describe('computeSummaryStableKey', () => {
             pageIndex: requirePageIndex(1),
             source: 'editor',
             uid: null,
-        })).toBe('src:editor:1:editor-id');
+        })).toBe('ann:1:editor:editor-id');
+
+        expect(computeSummaryStableKey({
+            annotationId: '   ',
+            id: 'editor-id',
+            pageIndex: 1,
+            source: 'editor',
+            uid: ' uid-1 ',
+        })).toBe('ann:1:uid-1');
+
+        expect(computeSummaryStableKey({
+            annotationId: '   ',
+            id: 'editor-id',
+            pageIndex: 1,
+            source: 'editor',
+            uid: '   ',
+        })).toBe('ann:1:editor:editor-id');
     });
 });

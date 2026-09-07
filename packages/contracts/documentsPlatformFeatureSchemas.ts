@@ -44,6 +44,11 @@ import {
     decodeUint8ArrayValue,
     fail,
 } from '@contracts/documentsPlatformFeatureNativePageSchemas';
+import {
+    isPdfDecryptPassword,
+    PDF_DECRYPT_PASSWORD_MAX_BYTES,
+} from '@contracts/pdfDecryptSchemas';
+import {openFileResult} from '@contracts/pdfOpenFileSchemas';
 import type {
     IPdfConformanceProfile,
     IPdfValidationResult,
@@ -527,8 +532,6 @@ function decodeConformanceResult(value: unknown): IPdfConformanceProfile {
         saveRestrictions: value.saveRestrictions.map(String),
     };
 }
-const openFileResult = s.fromParser<TFileResult>(decodeOpenFileResult, () => null);
-type TFileResult = TOpenFileResult | null;
 const nullableStringResult = s.fromParser<string | null>(
     value => value === null || typeof value === 'string'
         ? value
@@ -609,7 +612,22 @@ function decodeSingleLeaseIdArgs(value: unknown, fieldName: string): [TLeaseId] 
     return [decodeLeaseIdValue(args[0], fieldName)];
 }
 const openDocumentDirectArgs = documentArgs<'openDocumentDirect'>(
-    value => decodeSingleDocumentRefArgs(value, 'path'),
+    (value) => {
+        const args = decodeArgumentArray(value, 1, 2);
+        const path = decodeDocumentRefValue(args[0], 'path');
+        return args.length === 1 || args[1] === undefined
+            ? [path]
+            : (() => {
+                const password = decodeStringValue(args[1], 'password');
+                if (!isPdfDecryptPassword(password)) {
+                    fail(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+                }
+                return [
+                    path,
+                    password,
+                ];
+            })();
+    },
     () => [decodeDocumentRefValue('/tmp/document.pdf', 'path')],
 );
 const openDocumentDirectBatchArgs = documentArgs<'openDocumentDirectBatch'>(
@@ -649,11 +667,25 @@ const cancelOpenBatchArgs = documentArgs<'cancelOpenDocumentDirectBatch'>(
 );
 const createWorkingCopyFromDataArgs = documentArgs<'createWorkingCopyFromData'>(
     (value) => {
-        const args = decodeArgumentArray(value, 2, 3);
-        return appendOptional([
+        const args = decodeArgumentArray(value, 2, 4);
+        const base: [string, Uint8Array] = [
             decodeStringValue(args[0], 'fileName'),
             decodeUint8ArrayValue(args[1], 'data'),
-        ], decodeOptionalDocumentRefValue(args[2], 'originalPath'));
+        ];
+        const originalPath = decodeOptionalDocumentRefValue(args[2], 'originalPath');
+        if (args.length < 4) {
+            return appendOptional(base, originalPath);
+        }
+        const password = decodeOptionalStringValue(args[3], 'password');
+        if (password !== undefined && !isPdfDecryptPassword(password)) {
+            fail(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        }
+        return [
+            base[0],
+            base[1],
+            originalPath,
+            password,
+        ];
     },
     () => [
         'document.pdf',
@@ -662,11 +694,21 @@ const createWorkingCopyFromDataArgs = documentArgs<'createWorkingCopyFromData'>(
 );
 const createWorkingCopyFromPathArgs = documentArgs<'createWorkingCopyFromPath'>(
     (value) => {
-        const args = decodeArgumentArray(value, 1, 2);
-        return appendOptional(
-            [decodeDocumentRefValue(args[0], 'sourcePath')],
-            decodeOptionalDocumentRefValue(args[1], 'originalPath'),
-        );
+        const args = decodeArgumentArray(value, 1, 3);
+        const sourcePath = decodeDocumentRefValue(args[0], 'sourcePath');
+        const originalPath = decodeOptionalDocumentRefValue(args[1], 'originalPath');
+        if (args.length < 3) {
+            return appendOptional([sourcePath], originalPath);
+        }
+        const password = decodeOptionalStringValue(args[2], 'password');
+        if (password !== undefined && !isPdfDecryptPassword(password)) {
+            fail(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        }
+        return [
+            sourcePath,
+            originalPath,
+            password,
+        ];
     },
     () => [decodeDocumentRefValue('/tmp/source.pdf', 'sourcePath')],
 );

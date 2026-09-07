@@ -1,9 +1,7 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
-
 import type {
-    PDFPageProxy,
-    RenderTask,
-} from 'pdfjs-dist';
+    IPdfPage,
+    IPdfRenderTask,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import {
     pdfRenderContinuationScheduler,
@@ -16,13 +14,13 @@ import { armPageStageDeadline } from '@app/modules/pdf-viewer/engine/pdf-page-re
 interface ICoordinatedPdfPageRenderTask {
     promise: Promise<unknown>;
     cancel: () => void;
-    onContinue?: RenderTask['onContinue'];
+    onContinue?: IPdfRenderTask['onContinue'];
 }
 
 interface IActivePdfPageOperation {
     id: number;
     owner: string;
-    pageNumber: TPageNumber;
+    pageNumber: number;
     priority: number;
     cancel?: (() => void) | undefined;
     settled: Promise<void>;
@@ -30,8 +28,8 @@ interface IActivePdfPageOperation {
 
 interface IRunCoordinatedPdfPageRenderOptions<TTask extends ICoordinatedPdfPageRenderTask> {
     owner: string;
-    pageNumber: TPageNumber;
-    pdfPage: PDFPageProxy;
+    pageNumber: number;
+    pdfPage: IPdfPage;
     priority: number;
     signal?: AbortSignal | undefined;
     shouldStart?: (() => boolean) | undefined;
@@ -54,8 +52,8 @@ interface IRunCoordinatedPdfPageRenderOptions<TTask extends ICoordinatedPdfPageR
 
 interface IRunCoordinatedPdfPageOperationOptions<TResult> {
     owner: string;
-    pageNumber: TPageNumber;
-    pdfPage: PDFPageProxy;
+    pageNumber: number;
+    pdfPage: IPdfPage;
     priority: number;
     signal?: AbortSignal | undefined;
     shouldStart?: (() => boolean) | undefined;
@@ -66,10 +64,10 @@ interface IRunCoordinatedPdfPageOperationOptions<TResult> {
 
 export type TPdfPageOperationSettlementCapture = (settlement: Promise<void>) => void;
 
-const activePageOperations = new WeakMap<PDFPageProxy, IActivePdfPageOperation>();
+const activePageOperations = new WeakMap<IPdfPage, IActivePdfPageOperation>();
 let nextRenderId = 0;
 
-function createCoordinatedRenderCancelledError(pageNumber: TPageNumber, owner: string) {
+function createCoordinatedRenderCancelledError(pageNumber: number, owner: string) {
     const error = new Error(`Rendering cancelled before coordinated PDF page render for page ${pageNumber} (${owner})`);
     error.name = 'RenderingCancelledException';
     return error;
@@ -77,7 +75,7 @@ function createCoordinatedRenderCancelledError(pageNumber: TPageNumber, owner: s
 
 function throwIfCoordinatedOperationCancelled(
     signal: AbortSignal | undefined,
-    pageNumber: TPageNumber,
+    pageNumber: number,
     owner: string,
 ) {
     if (signal?.aborted) {
@@ -87,7 +85,7 @@ function throwIfCoordinatedOperationCancelled(
 
 function createAbortWaiter(
     signal: AbortSignal | undefined,
-    pageNumber: TPageNumber,
+    pageNumber: number,
     owner: string,
     onAbort?: (() => void) | undefined,
 ) {
@@ -128,7 +126,7 @@ function cancelPdfPageRender(cancel: (() => void) | undefined) {
 }
 
 async function waitForActiveOperation(
-    pdfPage: PDFPageProxy,
+    pdfPage: IPdfPage,
     activeOperation: IActivePdfPageOperation,
     owner: string,
     priority: number,
@@ -177,14 +175,14 @@ async function waitForActiveOperation(
 }
 
 async function waitForCoordinatedTurn(
-    pdfPage: PDFPageProxy,
+    pdfPage: IPdfPage,
     owner: string,
-    pageNumber: TPageNumber,
+    pageNumber: number,
     priority: number,
     signal?: AbortSignal | undefined,
     cancel?: (() => void) | undefined,
 ) {
-    for (;;) {
+    while (true) {
         throwIfCoordinatedOperationCancelled(signal, pageNumber, owner);
         const activeOperation = activePageOperations.get(pdfPage);
         if (!activeOperation) {
@@ -305,8 +303,8 @@ export async function runCoordinatedPdfPageRender<TTask extends ICoordinatedPdfP
     } = options;
 
     let cancelTask: (() => void) | undefined = undefined;
-    let cancelRequested = false as boolean;
-    let taskCancelIssued = false as boolean;
+    let cancelRequested = false;
+    let taskCancelIssued = false;
     let watchdogDeadline: ReturnType<typeof armPageStageDeadline> | null = null;
     const requestCancel = () => {
         watchdogDeadline?.clear();

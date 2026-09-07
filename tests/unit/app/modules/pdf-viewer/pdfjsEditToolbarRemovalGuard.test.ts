@@ -13,13 +13,13 @@ import {
 /**
  * `FreeTextEditor.addEditToolbar()` awaits each toolbar button. When the
  * editor is removed during that await (a layer rebuild or a resize
- * transition), stock pdf.js 5.7.284 continues into
+ * transition), an unguarded pdf.js editor continues into
  * `this._editToolbar.addButton("comment", …)` on the toolbar that
  * `removeEditToolbar()` already nulled, surfacing as an unhandled
  * "Cannot read properties of null (reading 'addButton')" rejection in the
- * renderer. `patches/pdfjs-dist@5.7.284.patch` bails out of the build with
- * `null` once the toolbar is gone. This pins that guard in both builds so a
- * dependency bump cannot drop it silently.
+ * renderer. The EVB fork carries a null guard once the toolbar is gone. This
+ * pins that guard in both generated builds so a dependency bump cannot drop
+ * it silently.
  */
 const LOOP_GUARD = [
     '        const editToolbar = this._editToolbar;',

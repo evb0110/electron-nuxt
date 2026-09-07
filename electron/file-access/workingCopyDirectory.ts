@@ -72,8 +72,8 @@ async function copyFileWithMacClone(sourcePath: string, targetPath: string) {
         });
         let settled = false;
         let stderr = '';
-        child.stderr?.setEncoding('utf8');
-        child.stderr?.on('data', (chunk: string) => {
+        child.stderr.setEncoding('utf8');
+        child.stderr.on('data', (chunk: string) => {
             if (Buffer.byteLength(stderr, 'utf8') >= MAC_CLONE_MAX_STDERR_BYTES) {
                 return;
             }

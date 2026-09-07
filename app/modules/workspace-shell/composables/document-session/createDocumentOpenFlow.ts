@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Open flow stages picker, password, and PDF state transitions together. */
 import { clamp } from 'es-toolkit/math';
 import type {
     IAnalyticsDocumentScope,
@@ -8,7 +9,6 @@ import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import { createRequestId } from '@contracts/shared';
 import {
     getFailureReceipt,
     type ExpectedOutcome,
@@ -21,11 +21,11 @@ import type {
     IDocumentMutationRevisionOptions,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
-import {isBrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
 import type { TPdfSource } from '@app/types/pdfUi';
+import { createRequestId } from '@contracts/shared';
 import type {
     createEpochGuard,
     IDocumentSessionState,
@@ -56,14 +56,19 @@ import {
     stagePdfOpeningPreview,
     type IPdfOpeningGeometryResolution,
 } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
-import {
-    isPathPdfSource,
-    shouldStageNativePdfOpeningPreview,
-} from '@app/modules/pdf-viewer/public/nativePreviewRouting';
+import {shouldStageNativePdfOpeningPreview} from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import {resolvePdfOpeningGeometry} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import {openPdfAfterPasswordPrompt as runPasswordPromptFlow} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
+import {
+    isPdfPasswordFailureResult,
+    type TPdfPasswordFailureResult,
+} from '@app/modules/workspace-shell/composables/document-session/isPdfPasswordFailureResult';
+import {classifyDocumentOpenError} from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
+import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
 
 type TAnalytics = ReturnType<typeof useAnalytics>;
 type TEpochGuard = ReturnType<typeof createEpochGuard>;
+type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
 export type TDocumentDirectOpenOptions = IPdfRasterDisplayProfileOpenOptions;
 
 interface ICreateDocumentOpenFlowDeps {
@@ -93,12 +98,16 @@ interface ICreateDocumentOpenFlowDeps {
         },
     ) => Promise<boolean>;
     syncDirtyFromHistory: () => void;
+    reportOpenFailure?: (
+        operationId: string,
+        reason: 'unsupported-encryption',
+        detail?: string | null,
+    ) => boolean;
     t: TTranslateFn;
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const MAX_EAGER_HISTORY_BASELINE_BYTES = 8 * 1024 * 1024;
-
 function createDocumentMutationRevisionOptions(
     expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
 ): IDocumentMutationRevisionOptions | undefined {
@@ -119,7 +128,10 @@ export function createDocumentOpenFlow(
         geometryPreflightMode,
         maxInMemoryPdfBytes,
     } = performancePolicy;
-
+    const {
+        requestPassword,
+        cancelPasswordPrompt,
+    } = useDocumentPasswordPrompt();
     function assertPdfHasBytes(size: number) {
         if (size > 0) {
             return;
@@ -149,7 +161,12 @@ export function createDocumentOpenFlow(
             return nextState.pdfData.byteLength;
         }
         const source = nextState.pdfSrc;
-        if (isPathPdfSource(source)) {
+        if (
+            source
+            && typeof source === 'object'
+            && 'kind' in source
+            && source.kind === 'path'
+        ) {
             return source.size;
         }
         return null;
@@ -160,7 +177,7 @@ export function createDocumentOpenFlow(
     }
 
     async function trackOpenedDocument(
-        result: TOpenFileResult,
+        result: TOpenedFileResult,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
     ) {
         const fileName = getDocumentRefBaseName(result.originalPath);
@@ -198,6 +215,7 @@ export function createDocumentOpenFlow(
     }
 
     function beginOpenRequest() {
+        cancelPasswordPrompt();
         cancelActiveSpeculativeOpen?.('open-superseded');
         cancelActiveSpeculativeOpen = null;
         deps.loadEpoch.invalidate();
@@ -268,6 +286,16 @@ export function createDocumentOpenFlow(
         }
     }
 
+    function reportUnsupportedEncryption(openRequestId: number) {
+        const message = deps.t('errors.file.unsupportedEncryption');
+        state.error.value = message;
+        deps.reportOpenFailure?.(`open:${openRequestId}`, 'unsupported-encryption');
+        return {
+            status: 'failed',
+            error: message,
+        } satisfies TDocumentOpenOutcome;
+    }
+
     async function openFile(preSelected?: TOpenFileResult) {
         const openRequestId = beginOpenRequest();
         state.error.value = null;
@@ -288,6 +316,13 @@ export function createDocumentOpenFlow(
             }
             if (!result) {
                 return { status: 'cancelled' } satisfies TDocumentOpenOutcome;
+            }
+            if (isPdfPasswordFailureResult(result)) {
+                return await openPdfWithPasswordPrompt(
+                    openRequestId,
+                    result,
+                    preSelected ? 'preselected' : 'picker',
+                );
             }
             if (result.kind === 'djvu') {
                 state.pendingDjvu.value = result.originalPath;
@@ -311,10 +346,10 @@ export function createDocumentOpenFlow(
             if (!isCurrentOpenRequest(openRequestId)) {
                 return {
                     status: 'failed',
-                    error: classifyOpenError(e, preSelected?.originalPath ?? null),
+                    error: classifyDocumentOpenError(e, preSelected?.originalPath ?? null, deps.t),
                 } satisfies TDocumentOpenOutcome;
             }
-            const message = classifyOpenError(e, preSelected?.originalPath ?? null);
+            const message = classifyDocumentOpenError(e, preSelected?.originalPath ?? null, deps.t);
             recordOpenFailure(message, e, {
                 path: preSelected?.originalPath ?? null,
                 error: e,
@@ -372,6 +407,7 @@ export function createDocumentOpenFlow(
                 result,
             } satisfies TDocumentOpenOutcome;
         }
+        state.wasEncrypted.value = result.wasEncrypted === true;
         await trackOpenedDocument(result, openMethod);
         if (!isCurrentOpenRequest(openRequestId) || state.workingCopyPath.value !== result.workingPath) {
             await cleanupAbandonedPdfWorkingCopy(result, 'stale-pdf-track');
@@ -387,6 +423,26 @@ export function createDocumentOpenFlow(
             status: 'opened',
             result,
         } satisfies TDocumentOpenOutcome;
+    }
+
+    function openPdfWithPasswordPrompt(
+        openRequestId: number,
+        initialFailure: TPdfPasswordFailureResult,
+        openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
+        options: IPdfRasterDisplayProfileOpenOptions = {},
+    ) {
+        return runPasswordPromptFlow(openRequestId, initialFailure, openMethod, options, {
+            requestPassword,
+            isCurrentOpenRequest,
+            openDocumentDirect: (path, password) => getDocumentOpenCapability().openDocumentDirect(path, password),
+            cleanupAbandonedPdfWorkingCopy,
+            setError: message => { state.error.value = message; },
+            reportUnsupportedEncryption,
+            trackOpenedDocument,
+            setPendingDjvuPath: path => { state.pendingDjvu.value = path; },
+            finishPdfOpenResult,
+            t: deps.t,
+        });
     }
 
     async function openFileDirect(path: TDocumentRef, options: TDocumentDirectOpenOptions = {}) {
@@ -439,6 +495,9 @@ export function createDocumentOpenFlow(
                     status: 'failed',
                     error: message,
                 } satisfies TDocumentOpenOutcome;
+            }
+            if (isPdfPasswordFailureResult(result)) {
+                return await openPdfWithPasswordPrompt(openRequestId, result, 'direct', options);
             }
 
             BrowserLogger.debug(
@@ -511,10 +570,10 @@ export function createDocumentOpenFlow(
             if (!isCurrentOpenRequest(openRequestId)) {
                 return {
                     status: 'failed',
-                    error: classifyOpenError(e, path),
+                    error: classifyDocumentOpenError(e, path, deps.t),
                 } satisfies TDocumentOpenOutcome;
             }
-            const message = classifyOpenError(e, path);
+            const message = classifyDocumentOpenError(e, path, deps.t);
             recordOpenFailure(message, e, {
                 path,
                 error: e,
@@ -532,19 +591,6 @@ export function createDocumentOpenFlow(
         }
     }
 
-    function classifyOpenError(e: unknown, path: TDocumentRef | null) {
-        if (isBrowserFilePickerSetupDeniedError(e)) {
-            return deps.t('errors.browser.filePickerSetupDenied');
-        }
-        const rawMessage = e instanceof Error ? getErrorMessage(e) : '';
-        if (rawMessage && /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage)) {
-            const baseName = path ? getDocumentRefBaseName(path) : '';
-            const name = baseName && baseName.length > 0 ? baseName : path ? String(path) : '';
-            return deps.t('errors.file.openNotFound', { name });
-        }
-        return rawMessage || deps.t('errors.file.open');
-    }
-
     async function openFileDirectBatch(paths: TDocumentRef[]) {
         const openRequestId = beginOpenRequest();
         state.error.value = null;
@@ -553,10 +599,11 @@ export function createDocumentOpenFlow(
         state.openBatchProgress.value = null;
         try {
             const documentOpen = getDocumentOpenCapability();
-            const normalizedPaths = paths.flatMap((path) => {
-                const parsed = parseDocumentRef(path.trim());
-                return parsed === null ? [] : [parsed];
-            });
+            const normalizedPaths = paths
+                .map((path) => path.trim())
+                .filter((path) => path.length > 0)
+                .map(path => parseDocumentRef(path))
+                .filter((path): path is TDocumentRef => path !== null);
 
             if (normalizedPaths.length === 0) {
                 const message = deps.t('errors.file.invalid');
@@ -569,7 +616,7 @@ export function createDocumentOpenFlow(
                 } satisfies TDocumentOpenOutcome;
             }
 
-            const requestId = createRequestId('document-open-batch');
+            const requestId = createRequestId('document-open');
             state.openBatchProgress.value = {
                 processed: 0,
                 total: normalizedPaths.length,
@@ -633,6 +680,10 @@ export function createDocumentOpenFlow(
                     error: message,
                 } satisfies TDocumentOpenOutcome;
             }
+            if (isPdfPasswordFailureResult(result)) {
+                state.openBatchProgress.value = null;
+                return await openPdfWithPasswordPrompt(openRequestId, result, 'batch');
+            }
             if (result.kind === 'djvu') {
                 state.openBatchProgress.value = null;
                 state.pendingDjvu.value = result.originalPath;
@@ -653,11 +704,11 @@ export function createDocumentOpenFlow(
             if (!isCurrentOpenRequest(openRequestId)) {
                 return {
                     status: 'failed',
-                    error: e instanceof Error ? getErrorMessage(e) : deps.t('errors.file.open'),
+                    error: e instanceof Error ? e.message : deps.t('errors.file.open'),
                 } satisfies TDocumentOpenOutcome;
             }
             state.openBatchProgress.value = null;
-            const message = e instanceof Error ? getErrorMessage(e) : deps.t('errors.file.open');
+            const message = e instanceof Error ? e.message : deps.t('errors.file.open');
             recordOpenFailure(message, e);
             return {
                 status: 'failed',
@@ -903,7 +954,10 @@ export function createDocumentOpenFlow(
             return;
         }
 
-        const stagedPreview = isPathPdfSource(nextState.pdfSrc)
+        const stagedPreview = nextState.pdfSrc
+            && typeof nextState.pdfSrc === 'object'
+            && 'kind' in nextState.pdfSrc
+            && nextState.pdfSrc.kind === 'path'
             && opts?.openingGeometryResolution
             && deps.openSurface
             ? stagePdfOpeningPreview({
@@ -915,7 +969,7 @@ export function createDocumentOpenFlow(
                 traceContext,
             })
             : null;
-        const speculativeOpenState: { allowed: boolean } = { allowed: true };
+        let allowSpeculativePdfjs = true;
         const clearSpeculativeSource = () => {
             if (state.pdfOpeningSrc.value !== nextState.pdfSrc) {
                 return;
@@ -924,7 +978,7 @@ export function createDocumentOpenFlow(
             state.pdfOpeningRevisionToken.value = null;
         };
         cancelActiveSpeculativeOpen = (reason) => {
-            speculativeOpenState.allowed = false;
+            allowSpeculativePdfjs = false;
             stagedPreview?.cancel(reason);
             clearSpeculativeSource();
         };
@@ -956,7 +1010,10 @@ export function createDocumentOpenFlow(
             preparedDocumentRevision: undefined,
             readyHold: null,
         };
-        const speculativePathSource = isPathPdfSource(nextState.pdfSrc)
+        const speculativePathSource = nextState.pdfSrc
+            && typeof nextState.pdfSrc === 'object'
+            && 'kind' in nextState.pdfSrc
+            && nextState.pdfSrc.kind === 'path'
             ? nextState.pdfSrc
             : null;
         const openSurface = deps.openSurface;
@@ -965,7 +1022,7 @@ export function createDocumentOpenFlow(
             && openSurface
             ? opts.openingGeometryResolution.then(async (resolution) => {
                 if (
-                    !speculativeOpenState.allowed.valueOf()
+                    !allowSpeculativePdfjs
                     || !isCurrent()
                     || resolution.openingGeometry === null
                     || resolution.sourceRevision === null
@@ -977,7 +1034,7 @@ export function createDocumentOpenFlow(
                 const snapshot = openSurface.snapshot.value;
                 const sourceRevisionKey = `${String(resolution.sourceRevision.size)}:${String(resolution.sourceRevision.modifiedAt)}`;
                 if (
-                    !speculativeOpenState.allowed.valueOf()
+                    !allowSpeculativePdfjs
                     || !isCurrent()
                     || !openSurface.holdReadyForValidation(snapshot.generation, sourceRevisionKey)
                 ) {
@@ -1007,9 +1064,9 @@ export function createDocumentOpenFlow(
         let validationResult;
         try {
             validationResult = await validationTask;
-            speculativeOpenState.allowed = false;
+            allowSpeculativePdfjs = false;
         } catch (error) {
-            speculativeOpenState.allowed = false;
+            allowSpeculativePdfjs = false;
             stagedPreview?.cancel('validation-error');
             clearSpeculativeSource();
             throw error;

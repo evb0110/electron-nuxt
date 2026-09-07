@@ -41,6 +41,7 @@ import {
 } from '@electron/ocr/worker/pdfAssembler';
 import { createPdfjsNodeDocumentOptions } from '@electron/search/createPdfjsNodeDocumentOptions';
 import { resolveTestQpdfBinary } from '@tests/helpers/resolveTestQpdfBinary';
+import {adaptPdfjsDocument} from '@app/services/pdfjs/pdfjsCompatibility';
 
 const QPDF_TEST_BINARY = resolveTestQpdfBinary();
 
@@ -69,10 +70,11 @@ async function addHiddenTextLayer(
 }
 
 async function extractTextViewportPositions(filePath: string) {
-    const pdf = await getDocument({
+    const task = getDocument({
         data: new Uint8Array(await readFile(filePath)),
         ...createPdfjsNodeDocumentOptions(),
-    }).promise;
+    });
+    const pdf = adaptPdfjsDocument(await task.promise, () => task.destroy());
     try {
         const page = await pdf.getPage(1);
         const viewport = page.getViewport({scale: 1});
@@ -200,10 +202,11 @@ async function getPdfPageSizes(filePath: string) {
 }
 
 async function extractPdfText(filePath: string) {
-    const pdf = await getDocument({
+    const task = getDocument({
         data: new Uint8Array(await readFile(filePath)),
         ...createPdfjsNodeDocumentOptions(),
-    }).promise;
+    });
+    const pdf = adaptPdfjsDocument(await task.promise, () => task.destroy());
 
     try {
         const parts: string[] = [];

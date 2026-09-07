@@ -1,6 +1,5 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TPageNumber } from '@contracts/pageNumbers';
-
-import type { PDFPageProxy } from 'pdfjs-dist';
 import type { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import type {
     IActivePdfTextLayerTask,
@@ -15,7 +14,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface ITextLayerRenderContext {
     container: HTMLElement;
-    pdfPage: PDFPageProxy;
+    pdfPage: IPdfPage;
     renderResult: {
         canvas: HTMLCanvasElement;
         viewport: Parameters<ReturnType<typeof usePdfTextLayerRenderer>['renderTextLayer']>[2];
@@ -99,7 +98,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
         // A pure scale or rotation step reuses the mounted spans, so the
         // selection and the interaction handlers that hang off them survive.
         // Only a content rebuild may tear them down.
-        let didRebuildTextLayer = false as boolean;
+        let didRebuildTextLayer = false;
         const teardownBeforeTextLayerRebuild = () => {
             didRebuildTextLayer = true;
             clearSelectionBeforePageLayerTeardown(pageNumber);

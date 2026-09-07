@@ -1,15 +1,11 @@
-import {
-    parsePageNumber,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
-
 import { groupBy } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
-import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
-} from 'pdfjs-dist';
 import { createRenderTaskHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { leasePdfDocumentPage } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
@@ -36,10 +32,8 @@ import {
 import {
     createEditedTextMarkupThumbnailVisualSignature,
     createHiddenAnnotationIdsSignature,
-    drawEditedTextMarkupThumbnailVisuals,
     getEditedTextMarkupThumbnailComments,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
-import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
 import { resolveThumbnailItemHeightFromAspect } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailLayout';
 import type { IUsePdfThumbnailRenderRuntimeOptions } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntimeOptions';
 import { createThumbnailRenderFrameScheduler } from '@app/modules/pdf-viewer/thumbnails/createThumbnailRenderFrameScheduler';
@@ -56,7 +50,7 @@ interface IPdfThumbnailDemandInput {
     active: boolean;
     currentPage: number;
     documentFence: IPdfPageRasterScheduler['documentFence'];
-    estimatedPixels: (pageNumber: TPageNumber) => number;
+    estimatedPixels: (pageNumber: number) => number;
     generation: number;
     mountedPages: readonly number[];
     totalPages: number;
@@ -72,10 +66,10 @@ interface IPreparedThumbnailRaster {
         pixelWidth: number;
         scaleX: number;
         scaleY: number;
-        scaledViewport: ReturnType<PDFPageProxy['getViewport']>;
+        scaledViewport: ReturnType<IPdfPage['getViewport']>;
     };
-    page: PDFPageProxy;
-    pageNumber: TPageNumber;
+    page: IPdfPage;
+    pageNumber: number;
     renderCanvas: HTMLCanvasElement;
     renderKey: string;
 }
@@ -85,7 +79,7 @@ function normalizeThumbnailPage(page: number, totalPages: number) {
 }
 
 function resolveThumbnailDemandLane(
-    pageNumber: TPageNumber,
+    pageNumber: number,
     currentPage: number,
     visiblePages: ReadonlySet<number>,
 ) {
@@ -128,15 +122,15 @@ export function expandPdfThumbnailRasterDemand(
     return [...candidates]
         .filter(pageNumber => pageNumber > 0 && mountedPages.has(pageNumber))
         .map((pageNumber) => {
-            const brandedPageNumber = requirePageNumber(pageNumber, input.totalPages);
+            const brandedPageNumber: TPageNumber = requirePageNumber(pageNumber, input.totalPages);
             return {
                 consumerGeneration: input.generation,
                 documentFence: input.documentFence,
-                estimatedPixels: input.estimatedPixels(brandedPageNumber),
-                lane: resolveThumbnailDemandLane(brandedPageNumber, currentPage, visiblePages),
+                estimatedPixels: input.estimatedPixels(pageNumber),
+                lane: resolveThumbnailDemandLane(pageNumber, currentPage, visiblePages),
                 ordinal: Math.abs(pageNumber - currentPage) * 2 + (pageNumber < currentPage ? 0 : 1),
                 pageNumber: brandedPageNumber,
-                renderKey: `${input.generation}:${pageNumber}`,
+                renderKey: `${String(input.generation)}:${String(pageNumber)}`,
                 retention: 'render-cache',
             };
         });
@@ -177,7 +171,7 @@ function startThumbnailRenderTask(
     guardedTask.cancel();
     return prepared.page.render({
         ...renderOptions,
-        annotationMode: AnnotationMode.DISABLE,
+        annotationMode: AnnotationMode?.DISABLE ?? 0,
     });
 }
 
@@ -196,7 +190,7 @@ export const usePdfThumbnailRenderRuntime = (
     const pageRenderEpochs = new Map<number, number>();
     const renderedCanvases = new Map<number, HTMLCanvasElement>();
     let activeScheduler: IPdfPageRasterScheduler | null = null;
-    let activeDocument: PDFDocumentProxy | null = null;
+    let activeDocument: IPdfDocument | null = null;
     let reloadTransition = false;
     let pendingInvalidation: number[] | null = null;
 
@@ -206,9 +200,7 @@ export const usePdfThumbnailRenderRuntime = (
     ));
     // Deleted-source tombstones arrive without a page, so they stay document-wide;
     // only the edited text-markup half can be attributed to a page today.
-    const documentHiddenAnnotationIds = computed(
-        () => collectEditedTextMarkupCanvasSuppressionIds([], visuals.hiddenAnnotationIds.value),
-    );
+    const documentHiddenAnnotationIds = computed(() => new Set(visuals.hiddenAnnotationIds.value));
     const documentVisualSignature = computed(() => [
         createHiddenAnnotationIdsSignature(documentHiddenAnnotationIds.value),
         createEditedTextMarkupThumbnailVisualSignature(
@@ -217,7 +209,7 @@ export const usePdfThumbnailRenderRuntime = (
         ),
     ].join('\u0002'));
 
-    function resolvePageVisualSignature(pageNumber: TPageNumber) {
+    function resolvePageVisualSignature(pageNumber: number) {
         return [
             createHiddenAnnotationIdsSignature(documentHiddenAnnotationIds.value),
             createEditedTextMarkupThumbnailVisualSignature(
@@ -227,15 +219,8 @@ export const usePdfThumbnailRenderRuntime = (
         ].join('\u0002');
     }
 
-    function resolveHiddenAnnotationIdsForPage(pageNumber: TPageNumber) {
-        const pageComments = editedTextMarkupCommentsByPage.value[pageNumber];
-        if (!pageComments) {
-            return documentHiddenAnnotationIds.value;
-        }
-        return collectEditedTextMarkupCanvasSuppressionIds(
-            pageComments,
-            documentHiddenAnnotationIds.value,
-        );
+    function resolveHiddenAnnotationIdsForPage(_pageNumber: number) {
+        return documentHiddenAnnotationIds.value;
     }
 
     function isThumbnailPaneActive() {
@@ -249,7 +234,7 @@ export const usePdfThumbnailRenderRuntime = (
         return Math.min(MAX_THUMBNAIL_OUTPUT_SCALE, window.devicePixelRatio);
     }
 
-    function getThumbnailRenderKey(pageNumber: TPageNumber) {
+    function getThumbnailRenderKey(pageNumber: number) {
         void thumbnailKeySignal.value;
         return [
             documentRenderEpoch.value,
@@ -277,7 +262,7 @@ export const usePdfThumbnailRenderRuntime = (
     }
 
     function clearThumbnailCanvas(
-        pageNumber: TPageNumber,
+        pageNumber: number,
         canvas: HTMLCanvasElement,
         renderKey: string | null = null,
     ) {
@@ -285,7 +270,7 @@ export const usePdfThumbnailRenderRuntime = (
         resetThumbnailCanvasBitmap(canvas, renderKey);
     }
 
-    function isCurrentThumbnailCanvasRendered(pageNumber: TPageNumber) {
+    function isCurrentThumbnailCanvasRendered(pageNumber: number) {
         const canvas = dom.getCanvas(pageNumber);
         return Boolean(
             canvas
@@ -296,7 +281,7 @@ export const usePdfThumbnailRenderRuntime = (
     }
 
     function updateThumbnailAspectRatioForPage(
-        pageNumber: TPageNumber,
+        pageNumber: number,
         viewportWidth: number,
         viewportHeightValue: number,
         reason: string,
@@ -339,7 +324,7 @@ export const usePdfThumbnailRenderRuntime = (
         return true;
     }
 
-    function resolveThumbnailRenderMetrics(page: PDFPageProxy, pageNumber: TPageNumber) {
+    function resolveThumbnailRenderMetrics(page: IPdfPage, pageNumber: number) {
         const viewport = page.getViewport({scale: 1});
         updateThumbnailAspectRatioForPage(
             pageNumber,
@@ -430,7 +415,10 @@ export const usePdfThumbnailRenderRuntime = (
             });
         },
         start(prepared) {
-            const annotationMode = AnnotationMode.ENABLE_STORAGE;
+            const annotationMode = AnnotationMode?.ENABLE_STORAGE
+                ?? AnnotationMode?.ENABLE_FORMS
+                ?? AnnotationMode?.ENABLE
+                ?? 1;
             return startThumbnailRenderTask(prepared, annotationMode);
         },
         commit(prepared) {
@@ -445,13 +433,6 @@ export const usePdfThumbnailRenderRuntime = (
             ) {
                 return false;
             }
-            drawEditedTextMarkupThumbnailVisuals({
-                annotationSettings: visuals.annotationSettings.value,
-                canvas: prepared.renderCanvas,
-                comments: editedTextMarkupCommentsByPage.value[prepared.pageNumber] ?? [],
-                context: prepared.context,
-                pageNum: prepared.pageNumber,
-            });
             if (prepared.renderCanvas !== prepared.canvas) {
                 const visibleContext = prepared.canvas.getContext('2d');
                 if (!visibleContext) {
@@ -508,7 +489,7 @@ export const usePdfThumbnailRenderRuntime = (
         },
     };
 
-    function estimateThumbnailPixels(pageNumber: TPageNumber) {
+    function estimateThumbnailPixels(pageNumber: number) {
         const width = Math.max(1, layout.thumbnailRenderWidth.value);
         const aspectRatio = layout.thumbnailAspectRatios.value.get(pageNumber) ?? 1.3;
         const outputScale = resolveThumbnailOutputScale();
@@ -539,15 +520,11 @@ export const usePdfThumbnailRenderRuntime = (
         );
         for (const thumbnail of container.querySelectorAll<HTMLElement>('.pdf-thumbnail')) {
             const pageNumber = Number(thumbnail.dataset.page);
-            const brandedPageNumber = parsePageNumber(pageNumber, source.totalPages.value);
-            if (brandedPageNumber === null) {
-                continue;
-            }
             const canvas = thumbnail.querySelector<HTMLCanvasElement>('canvas');
             const presented = canvas?.dataset.thumbnailRendered === 'true'
                 || canvas?.dataset.thumbnailPreservedBitmap === 'true';
             if (canvas && presented && canvas.width < minimumPixelWidth) {
-                clearThumbnailCanvas(brandedPageNumber, canvas);
+                clearThumbnailCanvas(pageNumber, canvas);
             }
         }
     }
@@ -606,14 +583,14 @@ export const usePdfThumbnailRenderRuntime = (
     const scheduleVisibleThumbnailRender = visibleThumbnailRenderScheduler.schedule;
 
     async function preloadThumbnailAspectRatio(
-        pdfDocument: PDFDocumentProxy,
+        pdfDocument: IPdfDocument,
         generation: number,
     ) {
-        const pageNumber = requirePageNumber(clamp(
+        const pageNumber = clamp(
             source.currentPage.value || 1,
             1,
             Math.max(1, source.totalPages.value),
-        ), Math.max(1, source.totalPages.value));
+        );
         try {
             const pageLease = await leasePdfDocumentPage(
                 pdfDocument,

@@ -6,13 +6,13 @@ import {
 import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {
     asAnnotationId,
-    type IStickyNoteEntity,
+    type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { requirePageIndex } from '@contracts/pageNumbers';
 
-function note(id: string): IStickyNoteEntity {
+function note(id: string): INoteEntity {
     return {
-        kind: 'sticky-note',
+        kind: 'note',
         identity: {id: asAnnotationId(id)},
         pageIndex: requirePageIndex(0),
         revision: 0,
@@ -21,14 +21,15 @@ function note(id: string): IStickyNoteEntity {
         createdAt: null,
         modifiedAt: null,
         author: null,
-        text: id,
-        anchor: {
+        contents: id,
+        position: {
             left: 0.2,
             top: 0.3,
             width: 0.01,
             height: 0.01,
         },
         color: null,
+        open: false,
     };
 }
 
@@ -39,8 +40,8 @@ describe('AnnotationStore batched notifications', () => {
         store.subscribe(entities => snapshots.push(entities.map(entity => entity.identity.id)));
 
         store.batch(() => {
-            store.createStickyNote(note('first'));
-            store.batch(() => store.createStickyNote(note('second')));
+            store.createNote(note('first'));
+            store.batch(() => store.createNote(note('second')));
             expect(snapshots).toEqual([[]]);
         });
 
@@ -67,7 +68,7 @@ describe('AnnotationStore batched notifications', () => {
         store.subscribe(entities => snapshots.push(entities.map(entity => entity.identity.id)));
 
         expect(() => store.batch(() => {
-            store.createStickyNote(note('before-error'));
+            store.createNote(note('before-error'));
             throw new Error('import interrupted');
         })).toThrow('import interrupted');
 
@@ -75,7 +76,7 @@ describe('AnnotationStore batched notifications', () => {
             [],
             ['before-error'],
         ]);
-        store.createStickyNote(note('after-error'));
+        store.createNote(note('after-error'));
         expect(snapshots).toEqual([
             [],
             ['before-error'],

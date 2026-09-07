@@ -1,3 +1,7 @@
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -7,9 +11,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import { cast } from '@tests/helpers/cast';
 import { createWorkspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 import { renderPdfDocumentPageSource } from '@app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource';
-import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 describe('renderPdfDocumentPageSource abort window', () => {
     afterEach(() => {
@@ -20,14 +24,11 @@ describe('renderPdfDocumentPageSource abort window', () => {
     // the render task it hands the signal to, so a navigation that lands there
     // has to reach pdf.js as a cancel rather than being left to finish.
     it('cancels the render task for a request aborted while its page loaded', async () => {
-        // happy-dom does not provide a 2D context, but the production path
-        // only needs a truthy context before handing it to the PDF.js shim.
-        const canvasContext = {} as CanvasRenderingContext2D;
         vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
-            .mockReturnValue(canvasContext);
+            .mockReturnValue(cast<CanvasRenderingContext2D>({}));
         const controller = new AbortController();
         const cancel = vi.fn();
-        const page = Object.assign(Object.create(null), {
+        const page = cast<IPdfPage>({
             getViewport: ({scale}: {scale: number}) => ({
                 width: 100 * scale,
                 height: 200 * scale,
@@ -37,7 +38,7 @@ describe('renderPdfDocumentPageSource abort window', () => {
                 cancel,
             }),
         });
-        const document = createPdfDocumentProxy({getPage: async () => {
+        const document = cast<IPdfDocument>({getPage: async () => {
             controller.abort(new DOMException('Navigated away', 'AbortError'));
             return page;
         }});

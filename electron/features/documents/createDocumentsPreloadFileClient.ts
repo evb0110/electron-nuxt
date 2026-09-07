@@ -1,7 +1,6 @@
 import type { IpcRenderer } from 'electron';
 import {
     decodeDocumentRevisionChangedEvent,
-    parseDocumentRevisionToken,
     type IDocumentRevisionChangedEvent,
 } from '@contracts/documentRevision';
 import type {
@@ -10,7 +9,6 @@ import type {
     IDocumentsRecentFilesCapability,
     IDocumentsWindowCapability,
     IDocumentChunkReadOptions,
-    IPdfAnnotationIndexChunkOptions,
     IPdfDataPrintOptions,
     IWorkingCopyBackingStatus,
     IPdfNativePagePreviewOptions,
@@ -18,10 +16,15 @@ import type {
     IPdfOptimizeOptions,
     IPdfPathPrintOptions,
     IPdfSaveAsOptions,
-    IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
+    IPdfSerializedCommitCallbacks,
 } from '@contracts/electronApiDocuments';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    requireLeaseId,
+    requireRequestId,
+    requireSessionId,
+} from '@contracts/shared';
 import {
     decodeOptionalPdfDataPrintOptions,
     decodeOptionalPdfPathPrintOptions,
@@ -30,6 +33,7 @@ import {
     DOCX_EXPORT_STREAM_CHANNELS,
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
     type IDocxExportFileCapability,
+    type IDocxExportStreamBeginResult,
     type TDocxExportChunkSource,
 } from '@contracts/docxExport';
 import {
@@ -75,11 +79,7 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
-import {
-    requireLeaseId,
-    requireRequestId,
-    requireSessionId,
-} from '@contracts/shared';
+import {assertOptionalPdfDecryptPassword} from '@electron/features/documents/assertOptionalPdfDecryptPassword';
 import {
     createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
@@ -90,10 +90,14 @@ import {
     assertAbsolutePath,
     assertNonEmptyString,
     assertOptionalAbsolutePath,
+    assertPdfIndexChunkOptions,
+    assertPdfSerializedSaveOptions,
+    assertPdfSidecarChunkOffset,
     assertOptionalFileName,
     assertWorkingCopyFileName,
     assertWriteData,
 } from '@electron/features/documents/preloadShared';
+import {createPdfAnnotationParsePreloadMethods} from '@electron/features/documents/createPdfAnnotationParsePreloadMethods';
 type TDocumentsPreloadFileClient = Omit<
     IDocumentsFileCapability,
     keyof IDocumentsPickerCapability
@@ -114,6 +118,8 @@ const DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL = {
     [DOCUMENTS_CHANNELS.pdfNativePageSizes]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfNativePagePreview]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfAnnotationIndexBegin]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.parsePdfAnnotations]: LONG_NATIVE_IPC_TIMEOUT_MS,
+    [DOCUMENTS_CHANNELS.pdfAnnotationParseBegin]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfEmbeddedShapeIndexBegin]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfAnalyzeConformance]: LONG_NATIVE_IPC_TIMEOUT_MS,
     [DOCUMENTS_CHANNELS.pdfValidatePath]: LONG_NATIVE_IPC_TIMEOUT_MS,
@@ -186,42 +192,6 @@ function assertPdfSaveAsOptions(value: unknown, label: string): IPdfSaveAsOption
         : undefined;
 }
 
-function assertPdfSerializedSaveOptions(value: unknown, label: string): IPdfSerializedSaveOptions {
-    if (value === undefined || value === null) {
-        throw new TypeError(`${label}.expectedDocumentRevisionToken must be a non-empty string`);
-    }
-    if (!isRecord(value)) {
-        throw new TypeError(`${label} must be an object`);
-    }
-    const token = value.expectedDocumentRevisionToken;
-    if (token === undefined || token === null) {
-        throw new TypeError(`${label}.expectedDocumentRevisionToken must be a non-empty string`);
-    }
-    const parsedToken = parseDocumentRevisionToken(token);
-    if (parsedToken === null) {
-        throw new TypeError(`${label}.expectedDocumentRevisionToken must be a non-empty string`);
-    }
-
-    const changedObjectRefs = value.changedObjectRefs;
-    if (changedObjectRefs !== undefined && (
-        !Array.isArray(changedObjectRefs)
-        || changedObjectRefs.length > 128
-        || !changedObjectRefs.every(ref => typeof ref === 'string' && PDF_OBJECT_REF_PATTERN.test(ref))
-    )) {
-        throw new TypeError(`${label}.changedObjectRefs must contain at most 128 canonical PDF object references`);
-    }
-    if (value.workingCopyOnly !== undefined && value.workingCopyOnly !== true) {
-        throw new TypeError(`${label}.workingCopyOnly must be true when provided`);
-    }
-    return {
-        expectedDocumentRevisionToken: parsedToken,
-        ...(Array.isArray(changedObjectRefs)
-            ? {changedObjectRefs: [...new Set(changedObjectRefs as string[])]}
-            : {}),
-        ...(value.workingCopyOnly === true ? {workingCopyOnly: true as const} : {}),
-    };
-}
-
 function isVerifyBytesBeforeCommit(
     value: unknown,
 ): value is NonNullable<IPdfSerializedCommitCallbacks['verifyBytesBeforeCommit']> {
@@ -274,7 +244,6 @@ function assertPdfSerializedCommitCallbacks(
     };
 }
 
-const PDF_OBJECT_REF_PATTERN = /^\d+\s+\d+\s+R$/;
 function assertPdfNativeStagedCommitOptions(value: unknown, label: string): IPdfNativeStagedCommitOptions {
     return appendPdfNativeAnnotationIdentityBindings(assertPdfSerializedSaveOptions(value, label), value, label);
 }
@@ -353,15 +322,15 @@ function assertDocxExportChunk(value: unknown) {
 function createDocxExportFileCapability(
     ipcRenderer: Pick<IpcRenderer, 'invoke'>,
 ): IDocxExportFileCapability {
-    const invoke = async (channel: string, ...args: unknown[]): Promise<unknown> => ipcRenderer.invoke(channel, ...args);
+    const invoke = async <TResult>(channel: string, ...args: unknown[]) => await ipcRenderer.invoke(channel, ...args) as TResult;
     const writeDocxFileChunks = async (path: Parameters<IDocxExportFileCapability['writeDocxFileChunks']>[0], chunks: TDocxExportChunkSource, signal?: AbortSignal) => {
         const checkedPath = assertAbsolutePath(path, 'writeDocxFileChunks.path'); throwIfAborted(signal);
-        const beginResult = await invoke(
+        const beginResult = await invoke<IDocxExportStreamBeginResult>(
             DOCX_EXPORT_STREAM_CHANNELS.begin,
             checkedPath,
         );
         if (
-            !isRecord(beginResult)
+            !beginResult
                 || typeof beginResult.sessionId !== 'string'
                 || beginResult.sessionId.trim().length === 0
         ) {
@@ -370,10 +339,10 @@ function createDocxExportFileCapability(
         const sessionId = beginResult.sessionId;
         let wroteChunk = false;
         let cancelPromise: Promise<boolean> | null = null;
-        const cancelSession = () => cancelPromise ??= invoke(
+        const cancelSession = () => cancelPromise ??= invoke<boolean>(
             DOCX_EXPORT_STREAM_CHANNELS.cancel,
             sessionId,
-        ).then(value => value === true, () => false);
+        ).catch(() => false);
         const handleAbort = () => { void cancelSession(); };
         signal?.addEventListener('abort', handleAbort, {once: true});
         try {
@@ -393,7 +362,7 @@ function createDocxExportFileCapability(
             if (!wroteChunk) {
                 throw new Error('writeDocxFileChunks requires at least one chunk');
             }
-            const committed = await invoke(
+            const committed = await invoke<boolean>(
                 DOCX_EXPORT_STREAM_CHANNELS.commit,
                 sessionId,
             );
@@ -414,41 +383,6 @@ function assertPositiveSafeInteger(value: unknown, fieldName: string) {
         throw new Error(`${fieldName} must be a positive safe integer`);
     }
     return value;
-}
-
-function assertSafeInteger(value: unknown, fieldName: string) {
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-        throw new Error(`${fieldName} must be a non-negative safe integer`);
-    }
-    return value;
-}
-
-function assertPdfIndexChunkOptions(
-    value: unknown,
-    fieldName: string,
-    maxChunkBytes: number,
-): IPdfAnnotationIndexChunkOptions | undefined {
-    if (value === undefined || value === null) {
-        return undefined;
-    }
-    if (!isRecord(value)) {
-        throw new TypeError(`${fieldName} must be an object`);
-    }
-    const rawChunkBytes = value.chunkBytes;
-    if (
-        rawChunkBytes !== undefined
-        && (
-            typeof rawChunkBytes !== 'number'
-            || !Number.isSafeInteger(rawChunkBytes)
-            || rawChunkBytes < 1
-            || rawChunkBytes > maxChunkBytes
-        )
-    ) {
-        throw new TypeError(
-            `${fieldName}.chunkBytes must be between 1 and ${maxChunkBytes}`,
-        );
-    }
-    return rawChunkBytes === undefined ? {} : {chunkBytes: rawChunkBytes};
 }
 
 function getChunkReadSize(options: IDocumentChunkReadOptions | undefined) {
@@ -726,6 +660,7 @@ export function createDocumentsPreloadFileClient(
     const invokeWorkingCopy = createCodecIpcInvoker<IDocumentWorkingCopyInvokeMap>(
         ipcRenderer,
         DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs,
+        {invokeTimeoutMsByChannel: DOCUMENTS_NATIVE_INVOKE_TIMEOUT_MS_BY_CHANNEL},
     );
     const invokeFiles = createCodecIpcInvoker<IDocumentFilesInvokeMap>(
         ipcRenderer,
@@ -739,10 +674,16 @@ export function createDocumentsPreloadFileClient(
     );
     const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsFileEventMap>(ipcRenderer);
     const docxExportCapability = createDocxExportFileCapability(ipcRenderer);
-    const openDocumentDirect = (path: string) => invokeOpen(
-        DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect,
-        assertAbsolutePath(path, 'openDocumentDirect.path'),
-    );
+    const pdfAnnotationParsePreloadMethods = createPdfAnnotationParsePreloadMethods({
+        invokeFiles,
+        invokeWorkingCopy,
+    });
+    const openDocumentDirect = (path: string, password?: string) => {
+        const checkedPath = assertAbsolutePath(path, 'openDocumentDirect.path');
+        return password === undefined
+            ? invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect, checkedPath)
+            : invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect, checkedPath, password);
+    };
     const openDocumentDirectBatch = (
         paths: string[],
         requestId?: string,
@@ -787,6 +728,7 @@ export function createDocumentsPreloadFileClient(
 
     return {
         ...docxExportCapability,
+        ...pdfAnnotationParsePreloadMethods,
         openDocumentDirect,
         openDocumentDirectBatch,
         cancelOpenDocumentDirectBatch: (requestId: string) =>
@@ -794,16 +736,20 @@ export function createDocumentsPreloadFileClient(
                 DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.cancelOpenDocumentDirectBatch,
                 requireRequestId(assertNonEmptyString(requestId, 'cancelOpenDocumentDirectBatch.requestId', 128)),
             ),
-        savePdfAs: async (workingPath, options, revisionOptions) => {
-            const result = await invokeFiles(
+        savePdfAs: (workingPath, options, revisionOptions) =>
+            invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfAs,
                 assertAbsolutePath(workingPath, 'savePdfAs.workingPath'),
                 assertPdfSaveAsOptions(options, 'savePdfAs.options'),
                 assertPdfSerializedSaveOptions(revisionOptions, 'savePdfAs.revisionOptions'),
-            );
-            return result === null ? null : assertAbsolutePath(result, 'savePdfAs.result');
-        },
-        savePdfDataAs: async (workingPath, data, options, serializedSaveOptions, commitCallbacks) => {
+            ).then(result => result === null ? null : assertAbsolutePath(result, 'savePdfAs.result')),
+        savePdfDataAs: async (
+            workingPath,
+            data,
+            options?: IPdfSaveAsOptions,
+            serializedSaveOptions?: IPdfSerializedSaveOptions,
+            commitCallbacks?: IPdfSerializedCommitCallbacks,
+        ) => {
             const checkedWorkingPath = assertAbsolutePath(workingPath, 'savePdfDataAs.workingPath');
             const checkedData = assertPersistenceData(data, 'savePdfDataAs.data');
             const checkedOptions = assertPdfSaveAsOptions(options, 'savePdfDataAs.options');
@@ -842,22 +788,17 @@ export function createDocumentsPreloadFileClient(
             const result = await commitStagedPersistence(stagedResult, checkedCommitCallbacks);
             return {
                 ...result,
-                path: result.path === null
-                    ? null
-                    : assertAbsolutePath(result.path, 'savePdfDataAs.result.path'),
+                path: result.path === null ? null : assertAbsolutePath(result.path, 'savePdfDataAs.result.path'),
             };
         },
         savePdfDialog: (suggestedName) => invokeFiles(
             DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfDialog,
             suggestedName,
         ),
-        saveDocxAs: async (workingPath) => {
-            const result = await invokeFiles(
-                DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveDocxAs,
-                assertAbsolutePath(workingPath, 'saveDocxAs.workingPath'),
-            );
-            return result === null ? null : assertAbsolutePath(result, 'saveDocxAs.result');
-        },
+        saveDocxAs: (workingPath) => invokeFiles(
+            DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveDocxAs,
+            assertAbsolutePath(workingPath, 'saveDocxAs.workingPath'),
+        ).then(result => result === null ? null : assertAbsolutePath(result, 'saveDocxAs.result')),
         readFile: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFile, path),
         statFile: (path) => invokeFiles(DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.statFile, path),
         readFileRange: (path, offset, length) =>
@@ -904,7 +845,7 @@ export function createDocumentsPreloadFileClient(
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfAnnotationIndexChunk,
                 requireSessionId(assertNonEmptyString(sessionId, 'readPdfAnnotationIndexChunk.sessionId')),
-                assertSafeInteger(offset, 'readPdfAnnotationIndexChunk.offset'),
+                assertPdfSidecarChunkOffset(offset, 'readPdfAnnotationIndexChunk.offset'),
                 assertPdfIndexChunkOptions(options, 'readPdfAnnotationIndexChunk.options', PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES),
             ),
         releasePdfAnnotationIndex: (sessionId) =>
@@ -927,7 +868,7 @@ export function createDocumentsPreloadFileClient(
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readPdfEmbeddedShapeIndexChunk,
                 requireSessionId(assertNonEmptyString(sessionId, 'readPdfEmbeddedShapeIndexChunk.sessionId')),
-                assertSafeInteger(offset, 'readPdfEmbeddedShapeIndexChunk.offset'),
+                assertPdfSidecarChunkOffset(offset, 'readPdfEmbeddedShapeIndexChunk.offset'),
                 assertPdfIndexChunkOptions(options, 'readPdfEmbeddedShapeIndexChunk.options', PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES),
             ),
         releasePdfEmbeddedShapeIndex: (sessionId) =>
@@ -1066,19 +1007,41 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'writeDocxFile.path'),
                 assertWriteData(data, 'writeDocxFile.data'),
             ),
-        createWorkingCopyFromData: (fileName, data, originalPath?: string) =>
-            invokeWorkingCopy(
-                DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
-                assertWorkingCopyFileName(fileName, 'createWorkingCopyFromData.fileName'),
-                assertWriteData(data, 'createWorkingCopyFromData.data'),
-                assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath'),
-            ).then(result => assertAbsolutePath(result, 'createWorkingCopyFromData.result')),
-        createWorkingCopyFromPath: (sourcePath, originalPath?: string) =>
-            invokeWorkingCopy(
-                DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
-                assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath'),
-                assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'),
-            ).then(result => assertAbsolutePath(result, 'createWorkingCopyFromPath.result')),
+        createWorkingCopyFromData: (fileName, data, originalPath?: string, password?: string) => {
+            const checkedFileName = assertWorkingCopyFileName(fileName, 'createWorkingCopyFromData.fileName');
+            const checkedData = assertWriteData(data, 'createWorkingCopyFromData.data');
+            const checkedOriginalPath = assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath');
+            const checkedPassword = assertOptionalPdfDecryptPassword(password);
+            return checkedOriginalPath === undefined && checkedPassword === undefined
+                ? invokeWorkingCopy(
+                    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
+                    checkedFileName,
+                    checkedData,
+                )
+                : invokeWorkingCopy(
+                    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
+                    checkedFileName,
+                    checkedData,
+                    checkedOriginalPath,
+                    checkedPassword,
+                );
+        },
+        createWorkingCopyFromPath: (sourcePath, originalPath?: string, password?: string) => {
+            const checkedSourcePath = assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath');
+            const checkedOriginalPath = assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath');
+            const checkedPassword = assertOptionalPdfDecryptPassword(password);
+            return checkedOriginalPath === undefined && checkedPassword === undefined
+                ? invokeWorkingCopy(
+                    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
+                    checkedSourcePath,
+                )
+                : invokeWorkingCopy(
+                    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
+                    checkedSourcePath,
+                    checkedOriginalPath,
+                    checkedPassword,
+                );
+        },
         saveFileStructured: (path, options) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.saveFileStructured,
@@ -1204,7 +1167,7 @@ export function createDocumentsPreloadFileClient(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.cloneStagedPdfNativeMutationToWorkingCopy,
                 stagedOutput,
                 assertOptionalAbsolutePath(originalPath, 'cloneStagedPdfNativeMutationToWorkingCopy.originalPath'),
-            ).then(result => assertAbsolutePath(result, 'cloneStagedPdfNativeMutationToWorkingCopy.result')),
+            ),
         replaceWorkingCopyFromStagedPdfNativeMutation: (path, stagedOutput, options) =>
             invokeFiles(
                 DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromStagedPdfNativeMutation,

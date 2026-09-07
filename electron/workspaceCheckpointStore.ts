@@ -115,7 +115,7 @@ function releaseClaimIfOwnerDestroyed(newOwnerWebContentsId: number) {
     ) {
         return;
     }
-    const claimedOwner = webContents?.fromId(claimedWorkspaceCheckpointOwnerWebContentsId);
+    const claimedOwner = webContents.fromId(claimedWorkspaceCheckpointOwnerWebContentsId);
     if (claimedOwner?.isDestroyed() === true || claimedOwner === undefined) {
         claimedWorkspaceCheckpointOwnerWebContentsId = null;
         claimedWorkspaceCheckpointPath = null;
@@ -523,7 +523,7 @@ function scheduleTrailingCheckpointSave(
             // barrier serializes the debounced write against queued clears/claims.
             void enqueueWorkspaceCheckpointBarrier(async () => {});
         }, delayMs);
-        timer.unref?.();
+        timer.unref();
         trailingCheckpointSave = {
             stored,
             ownerWebContentsId,

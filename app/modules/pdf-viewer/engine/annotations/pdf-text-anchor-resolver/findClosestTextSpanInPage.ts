@@ -1,5 +1,3 @@
-
-
 function getTextSpanDistanceScore(rect: DOMRect, targetX: number, targetY: number) {
     const inside = targetX >= rect.left && targetX <= rect.right && targetY >= rect.top && targetY <= rect.bottom;
     const dx = inside ? 0 : Math.min(Math.abs(targetX - rect.left), Math.abs(targetX - rect.right));
@@ -10,7 +8,7 @@ function getTextSpanDistanceScore(rect: DOMRect, targetX: number, targetY: numbe
 export function findClosestTextSpanInPage(pageContainer: HTMLElement, targetX: number, targetY: number): {
     span: HTMLElement;
     score: number;
-    rect: DOMRect
+    rect: DOMRect;
 } | null {
     const spans = Array.from(
         pageContainer.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span'),
@@ -18,7 +16,7 @@ export function findClosestTextSpanInPage(pageContainer: HTMLElement, targetX: n
     let best: {
         span: HTMLElement;
         score: number;
-        rect: DOMRect
+        rect: DOMRect;
     } | null = null;
 
     spans.forEach((span) => {

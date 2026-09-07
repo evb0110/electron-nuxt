@@ -43,7 +43,7 @@ export function getPageNumberFromElement(element: HTMLElement) {
 }
 
 export function isBufferedPageElement(element: HTMLElement) {
-    return element.classList?.contains('page_container--buffered') === true;
+    return element.classList.contains('page_container--buffered') === true;
 }
 
 function getViewportIntersectionLength(

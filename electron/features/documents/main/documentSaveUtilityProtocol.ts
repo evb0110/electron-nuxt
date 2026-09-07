@@ -6,8 +6,10 @@ import {
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     decodeTypedStagedArtifact,
+    isBrowserStoreFileIdentity,
     type ITypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
+import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 
 export interface IDocumentSaveUtilityCommitRequest {
     type: 'commit';
@@ -127,33 +129,41 @@ export function createChangedObjectRefsSha256(changedObjectRefs: readonly string
 }
 
 export function createNativeIncrementalMutationSemanticScopeSha256() {
-    return createHash('sha256')
-        .update('evb-pdf-page-ops:incremental-native-mutations:v1')
-        .digest('hex');
+    return nativePdfSemanticScope;
 }
 
 export function getDocumentSaveUtilityReusePlan(
     request: IDocumentSaveUtilityCommitRequest,
 ): IDocumentSaveUtilityReusePlan {
     const artifact = request.stagedArtifact;
+    if (artifact && isBrowserStoreFileIdentity(artifact.fileIdentity)) {
+        return {
+            fingerprint: false,
+            tailCheck: false,
+            qpdfCheck: false,
+            nativeIncrementalCheck: false,
+            changedObjectRefsCheck: false,
+            fileSync: false,
+        };
+    }
     const receiptReuseEnabled = process.platform !== 'win32'
         && artifact?.receiptVersion === 1
-        && artifact?.fileIdentity.platform === 'posix';
+        && artifact.fileIdentity.platform === 'posix';
     const changedObjectRefs = request.changedObjectRefs ?? [];
     const nativeIncrementalCheck = receiptReuseEnabled
-        && artifact?.validations.semanticCheck === true
+        && artifact.validations.semanticCheck === true
         && artifact.validations.semanticScopeSha256
             === createNativeIncrementalMutationSemanticScopeSha256();
     return {
         fingerprint: receiptReuseEnabled,
-        tailCheck: receiptReuseEnabled && artifact?.validations.tailCheck === true,
-        qpdfCheck: receiptReuseEnabled && artifact?.validations.qpdfCheck === true,
+        tailCheck: receiptReuseEnabled && artifact.validations.tailCheck === true,
+        qpdfCheck: receiptReuseEnabled && artifact.validations.qpdfCheck === true,
         nativeIncrementalCheck,
         changedObjectRefsCheck: receiptReuseEnabled
             && changedObjectRefs.length > 0
-            && artifact?.validations.changedObjectRefsSha256
+            && artifact.validations.changedObjectRefsSha256
                 === createChangedObjectRefsSha256(changedObjectRefs),
-        fileSync: receiptReuseEnabled && artifact?.validations.fsynced === true,
+        fileSync: receiptReuseEnabled && artifact.validations.fsynced === true,
     };
 }
 

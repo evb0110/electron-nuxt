@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import { requirePageNumber } from '@contracts/pageNumbers';
@@ -16,7 +17,6 @@ import {
     vi,
 } from 'vitest';
 import {yieldToBrowser} from '@app/utils/yieldToBrowser';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type {
     IPdfDocumentTransition,
     TPdfDocumentSession,
@@ -83,10 +83,10 @@ function createDocumentFixture(pageCount = 100) {
         height: 900,
     })));
     const pageMetricsVersion = ref(0);
-    const document = {numPages: pageCount} as PDFDocumentProxy;
+    const document = {numPages: pageCount} as IPdfDocument;
     const loadToken = ref(1);
     const fixture = {
-        pdfDocument: shallowRef<PDFDocumentProxy | null>(document),
+        pdfDocument: shallowRef<IPdfDocument | null>(document),
         numPages: ref(pageCount),
         isLoading: ref(false),
         basePageWidth: ref<number | null>(600),
@@ -188,7 +188,6 @@ function createViewportFixture(input: {
                     isAnySaving: computed(() => false),
                     isDragging: ref(false),
                     isViewerPanDragModeActive: computed(() => false),
-                    isPlacingComment: ref(false),
                     isSelectionMarkupToolActive: computed(() => false),
                     isTextSelectionModeActive: computed(() => false),
                     fitMode: computed(() => fitMode.value),

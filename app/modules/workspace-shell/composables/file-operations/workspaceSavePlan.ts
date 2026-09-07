@@ -34,11 +34,8 @@ export interface IWorkspaceSaveDirtyState {
     annotationDirty: boolean;
     annotationChanges: boolean;
     bookmarks: boolean;
-    livePdfJsAnnotations: boolean;
     pageLabels: boolean;
     pendingDeletes: boolean;
-    preservedAnnotationSource: boolean;
-    savedPdfjsAnnotationBaseline: boolean;
     shapes: boolean;
 }
 
@@ -70,7 +67,7 @@ export type TWorkspaceSavePlan =
     }
     | IWorkspaceSavePlanCommon & {
         kind: 'native-mutation';
-        request: Extract<TWorkspaceSaveRequest, {kind: 'save'}>;
+        request: Extract<TWorkspaceSaveRequest, {kind: 'save' | 'save-as'}>;
         serializedFallback: IWorkspaceSerializedSaveBody;
     }
     | IWorkspaceSavePlanCommon & {
@@ -111,23 +108,12 @@ export function createWorkspaceSavePlan(input: {
     const forcedByDirtyState = Object.values(dirtyState).some(Boolean);
     const forceRewrite = request.kind === 'repair' || request.kind === 'optimize';
     const shouldSerialize = forcedByDirtyState || forceRewrite;
-    const includeManagedShapes = dirtyState.preservedAnnotationSource && input.hasManagedShapes;
-    const preserveLoadedSource = request.kind === 'save'
-        && shouldSerialize
-        && !dirtyState.pendingDeletes
-        && !dirtyState.pageLabels
-        && !dirtyState.bookmarks
-        && (
-            dirtyState.shapes
-            || dirtyState.livePdfJsAnnotations
-            || dirtyState.preservedAnnotationSource
-            || dirtyState.annotationChanges
-        );
+    const includeManagedShapes = input.hasManagedShapes && dirtyState.shapes;
     const serializedBody: IWorkspaceSerializedSaveBody = {
-        source: shouldSerialize ? 'live-pdfjs' : 'working-copy',
+        source: 'working-copy',
         forceRewrite,
         includeManagedShapes,
-        preserveLoadedSource,
+        preserveLoadedSource: false,
         requiresLargeFileGuard: shouldSerialize,
     };
 
@@ -147,10 +133,9 @@ export function createWorkspaceSavePlan(input: {
     }
 
     if (
-        request.kind === 'save'
+        (request.kind === 'save' || request.kind === 'save-as')
         && forcedByDirtyState
         && input.canPersistNativeMutations
-        && !includeManagedShapes
     ) {
         return {
             ...common,

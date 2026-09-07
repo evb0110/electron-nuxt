@@ -96,6 +96,17 @@ import {
     releasePdfAnnotationIndexArgs,
 } from '@contracts/pdfAnnotationIndexSchemas';
 import {
+    beginPdfAnnotationParseArgs,
+    cancelPdfAnnotationParseArgs,
+    parsePdfAnnotationsArgs,
+    pdfAnnotationParseCancelResult,
+    pdfAnnotationParseChunkResult,
+    pdfAnnotationParseResult,
+    pdfAnnotationParseSessionResult,
+    readPdfAnnotationParseChunkArgs,
+    releasePdfAnnotationParseArgs,
+} from '@contracts/pdfAnnotationParseSchemas';
+import {
     beginPdfEmbeddedShapeIndexArgs,
     cancelPdfEmbeddedShapeIndexArgs,
     pdfEmbeddedShapeIndexCancelResult,
@@ -352,6 +363,21 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
             'createWorkingCopyFromPath',
             'sender',
         ),
+        parsePdfAnnotations: {
+            ...defineIpcMethod(
+                'parsePdfAnnotations',
+                'working-copy:parseAnnotations',
+                parsePdfAnnotationsArgs,
+                pdfAnnotationParseResult,
+                'parsePdfAnnotations',
+                'sender',
+            ),
+            ipc: {
+                args: parsePdfAnnotationsArgs,
+                result: pdfAnnotationParseResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+        },
         cleanupFile: defineIpcMethod(
             'cleanupFile',
             'file:cleanup',
@@ -498,6 +524,39 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ...defineIpcMethod(
                 'cancelPdfAnnotationIndex', 'pdf:annotationIndex:cancel', cancelPdfAnnotationIndexArgs,
                 pdfAnnotationIndexCancelResult, 'cancelPdfAnnotationIndex', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        beginPdfAnnotationParse: {
+            ...defineIpcMethod(
+                'beginPdfAnnotationParse', 'pdf:annotationParse:begin', beginPdfAnnotationParseArgs,
+                pdfAnnotationParseSessionResult, 'beginPdfAnnotationParse', 'sender',
+            ),
+            ipc: {
+                args: beginPdfAnnotationParseArgs,
+                result: pdfAnnotationParseSessionResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        readPdfAnnotationParseChunk: {
+            ...defineIpcMethod(
+                'readPdfAnnotationParseChunk', 'pdf:annotationParse:readChunk', readPdfAnnotationParseChunkArgs,
+                pdfAnnotationParseChunkResult, 'readPdfAnnotationParseChunk', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        releasePdfAnnotationParse: {
+            ...defineIpcMethod(
+                'releasePdfAnnotationParse', 'pdf:annotationParse:release', releasePdfAnnotationParseArgs,
+                booleanResult, 'releasePdfAnnotationParse', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        cancelPdfAnnotationParse: {
+            ...defineIpcMethod(
+                'cancelPdfAnnotationParse', 'pdf:annotationParse:cancel', cancelPdfAnnotationParseArgs,
+                pdfAnnotationParseCancelResult, 'cancelPdfAnnotationParse', 'sender',
             ),
             ...electronImplementedOptional,
         },
@@ -696,6 +755,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,
+            browser: {method: 'applyPdfNativeMutationsToWorkingCopy'},
         },
         commitStagedPdfNativeMutations: {
             ...defineIpcMethod(
@@ -703,6 +763,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 commitNativeMutationsArgs, nativeSaveResult, 'commitStagedPdfNativeMutations', 'sender',
             ),
             ...electronImplementedOptional,
+            browser: {method: 'commitStagedPdfNativeMutations'},
         },
         cloneStagedPdfNativeMutationToWorkingCopy: {
             ...defineIpcMethod(

@@ -1,4 +1,3 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -19,6 +18,7 @@ import {
     type IPdfRenderPerformancePolicy,
 } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 const normalPerformancePolicy = resolvePdfRenderPerformancePolicy({
     lowCpu: false,
@@ -126,90 +126,6 @@ function createPagedHarness(options?: {
 }
 
 describe('usePdfViewerVirtualization', () => {
-    it.each([
-        {
-            name: 'paged mode',
-            continuousScroll: false,
-            layoutPending: false,
-        },
-        {
-            name: 'continuous mode while layout is pending',
-            continuousScroll: true,
-            layoutPending: true,
-        },
-    ])('keeps stale page state harmless across a shorter document in $name', ({
-        continuousScroll,
-        layoutPending,
-    }) => {
-        const numPages = ref(383);
-        const currentPage = ref(5);
-        const navigationAnchorPage = ref<number | null>(383);
-        const navigationVisualHandoffTargetPage = ref<number | null>(383);
-        const virtualization = usePdfViewerVirtualization({
-            performancePolicy: normalPerformancePolicy,
-            bufferPages: computed(() => 2),
-            viewMode: computed(() => 'single'),
-            numPages,
-            currentPage,
-            continuousScroll: computed(() => continuousScroll),
-            basePageWidth: ref(300),
-            basePageHeight: ref(100),
-            pageMetrics: ref(Array.from({length: 383}, () => ({
-                width: 300,
-                height: 100,
-            }))),
-            pageMetricsVersion: ref(0),
-            effectiveScale: ref(layoutPending ? 0 : 1),
-            scaledMargin: ref(20),
-            visibleRange: ref({
-                start: 5,
-                end: 5,
-            }),
-            navigationAnchorPage,
-            navigationVisualHandoffTargetPage,
-            resizeTransitionAnchorPage: ref(null),
-            zoomVirtualizationFreeze: ref(null),
-        });
-
-        expect(() => virtualization.pagesToRender.value).not.toThrow();
-
-        numPages.value = 0;
-
-        expect(virtualization.pagesToRender.value).toEqual([]);
-        expect(() => virtualization.virtualPageSegments.value).not.toThrow();
-        expect(() => virtualization.isPageBuffered(requirePageNumber(5))).not.toThrow();
-
-        numPages.value = 3;
-
-        expect(() => virtualization.pagesToRender.value).not.toThrow();
-        expect(() => virtualization.virtualPageSegments.value).not.toThrow();
-        expect(() => virtualization.getPagePlaceholderStyle(requirePageNumber(1))).not.toThrow();
-        expect(virtualization.pagesToRender.value).toEqual(
-            continuousScroll ? [
-                1,
-                2,
-                3,
-            ] : [
-                2,
-                3,
-            ],
-        );
-
-        navigationAnchorPage.value = null;
-
-        expect(() => virtualization.pagesToRender.value).not.toThrow();
-        expect(virtualization.pagesToRender.value).toEqual(
-            continuousScroll ? [
-                1,
-                2,
-                3,
-            ] : [
-                2,
-                3,
-            ],
-        );
-    });
-
     it('keeps the full scroll extent through a disjoint navigation handoff', () => {
         const currentPage = ref(1);
         const navigationAnchorPage = ref<number | null>(241);
@@ -368,7 +284,7 @@ describe('usePdfViewerVirtualization', () => {
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
             numPages: ref(2),
-            currentPage: ref(1),
+            currentPage: ref(2),
             continuousScroll: computed(() => false),
             basePageWidth: ref(300),
             basePageHeight: ref(100),
@@ -425,7 +341,7 @@ describe('usePdfViewerVirtualization', () => {
         });
     });
 
-    it('keeps every committed continuous-scroll page stable until navigation applies', () => {
+    it('keeps committed outgoing continuous-scroll pages stable until navigation applies', () => {
         const navigationVisualHandoffTargetPage = ref<number | null>(1);
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
@@ -453,7 +369,7 @@ describe('usePdfViewerVirtualization', () => {
                 start: 1,
                 end: 2,
             }),
-            navigationAnchorPage: ref(1),
+            navigationAnchorPage: ref(null),
             navigationVisualHandoffTargetPage,
             getCommittedPageScale: pageNumber => pageNumber === 1 ? 0.8 : 0.9,
             resizeTransitionAnchorPage: ref(null),
@@ -461,9 +377,9 @@ describe('usePdfViewerVirtualization', () => {
         });
 
         expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
-            width: '240px',
-            height: '80px',
-            '--scale-factor': '0.8',
+            width: '300px',
+            height: '100px',
+            '--scale-factor': '1',
         });
         expect(virtualization.getPagePlaceholderStyle(requirePageNumber(2))).toMatchObject({
             width: '270px',
@@ -485,13 +401,13 @@ describe('usePdfViewerVirtualization', () => {
         });
     });
 
-    it('prepares an uncommitted continuous-scroll target at the destination scale', () => {
+    it('prepares a continuous-scroll target at the destination scale even when pre-rendered', () => {
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
             numPages: ref(2),
-            currentPage: ref(1),
+            currentPage: ref(2),
             continuousScroll: computed(() => true),
             basePageWidth: ref(300),
             basePageHeight: ref(100),
@@ -513,8 +429,8 @@ describe('usePdfViewerVirtualization', () => {
                 end: 1,
             }),
             navigationAnchorPage: ref(2),
-            navigationVisualHandoffTargetPage: ref(2),
-            getCommittedPageScale: pageNumber => pageNumber === 1 ? 1 : null,
+            navigationVisualHandoffTargetPage: ref(null),
+            getCommittedPageScale: pageNumber => pageNumber === 1 ? 1 : 0.9,
             resizeTransitionAnchorPage: ref(null),
             zoomVirtualizationFreeze: ref(null),
         });

@@ -1,3 +1,4 @@
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import {
@@ -12,9 +13,8 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { usePdfViewerInitialRenderRecovery } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerInitialRenderRecovery';
-import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
+import { cast } from '@tests/helpers/cast';
 
 describe('usePdfViewerInitialRenderRecovery', () => {
     beforeEach(() => {
@@ -79,7 +79,7 @@ describe('usePdfViewerInitialRenderRecovery', () => {
         };
         const recovery = usePdfViewerInitialRenderRecovery({
             viewerContainer: ref(container),
-            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
+            pdfDocument: shallowRef(cast<IPdfDocument>({})),
             numPages: ref(5),
             isLoading: ref(false),
             currentPage: ref(options.currentPage ?? 1),

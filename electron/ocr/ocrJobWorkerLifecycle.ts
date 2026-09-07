@@ -324,7 +324,7 @@ export function createOcrJobWorkerLifecycleController(
             logger.warn(`[${job.scopedJobId}] OCR worker cleanup did not complete within ${OCR_WORKER_CLEANUP_GRACE_MS}ms after terminal result`);
             terminateAndFinalizeActiveJob(job.scopedJobId, { reason: 'worker cleanup timed out after terminal result' });
         }, OCR_WORKER_CLEANUP_GRACE_MS);
-        timer.unref?.();
+        timer.unref();
         workerCleanupTimersByScopedJobId.set(job.scopedJobId, timer);
     }
 
@@ -411,7 +411,7 @@ export function createOcrJobWorkerLifecycleController(
                 context: {},
             });
         }, OCR_JOB_IDLE_TIMEOUT_MS);
-        watchdog.unref?.();
+        watchdog.unref();
         activeJob.watchdogTimer = watchdog;
     }
 

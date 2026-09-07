@@ -1,8 +1,8 @@
+import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { ICancelableRenderTask } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPdfPageRenderContentIntent } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { MaybeRefOrGetter } from 'vue';
-import type { PDFPageProxy } from 'pdfjs-dist';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createHiddenAnnotationOperationsFilter } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter';
@@ -16,7 +16,7 @@ import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
 
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
-    viewport: ReturnType<PDFPageProxy['getViewport']>;
+    viewport: ReturnType<IPdfPage['getViewport']>;
     annotationCanvasMap: Map<string, HTMLCanvasElement> | null;
     scaleX: number;
     scaleY: number;
@@ -72,6 +72,7 @@ export const usePdfCanvasRenderer = (deps: {
     outputScale: MaybeRefOrGetter<number>;
     viewRotation?: MaybeRefOrGetter<TPdfViewRotation>;
     defaultMaxCanvasPixels?: number | undefined;
+    annotationProjectionReady?: MaybeRefOrGetter<boolean>;
 }) => {
     const {
         outputScale,
@@ -212,7 +213,7 @@ export const usePdfCanvasRenderer = (deps: {
     }
 
     async function createAnnotationRenderOptions(
-        pdfPage: PDFPageProxy,
+        pdfPage: IPdfPage,
         options?: IRenderCanvasOptions,
     ) {
         if (
@@ -222,6 +223,13 @@ export const usePdfCanvasRenderer = (deps: {
             return {
                 annotationCanvasMap: null,
                 annotationMode: AnnotationMode.DISABLE,
+                operationsFilter: undefined,
+            };
+        }
+        if (toValue(deps.annotationProjectionReady ?? true) === false) {
+            return {
+                annotationCanvasMap: null,
+                annotationMode: AnnotationMode?.DISABLE ?? 0,
                 operationsFilter: undefined,
             };
         }
@@ -248,7 +256,7 @@ export const usePdfCanvasRenderer = (deps: {
     }
 
     async function prepareCanvasRender(
-        pdfPage: PDFPageProxy,
+        pdfPage: IPdfPage,
         scale: number,
         options?: IRenderCanvasOptions,
     ): Promise<IPreparedCanvasRender | null> {
@@ -363,7 +371,7 @@ export const usePdfCanvasRenderer = (deps: {
     }
 
     async function renderCanvas(
-        pdfPage: PDFPageProxy,
+        pdfPage: IPdfPage,
         scale: number,
         options?: IRenderCanvasOptions,
     ): Promise<ICanvasRenderResult | null> {

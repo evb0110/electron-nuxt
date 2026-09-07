@@ -96,7 +96,7 @@ function deferred<T>() {
 function createHarness(path: string | null = '/tmp/work.pdf', options: {
     documentRevisionToken?: TDocumentRevisionToken | null;
     ensureHistoryBaselineForMutation?: () => Promise<boolean>;
-    materializeAnnotationsForPageMutation?: () => Promise<boolean>;
+    saveAnnotationsForPageMutation?: () => Promise<boolean>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
     runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 } = {}) {
@@ -113,8 +113,8 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
         workingCopyPath,
         documentRevisionToken,
         ensureHistoryBaselineForMutation,
-        ...(options.materializeAnnotationsForPageMutation
-            ? {materializeAnnotationsForPageMutation: options.materializeAnnotationsForPageMutation}
+        ...(options.saveAnnotationsForPageMutation
+            ? {saveAnnotationsForPageMutation: options.saveAnnotationsForPageMutation}
             : {}),
         reloadWorkingCopyIntoHistory,
         clearOcrCache,
@@ -223,7 +223,7 @@ describe('usePageOperations', () => {
         invoke,
     }) => {
         const callOrder: string[] = [];
-        const materializeAnnotationsForPageMutation = vi.fn(async () => {
+        const saveAnnotationsForPageMutation = vi.fn(async () => {
             callOrder.push('materialize-and-reload');
             return true;
         });
@@ -234,7 +234,7 @@ describe('usePageOperations', () => {
         const {
             pageOps,
             reloadWorkingCopyIntoHistory,
-        } = createHarness('/tmp/work.pdf', {materializeAnnotationsForPageMutation});
+        } = createHarness('/tmp/work.pdf', {saveAnnotationsForPageMutation});
 
         await expect(invoke(pageOps)).resolves.toBe(true);
 
@@ -242,7 +242,7 @@ describe('usePageOperations', () => {
             'materialize-and-reload',
             api,
         ]);
-        expect(materializeAnnotationsForPageMutation).toHaveBeenCalledOnce();
+        expect(saveAnnotationsForPageMutation).toHaveBeenCalledOnce();
         expect(reloadWorkingCopyIntoHistory).toHaveBeenCalledWith({markDirty: true});
     });
 
@@ -411,11 +411,11 @@ describe('usePageOperations', () => {
 
     it('performs no page-operation writes when history staging fails', async () => {
         const ensureWorkingCopyFreshForRead = vi.fn(async () => true);
-        const materializeAnnotationsForPageMutation = vi.fn(async () => true);
+        const saveAnnotationsForPageMutation = vi.fn(async () => true);
         const {pageOps} = createHarness('/tmp/work.pdf', {
             ensureHistoryBaselineForMutation: async () => false,
             ensureWorkingCopyFreshForRead,
-            materializeAnnotationsForPageMutation,
+            saveAnnotationsForPageMutation,
         });
 
         await expect(pageOps.rotatePages([1], 10, 90)).resolves.toBe(false);
@@ -425,7 +425,7 @@ describe('usePageOperations', () => {
             reason: 'history-baseline',
         });
         expect(ensureWorkingCopyFreshForRead).not.toHaveBeenCalled();
-        expect(materializeAnnotationsForPageMutation).not.toHaveBeenCalled();
+        expect(saveAnnotationsForPageMutation).not.toHaveBeenCalled();
         expect(pageOpsApi.rotate).not.toHaveBeenCalled();
     });
 

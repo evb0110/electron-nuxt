@@ -718,7 +718,7 @@ export const useDocumentPageSourceRuntime = (options: {
     });
     const renderPage = presentation.renderPage;
     async function renderMountedPages() {
-        if (props.value.isResizing) {
+        if (props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
             return;
         }
         await nextTick();
@@ -779,7 +779,7 @@ export const useDocumentPageSourceRuntime = (options: {
         onResizeSettled: () => scheduleRender.schedule(),
     });
     function handleScroll(event?: Event) {
-        if (!viewerContainer.value || props.value.isResizing) {
+        if (!viewerContainer.value || props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
             return;
         }
         const nextScrollTop = viewerContainer.value.scrollTop;
@@ -1134,6 +1134,9 @@ export const useDocumentPageSourceRuntime = (options: {
         if (!props.value.isResizing) scheduleRender.schedule();
     });
     function retainOnlyPageStates(pages: readonly number[]) {
+        if (props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
+            return;
+        }
         const retainedPages = new Set(pages);
         for (const pageNumber of presentation.pageStates.keys()) {
             if (!retainedPages.has(pageNumber)) {

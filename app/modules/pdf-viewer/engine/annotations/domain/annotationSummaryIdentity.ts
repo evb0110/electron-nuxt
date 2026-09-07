@@ -1,8 +1,3 @@
-import { requirePageIndex } from '@contracts/pageNumbers';
-import type { TPageIndex } from '@contracts/pageNumbers';
-import { parseEpochMs } from '@contracts/timestamps';
-
-import { uniq } from 'es-toolkit/array';
 import type {
     IAnnotationCommentSummary,
     TAnnotationStableKey,
@@ -14,17 +9,16 @@ import {
     deriveAnnotationId,
     type AnnotationId,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { createEpochMs } from '@contracts/timestamps';
 
 export interface IComputeSummaryStableKeyParams {
-    pageIndex: TPageIndex;
+    pageIndex: number;
     id: string;
     source: IAnnotationCommentSummary['source'];
     uid?: string | null;
     annotationId?: string | null;
     annotationName?: string | null;
 }
-
-export type TComputeSummaryStableKey = (params: IComputeSummaryStableKeyParams) => TAnnotationStableKey;
 
 type TAnnotationCommentMatchInput = Pick<
     IAnnotationCommentSummary,
@@ -36,29 +30,16 @@ export function computeSummaryStableKey(params: IComputeSummaryStableKeyParams):
     if (annotationName) {
         return `nm:${annotationName}`;
     }
-    if (params.annotationId) {
-        return `ann:${params.pageIndex}:${params.annotationId}`;
-    }
-    if (params.uid) {
-        return `uid:${params.pageIndex}:${params.uid}`;
-    }
-    return `src:${params.source}:${params.pageIndex}:${params.id}`;
-}
-
-export function getReplayableFreeTextNoteName(input: {
-    stableKey: string;
-    createdAt: IAnnotationCommentSummary['createdAt'];
-}) {
-    const stableKey = input.stableKey.trim();
-    if (!stableKey) {
-        return null;
-    }
-    const createdAt = typeof input.createdAt === 'number' && Number.isFinite(input.createdAt)
-        ? Math.trunc(input.createdAt)
-        : null;
-    return createdAt && createdAt > 0
-        ? `evb-note:${stableKey}:created:${createdAt}`
-        : `evb-note:${stableKey}`;
+    // The canonical identity has one external binding. Keep summary keys in
+    // the same two-arm shape even while PDF.js still exposes its legacy ids.
+    const annotationId = params.annotationId?.trim();
+    const uid = params.uid?.trim();
+    const externalId = annotationId?.length
+        ? annotationId
+        : uid?.length
+            ? uid
+            : `${params.source}:${params.id}`;
+    return `ann:${params.pageIndex}:${externalId}`;
 }
 
 /** Canonical command/UI identity. Stable keys remain serializer/DOM bindings. */
@@ -76,20 +57,20 @@ export function annotationIdForSummary(summary: TAnnotationCommentMatchInput): A
     );
 }
 
-export function toCanonicalStableKey(
+function toCanonicalStableKey(
     summary: Pick<IAnnotationCommentSummary, 'id' | 'pageIndex' | 'source' | 'uid' | 'annotationId' | 'annotationName'>,
 ) {
     return computeSummaryStableKey({
         id: summary.id,
-        pageIndex: requirePageIndex(summary.pageIndex),
+        pageIndex: summary.pageIndex,
         source: summary.source,
-        ...(summary.uid !== null ? {uid: summary.uid} : {}),
-        ...(summary.annotationId !== null ? {annotationId: summary.annotationId} : {}),
+        ...(summary.uid !== undefined ? {uid: summary.uid} : {}),
+        ...(summary.annotationId !== undefined ? {annotationId: summary.annotationId} : {}),
         ...(summary.annotationName !== undefined ? {annotationName: summary.annotationName} : {}),
     });
 }
 
-export function normalizeSummaryStableKey(summary: IAnnotationCommentSummary): IAnnotationCommentSummary {
+function normalizeSummaryStableKey(summary: IAnnotationCommentSummary): IAnnotationCommentSummary {
     return {
         ...summary,
         stableKey: toCanonicalStableKey(summary),
@@ -120,17 +101,7 @@ export function annotationCommentsMatch(left: TAnnotationCommentMatchInput, righ
     return left.id === right.id && left.pageIndex === right.pageIndex && left.source === right.source;
 }
 
-export function getCommentCandidateIds(comment: IAnnotationCommentSummary) {
-    return uniq([
-        comment.appAnnotationId,
-        comment.annotationName,
-        comment.annotationId,
-        comment.uid,
-        comment.id,
-    ].filter((value): value is string => Boolean(value?.trim())));
-}
-
-export function commentMergePriority(comment: IAnnotationCommentSummary) {
+function commentMergePriority(comment: IAnnotationCommentSummary) {
     if (comment.appAnnotationId) {
         return 5;
     }
@@ -161,7 +132,7 @@ function selectPreferredAnnotationComment(left: IAnnotationCommentSummary, right
     return left;
 }
 
-export function mergeCommentSummaries(existing: IAnnotationCommentSummary, incoming: IAnnotationCommentSummary) {
+function mergeCommentSummaries(existing: IAnnotationCommentSummary, incoming: IAnnotationCommentSummary) {
     if (!annotationCommentsMatch(existing, incoming)) {
         throw new Error('Cannot merge annotation summaries without an exact identity binding');
     }
@@ -181,7 +152,10 @@ export function mergeCommentSummaries(existing: IAnnotationCommentSummary, incom
         uid: preferred.uid ?? fallback.uid,
         text: preferred.text.trim() ? preferred.text : fallback.text,
         author: preferred.author ?? fallback.author,
-        modifiedAt: parseEpochMs(Math.max(preferred.modifiedAt ?? 0, fallback.modifiedAt ?? 0)) ?? null,
+        modifiedAt: (() => {
+            const value = Math.max(preferred.modifiedAt ?? 0, fallback.modifiedAt ?? 0);
+            return value > 0 ? createEpochMs(value) : null;
+        })(),
         color: preferred.color ?? fallback.color,
         hasNote: preferred.hasNote === true || fallback.hasNote === true,
         ...(appAnnotationId ? {appAnnotationId} : {}),
@@ -195,17 +169,12 @@ export function mergeCommentSummaries(existing: IAnnotationCommentSummary, incom
     return normalizeSummaryStableKey(merged);
 }
 
-export const mergeDuplicateCommentSummary = mergeCommentSummaries;
-
 export function dedupeAnnotationCommentSummaries(comments: IAnnotationCommentSummary[]) {
     const merged: IAnnotationCommentSummary[] = [];
     for (const comment of comments.map(normalizeSummaryStableKey)) {
         const index = merged.findIndex(candidate => annotationCommentsMatch(candidate, comment));
         if (index === -1) merged.push(comment);
-        else {
-            const existing = merged[index];
-            if (existing) merged[index] = mergeCommentSummaries(existing, comment);
-        }
+        else merged[index] = mergeCommentSummaries(merged[index]!, comment);
     }
     return merged.sort(compareAnnotationCommentSummaries);
 }

@@ -172,8 +172,9 @@ describe('package scripts', () => {
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
         // Keep the public surface bounded while retaining explicit operator
         // entry points for the affected scan-cleanup, canonical-identity,
-        // OCR-quality, xlarge-PDF gates, and Windows lab input preparation.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(120);
+        // OCR-quality, xlarge-PDF gates, Windows lab input preparation, and
+        // the documented pinned pdf.js provenance check.
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(121);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);

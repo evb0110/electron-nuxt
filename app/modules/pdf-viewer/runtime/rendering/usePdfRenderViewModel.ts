@@ -1,15 +1,14 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
-
+import type {
+    IPdfDocument,
+    IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
     ComputedRef,
     Ref,
     ShallowRef,
 } from 'vue';
-import type { IMarkerViewModel } from '@app/modules/pdf-viewer/engine/annotations/types';
 import { usePdfViewerLoadingState } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState';
 import type {
-    PDFDocumentProxy,
-    PDFPageProxy,
     TFitMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
@@ -23,8 +22,8 @@ import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/cha
 interface IUsePdfRenderViewModelOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
-    pdfDocument: ShallowRef<PDFDocumentProxy | null>;
-    getPage: (pageNumber: TPageNumber) => Promise<PDFPageProxy>;
+    pdfDocument: ShallowRef<IPdfDocument | null>;
+    getPage: (pageNumber: number) => Promise<IPdfPage>;
     openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     isVisualReloadTransitionActive: Ref<boolean>;
     suppressLoadingOverlay: ComputedRef<boolean>;
@@ -46,7 +45,6 @@ interface IUsePdfRenderViewModelOptions {
     effectiveScale: Ref<number>;
     continuousScroll: ComputedRef<boolean>;
     numPages: Ref<number>;
-    markersByPage: Ref<Map<number, IMarkerViewModel[]>>;
     linksByPage: ComputedRef<Record<number, ILinkAnnotation[]>>;
 }
 
@@ -77,9 +75,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         || isInitialSkeletonGeometryPending.value
     ));
 
-    const visibleMarkersByPage = computed(() => (
-        new Map([...options.markersByPage.value].filter(([page]) => options.isPageRenderedForClass(page)))
-    ));
     const visibleLinksByPage = computed(() => (
         isViewerLoadingOverlayVisible.value
             ? emptyLinksByPage
@@ -106,10 +101,9 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
 
     return {
         isViewerLoadingOverlayVisible,
-        visibleMarkersByPage,
         visibleLinksByPage,
         shouldShowPageSkeleton,
         isPageRenderFailed: options.isPageRenderFailed,
-        markPageRendered: (_pageNumber: TPageNumber) => {},
+        markPageRendered: (_pageNumber: number) => {},
     };
 };

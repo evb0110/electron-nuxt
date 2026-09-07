@@ -372,7 +372,7 @@ function seedFromExistingIndex(
         page.pageNumber,
         {
             pageNumber: page.pageNumber,
-            text: page.text ?? '',
+            text: page.text,
             ...(page.pageWidth !== undefined ? { pageWidth: page.pageWidth } : {}),
             ...(page.pageHeight !== undefined ? { pageHeight: page.pageHeight } : {}),
             ...(page.rotation !== undefined ? { rotation: page.rotation } : {}),
@@ -392,7 +392,7 @@ function shouldExtractPdfText(
     if (existing.schemaVersion !== SEARCH_INDEX_SCHEMA_VERSION) {
         return true;
     }
-    const hasAnyText = Array.from(pagesByNumber.values()).some(p => (p.text ?? '').length > 0);
+    const hasAnyText = Array.from(pagesByNumber.values()).some(p => p.text.length > 0);
     if (!hasAnyText) {
         return true;
     }

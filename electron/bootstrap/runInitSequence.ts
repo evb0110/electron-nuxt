@@ -116,6 +116,7 @@ export interface IRunInitSequenceOptions {
     }): boolean;
     shutdownCoordinator: IShutdownCoordinator | null;
     sweepStaleDefaultAppTempPdfs(): Promise<unknown>;
+    sweepStalePdfAnnotationParseArtifacts?: () => Promise<unknown>;
     sweepStalePdfAnnotationIndexArtifacts?: () => Promise<unknown>;
     sweepStalePdfEmbeddedShapeIndexArtifacts?: () => Promise<unknown>;
     sweepStaleManagedScratchTempDirs?: () => Promise<unknown>;
@@ -162,7 +163,7 @@ function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOpt
         claim.timeout = setTimeout(() => {
             requeue(sender, 'claim timeout');
         }, STARTUP_EXTERNAL_OPEN_CLAIM_TIMEOUT_MS);
-        claim.timeout.unref?.();
+        claim.timeout.unref();
         claimsBySender.set(sender, claim);
     }
 
@@ -366,6 +367,7 @@ function createPostRendererReadyMaintenanceRunner(
         cleanupStaleAppTempNamespaces,
         logger,
         sweepStaleDefaultAppTempPdfs,
+        sweepStalePdfAnnotationParseArtifacts,
         sweepStalePdfAnnotationIndexArtifacts,
         sweepStalePdfEmbeddedShapeIndexArtifacts,
         sweepStaleManagedScratchTempDirs,
@@ -412,6 +414,12 @@ function createPostRendererReadyMaintenanceRunner(
             ? [{
                 label: 'PDF annotation index sidecars',
                 run: sweepStalePdfAnnotationIndexArtifacts,
+            }]
+            : []),
+        ...(sweepStalePdfAnnotationParseArtifacts
+            ? [{
+                label: 'PDF annotation parse sidecars',
+                run: sweepStalePdfAnnotationParseArtifacts,
             }]
             : []),
         ...(sweepStalePdfEmbeddedShapeIndexArtifacts

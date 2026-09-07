@@ -38,7 +38,7 @@ async function loadReleaseCohortCookie(metadataUrl: string, logger: IReleaseMeta
 
     releaseCohortCookieLoadPromise = (async () => {
         try {
-            const cookies = await session?.defaultSession?.cookies.get({
+            const cookies = await session.defaultSession.cookies.get({
                 name: RELEASE_COHORT_COOKIE_NAME,
                 url: metadataUrl,
             });
@@ -78,7 +78,7 @@ function getReleaseCohortCookieValue(response: Response) {
 async function persistReleaseCohortCookie(value: string, sourceUrl: string, logger: IReleaseMetadataLogger) {
     releaseCohortCookie = value;
     try {
-        await session?.defaultSession?.cookies.set({
+        await session.defaultSession.cookies.set({
             expirationDate: Math.floor(Date.now() / 1000) + RELEASE_COHORT_COOKIE_MAX_AGE_SECONDS,
             httpOnly: true,
             name: RELEASE_COHORT_COOKIE_NAME,

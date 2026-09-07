@@ -5,7 +5,8 @@ import {
     it,
 } from 'vitest';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/areBookmarkEntriesEqual';
+import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-outline-tree/areBookmarkEntriesEqual';
+import { cast } from '@tests/helpers/cast';
 
 function createEntry(
     title: string,
@@ -91,12 +92,16 @@ describe('areBookmarkEntriesEqual', () => {
     });
 
     it('ignores serialization artifacts that persistence would normalize away', () => {
-        // This is deliberately malformed persisted data. The equality helper
-        // owns normalization, so the fixture crosses that input boundary once.
-        const artifact = createEntry('Chapter', {color: null});
-        Reflect.deleteProperty(artifact, 'color');
-        Object.assign(artifact, {unknownField: 'ignored'});
-        const artifacts = [artifact];
+        const artifacts = [cast<IPdfBookmarkEntry>({
+            title: 'Chapter',
+            pageIndex: 3,
+            pageYRatio: 0.5,
+            namedDest: 'anchor',
+            bold: false,
+            italic: false,
+            items: [],
+            unknownField: 'ignored',
+        })];
 
         expectSymmetricEquality([createEntry('Chapter', { color: null })], artifacts, true);
     });
@@ -210,10 +215,15 @@ describe('areBookmarkEntriesEqual', () => {
     });
 
     it('survives entries whose title never made it through a malformed payload', () => {
-        // Exercise the persisted-payload case where title was omitted.
-        const malformedEntry = createEntry('', {color: '#112233'});
-        Reflect.deleteProperty(malformedEntry, 'title');
-        const malformed = [malformedEntry];
+        const malformed = [cast<IPdfBookmarkEntry>({
+            pageIndex: 3,
+            pageYRatio: 0.5,
+            namedDest: 'anchor',
+            bold: false,
+            italic: false,
+            color: '#112233',
+            items: [],
+        })];
 
         expectSymmetricEquality([createEntry('')], malformed, true);
         expectSymmetricEquality([createEntry('Chapter')], malformed, false);

@@ -98,7 +98,6 @@ async function createPdfjsDocumentInitFromBrowserDocument(
     }
 
     const init = {
-        length: size,
         range: new BrowserDocumentRangeTransport(),
         rangeChunkSize: PDFJS_RANGE_CHUNK_SIZE,
         disableAutoFetch: true,
