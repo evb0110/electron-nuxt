@@ -45,6 +45,7 @@ tests/unit/electron/xlargeSearchRouting.test.ts
   s_cf236b178e7f63::t_8bca811c5883cd 14,19
 tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts
   s_cf236b178e7f63::t_8bca811c5883cd 9
+  s_c63d7a8363f7e9::t_dde83c9f93beda 58,61
 electron/features/search/stringifyLegacyJsonSearchIndex.ts
   s_cf236b178e7f63::t_58d80da03026f8 1-57,59-68,70-119
 tests/unit/electron/searchIndexSidecar.test.ts
@@ -133,6 +134,14 @@ tests/unit/electron/nativeSearchIndex.test.ts
   "base_commit_sha": "fc280972935795e5bacac0ca6dedb4a3d6bf6873",
   "prompts": {},
   "sessions": {
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
     "s_cf236b178e7f63": {
       "agent_id": {
         "tool": "codex",
