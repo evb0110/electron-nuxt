@@ -5219,6 +5219,7 @@ describe('scan cleanup pipeline', () => {
     // reporting its conditions as the sentences it stored.
     async function runRasterWarningEventPipeline(
         metadataByPage: (pageNumber: number) => Record<string, unknown>,
+        structuredWarningEventsSupported = false,
     ) {
         const fixture = await setup();
         const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(
@@ -5247,6 +5248,9 @@ describe('scan cleanup pipeline', () => {
                         ...metadataByPage(page.sourcePageIndex + 1),
                     }));
                 }
+                return structuredWarningEventsSupported
+                    ? {structuredWarningEventsSupported: true}
+                    : undefined;
             },
         );
         const pipelineDependencies = dependencies(runSidecar);
@@ -5342,6 +5346,16 @@ describe('scan cleanup pipeline', () => {
             : {warnings: []}));
 
         expect(summary.warnings).toEqual([`Page 1: ${legacySentence}`]);
+    });
+
+    it('keeps native warning strings reportable on the structured-events path', async () => {
+        const warning = 'Deskew was skipped because the native page had no usable content box';
+        const summary = await runRasterWarningEventPipeline(
+            pageNumber => (pageNumber === 1 ? {warnings: [warning]} : {warnings: []}),
+            true,
+        );
+
+        expect(summary.warnings).toContain(`Page 1: ${warning}`);
     });
 
     it('uses one pair-wide fit when either lossless spread leaf reaches the margin box', async () => {

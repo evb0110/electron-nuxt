@@ -198,6 +198,25 @@ async function runNativeToolProtocolHandshake(
     const result = await runNativeCommand(command, ['--protocol-version'], commandOptions);
     const handshake = parseProtocolHandshake(toolName, expectedVersion, result.stdout.trim());
     const knownCapabilities = nativeToolProtocolCapabilities.get(toolName) ?? [];
+    if (handshake.capabilities === undefined
+        && toolName === 'evb-scan-cleanup'
+        && handshake.protocolVersion >= 10) {
+        throw new NativeToolProtocolCapabilityError(
+            toolName,
+            'scalar revisions cannot advertise revision-10 capabilities',
+        );
+    }
+    const claimedTooEarly = knownCapabilities.find(capability => (
+        handshake.capabilities?.includes(capability.name) === true
+        && capability.introducedIn > handshake.protocolVersion
+    ));
+    if (claimedTooEarly !== undefined) {
+        throw new NativeToolProtocolCapabilityError(
+            toolName,
+            `capability ${claimedTooEarly.name} was introduced in revision ${claimedTooEarly.introducedIn}`,
+            claimedTooEarly.name,
+        );
+    }
     const capabilities = handshake.capabilities ?? knownCapabilities
         .filter(capability => capability.introducedIn <= handshake.protocolVersion)
         .map(capability => capability.name);

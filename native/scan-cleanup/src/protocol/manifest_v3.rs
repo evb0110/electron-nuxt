@@ -6,7 +6,6 @@ use std::{
     collections::HashSet,
     fs,
     path::{Component, Path, PathBuf},
-    sync::{Mutex, OnceLock},
 };
 
 pub const VERSION: u32 = 3;
@@ -301,24 +300,31 @@ pub struct ManifestV3 {
 
 const MANIFEST_DIAGNOSTICS_ENV: &str = "EVB_SCAN_CLEANUP_PROTOCOL_DIAGNOSTICS";
 
-fn manifest_diagnostic_fields() -> &'static Mutex<HashSet<String>> {
-    static FIELDS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    FIELDS.get_or_init(|| Mutex::new(HashSet::new()))
-}
-
 fn manifest_diagnostics_enabled() -> bool {
     std::env::var_os(MANIFEST_DIAGNOSTICS_ENV).is_some()
 }
 
-fn log_unknown_manifest_field(path: &str) {
-    if !manifest_diagnostics_enabled() {
-        return;
+#[derive(Default)]
+struct ManifestDiagnostics {
+    enabled: bool,
+    fields: HashSet<String>,
+    stderr_lines: Vec<String>,
+}
+
+impl ManifestDiagnostics {
+    fn from_environment() -> Self {
+        Self {
+            enabled: manifest_diagnostics_enabled(),
+            ..Self::default()
+        }
     }
-    let mut fields = manifest_diagnostic_fields()
-        .lock()
-        .expect("manifest diagnostics lock is not poisoned");
-    if fields.insert(path.to_string()) {
-        eprintln!("scan-cleanup manifest ignored unknown field: {path}");
+
+    fn log_unknown_field(&mut self, path: &str) {
+        if self.enabled && self.fields.insert(path.to_string()) {
+            let line = format!("scan-cleanup manifest ignored unknown field: {path}");
+            self.stderr_lines.push(line.clone());
+            eprintln!("{line}");
+        }
     }
 }
 
@@ -459,7 +465,12 @@ fn allowed_manifest_fields(kind: &str) -> &'static [&'static str] {
     }
 }
 
-fn sanitize_manifest_value(value: &mut serde_json::Value, kind: &str, path: &str) {
+fn sanitize_manifest_value(
+    value: &mut serde_json::Value,
+    kind: &str,
+    path: &str,
+    diagnostics: &mut ManifestDiagnostics,
+) {
     let Some(object) = value.as_object_mut() else {
         return;
     };
@@ -471,7 +482,7 @@ fn sanitize_manifest_value(value: &mut serde_json::Value, kind: &str, path: &str
         .collect::<Vec<_>>();
     for key in unknown {
         object.remove(&key);
-        log_unknown_manifest_field(&format!("{path}.{key}"));
+        diagnostics.log_unknown_field(&format!("{path}.{key}"));
     }
     let child_kind = |key: &str| match (kind, key) {
         ("manifest", "documentCanvas") => Some("canvas"),
@@ -518,13 +529,28 @@ fn sanitize_manifest_value(value: &mut serde_json::Value, kind: &str, path: &str
         if let Some(array_kind) = child_kind.strip_suffix("[]") {
             if let Some(items) = child.as_array_mut() {
                 for (index, item) in items.iter_mut().enumerate() {
-                    sanitize_manifest_value(item, array_kind, &format!("{child_path}[{index}]"));
+                    sanitize_manifest_value(
+                        item,
+                        array_kind,
+                        &format!("{child_path}[{index}]"),
+                        diagnostics,
+                    );
                 }
             }
         } else if child_kind != "scalar" {
-            sanitize_manifest_value(child, child_kind, &child_path);
+            sanitize_manifest_value(child, child_kind, &child_path, diagnostics);
         }
     }
+}
+
+fn deserialize_manifest_value(
+    mut value: serde_json::Value,
+    diagnostics: &mut ManifestDiagnostics,
+) -> Result<ManifestV3, String> {
+    sanitize_manifest_value(&mut value, "manifest", "$", diagnostics);
+    ManifestV3Wire::deserialize(value)
+        .map(Into::into)
+        .map_err(|error| error.to_string())
 }
 
 #[derive(Deserialize)]
@@ -573,17 +599,9 @@ impl<'de> Deserialize<'de> for ManifestV3 {
     where
         D: serde::Deserializer<'de>,
     {
-        if std::env::var_os(MANIFEST_DIAGNOSTICS_ENV).is_some() {
-            manifest_diagnostic_fields()
-                .lock()
-                .expect("manifest diagnostics lock is not poisoned")
-                .clear();
-        }
-        let mut value = serde_json::Value::deserialize(deserializer)?;
-        sanitize_manifest_value(&mut value, "manifest", "$");
-        ManifestV3Wire::deserialize(value)
-            .map(Into::into)
-            .map_err(|error| serde::de::Error::custom(error.to_string()))
+        let mut diagnostics = ManifestDiagnostics::from_environment();
+        let value = serde_json::Value::deserialize(deserializer)?;
+        deserialize_manifest_value(value, &mut diagnostics).map_err(serde::de::Error::custom)
     }
 }
 
@@ -1107,28 +1125,40 @@ mod tests {
 
     #[test]
     fn diagnostics_are_opt_in_and_deduplicate_unknown_paths_per_run() {
-        manifest_diagnostic_fields()
-            .lock()
-            .expect("manifest diagnostics lock is not poisoned")
-            .clear();
-        std::env::remove_var(MANIFEST_DIAGNOSTICS_ENV);
-        log_unknown_manifest_field("$.futureField");
-        assert!(manifest_diagnostic_fields()
-            .lock()
-            .expect("manifest diagnostics lock is not poisoned")
-            .is_empty());
+        let json = r#"{
+            "version":3,"operation":"analyze","renderMode":"preview","canvasScope":"page",
+            "futureRoot":true,"pages":[{"inputPath":"in.png","sourcePageIndex":0,
+            "pageMetadataPath":"page.json","futurePage":true,"outputs":[],"options":{}}]
+        }"#;
+        let mut disabled = ManifestDiagnostics {
+            enabled: false,
+            ..ManifestDiagnostics::default()
+        };
+        let disabled_value: serde_json::Value = serde_json::from_str(json).unwrap();
+        deserialize_manifest_value(disabled_value, &mut disabled).unwrap();
+        assert!(disabled.stderr_lines.is_empty());
 
-        std::env::set_var(MANIFEST_DIAGNOSTICS_ENV, "1");
-        log_unknown_manifest_field("$.futureField");
-        log_unknown_manifest_field("$.futureField");
+        let mut first_run = ManifestDiagnostics {
+            enabled: true,
+            ..ManifestDiagnostics::default()
+        };
+        let first_value: serde_json::Value = serde_json::from_str(json).unwrap();
+        deserialize_manifest_value(first_value, &mut first_run).unwrap();
+        assert_eq!(first_run.stderr_lines.len(), 2);
         assert_eq!(
-            manifest_diagnostic_fields()
-                .lock()
-                .expect("manifest diagnostics lock is not poisoned")
-                .len(),
-            1
+            first_run.stderr_lines[0],
+            "scan-cleanup manifest ignored unknown field: $.futureRoot"
         );
-        std::env::remove_var(MANIFEST_DIAGNOSTICS_ENV);
+        first_run.log_unknown_field("$.futureRoot");
+        assert_eq!(first_run.stderr_lines.len(), 2);
+
+        let mut second_run = ManifestDiagnostics {
+            enabled: true,
+            ..ManifestDiagnostics::default()
+        };
+        let second_value: serde_json::Value = serde_json::from_str(json).unwrap();
+        deserialize_manifest_value(second_value, &mut second_run).unwrap();
+        assert_eq!(second_run.stderr_lines, first_run.stderr_lines);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import releaseTargetManifest from './generated-release-targets.cjs';
 
-/** @typedef {{allowedExitCodes: Set<number>, expectedOutputTokens: string[]}} IToolSmokePolicy */
+/** @typedef {{allowedExitCodes: Set<number>, expectedOutputTokens: string[], requiredOutputTokens?: string[]}} IToolSmokePolicy */
 
 export const RELEASE_TARGET_MANIFEST = releaseTargetManifest.manifest;
 
@@ -59,6 +59,12 @@ const PACKAGED_TOOL_SMOKE_POLICY = {
     'evb-scan-cleanup-protocol': {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: [String(getGeneratedProtocolVersion('evb-scan-cleanup'))],
+        requiredOutputTokens: [
+            '"protocolVersion":10',
+            '"capabilities"',
+            '"manifest-v3"',
+            '"structured-warning-events"',
+        ],
     },
     ddjvu: {
         allowedExitCodes: new Set([
@@ -155,5 +161,12 @@ export function assertPackagedToolSmoke(toolName, exitCode, output) {
         throw new Error(
             `Packaged tool smoke test output for ${toolName} did not match any expected signature`,
         );
+    }
+    for (const token of policy.requiredOutputTokens ?? []) {
+        if (!normalizedOutput.includes(token.toLowerCase())) {
+            throw new Error(
+                `Packaged tool smoke test output for ${toolName} did not contain required token ${token}`,
+            );
+        }
     }
 }

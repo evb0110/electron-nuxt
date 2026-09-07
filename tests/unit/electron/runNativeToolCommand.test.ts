@@ -301,6 +301,40 @@ describe('runNativeToolCommand', () => {
         });
     });
 
+    it('rejects scalar scan-cleanup revision 10 because it cannot advertise capabilities', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: '10\n',
+        });
+        const {verifyNativeToolProtocol} = await loadModule();
+
+        await expect(verifyNativeToolProtocol('/tools/evb-scan-cleanup')).rejects.toMatchObject({
+            name: 'NativeToolProtocolCapabilityError',
+            capability: null,
+        });
+    });
+
+    it('rejects a structured revision 9 handshake claiming a revision 10 capability', async () => {
+        mocks.runNativeCommand.mockResolvedValueOnce({
+            exitCode: 0,
+            stderr: '',
+            stdout: JSON.stringify({
+                protocolVersion: 9,
+                capabilities: [
+                    'manifest-v3',
+                    'structured-warning-events',
+                ],
+            }) + '\n',
+        });
+        const {verifyNativeToolProtocol} = await loadModule();
+
+        await expect(verifyNativeToolProtocol('/tools/evb-scan-cleanup')).rejects.toMatchObject({
+            name: 'NativeToolProtocolCapabilityError',
+            capability: 'structured-warning-events',
+        });
+    });
+
     it('consumes structured capability names from a newer handshake', async () => {
         mocks.runNativeCommand.mockResolvedValueOnce({
             exitCode: 0,

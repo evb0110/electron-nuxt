@@ -392,7 +392,7 @@ export type TScanCleanupRunSidecar = (
         priority?: 'background';
         allowedPathRoot?: string;
     },
-) => Promise<IScanCleanupSidecarProtocolCapabilities> | Promise<void>;
+) => Promise<IScanCleanupSidecarProtocolCapabilities | undefined> | Promise<void>;
 
 export type TScanCleanupRequirePublishedRaster = (
     path: string | undefined,
