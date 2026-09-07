@@ -2443,7 +2443,9 @@ mod tests {
         map_raster_error, parse_cli_args, ManifestV3, PlanningManifest, ScanCleanupCliInvocation,
     };
     use super::{PageResultMetadata, PageRunResult};
-    use crate::engine::batch_reconciliation::ReconciliationAction;
+    use crate::engine::batch_reconciliation::{
+        reconcile_classification_batch, ReconciliationAction, ReconciliationPolicy,
+    };
     use crate::engine::resource_planning::{manifest_cache, page_cache_for};
     use crate::engine::resource_planning::{CleanupOptionsView, PageDescriptor, PlanningOperation};
     use crate::engine::staged_input::StagedPageDescriptor;
@@ -2546,6 +2548,105 @@ mod tests {
         assert_eq!(metadata.document_prior, Some(prior));
         assert_eq!(metadata.output_count, 2);
         assert_eq!(metadata.split_seam, Some(seam));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reconciliation_does_not_skip_a_prior_rerun_for_nonregular_input() {
+        let dir = PathBuf::from(format!("/tmp/evb-scan-reconcile-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("already-consumed-input");
+        fs::create_dir(&input).unwrap();
+        let manifest = ManifestV3 {
+            version: crate::protocol::manifest_v3::VERSION,
+            operation: crate::protocol::manifest_v3::Operation::Analyze,
+            analysis_purpose: crate::protocol::manifest_v3::AnalysisPurpose::Classification,
+            render_mode: crate::protocol::manifest_v3::RenderMode::Preview,
+            canvas_scope: CanvasScope::default(),
+            document_canvas: None,
+            host_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+            raster_window: 1,
+            staged_input_window: None,
+            staged_input_peak_pixels: None,
+            pages: (0..4)
+                .map(|index| Page {
+                    input_path: input.clone(),
+                    analysis_input_path: None,
+                    analysis_dpi: None,
+                    trusted_foreground_mask_path: None,
+                    trusted_mrc_background_path: None,
+                    source_page_index: index,
+                    page_metadata_path: dir.join(format!("page-{index}.json")),
+                    options: CleanupOptions::default(),
+                    document_prior: None,
+                    detail_render_plan: None,
+                    outputs: Vec::new(),
+                })
+                .collect(),
+        };
+        let metadata = |index, verdict, confidence| PageResultMetadata {
+            source_page_index: index,
+            layout_classification: verdict,
+            layout_confidence: confidence,
+            cutter_x_px: (verdict == LayoutClassification::TwoPageSpread).then_some(120.0),
+            split_seam: None,
+            rotation_degrees: OrthogonalRotation::None,
+            canvas_scope: CanvasScope::default(),
+            excluded: false,
+            blank_outputs_skipped: 0,
+            output_count: usize::from(verdict == LayoutClassification::TwoPageSpread) + 1,
+            outputs: Vec::new(),
+            tier1_verdict: verdict,
+            reconciled: false,
+            cluster_agreement: 0.0,
+            split_diagnostics: crate::split::SplitDiagnostics::default(),
+            document_prior: None,
+            text_axis: None,
+            recommended_output_mode: None,
+            recommended_output_mode_confidence: None,
+            recommended_output_mode_reason: None,
+            soft_alpha_foreground_recommendation: None,
+            output_mode_diagnostics: None,
+            rotated_width: 240,
+            rotated_height: 200,
+            candidate_cutter_ratio: Some(0.5),
+            whitespace_score: 0.9,
+            reconciliation_eligible: true,
+            tier1_confidence: confidence,
+            calibration_stroke_width_px: None,
+            calibration_x_height_px: None,
+        };
+        let result = |index, verdict, confidence| PageRunResult {
+            outputs: Vec::new(),
+            metadata: metadata(index, verdict, confidence),
+            page_metadata_path: dir.join(format!("page-{index}.json")),
+            timings: PageStageTimings::default(),
+        };
+        let mut results = vec![
+            result(0, LayoutClassification::TwoPageSpread, 0.92),
+            result(1, LayoutClassification::TwoPageSpread, 0.91),
+            result(2, LayoutClassification::TwoPageSpread, 0.90),
+            result(3, LayoutClassification::SingleUncutPage, 0.40),
+        ];
+        let actions = reconcile_classification_batch(
+            &super::reconciliation_candidates(&results),
+            ReconciliationPolicy {
+                minimum_confidence: 0.60,
+                minimum_support: 2,
+            },
+        );
+        assert!(actions
+            .iter()
+            .any(|action| matches!(action, ReconciliationAction::Rerun { index: 3, .. })));
+        let error = super::apply_reconciliation_actions(&mut results, &actions, |index, _prior| {
+            assert!(fs::metadata(&manifest.pages[index].input_path)
+                .map(|metadata| !metadata.file_type().is_file())
+                .unwrap_or(false));
+            Err("rerun input failed".into())
+        })
+        .unwrap_err();
+        assert!(!error.to_string().is_empty());
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
