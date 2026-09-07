@@ -389,7 +389,7 @@ mod tests {
         path::{Path, PathBuf},
         sync::{
             atomic::{AtomicBool, AtomicUsize, Ordering},
-            Arc, Mutex,
+            mpsc, Arc, Mutex,
         },
         thread,
         time::Duration,
@@ -881,31 +881,71 @@ mod tests {
         let live = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let later_page_started_while_first_was_live = Arc::new(AtomicBool::new(false));
-        let run = run_regular_page_jobs(
-            &manifest,
-            {
-                let live = Arc::clone(&live);
-                let peak = Arc::clone(&peak);
-                let later_page_started_while_first_was_live =
-                    Arc::clone(&later_page_started_while_first_was_live);
-                move |(index, _)| {
-                    let current = live.fetch_add(1, Ordering::AcqRel) + 1;
-                    peak.fetch_max(current, Ordering::AcqRel);
-                    if index == 0 {
-                        // Keep the first slot occupied while page one completes;
-                        // a sliding dispatcher must admit page two in that gap.
-                        thread::sleep(Duration::from_millis(100));
-                    } else if index == 2 && current >= 2 {
-                        later_page_started_while_first_was_live.store(true, Ordering::Release);
-                    }
-                    live.fetch_sub(1, Ordering::AcqRel);
-                    Ok::<_, NativeError>(index)
-                }
-            },
-            2,
-            2,
-        )
-        .unwrap();
+        let (first_started_tx, first_started_rx) = mpsc::channel();
+        let (second_started_tx, second_started_rx) = mpsc::channel();
+        let (release_first_tx, release_first_rx) = mpsc::channel();
+        let (later_started_tx, later_started_rx) = mpsc::channel();
+        let (release_second_tx, release_second_rx) = mpsc::channel();
+        let release_first_rx = Arc::new(Mutex::new(release_first_rx));
+        let release_second_rx = Arc::new(Mutex::new(release_second_rx));
+        let dispatcher = thread::spawn({
+            let live = Arc::clone(&live);
+            let peak = Arc::clone(&peak);
+            let later_page_started_while_first_was_live =
+                Arc::clone(&later_page_started_while_first_was_live);
+            let release_first_rx = Arc::clone(&release_first_rx);
+            let release_second_rx = Arc::clone(&release_second_rx);
+            move || {
+                run_regular_page_jobs(
+                    &manifest,
+                    move |(index, _)| {
+                        let current = live.fetch_add(1, Ordering::AcqRel) + 1;
+                        peak.fetch_max(current, Ordering::AcqRel);
+                        match index {
+                            0 => {
+                                first_started_tx.send(()).unwrap();
+                                release_first_rx
+                                    .lock()
+                                    .unwrap()
+                                    .recv_timeout(Duration::from_secs(2))
+                                    .unwrap();
+                            }
+                            1 => {
+                                second_started_tx.send(()).unwrap();
+                                release_second_rx
+                                    .lock()
+                                    .unwrap()
+                                    .recv_timeout(Duration::from_secs(2))
+                                    .unwrap();
+                            }
+                            2 if current >= 2 => {
+                                later_page_started_while_first_was_live
+                                    .store(true, Ordering::Release);
+                                later_started_tx.send(()).unwrap();
+                            }
+                            _ => {}
+                        }
+                        live.fetch_sub(1, Ordering::AcqRel);
+                        Ok::<_, NativeError>(index)
+                    },
+                    2,
+                    2,
+                )
+                .map_err(|error| error.to_string())
+            }
+        });
+        first_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        second_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        release_first_tx.send(()).unwrap();
+        later_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        release_second_tx.send(()).unwrap();
+        let run = dispatcher.join().unwrap().unwrap();
 
         assert_eq!(run, vec![0, 1, 2, 3]);
         assert!(later_page_started_while_first_was_live.load(Ordering::Acquire));
