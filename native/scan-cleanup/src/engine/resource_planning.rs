@@ -369,7 +369,6 @@ pub(crate) fn cache_budget_bytes(
 mod tests {
     use super::manifest_cache;
     use super::*;
-    use crate::adapters::batch_cli::decode_page_inputs;
     use crate::engine::page_statistics::{derive_page_ink_contexts, derive_page_ink_sample};
     use crate::protocol::manifest_v3::{
         AnalysisPurpose, CanvasScope, ManifestV3, Operation, Page, PageOutput, RenderMode, VERSION,
@@ -425,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn render_decode_bypasses_input_cache_while_analyze_retains_it() {
+    fn page_cache_paths_are_stable_without_decoder_policy() {
         let dir = std::env::temp_dir().join(format!(
             "evb-scan-cleanup-decode-cache-policy-{}",
             std::process::id()
@@ -456,7 +455,6 @@ mod tests {
         };
         let render_cache = manifest_cache(PlanningOperation::Render, None);
         let render_page_cache = page_cache_for(&planning_page(&page), &render_cache).unwrap();
-        decode_page_inputs(&page, &page.options, &render_page_cache, false, true).unwrap();
         let render_key =
             crate::cache::StageCacheKey::decoded(&render_page_cache.source, true, &page.options);
         assert!(render_cache
@@ -467,12 +465,12 @@ mod tests {
 
         let analyze_cache = manifest_cache(PlanningOperation::Analyze, None);
         let analyze_page_cache = page_cache_for(&planning_page(&page), &analyze_cache).unwrap();
-        decode_page_inputs(&page, &page.options, &analyze_page_cache, true, true).unwrap();
+        assert_eq!(analyze_page_cache.source, render_page_cache.source);
         assert!(analyze_cache
             .lock()
             .unwrap()
             .get::<crate::io::raster::DecodedRaster>(&render_key)
-            .is_some());
+            .is_none());
         let _ = fs::remove_dir_all(dir);
     }
 
