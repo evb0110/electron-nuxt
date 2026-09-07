@@ -1,0 +1,24 @@
+native/scan-cleanup/src/engine/render/region_rendering_tests.rs
+  s_ecb10d3801a59d::t_8dce4a1215eb65 325-394
+native/scan-cleanup/src/engine/render/region_rendering.rs
+  s_ecb10d3801a59d::t_af74d34a4d7e65 921-995,999-1034
+  s_ecb10d3801a59d::t_0ec2cbe7b7b2ff 1216
+  s_ecb10d3801a59d::t_5024e60681b839 1239-1264
+  s_ecb10d3801a59d::t_adc30bffed4d00 996-998
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e288b7f594159972a4ba5c1cc83cc75e9f2f2b7c",
+  "prompts": {},
+  "sessions": {
+    "s_ecb10d3801a59d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07811-7527-7863-8fd2-8f8d811d7186",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
