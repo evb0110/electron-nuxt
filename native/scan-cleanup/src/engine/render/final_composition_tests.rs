@@ -129,3 +129,32 @@ fn composition_without_layers_returns_only_the_requested_gray_plane() {
     assert!(output.color.is_none());
     assert!(output.mixed_layers.is_none());
 }
+
+#[test]
+fn layered_composition_exercises_picture_stencil_knockout_for_overlapping_binary_ink() {
+    let gray = GrayImage::new(8, 8, 200);
+    let mut binary = BinaryImage::new(8, 8);
+    binary.set(4, 4, true);
+    let mut picture_mask = BinaryImage::new(8, 8);
+    picture_mask.set(4, 4, true);
+    let output = run(Input {
+        gray: &gray,
+        raw_gray: None,
+        color: None,
+        binary: &binary,
+        picture_mask: &picture_mask,
+        chroma_picture_mask: None,
+        removed_edge_bands: None,
+        text_mask: None,
+        text_vicinity_mask: None,
+        dpi: 300.0,
+        preserve_confirmed_photo_tones: false,
+        use_soft_alpha_foreground: false,
+        create_layers: true,
+        create_composite: false,
+    });
+
+    let layers = output.mixed_layers.expect("requested mixed layers");
+    assert!(!layers.foreground_mask.get(4, 4));
+    assert_eq!(layers.background.get(4, 4), 200);
+}

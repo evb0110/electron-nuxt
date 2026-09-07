@@ -396,7 +396,6 @@ fn quality_stage_normalizes_with_semantic_exclusion_and_caches_complete_artifact
                 resolved_output_mode: crate::OutputMode::Grayscale,
                 chroma_picture_mask: None,
                 significant_picture: false,
-                refine_picture_ownership: false,
                 output_picture_mask: None,
                 photographic_picture_mask: None,
                 coherent_photo_mask: None,
