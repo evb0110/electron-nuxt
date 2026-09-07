@@ -102,6 +102,26 @@ describe('useFailureToast', () => {
         expect(useFailureToast().copyFailurePresentation).toBe(copyFailurePresentation);
     });
 
+    it('keeps technical details in Copy details instead of the short toast text', async () => {
+        const writeText = vi.fn().mockResolvedValue(undefined);
+        vi.stubGlobal('navigator', {clipboard: {writeText}});
+        const {
+            formatFailurePresentationCopy,
+            useFailureToast,
+        } = await loadFailureToast();
+        const presentation = {
+            failure: createFailure(),
+            title: 'Failed to open file',
+            description: 'The PDF viewer needs synchronized development dependencies.',
+            technicalDetails: 'PDF.js vendored asset version mismatch at /pdf/.pdfjs-version',
+        };
+
+        useFailureToast().presentFailureToast(presentation);
+
+        expect(toastAdd.mock.calls[0]?.[0].description).toBe('The PDF viewer needs synchronized development dependencies.\nError ID: 01234567');
+        expect(formatFailurePresentationCopy(presentation)).toContain(presentation.technicalDetails);
+    });
+
     it('preserves custom presentation actions for shared callers', async () => {
         const {useFailureToast} = await loadFailureToast();
         const {presentFailureToast} = useFailureToast();

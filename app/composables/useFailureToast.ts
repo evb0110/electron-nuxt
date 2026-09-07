@@ -14,6 +14,7 @@ export interface IFailureToastAction {
 export interface FailurePresentation extends IPresentedFailureCapture {
     title: string;
     description?: string;
+    technicalDetails?: string;
     actions?: IFailureToastAction[];
 }
 
@@ -30,7 +31,7 @@ export function getFailureErrorId(receipt: FailureReceipt) {
     return receipt.eventId.slice(0, FAILURE_ERROR_ID_SHORT_LENGTH);
 }
 
-function getNonEmptyDetails(values: Array<string | undefined>) {
+export function getNonEmptyDetails(values: Array<string | undefined>) {
     return values.filter((value): value is string => Boolean(value?.trim())).join('\n');
 }
 
@@ -46,7 +47,21 @@ export function formatFailurePresentationCopy(presentation: FailurePresentation)
         `Error ID: ${presentation.failure.eventId}`,
         presentation.title,
         presentation.description,
+        presentation.technicalDetails,
     ]);
+}
+
+export async function copyTextToClipboard(text: string) {
+    if (typeof navigator === 'undefined' || typeof navigator.clipboard?.writeText !== 'function') {
+        return false;
+    }
+
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 export function isFailurePresentation(value: unknown): value is FailurePresentation {
@@ -59,26 +74,17 @@ export function isFailurePresentation(value: unknown): value is FailurePresentat
 }
 
 export async function copyFailurePresentation(presentation: FailurePresentation) {
-    if (typeof navigator === 'undefined' || typeof navigator.clipboard.writeText !== 'function') {
-        return false;
-    }
-
-    try {
-        await navigator.clipboard.writeText(formatFailurePresentationCopy(presentation));
-        return true;
-    } catch {
-        return false;
-    }
+    return copyTextToClipboard(formatFailurePresentationCopy(presentation));
 }
 
-export function createFailureToastPresenter(toast: IFailureToastTarget) {
+export function createFailureToastPresenter(toast: IFailureToastTarget, copyLabel = 'Copy details') {
     return function presentFailureToast(presentation: FailurePresentation) {
         toast.add({
             color: 'error',
             title: presentation.title,
             description: formatFailurePresentationDescription(presentation),
             actions: presentation.actions ?? [{
-                label: 'Copy details',
+                label: copyLabel,
                 onClick: () => {
                     void copyFailurePresentation(presentation);
                 },
@@ -89,7 +95,12 @@ export function createFailureToastPresenter(toast: IFailureToastTarget) {
 
 export const useFailureToast = () => {
     const toast = useToast();
-    const presentFailureToast = createFailureToastPresenter(toast);
+    const { t } = useTypedI18n();
+    const localizedCopyLabel = t('errors.runtime.copy');
+    const presentFailureToast = createFailureToastPresenter(
+        toast,
+        localizedCopyLabel === 'errors.runtime.copy' ? 'Copy details' : localizedCopyLabel,
+    );
 
     return {
         presentFailureToast,

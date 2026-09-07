@@ -1519,6 +1519,11 @@ export default {
         },
         'file': {
             'open': 'Falha ao abrir arquivo',
+            'openDescription': 'Não foi possível abrir o arquivo. Os detalhes técnicos estão disponíveis abaixo.',
+            'pdfjsAssetMismatch': 'O visualizador de PDF precisa sincronizar as dependências de desenvolvimento antes de abrir este arquivo.',
+            'pdfjsAssetRepairAction': 'Copiar comando de reparo',
+            'pdfjsAssetRepairCopied': 'Comando de reparo copiado',
+            'pdfjsAssetRepairCopyFailed': 'Não foi possível copiar o comando de reparo',
             'openNotFound': 'Não foi possível abrir "{name}". O arquivo pode ter sido movido, excluído ou seu armazenamento foi limpo.',
             'passwordPromptTitle': 'Senha necessária',
             'passwordPromptDescription': 'Digite a senha de "{name}" para abrir este PDF.',

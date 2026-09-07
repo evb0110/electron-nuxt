@@ -55,6 +55,8 @@ import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/doc
 import type { IPdfPageMatches } from '@app/types/pdfUi';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { getErrorMessage } from '@app/utils/error';
+import { isPdfjsAssetVersionMismatch } from '@app/utils/isPdfjsAssetVersionMismatch';
+import { copyTextToClipboard } from '@app/composables/useFailureToast';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
@@ -966,6 +968,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
                 return;
             }
             const message = getErrorMessage(error).trim();
+            const hasPdfjsAssetMismatch = isPdfjsAssetVersionMismatch(message);
             pdfError.value = message || t('errors.file.open');
             const failure = getFailureReceipt(error) ?? BrowserLogger.error('pdf', 'PDF rendering failed', error, {
                 code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
@@ -974,7 +977,20 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             pdfFailurePresentation.value = {
                 failure,
                 title: t('errors.file.open'),
-                description: message || t('errors.file.open'),
+                description: hasPdfjsAssetMismatch
+                    ? t('errors.file.pdfjsAssetMismatch')
+                    : t('errors.file.openDescription'),
+                ...(message ? {technicalDetails: message} : {}),
+                ...(hasPdfjsAssetMismatch
+                    ? {actions: [{
+                        label: t('errors.file.pdfjsAssetRepairAction'),
+                        onClick: () => {
+                            void copyTextToClipboard('pnpm install --frozen-lockfile').then((copied) => {
+                                failureSurface.presentCopyFeedback(copied);
+                            });
+                        },
+                    }]}
+                    : {}),
             };
         }
         function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {

@@ -221,6 +221,15 @@ export const useWorkspaceFailureSurface = () => {
         return true;
     }
 
+    function presentCopyFeedback(copied: boolean) {
+        toast.add({
+            color: copied ? 'success' : 'error',
+            title: copied
+                ? t('errors.file.pdfjsAssetRepairCopied')
+                : t('errors.file.pdfjsAssetRepairCopyFailed'),
+        });
+    }
+
     return {
         hasSaveFailure: computed(() => hasSaveFailureState.value),
         saveFailurePresentation,
@@ -229,6 +238,7 @@ export const useWorkspaceFailureSurface = () => {
         reportSaveFailure,
         reportAnnotationFailure,
         reportOpenFailure,
+        presentCopyFeedback,
     };
 };
 

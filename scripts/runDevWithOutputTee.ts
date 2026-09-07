@@ -115,7 +115,6 @@ async function main() {
                 'electron:run',
                 'stop',
                 '--session=default',
-                '--keep-nuxt',
             ],
             stdio: 'pipe',
         },

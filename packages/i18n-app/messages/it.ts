@@ -1508,6 +1508,11 @@ export default {
         },
         'file': {
             'open': 'Impossibile aprire il file',
+            'openDescription': 'Impossibile aprire il file. I dettagli tecnici sono disponibili qui sotto.',
+            'pdfjsAssetMismatch': 'Il visualizzatore PDF deve sincronizzare le dipendenze di sviluppo prima di aprire questo file.',
+            'pdfjsAssetRepairAction': 'Copia comando di riparazione',
+            'pdfjsAssetRepairCopied': 'Comando di riparazione copiato',
+            'pdfjsAssetRepairCopyFailed': 'Impossibile copiare il comando di riparazione',
             'openNotFound': 'Impossibile aprire «{name}». Il file potrebbe essere stato spostato, eliminato o il suo archivio è stato cancellato.',
             'passwordPromptTitle': 'Password richiesta',
             'passwordPromptDescription': 'Inserisci la password di «{name}» per aprire questo PDF.',

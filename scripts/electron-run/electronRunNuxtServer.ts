@@ -1,4 +1,5 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { ensurePdfjsDevInstall } from '@scripts/ensure-pdfjs-dev-install.mjs';
 import {
     execFileSync,
     spawn,
@@ -551,7 +552,11 @@ async function selectNuxtPort() {
     console.log(`[Nuxt] Using isolated port ${getNuxtPort()} for session '${getCurrentSessionName()}'`);
 }
 
-async function prepareNuxtServerStart(forceClean: boolean, logTiming: (message: string) => void) {
+async function prepareNuxtServerStart(
+    forceClean: boolean,
+    logTiming: (message: string) => void,
+    options: {mustRestart?: boolean} = {},
+) {
     await selectNuxtPort();
     console.log(`[Nuxt] Browser dev server: http://localhost:${getNuxtPort()}/`);
     if (shouldCleanupOrphanedProjectNuxtRoots()) {
@@ -562,7 +567,7 @@ async function prepareNuxtServerStart(forceClean: boolean, logTiming: (message: 
         logTiming('Nuxt isolated-session cleanup boundary applied');
     }
 
-    if (!forceClean && await isReusableNuxtServerReady()) {
+    if (!forceClean && !options.mustRestart && await isReusableNuxtServerReady()) {
         console.log(`[Nuxt] Reusing existing dev server at http://127.0.0.1:${getNuxtPort()}`);
         logTiming('Nuxt existing dev server reused');
         return false;
@@ -770,7 +775,13 @@ function createNuxtStartupExitError(attempt: INuxtStartupAttempt) {
     );
 }
 
-async function maybeReuseUnrelatedNuxtServer(attempt: INuxtStartupAttempt) {
+async function maybeReuseUnrelatedNuxtServer(
+    attempt: INuxtStartupAttempt,
+    allowReuse = true,
+) {
+    if (!allowReuse) {
+        return false;
+    }
     const nuxtPid = attempt.nuxt.pid ?? null;
     if (!nuxtPid || nuxtPid <= 0) {
         return false;
@@ -817,6 +828,7 @@ async function waitForNuxtStartupAttempt(
     attempt: INuxtStartupAttempt,
     attemptIndex: number,
     logTiming: (message: string) => void,
+    options: {allowUnrelatedReuse?: boolean} = {},
 ): Promise<TNuxtStartupResult> {
     const timeout = 120_000;
     const WARMUP_GRACE_MS = 5_000;
@@ -848,7 +860,7 @@ async function waitForNuxtStartupAttempt(
             };
         }
 
-        if (serverUp && elapsedMs > 15_000 && await isReusableNuxtServer()) {
+        if (options.allowUnrelatedReuse !== false && serverUp && elapsedMs > 15_000 && await isReusableNuxtServer()) {
             console.log('[Nuxt] Reusable server responded without full build markers; proceeding with existing readiness signal.');
             logTiming('Nuxt server ready from HTTP fallback');
             await warmupElectronAppDependenciesBestEffort(logTiming);
@@ -868,7 +880,7 @@ async function waitForNuxtStartupAttempt(
 
         const now = Date.now();
         if (serverUp && !buildsComplete && now - lastLog > 5000) {
-            if (await maybeReuseUnrelatedNuxtServer(attempt)) {
+            if (await maybeReuseUnrelatedNuxtServer(attempt, options.allowUnrelatedReuse ?? true)) {
                 await warmupElectronAppDependenciesBestEffort(logTiming);
                 return {
                     kind: 'ready',
@@ -894,15 +906,18 @@ async function stopTimedOutNuxtAttempt(attempt: INuxtStartupAttempt) {
 }
 
 export async function startNuxtServer(forceClean = false): Promise<ChildProcess | null> {
+    const pdfjsInstall = ensurePdfjsDevInstall();
+    const mustRestart = pdfjsInstall.repaired;
+    forceClean = forceClean || mustRestart;
     const logTiming = createStartupLogger();
-    if (!await prepareNuxtServerStart(forceClean, logTiming)) {
+    if (!await prepareNuxtServerStart(forceClean, logTiming, {mustRestart})) {
         await warmupElectronAppDependenciesBestEffort(logTiming);
         return null;
     }
 
     for (let attemptIndex = 0; attemptIndex < 2; attemptIndex += 1) {
         const attempt = spawnNuxtStartupAttempt(attemptIndex, logTiming);
-        const result = await waitForNuxtStartupAttempt(attempt, attemptIndex, logTiming);
+        const result = await waitForNuxtStartupAttempt(attempt, attemptIndex, logTiming, {allowUnrelatedReuse: !mustRestart});
         if (result.kind === 'ready') {
             return result.nuxt;
         }

@@ -1508,6 +1508,11 @@ export default {
         },
         'file': {
             'open': 'Kan bestand niet openen',
+            'openDescription': 'Het bestand kon niet worden geopend. Hieronder staan de technische details.',
+            'pdfjsAssetMismatch': 'De PDF-viewer moet de ontwikkelafhankelijkheden synchroniseren voordat dit bestand kan worden geopend.',
+            'pdfjsAssetRepairAction': 'Reparatieopdracht kopiëren',
+            'pdfjsAssetRepairCopied': 'Reparatieopdracht gekopieerd',
+            'pdfjsAssetRepairCopyFailed': 'De reparatieopdracht kon niet worden gekopieerd',
             'openNotFound': '"{name}" kon niet worden geopend. Het bestand is mogelijk verplaatst, verwijderd, of de opslag is gewist.',
             'passwordPromptTitle': 'Wachtwoord vereist',
             'passwordPromptDescription': 'Voer het wachtwoord voor "{name}" in om deze PDF te openen.',

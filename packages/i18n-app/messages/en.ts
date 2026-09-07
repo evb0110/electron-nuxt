@@ -1508,6 +1508,11 @@ export default {
         },
         'file': {
             'open': 'Failed to open file',
+            'openDescription': 'The file could not be opened. Technical details are available below.',
+            'pdfjsAssetMismatch': 'The PDF viewer needs its development dependencies synchronized before this file can open.',
+            'pdfjsAssetRepairAction': 'Copy repair command',
+            'pdfjsAssetRepairCopied': 'Repair command copied',
+            'pdfjsAssetRepairCopyFailed': 'Could not copy the repair command',
             'openNotFound': '"{name}" could not be opened. The file may have been moved, deleted, or its storage was cleared.',
             'passwordPromptTitle': 'Password required',
             'passwordPromptDescription': 'Enter the password for "{name}" to open this PDF.',
