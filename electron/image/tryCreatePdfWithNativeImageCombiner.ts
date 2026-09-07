@@ -797,8 +797,9 @@ async function runNativePdfImageCombine(
                 stdoutBuffer = '';
             }
             if (code !== 0) {
+                const exitCode = code ?? '<unknown>';
                 const detail = stderr.trim();
-                logger.debug(`Native image PDF combine exited with code ${code}${detail ? `: ${detail}` : ''}`);
+                logger.debug(`Native image PDF combine exited with code ${exitCode}${detail ? `: ${detail}` : ''}`);
                 const nativeError = decodeSerializableErrorEnvelope(
                     detail,
                     isNativeErrorEnvelope,
@@ -808,7 +809,7 @@ async function runNativePdfImageCombine(
                     fail(new SerializableError(nativeError));
                     return;
                 }
-                finishFailure(`native process exited with code ${code}${detail ? `: ${detail}` : ''}`);
+                finishFailure(`native process exited with code ${exitCode}${detail ? `: ${detail}` : ''}`);
                 return;
             }
             finish(true);

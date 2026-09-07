@@ -1,8 +1,5 @@
 import type {TDocumentRef} from '@contracts/documentRef';
-import {
-    requireLeaseId,
-    type TLeaseId,
-} from '@contracts/shared';
+import {requireLeaseId} from '@contracts/shared';
 import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
@@ -65,7 +62,7 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
             return;
         }
 
-        let leaseId: TLeaseId | null = null;
+        let leaseId: ReturnType<typeof requireLeaseId> | null = null;
         try {
             const handle = await createHandle(sourcePath);
             leaseId = requireLeaseId(handle.leaseId);
