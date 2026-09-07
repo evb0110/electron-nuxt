@@ -990,14 +990,20 @@ pub(crate) fn plan_canvas_placement_with_shared_fit(
     shared_fold_trim: Option<FoldSideTrim>,
 ) -> CanvasPlacement {
     if shared_overflow_plan.is_none() && output.optical_content_bounds_x.is_none() {
-        return plan_canvas_placement_for(
-            output.width,
-            output.height,
-            output.paper_width,
-            output.paper_height,
-            output.content_detected,
-            &output.options,
-            output.half,
+        return plan_canvas_placement(
+            CanvasPlacementRequest {
+                width: output.width,
+                height: output.height,
+                paper_width: output.paper_width,
+                paper_height: output.paper_height,
+                content_detected: output.content_detected,
+                options: &output.options,
+                half: output.half,
+                optical_content_bounds_x: PLACEMENT_CENTERING_BOUNDS_X,
+                shared_overflow_fit: None,
+                fold_trim: FoldSideTrim::default(),
+                outer_near_paper_runs: NearPaperEdgeRuns::default(),
+            },
             canvas,
         );
     }
@@ -1044,6 +1050,7 @@ pub(crate) fn plan_canvas_placement_with_shared_fit(
     placement.optical_content_bounds_x = output.optical_content_bounds_x;
     placement
 }
+#[cfg(test)]
 pub(crate) fn plan_canvas_placement_for(
     width: usize,
     height: usize,
@@ -1066,6 +1073,7 @@ pub(crate) fn plan_canvas_placement_for(
         None,
     )
 }
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_canvas_placement_for_with_optical_center(
     width: usize,
@@ -1091,6 +1099,7 @@ pub(crate) fn plan_canvas_placement_for_with_optical_center(
         None,
     )
 }
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_canvas_placement_for_with_optical_center_and_fit(
     width: usize,
