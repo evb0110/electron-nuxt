@@ -139,3 +139,59 @@ fn resolved_text_tone_diagnostics_take_precedence_over_derived_masks() {
 
     assert_eq!(output.text_tone_diagnostics, Some(resolved));
 }
+
+#[test]
+fn crops_all_region_evidence_and_derives_diagnostics_from_the_cropped_inputs() {
+    let mut source = GrayImage::from_vec(12, 10, 12, (0..120).map(|value| value as u8).collect())
+        .expect("synthetic raster dimensions must be valid");
+    source.set(3, 2, 80);
+    let mut picture_mask = BinaryImage::new(12, 10);
+    picture_mask.set(4, 2, true);
+    let mut tone_mask = BinaryImage::new(12, 10);
+    tone_mask.set(5, 3, true);
+    tone_mask.set(4, 3, true);
+    let mut text_mask = BinaryImage::new(12, 10);
+    text_mask.set(3, 2, true);
+    let mut vicinity_mask = BinaryImage::new(12, 10);
+    vicinity_mask.set(3, 2, true);
+    let options = CleanupOptions {
+        output_mode: OutputMode::Grayscale,
+        ..CleanupOptions::default()
+    };
+
+    let output = prepare(Input {
+        analysis_normalized: &source,
+        analysis_scale_x: 0.5,
+        analysis_scale_y: 0.5,
+        analysis_picture_mask: Some(&picture_mask),
+        tone_picture_mask: Some(&tone_mask),
+        text_mask: Some(&text_mask),
+        text_vicinity_mask: Some(&vicinity_mask),
+        options: &options,
+        half: PageHalf::Full,
+        region: Rect::new(4.0, 2.0, 8.0, 6.0),
+        working_width: 8,
+        working_height: 6,
+    });
+
+    assert_eq!(
+        output.analysis_working.data(),
+        &[14, 15, 16, 17, 26, 80, 28, 29, 38, 39, 40, 41]
+    );
+    assert_eq!(output.local_scale_x, 0.5);
+    assert_eq!(output.local_scale_y, 0.5);
+    assert_eq!(
+        output
+            .analysis_picture_working
+            .as_ref()
+            .unwrap()
+            .count_black(),
+        1
+    );
+    assert!(output.analysis_picture_working.as_ref().unwrap().get(2, 1));
+    assert!(output.text_tone_diagnostics.is_some());
+    let diagnostics = output.text_tone_diagnostics.unwrap();
+    assert_eq!(diagnostics.text_line_count, 1);
+    assert_eq!(diagnostics.text_ink_pixels, 1);
+    assert_eq!(diagnostics.picture_fraction, 2.0 / 12.0);
+}
