@@ -398,10 +398,13 @@ pub(crate) fn compose_layers(
     Some(layers)
 }
 
-pub(crate) fn edge_near_paper_run(planes: &GeometryPlaneView<'_>, edge: HorizontalEdge) -> usize {
-    let gray = planes.image.to_gray();
+fn edge_near_paper_run_with_reference(
+    planes: &GeometryPlaneView<'_>,
+    edge: HorizontalEdge,
+    gray: &GrayImage,
+    near_paper_threshold: u8,
+) -> usize {
     let width = gray.width();
-    let near_paper_threshold = paper_reference(&gray).min(FOLD_TAIL_NEAR_PAPER_FLOOR);
     edge_column_order(width, edge)
         .take_while(|&x| {
             if !(0..gray.height()).all(|y| gray.get(x, y) >= near_paper_threshold) {
@@ -478,37 +481,72 @@ pub(crate) fn edge_near_paper_run(planes: &GeometryPlaneView<'_>, edge: Horizont
         .count()
 }
 
-pub(crate) fn outer_near_paper_edge_runs(planes: &GeometryPlaneView<'_>) -> NearPaperEdgeRuns {
+fn outer_near_paper_edge_runs_with_reference(
+    planes: &GeometryPlaneView<'_>,
+    gray: &GrayImage,
+    near_paper_threshold: u8,
+) -> NearPaperEdgeRuns {
     match planes.half {
         PageHalf::Left => NearPaperEdgeRuns {
-            left: edge_near_paper_run(planes, HorizontalEdge::Left),
+            left: edge_near_paper_run_with_reference(
+                planes,
+                HorizontalEdge::Left,
+                gray,
+                near_paper_threshold,
+            ),
             right: 0,
         },
         PageHalf::Right => NearPaperEdgeRuns {
             left: 0,
-            right: edge_near_paper_run(planes, HorizontalEdge::Right),
+            right: edge_near_paper_run_with_reference(
+                planes,
+                HorizontalEdge::Right,
+                gray,
+                near_paper_threshold,
+            ),
         },
         PageHalf::Full => NearPaperEdgeRuns {
-            left: edge_near_paper_run(planes, HorizontalEdge::Left),
-            right: edge_near_paper_run(planes, HorizontalEdge::Right),
+            left: edge_near_paper_run_with_reference(
+                planes,
+                HorizontalEdge::Left,
+                gray,
+                near_paper_threshold,
+            ),
+            right: edge_near_paper_run_with_reference(
+                planes,
+                HorizontalEdge::Right,
+                gray,
+                near_paper_threshold,
+            ),
         },
     }
 }
 
-pub(crate) fn fold_side_near_paper_run(planes: &GeometryPlaneView<'_>) -> usize {
-    match planes.half {
-        PageHalf::Left => edge_near_paper_run(planes, HorizontalEdge::Right),
-        PageHalf::Right => edge_near_paper_run(planes, HorizontalEdge::Left),
+pub(crate) fn paper_edge_runs(planes: &GeometryPlaneView<'_>) -> (usize, NearPaperEdgeRuns) {
+    let gray = planes.image.to_gray();
+    let near_paper_threshold = paper_reference(&gray).min(FOLD_TAIL_NEAR_PAPER_FLOOR);
+    let outer = outer_near_paper_edge_runs_with_reference(planes, &gray, near_paper_threshold);
+    let fold = match planes.half {
+        PageHalf::Left => edge_near_paper_run_with_reference(
+            planes,
+            HorizontalEdge::Right,
+            &gray,
+            near_paper_threshold,
+        ),
+        PageHalf::Right => edge_near_paper_run_with_reference(
+            planes,
+            HorizontalEdge::Left,
+            &gray,
+            near_paper_threshold,
+        ),
         PageHalf::Full => 0,
-    }
+    };
+    (fold, outer)
 }
 
 pub(crate) fn placement_near_paper_edge_runs(planes: &GeometryPlaneView<'_>) -> NearPaperEdgeRuns {
-    near_paper_edge_runs_with_fold_side(
-        outer_near_paper_edge_runs(planes),
-        planes.half,
-        fold_side_near_paper_run(planes),
-    )
+    let (fold_side_run, outer) = paper_edge_runs(planes);
+    near_paper_edge_runs_with_fold_side(outer, planes.half, fold_side_run)
 }
 
 pub(crate) fn content_ownership(planes: &GeometryPlaneView<'_>) -> Option<BinaryImage> {

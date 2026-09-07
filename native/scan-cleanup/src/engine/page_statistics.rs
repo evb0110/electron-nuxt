@@ -10,7 +10,10 @@ use crate::split::LayoutClassification;
 use crate::OutputMode;
 use evb_native_support::NativeError;
 
-fn trusted_selection_is_incomplete(selection_width: usize, background_width: usize) -> bool {
+pub(crate) fn trusted_selection_is_incomplete(
+    selection_width: usize,
+    background_width: usize,
+) -> bool {
     background_width.saturating_mul(2) > selection_width
 }
 
