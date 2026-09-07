@@ -12,7 +12,7 @@ use crate::mode_select::{
     PreparedModeEvidence,
 };
 use crate::{
-    auto_dewarp::detect_curves_at_dpi_with_depth,
+    auto_dewarp::{detect_curves_at_dpi_with_depth, AutoDewarpResult},
     background::{
         normalize_illumination_for_layout_prepared, normalize_illumination_pair_with_masks,
         normalize_illumination_prepared_with_masks, normalize_illumination_rgb_with_masks,
@@ -31,7 +31,7 @@ use crate::{
     calibration::{CalibrationConfig, PageCalibration},
     content::{
         analyze_content_evidence_calibrated,
-        detect_content_and_margins_calibrated_with_crop_authority,
+        detect_content_and_margins_calibrated_with_crop_authority, ContentResult,
     },
     deskew::{detect_skew, DeskewResult},
     dewarp::{
@@ -60,7 +60,7 @@ use crate::{
         apply_text_tone, apply_text_tone_excluding, derive_text_tone_diagnostics,
         outside_tonal_evidence_with_mask, OutsideTonalEvidence, TextToneDiagnostics,
     },
-    CleanupOptions, OrthogonalRotation, OutputMode,
+    CleanupOptions, DewarpOptions, OrthogonalRotation, OutputMode,
 };
 use rayon::prelude::*;
 use scan_primitives::{
@@ -4240,6 +4240,210 @@ fn can_reuse_source_mrc_foreground(
         && half == PageHalf::Full
 }
 
+struct RegionAssemblyInput<'a> {
+    image: CleanupRaster,
+    color_image: Option<RgbImage>,
+    picture_mask: Option<BinaryImage>,
+    tone_alpha: Option<GrayImage>,
+    mixed_layers: Option<MixedLayers>,
+    effectively_blank: bool,
+    timings: &'a mut PageStageTimings,
+    output_processing_started: Instant,
+    render_started: Instant,
+    deskew: DeskewResult,
+    effective_dewarp: Option<DewarpOptions>,
+    automatic_dewarp: Option<AutoDewarpResult>,
+    conservation_warnings: Vec<String>,
+    options: &'a CleanupOptions,
+    crop_enabled: bool,
+    content: ContentResult,
+    content_diagnostics: Option<ContentDiagnostics>,
+    source_page_index: usize,
+    half: PageHalf,
+    split: &'a SplitResult,
+    region: Rect,
+    source_content_box: Option<Rect>,
+    output_rect: Rect,
+    render_region: Option<Rect>,
+    text_tone_diagnostics: Option<TextToneDiagnostics>,
+    binarization_mode: Option<crate::BinarizationMode>,
+    binarization_diagnostics: Option<BinarizationDiagnostics>,
+    ink_consistency_diagnostics: Option<InkConsistencyDiagnostics>,
+    despeckle_fallback: bool,
+    forward_transform: Option<Affine>,
+    inverse_transform: Option<Affine>,
+    dewarp_mapping: Option<DewarpMappingGrid>,
+    output_width: usize,
+    output_height: usize,
+    source: &'a GrayImage,
+    emitted_output_mode: OutputMode,
+    trusted_mrc_background_preserved: bool,
+    trusted_selection_applied: bool,
+}
+
+fn assemble_region_result(input: RegionAssemblyInput<'_>) -> Result<CleanupResult, String> {
+    let RegionAssemblyInput {
+        image,
+        color_image,
+        picture_mask,
+        tone_alpha,
+        mixed_layers,
+        effectively_blank,
+        timings,
+        output_processing_started,
+        render_started,
+        deskew,
+        effective_dewarp,
+        automatic_dewarp,
+        mut conservation_warnings,
+        options,
+        crop_enabled,
+        content,
+        content_diagnostics,
+        source_page_index,
+        half,
+        split,
+        region,
+        source_content_box,
+        output_rect,
+        render_region,
+        text_tone_diagnostics,
+        binarization_mode,
+        binarization_diagnostics,
+        ink_consistency_diagnostics,
+        despeckle_fallback,
+        forward_transform,
+        inverse_transform,
+        dewarp_mapping,
+        output_width,
+        output_height,
+        source,
+        emitted_output_mode,
+        trusted_mrc_background_preserved,
+        trusted_selection_applied,
+    } = input;
+    timings.output_processing_ms += output_processing_started.elapsed().as_secs_f64() * 1_000.0;
+    timings.render_ms += render_started.elapsed().as_secs_f64() * 1_000.0;
+    let mut warnings = if deskew.accepted || effective_dewarp.is_some() {
+        Vec::new()
+    } else {
+        vec![format!(
+            "Deskew confidence {:.3} was below the 2.0 acceptance threshold",
+            deskew.confidence
+        )]
+    };
+    warnings.append(&mut conservation_warnings);
+    if options.crop_content && !crop_enabled && content.content.is_none() {
+        warnings.push("Content crop was skipped because no content box was detected".into());
+    }
+    if let Some(auto) = &automatic_dewarp {
+        if auto.model.is_none() && auto.confidence < 0.6 {
+            warnings.push(format!(
+                "Experimental automatic dewarp confidence {:.3} was below 0.6; no dewarp was applied",
+                auto.confidence
+            ));
+        }
+    }
+    let source_dpi = options.source_dpi();
+    let requested_render_dpi = options.requested_render_dpi();
+    let raster_scale_limited = options.dpi + f64::EPSILON < requested_render_dpi;
+    let mut warning_events = Vec::new();
+    if raster_scale_limited {
+        warning_events.push(CleanupWarningEvent::RenderDpiLimited {
+            applied_dpi_thousandths: quantize_decimal(options.dpi, 3),
+            requested_dpi_thousandths: quantize_decimal(requested_render_dpi, 3),
+        });
+    }
+    Ok(CleanupResult {
+        image,
+        color_image,
+        picture_mask,
+        tone_preservation_alpha: tone_alpha,
+        mixed_layers,
+        effectively_blank,
+        metadata: CleanupMetadata {
+            source_page_index,
+            half,
+            detected_skew_degrees: deskew.angle_degrees,
+            skew_confidence: deskew.confidence,
+            skew_applied: deskew.accepted,
+            manual_skew: options.manual_skew_degrees.is_some(),
+            layout_classification: split.classification,
+            layout_confidence: split.confidence,
+            cutter_x: split.cutter_x,
+            split_geometry: split.pages.clone(),
+            split_seam: split.split_seam.clone(),
+            source_region: region,
+            content_box: source_content_box,
+            crop_rect: output_rect,
+            content_diagnostics,
+            applied_margins: if crop_enabled {
+                content.margins
+            } else {
+                [0.0; 4]
+            }
+            .into(),
+            soft_margins_pixels: [0; 4],
+            uniform_canvas: false,
+            canvas_policy: MatchedCanvasPolicy::Intrinsic,
+            canvas_overflow: false,
+            matched_canvas_target_width: None,
+            matched_canvas_target_height: None,
+            matched_canvas_target_width_points: None,
+            matched_canvas_target_height_points: None,
+            matched_canvas_content_width: None,
+            matched_canvas_content_height: None,
+            matched_canvas_optical_placement: false,
+            matched_canvas_optical_content_left: None,
+            matched_canvas_optical_content_right: None,
+            matched_canvas_intrinsic_overflow_left: 0,
+            matched_canvas_intrinsic_overflow_right: 0,
+            matched_canvas_intrinsic_overflow_top: 0,
+            fold_clip_left: 0,
+            fold_clip_right: 0,
+            pdf_image_placement: None,
+            output_mode: emitted_output_mode,
+            bilevel_written: false,
+            layered_written: false,
+            layered_foreground_kind: None,
+            layered_background_dpi: None,
+            layered_foreground_dpi: None,
+            trusted_mrc_background_preserved,
+            trusted_selection_applied,
+            illumination_normalized: options.normalize_illumination,
+            text_tone_diagnostics,
+            binarization_mode,
+            binarization_diagnostics,
+            ink_consistency_diagnostics,
+            despeckle_fallback,
+            forward_transform,
+            inverse_transform,
+            dewarp_model: effective_dewarp,
+            dewarp_mapping,
+            dewarp_confidence: automatic_dewarp.as_ref().map(|result| result.confidence),
+            input_width: source.width(),
+            input_height: source.height(),
+            output_width,
+            output_height,
+            intrinsic_raster_width: Some(output_width),
+            intrinsic_raster_height: Some(output_height),
+            render_region,
+            canvas_width: output_width,
+            canvas_height: output_height,
+            placement_offset_x: 0,
+            placement_offset_y: 0,
+            rotation: options.rotation,
+            canvas_scope: crate::protocol::manifest_v3::CanvasScope::Page,
+            resample_passes: 1,
+            source_dpi,
+            render_dpi: options.dpi,
+            requested_render_dpi,
+            raster_scale_limited,
+            warnings,
+            warning_events,
+        },
+    })
+}
 #[allow(clippy::too_many_arguments)]
 fn clean_region(
     source: &GrayImage,

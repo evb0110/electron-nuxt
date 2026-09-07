@@ -723,3 +723,48 @@ fn continuous_stage_keeps_color_pixels_and_can_build_color_layers() {
         (5, 4)
     );
 }
+
+#[test]
+fn payload_crop_keeps_all_planes_on_one_aligned_rectangle() {
+    let mut image = GrayImage::new(4, 4, 0);
+    image.set(1, 1, 11);
+    let mut picture_mask = BinaryImage::new(4, 4);
+    picture_mask.set(1, 1, true);
+    let mut tone_alpha = GrayImage::new(4, 4, 0);
+    tone_alpha.set(1, 1, 22);
+    let mut foreground_mask = BinaryImage::new(4, 4);
+    foreground_mask.set(1, 1, true);
+    let mut foreground_alpha = GrayImage::new(4, 4, 0);
+    foreground_alpha.set(1, 1, 33);
+    let layers = MixedLayers {
+        foreground_mask,
+        foreground_alpha: Some(foreground_alpha),
+        background: GrayImage::new(4, 4, 44),
+        color_background: None,
+        source_mrc: false,
+    };
+    let output = apply_payload_crop(PayloadCropInput {
+        image: CleanupRaster::Gray(image),
+        color_image: None,
+        picture_mask: Some(picture_mask),
+        tone_alpha: Some(tone_alpha),
+        mixed_layers: Some(layers),
+        render_region: Some(Rect::new(1.0, 1.0, 2.0, 2.0)),
+        sampled_region: Some(Rect::new(0.0, 0.0, 4.0, 4.0)),
+    });
+
+    let CleanupRaster::Gray(image) = output.image else {
+        panic!("payload crop must retain the gray plane");
+    };
+    assert_eq!((image.width(), image.height()), (2, 2));
+    assert_eq!(image.get(0, 0), 11);
+    assert!(output.picture_mask.unwrap().get(0, 0));
+    assert_eq!(output.tone_alpha.unwrap().get(0, 0), 22);
+    let layers = output.mixed_layers.unwrap();
+    assert!(layers.foreground_mask.get(0, 0));
+    assert_eq!(layers.foreground_alpha.unwrap().get(0, 0), 33);
+    assert_eq!(
+        (layers.background.width(), layers.background.height()),
+        (2, 2)
+    );
+}
