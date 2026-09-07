@@ -1,0 +1,87 @@
+packages/i18n-app/messages/es.ts
+  s_e0ecc8fda9d238::t_661a770ebe65f4 1514-1515
+  s_e0ecc8fda9d238::t_0346509e2993b2 1511-1513
+app/utils/isPdfjsAssetVersionMismatch.ts
+  s_e0ecc8fda9d238::t_5aaf227258d7d0 1-5
+packages/i18n-app/messages/pt.ts
+  s_e0ecc8fda9d238::t_661a770ebe65f4 1525-1526
+  s_e0ecc8fda9d238::t_0346509e2993b2 1522-1524
+tests/unit/app/composables/useFailureToast.test.ts
+  s_e0ecc8fda9d238::t_8ce675e5b6b959 108-111
+  s_e0ecc8fda9d238::t_c7f35f33c82d4d 105-107,112-124
+tests/unit/app/components/appFailureAlert.test.ts
+  s_e0ecc8fda9d238::t_c7f35f33c82d4d 37-40,62-84
+  s_e0ecc8fda9d238::t_8ce675e5b6b959 32-35
+  s_e0ecc8fda9d238::t_ea732857253865 85-89
+packages/i18n-app/messages/ptBr.ts
+  s_e0ecc8fda9d238::t_0346509e2993b2 1522-1524
+  s_e0ecc8fda9d238::t_661a770ebe65f4 1525-1526
+scripts/pdfjsDevInstallTypes.d.ts
+  s_e0ecc8fda9d238::t_3c700a7c573f55 18-21
+  s_e0ecc8fda9d238::t_a2c3efefca9913 1-17,22
+tests/unit/scripts/ensurePdfjsDevInstall.test.ts
+  s_e0ecc8fda9d238::t_ea732857253865 77-78,89-93,101-102
+  s_e0ecc8fda9d238::t_e02f0a728831ad 79-88,94-100
+  s_e0ecc8fda9d238::t_97de34cb9ed68f 1,8-21,27-33,44-48,56-60,66-67,75-76,118
+  s_e0ecc8fda9d238::t_8ce675e5b6b959 2-7,22-26,34-43,49-55,61-65,68-74
+  s_e0ecc8fda9d238::t_e78fd1379f0b6d 103-117
+app/composables/useFailureToast.ts
+  s_e0ecc8fda9d238::t_ee434db37df121 99-103
+  s_e0ecc8fda9d238::t_e78fd1379f0b6d 34,80,87,98
+  s_e0ecc8fda9d238::t_a9497dcf61e119 17,50
+  s_e0ecc8fda9d238::t_ea732857253865 54-66,77
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_e0ecc8fda9d238::t_5aaf227258d7d0 58
+  s_e0ecc8fda9d238::t_e78fd1379f0b6d 989
+  s_e0ecc8fda9d238::t_a9497dcf61e119 971,980-984,993
+  s_e0ecc8fda9d238::t_8ce675e5b6b959 985-987,991-992
+  s_e0ecc8fda9d238::t_ea732857253865 59,988,990
+packages/i18n-app/messages/fr.ts
+  s_e0ecc8fda9d238::t_0346509e2993b2 1522-1524
+  s_e0ecc8fda9d238::t_661a770ebe65f4 1525-1526
+packages/i18n-app/messages/ru.ts
+  s_e0ecc8fda9d238::t_0346509e2993b2 1546-1548
+  s_e0ecc8fda9d238::t_661a770ebe65f4 1549-1550
+packages/i18n-app/messages/de.ts
+  s_e0ecc8fda9d238::t_661a770ebe65f4 1514-1515
+  s_e0ecc8fda9d238::t_0346509e2993b2 1511-1513
+scripts/electron-run/electronRunNuxtServer.ts
+  s_e0ecc8fda9d238::t_4c9ee4296691ad 863
+  s_e0ecc8fda9d238::t_4d1de6955cae83 920
+  s_e0ecc8fda9d238::t_a3ae18c8eef20e 555-559,570,778-784,831,883,910-911,913
+  s_e0ecc8fda9d238::t_b3a4d9fdfd3607 2,909
+scripts/ensure-pdfjs-dev-install.mjs
+  s_e0ecc8fda9d238::t_97de34cb9ed68f 1-2,8-44,48-51,55-89,98-103,108-117,122-131
+  s_e0ecc8fda9d238::t_3f2993109175a5 45-47,52-54
+  s_e0ecc8fda9d238::t_8ce675e5b6b959 3-7,90-97,104-107,118-121
+app/components/AppFailureAlert.vue
+  s_e0ecc8fda9d238::t_e78fd1379f0b6d 27,42,45
+  s_e0ecc8fda9d238::t_a9497dcf61e119 9-19,40-41,43-44,46,49
+packages/i18n-app/messages/it.ts
+  s_e0ecc8fda9d238::t_661a770ebe65f4 1514-1515
+  s_e0ecc8fda9d238::t_0346509e2993b2 1511-1513
+packages/i18n-app/messages/en.ts
+  s_e0ecc8fda9d238::t_0346509e2993b2 1511-1513
+  s_e0ecc8fda9d238::t_661a770ebe65f4 1514-1515
+app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts
+  s_e0ecc8fda9d238::t_e78fd1379f0b6d 224-232,241
+packages/i18n-app/messages/nl.ts
+  s_e0ecc8fda9d238::t_661a770ebe65f4 1514-1515
+  s_e0ecc8fda9d238::t_0346509e2993b2 1511-1513
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "597e8c26ddf16850156d570d3204fe210ca1d27b",
+  "prompts": {},
+  "sessions": {
+    "s_e0ecc8fda9d238": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07bee-953d-7163-875d-9e3bdd2ab722",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
