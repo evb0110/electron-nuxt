@@ -4,12 +4,15 @@ Date: 2026-08-23
 
 Source audit: `docs/pdf-annotations-feature-audit-2026-08-22.md`.
 
-## CURRENT checkpoint, refreshed 2026-09-07 07:10 UTC
+## CURRENT checkpoint, refreshed 2026-09-07 07:33 UTC
 
 - The authoritative integration worktree is
   `/home/ubuntu/.t3/worktrees/evb-viewer/t3code-own-sync`, branch
-  `own-annotations`, clean at `8b8daf216328931576328fd47ed7f8745e27b6ff`.
-  The separate candidate is historical at `bea27ef44334a2207e994876a272c49b06955671`
+  `own-annotations`, clean at publication head
+  `150a7e4d8ac19e3d0c55bcbe2e0380fc3dcf1421`. Source acceptance covers its
+  parent `8b8daf216328931576328fd47ed7f8745e27b6ff`; the publication commit is
+  ledger-only. The separate candidate is historical at
+  `bea27ef44334a2207e994876a272c49b06955671`
   on `ticket/196-renderer-interface`; its evidence is not integrated-main
   evidence. `origin/main` is `b4b6b44135dce544489989caebc9250ab8078359` and
   must be rechecked only at the publication boundary. The coordinator owns
@@ -18,8 +21,15 @@ Source audit: `docs/pdf-annotations-feature-audit-2026-08-22.md`.
   publication, and GitHub state. Jason completed the bounded read-only closure
   audit. The delayed-toolbar worktree and unrelated default Electron session
   remain outside this worktree.
-- No gate, Electron session, or writer is active in this worktree. The latest
-  integrated gates tested SHA `8b8daf216`: canonical validation exited 0 under
+- No local gate, Electron session, or writer is active in this worktree. Hosted
+  PR #206 run `34094454954` is terminal `failure`. Its dedicated native/build,
+  Electron, packaged, and browser jobs passed, but Quality Gates failed because
+  the coverage job had no `qpdf` and its positive admission unit case assumed a
+  native binary that that job does not build. The focused correction installs
+  qpdf in the quality job and gives the unit case a disposable executable via
+  `EVB_PDF_PAGE_OPS_PATH`; no product behavior or accepted Electron gate is
+  waived. A new hosted run is required. The latest integrated gates tested SHA
+  `8b8daf216`: canonical validation exited 0 under
   `.devkit/gates/2026-09-07T060244Z` with summary
   `.devkit/gates/2026-09-07T060244Z/summary.json`; #350 passed `4/4` in
   `.devkit/analysis/gates/2026-09-07T06-17-51-869Z-2538315-131f0968.ndjson`;
@@ -64,15 +74,29 @@ Source audit: `docs/pdf-annotations-feature-audit-2026-08-22.md`.
   the ledger and is not waived. Earlier candidate and pre-migration greens are
   invalid for claims about this merged tree.
 - Remaining work is closure and publication, not a new implementation
-  hypothesis: recheck main ancestry, update and publish `own-annotations`
-  through PR #206, obtain current-head hosted checks, reconcile PR #349 as
-  already integrated, run the required final CodeRabbit attempt with its
-  documented fail-open handling, update the #167 reproducible report with the
-  integrated Linux evidence, and then close #196, #168, #167, #350, #166, and
-  Project 4 in dependency order after their actual states are verified. #168's
+  hypothesis: publish the focused correction through PR #206, obtain a passing
+  current-head hosted run, merge and verify exact integrated `main`, run the
+  required final CodeRabbit attempt with its documented fail-open handling,
+  update the #167 reproducible report with the integrated Linux evidence, and
+  then close #196, #168, #167, #350, #166, and Project 4 in dependency order
+  after their actual states are verified. #168's
   6.3.311 migration is present and locally accepted, but its issue stays open
   until publication, hosted checks, integrated-main verification, and its fork
   disposition are recorded. The owner visual check remains outside closure.
+
+### 2026-09-07, hosted run `34094454954` terminal failure and correction
+
+The hosted run completed with all dedicated native/build, Electron, packaged,
+browser, Rust, and scan-cleanup jobs green. `Quality Gates` failed only in its
+coverage process. `tests/unit/scripts/interopCorpus.test.ts` could not spawn
+`qpdf` because the quality job did not install it. The positive case in
+`tests/unit/scripts/assertElectronNativePageOps.test.ts` looked for a built
+`evb-pdf-page-ops`, but that job does not build native tools. The production
+Electron jobs still build and admit the real binary. The correction installs
+qpdf in the quality job and gives the unit test an explicit disposable
+executable through `EVB_PDF_PAGE_OPS_PATH`, retaining the `--version` and
+executable checks. Focused local coverage is green at 11/11. The hosted run
+must be repeated on the corrected head before PR #206 can merge.
 
 ### 2026-09-07, integrated acceptance at `8b8daf216`
 
