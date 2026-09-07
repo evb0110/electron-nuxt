@@ -120,14 +120,14 @@ pub struct ContentDiagnostics {
     pub protected_blocks: Vec<ContentBlockEvidence>,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Operation {
     Analyze,
     Render,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AnalysisPurpose {
     /// Retained for direct native `--manifest` callers. The Electron app
@@ -137,7 +137,7 @@ pub enum AnalysisPurpose {
     PagePlan,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RenderMode {
     Preview,
@@ -146,7 +146,7 @@ pub enum RenderMode {
 
 pub use crate::domain::geometry::CanvasScope;
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// The one rectangle and pixel grid every matched output of this document is
 /// normalized onto. The owning process measures it from the source page
@@ -178,7 +178,7 @@ impl DocumentCanvas {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PageOutput {
     pub output_path: PathBuf,
@@ -197,7 +197,7 @@ pub struct PageOutput {
     pub tone_preservation_alpha_output_path: Option<PathBuf>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetailPixelRect {
     pub x_px: f64,
@@ -212,7 +212,7 @@ impl DetailPixelRect {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetailRenderPlan {
     pub base_metadata_path: PathBuf,
@@ -230,7 +230,7 @@ pub struct DetailRenderPlan {
     pub sampled_region: DetailPixelRect,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
     pub input_path: PathBuf,
@@ -260,7 +260,8 @@ pub struct Page {
     pub outputs: Vec<PageOutput>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ManifestV3 {
     pub version: u32,
     pub operation: Operation,
@@ -1019,11 +1020,43 @@ mod tests {
         .unwrap();
         older.validate().unwrap();
         newer.validate().unwrap();
-        assert_eq!(older.pages.len(), newer.pages.len());
-        assert_eq!(older.pages[0].input_path, newer.pages[0].input_path);
         assert_eq!(
-            serde_json::to_value(&older.pages[0].options).unwrap(),
-            serde_json::to_value(&newer.pages[0].options).unwrap(),
+            serde_json::to_value(&older).unwrap(),
+            serde_json::to_value(&newer).unwrap(),
+        );
+    }
+
+    #[test]
+    fn additive_manifest_fields_preserve_every_authored_option() {
+        let fixture = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/protocol/populated-raster-v3.json"),
+        )
+        .unwrap();
+        let baseline: ManifestV3 = serde_json::from_slice(&fixture).unwrap();
+        let mut additive: serde_json::Value = serde_json::from_slice(&fixture).unwrap();
+        let root = additive.as_object_mut().unwrap();
+        root.insert(
+            "futureRootField".into(),
+            serde_json::json!({"ignored": true}),
+        );
+        let page = &mut root["pages"][0];
+        page.as_object_mut()
+            .unwrap()
+            .insert("futurePageField".into(), serde_json::json!(true));
+        page["options"]
+            .as_object_mut()
+            .unwrap()
+            .insert("futureOptionField".into(), serde_json::json!("ignored"));
+        page["options"]["experimental"]
+            .as_object_mut()
+            .unwrap()
+            .insert("futureExperimentalField".into(), serde_json::json!(7));
+
+        let parsed: ManifestV3 = serde_json::from_value(additive).unwrap();
+        assert_eq!(
+            serde_json::to_value(&baseline).unwrap(),
+            serde_json::to_value(&parsed).unwrap(),
         );
     }
 

@@ -31,14 +31,12 @@ export const GENERATED_RUST_NATIVE_TOOL_PROTOCOLS = [
     {
         binaryName: 'evb-scan-cleanup',
         crateName: 'scan-cleanup',
-        // Runtime compatibility revision for the strict manifest parser. This
-        // intentionally advances independently of the JSON format's public
-        // `version`: adding a field to a deny-unknown-fields Rust struct makes
-        // an older executable incompatible even when the v3 wire shape remains
-        // additive for current consumers. It also fences the reverse case —
-        // revision 10 is the first sidecar that reports placement conditions as
-        // structured `warningEvents`, which Electron aggregates by code, so an
-        // older binary must fail the handshake rather than run.
+        // Runtime capability negotiation is independent of the public JSON
+        // `version`. The manifest contract ignores additive fields, so legacy
+        // revision 9 remains usable with the required `manifest-v3`
+        // capability. Revision 10 adds optional `structured-warning-events`.
+        // Callers that require that capability must refuse a legacy binary;
+        // callers that do not require it use the legacy warning fallback.
         protocolVersion: 10,
         resourceFamilyId: 'scan-cleanup',
         stagingName: 'scan-cleanup',
