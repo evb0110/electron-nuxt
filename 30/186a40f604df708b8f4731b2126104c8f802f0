@@ -8,6 +8,8 @@ tests/unit/electron/featureRegistrationTable.test.ts
 electron/platform-ipc/registerFeatureIpcAdapters.ts
   s_2f4b494e70ad0e::t_4d68386e683e42 7,87
   s_2f4b494e70ad0e::t_b787a7249ab639 6,8-10,48-49,54-55,57,60,67-69,94-100
+  s_2f4b494e70ad0e::t_f95c87dba93bb5 56,58-59,61-63,65-66,70-74,77-86,93
+  s_2f4b494e70ad0e::t_4f51183de40106 51-52
 ---
 {
   "schema_version": "authorship/3.0.0",
