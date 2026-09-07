@@ -42,6 +42,23 @@ pub(crate) fn run(input: Input<'_>) -> Output {
         create_layers,
         create_composite,
     } = input;
+    debug_assert_eq!(
+        (gray.width(), gray.height()),
+        (binary.width(), binary.height())
+    );
+    debug_assert_eq!(
+        (gray.width(), gray.height()),
+        (picture_mask.width(), picture_mask.height())
+    );
+    debug_assert!(chroma_picture_mask
+        .is_none_or(|mask| (mask.width(), mask.height()) == (gray.width(), gray.height())));
+    debug_assert!(removed_edge_bands
+        .is_none_or(|mask| (mask.width(), mask.height()) == (gray.width(), gray.height())));
+    debug_assert!(
+        text_mask.is_none_or(|mask| (mask.width(), mask.height()) == (gray.width(), gray.height()))
+    );
+    debug_assert!(text_vicinity_mask
+        .is_none_or(|mask| (mask.width(), mask.height()) == (gray.width(), gray.height())));
     // Mixed has two mutually exclusive owners: the binary foreground owns
     // text, while the protected picture mask owns continuous-tone detail.
     // Binarization already excludes this area, but later text-recall and
