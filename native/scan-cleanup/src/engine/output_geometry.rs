@@ -1751,76 +1751,26 @@ pub(crate) fn place_on_gray_canvas_with_source_window(
         source_offset_right,
         source.width()
     );
-    let data = place_packed_on_white_canvas_with_source_window(PackedCanvasInput {
-        source: source.data(),
-        source_width: source.width(),
-        source_height: source.height(),
-        source_stride: source.stride(),
-        width,
-        height,
-        left,
-        top,
-        fill,
-        channels: 1,
-        source_offset_x,
-        source_offset_right,
-        source_offset_y,
-    });
-    GrayImage::from_vec(width, height, width, data).expect("packed gray canvas has valid shape")
-}
-
-struct PackedCanvasInput<'a> {
-    source: &'a [u8],
-    source_width: usize,
-    source_height: usize,
-    source_stride: usize,
-    width: usize,
-    height: usize,
-    left: usize,
-    top: usize,
-    fill: u8,
-    channels: usize,
-    source_offset_x: usize,
-    source_offset_right: usize,
-    source_offset_y: usize,
-}
-
-fn place_packed_on_white_canvas_with_source_window(input: PackedCanvasInput<'_>) -> Vec<u8> {
-    let PackedCanvasInput {
-        source,
-        source_width,
-        source_height,
-        source_stride,
-        width,
-        height,
-        left,
-        top,
-        fill,
-        channels,
-        source_offset_x,
-        source_offset_right,
-        source_offset_y,
-    } = input;
-    let mut canvas = vec![fill; width.saturating_mul(height).saturating_mul(channels)];
+    let mut canvas = GrayImage::new(width, height, fill);
     canvas
-        .par_chunks_mut(width * channels)
+        .data_mut()
+        .par_chunks_mut(width)
         .enumerate()
         .for_each(|(y, row)| {
             if let Some(source_y) = y
                 .checked_sub(top)
                 .and_then(|y| y.checked_add(source_offset_y))
-                .filter(|&y| y < source_height)
+                .filter(|&y| y < source.height())
             {
                 let copy_width = width.saturating_sub(left).min(
-                    source_width
+                    source
+                        .width()
                         .saturating_sub(source_offset_x)
                         .saturating_sub(source_offset_right),
                 );
                 if copy_width > 0 {
-                    let start = left * channels;
-                    let source_start = source_y * source_stride + source_offset_x * channels;
-                    row[start..start + copy_width * channels].copy_from_slice(
-                        &source[source_start..source_start + copy_width * channels],
+                    row[left..left + copy_width].copy_from_slice(
+                        &source.row(source_y)[source_offset_x..source_offset_x + copy_width],
                     );
                 }
             }
@@ -1863,22 +1813,33 @@ pub(crate) fn place_rgb_on_white_canvas_with_source_window(
         source_offset_right,
         source.width()
     );
-    let data = place_packed_on_white_canvas_with_source_window(PackedCanvasInput {
-        source: source.data(),
-        source_width: source.width(),
-        source_height: source.height(),
-        source_stride: source.width() * 3,
-        width,
-        height,
-        left,
-        top,
-        fill: 255,
-        channels: 3,
-        source_offset_x,
-        source_offset_right,
-        source_offset_y,
-    });
-    RgbImage::from_vec(width, height, data).expect("packed RGB canvas has valid shape")
+    let mut canvas = RgbImage::new(width, height, [255; 3]);
+    canvas
+        .data_mut()
+        .par_chunks_mut(width * 3)
+        .enumerate()
+        .for_each(|(y, row)| {
+            if let Some(source_y) = y
+                .checked_sub(top)
+                .and_then(|y| y.checked_add(source_offset_y))
+                .filter(|&y| y < source.height())
+            {
+                let copy_width = width.saturating_sub(left).min(
+                    source
+                        .width()
+                        .saturating_sub(source_offset_x)
+                        .saturating_sub(source_offset_right),
+                );
+                if copy_width > 0 {
+                    let start = left * 3;
+                    row[start..start + copy_width * 3].copy_from_slice(
+                        &source.row(source_y)
+                            [source_offset_x * 3..(source_offset_x + copy_width) * 3],
+                    );
+                }
+            }
+        });
+    canvas
 }
 
 #[cfg(test)]
