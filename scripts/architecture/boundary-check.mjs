@@ -236,15 +236,13 @@ const PDF_VIEWER_ENGINE_ALLOWED_TARGET_ROOTS = [
     `${PDF_VIEWER_MODULE_ROOT}/dom`,
 ];
 
-const ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS = new Map([
-    [
-        'electron/search/protocol.ts',
-        {
-            specifier: '@electron/features/search/protocol',
-            typeOnly: true,
-        },
-    ],
-]);
+const ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS = new Map([[
+    'electron/search/protocol.ts',
+    {
+        specifier: '@electron/features/search/protocol',
+        typeOnly: true,
+    },
+]]);
 
 const NATIVE_TOOL_DOMAIN_ROOTS = [
     'electron/ocr',
