@@ -20,6 +20,7 @@ native/evb-native-support/src/generated_native_tool_protocols.rs
 scan-cleanup-core/types.ts
   s_0eef0df46a6ce9::t_57ea3b40bea3fd 383
   s_0eef0df46a6ce9::t_3291942a3fcc8c 384
+  s_c63d7a8363f7e9::t_502206acab9719 395
 tests/unit/electron/scanCleanupSidecarStageTimings.test.ts
   s_0eef0df46a6ce9::t_a1bd051f768da7 16-19
   s_0eef0df46a6ce9::t_e96152e81b2a64 20,25
@@ -31,6 +32,7 @@ tests/unit/scripts/nativeToolProtocols.test.ts
   s_0eef0df46a6ce9::t_1bc7be19ba0f6d 45-56,61,64-65
   s_0eef0df46a6ce9::t_c18ee403291d63 57-59,62
   s_0eef0df46a6ce9::t_57ea3b40bea3fd 60,63
+  s_c63d7a8363f7e9::t_502206acab9719 115
 native/scan-cleanup/tests/protocol_version.rs
   s_0eef0df46a6ce9::t_c667bc15f54baf 12
 native/evb-native-support/src/lib.rs
@@ -53,11 +55,15 @@ native/scan-cleanup/src/protocol/manifest_v3.rs
   s_0eef0df46a6ce9::t_88895d3a1e36d5 1037,1138
   s_0eef0df46a6ce9::t_98e77487f1b75e 312,1038,1065,1126,1139
   s_0eef0df46a6ce9::t_0fb4ae74bdf980 1049-1051
+  s_c63d7a8363f7e9::t_502206acab9719 314,1116-1125,1127-1129,1131-1135,1137
 packages/contracts/nativeToolProtocols.ts
   s_0eef0df46a6ce9::t_9795338fd80880 41-46
   s_0eef0df46a6ce9::t_c02bee555b5575 1-6,11,48-59
 scan-cleanup-core/runScanCleanupConversion.ts
   s_0eef0df46a6ce9::t_b07d7377874ee4 66
+  s_c63d7a8363f7e9::t_502206acab9719 2625,2913-2916
+electron/features/scan-cleanup/scanCleanupPreviewRenderer.ts
+  s_c63d7a8363f7e9::t_cdd205a04e0dcc 599
 ---
 {
   "schema_version": "authorship/3.0.0",
@@ -69,6 +75,14 @@ scan-cleanup-core/runScanCleanupConversion.ts
       "agent_id": {
         "tool": "codex",
         "id": "01a07c93-fb5c-7210-a225-da996191963d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c63d7a8363f7e9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a077c1-9dbc-71c3-b62d-961e03c263fa",
         "model": "gpt-5.6-luna"
       },
       "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
