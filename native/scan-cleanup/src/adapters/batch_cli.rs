@@ -2386,8 +2386,6 @@ fn page_complete_progress(result: &PageRunResult, index: usize, total_pages: usi
     }
 }
 
-#[cfg(test)]
-pub(crate) use page_workflow::decode_page_inputs;
 pub(crate) use page_workflow::{run_classification, run_page, PagePublication};
 
 pub(crate) fn write_json_atomic(path: &Path, value: &impl Serialize) -> Result<(), Box<dyn Error>> {
