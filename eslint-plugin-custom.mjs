@@ -97,6 +97,24 @@ const INTERNAL_MOCK_BOUNDARY_PATTERNS = [
     /^@app\/platform(?:\/|$)/u,
 ];
 
+export function getInternalMockAllowlistGrowth(allowlist, baseline) {
+    const growth = [];
+    const baselineEntries = baseline instanceof Map ? baseline.entries() : Object.entries(baseline);
+    const baselineCounts = new Map(baselineEntries);
+    for (const [
+        file,
+        count,
+    ] of Object.entries(allowlist)) {
+        const baselineCount = baselineCounts.get(file);
+        if (baselineCount === undefined) {
+            growth.push(`new file ${file} (${count})`);
+        } else if (count > baselineCount) {
+            growth.push(`${file} increased from ${baselineCount} to ${count}`);
+        }
+    }
+    return growth;
+}
+
 function getTestLayer(repoPath) {
     return /^tests\/unit\/([^/]+)\//u.exec(repoPath)?.[1] ?? null;
 }
@@ -124,6 +142,8 @@ function isInternalMockForTest(source, repoPath) {
         && !isApprovedInternalMockBoundary(source);
 }
 
+const reportedAllowlistGrowth = new WeakSet();
+
 const noInternalTestMocksRule = {
     meta: {
         type: 'problem',
@@ -133,13 +153,16 @@ const noInternalTestMocksRule = {
         },
         schema: [{
             type: 'object',
-            properties: {allowlist: {
-                type: 'object',
-                additionalProperties: {
-                    type: 'integer',
-                    minimum: 0,
+            properties: {
+                allowlist: {
+                    type: 'object',
+                    additionalProperties: {
+                        type: 'integer',
+                        minimum: 0,
+                    },
                 },
-            }},
+                baseline: {type: 'object'},
+            },
             additionalProperties: false,
         }],
     },
@@ -150,6 +173,15 @@ const noInternalTestMocksRule = {
         }
 
         const allowlist = context.options[0]?.allowlist ?? {};
+        const baseline = context.options[0]?.baseline;
+        const allowlistGrowth = baseline
+            ? getInternalMockAllowlistGrowth(allowlist, baseline)
+            : [];
+        const allowlistGrowthReport = allowlistGrowth.length > 0
+            && !reportedAllowlistGrowth.has(allowlist);
+        if (allowlistGrowthReport) {
+            reportedAllowlistGrowth.add(allowlist);
+        }
         const allowedCount = allowlist[repoPath] ?? 0;
         let violationCount = 0;
         const importedSources = new Map();
@@ -189,6 +221,12 @@ const noInternalTestMocksRule = {
                 }
             },
             'Program:exit'() {
+                if (allowlistGrowthReport) {
+                    context.report({
+                        node: context.sourceCode.ast,
+                        message: `The internal-mock allowlist may only shrink: ${allowlistGrowth.join('; ')}.`,
+                    });
+                }
                 if (violationCount > 0 && !(repoPath in allowlist)) {
                     context.report({
                         loc: {

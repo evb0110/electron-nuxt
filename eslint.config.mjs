@@ -4,6 +4,7 @@ import * as tsParser from '@typescript-eslint/parser';
 import * as vueParser from 'vue-eslint-parser';
 import customPlugin from './eslint-plugin-custom.mjs';
 import {internalMockAllowlist} from './eslint.internal-mock-allowlist.mjs';
+import {internalMockAllowlistBaseline} from './eslint.internal-mock-allowlist-baseline.mjs';
 import {
     arrayTypeRules,
     namingRules,
@@ -406,7 +407,10 @@ const projectConfig = withNuxt(
     {
         files: ['tests/**/*.ts'],
         rules: {
-            'custom/no-internal-test-mocks': ['error', {allowlist: internalMockAllowlist}],
+            'custom/no-internal-test-mocks': ['error', {
+                allowlist: internalMockAllowlist,
+                baseline: internalMockAllowlistBaseline,
+            }],
             'no-restricted-imports': 'off',
             ...arrayTypeRules,
             ...namingRules,

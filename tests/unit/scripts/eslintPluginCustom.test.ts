@@ -12,6 +12,9 @@ import * as vueParser from 'vue-eslint-parser';
 import stylelint from 'stylelint';
 
 const customPlugin = (await import(new URL('../../../eslint-plugin-custom.mjs', import.meta.url).href)).default;
+const {getInternalMockAllowlistGrowth} = await import(new URL('../../../eslint-plugin-custom.mjs', import.meta.url).href);
+const {internalMockAllowlist} = await import(new URL('../../../eslint.internal-mock-allowlist.mjs', import.meta.url).href) as {internalMockAllowlist: Record<string, number>;};
+const {internalMockAllowlistBaseline} = await import(new URL('../../../eslint.internal-mock-allowlist-baseline.mjs', import.meta.url).href);
 const stylelintConfigModule = await import(new URL('../../../stylelint.config.mjs', import.meta.url).href);
 const stylelintConfig = stylelintConfigModule.default;
 const stylelintCustomPlugins = stylelintConfigModule.stylelintCustomPlugins;
@@ -126,8 +129,39 @@ vi.doMock('@app/services/two', () => ({}));`,
                     options: [{allowlist: {'tests/unit/app/allowlisted.test.ts': 1}}],
                     errors: 1,
                 },
+                {
+                    code: 'vi.mock(\'@app/services/new\', () => ({}));',
+                    filename: 'tests/unit/app/new-file.test.ts',
+                    options: [{
+                        allowlist: {'tests/unit/app/new-file.test.ts': 1},
+                        baseline: internalMockAllowlistBaseline,
+                    }],
+                    errors: 1,
+                },
+                {
+                    code: 'vi.mock(\'@app/services/one\', () => ({}));',
+                    filename: 'tests/unit/app/components/appSearchInput.test.ts',
+                    options: [{
+                        allowlist: {'tests/unit/app/components/appSearchInput.test.ts': 2},
+                        baseline: internalMockAllowlistBaseline,
+                    }],
+                    errors: 1,
+                },
             ],
         });
+    });
+});
+
+describe('no-internal-test-mocks allowlist baseline', () => {
+    it('matches the current 998-violation, 328-file baseline and permits shrinkage', () => {
+        expect(getInternalMockAllowlistGrowth(internalMockAllowlist, internalMockAllowlistBaseline)).toEqual([]);
+        expect(Object.values(internalMockAllowlist).reduce((total, count) => total + count, 0)).toBe(998);
+        expect(Object.keys(internalMockAllowlist)).toHaveLength(328);
+
+        const shrunk = {...internalMockAllowlist};
+        delete shrunk['tests/unit/app/components/appSearchInput.test.ts'];
+        shrunk['tests/unit/electron/agentAssistantOptIn.test.ts'] = 7;
+        expect(getInternalMockAllowlistGrowth(shrunk, internalMockAllowlistBaseline)).toEqual([]);
     });
 });
 

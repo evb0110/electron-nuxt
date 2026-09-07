@@ -251,8 +251,10 @@ Electron APIs, filesystem and child-process modules, native-sidecar command
 wrappers, IPC/platform adapters, and network clients. Use fixtures or a small
 harness when the behavior belongs to the same layer. The reviewed allowlist in
 `eslint.internal-mock-allowlist.mjs` records existing exceptions by exact file
-and count. It may only shrink. A new violating file or an extra violation in
-an allowlisted file fails unit-test lint until the policy is reviewed.
+and count. `eslint.internal-mock-allowlist-baseline.mjs` is the independent
+ceiling, so the allowlist may only shrink. A new violating file or an extra
+violation in an allowlisted file fails unit-test lint until the policy is
+reviewed.
 The #319 test-size owner may share this unit-test configuration, but owns the
 max-lines implementation and its allowlist separately. #317 does not change
 that size policy.
