@@ -181,22 +181,7 @@ pub(crate) fn compose_primary_raster(
             GeometryRaster::Gray(materialize_gray_primary_on_canvas(image, placement, canvas))
         }
         GeometryRaster::Bilevel(image) => {
-            let gray = binary_to_gray(image);
-            let canvas_image = place_on_white_canvas_with_source_window(
-                &resample_bilevel(&gray, placement.content_width, placement.content_height),
-                canvas.width_px,
-                canvas.height_px,
-                placement.materialization_left,
-                placement.top,
-                placement.materialization_source_offset_left,
-                placement.materialization_source_offset_right,
-                placement.intrinsic_overflow_top,
-            );
-            GeometryRaster::Bilevel(BinaryImage::from_fn_parallel(
-                canvas.width_px,
-                canvas.height_px,
-                |x, y| canvas_image.get(x, y) < 128,
-            ))
+            GeometryRaster::Bilevel(materialize_binary_on_canvas(image, placement, canvas))
         }
     };
     let color_image = color_image.map(|color| {
@@ -220,7 +205,19 @@ pub(crate) fn compose_picture_mask(
     canvas: &GeometryCanvas,
 ) -> Option<BinaryImage> {
     let picture_mask = picture_mask?;
-    let gray = binary_to_gray(&picture_mask);
+    Some(materialize_binary_on_canvas(
+        &picture_mask,
+        placement,
+        canvas,
+    ))
+}
+
+fn materialize_binary_on_canvas(
+    source: &BinaryImage,
+    placement: CanvasPlacement,
+    canvas: &GeometryCanvas,
+) -> BinaryImage {
+    let gray = binary_to_gray(source);
     let placed = place_on_white_canvas_with_source_window(
         &resample_bilevel(&gray, placement.content_width, placement.content_height),
         canvas.width_px,
@@ -231,11 +228,9 @@ pub(crate) fn compose_picture_mask(
         placement.materialization_source_offset_right,
         placement.intrinsic_overflow_top,
     );
-    Some(BinaryImage::from_fn_parallel(
-        canvas.width_px,
-        canvas.height_px,
-        |x, y| placed.get(x, y) < 128,
-    ))
+    BinaryImage::from_fn_parallel(canvas.width_px, canvas.height_px, |x, y| {
+        placed.get(x, y) < 128
+    })
 }
 
 pub(crate) fn compose_tone_preservation_alpha(
@@ -324,24 +319,8 @@ pub(crate) fn compose_layers(
             .as_ref()
             .is_some_and(|layers| layers.source_mrc);
     let mut layers = mixed_layers?;
-    let foreground = place_on_white_canvas_with_source_window(
-        &resample_bilevel(
-            &binary_to_gray(&layers.foreground_mask),
-            placement.content_width,
-            placement.content_height,
-        ),
-        canvas.width_px,
-        canvas.height_px,
-        placement.materialization_left,
-        placement.top,
-        placement.materialization_source_offset_left,
-        placement.materialization_source_offset_right,
-        placement.intrinsic_overflow_top,
-    );
     layers.foreground_mask =
-        BinaryImage::from_fn_parallel(canvas.width_px, canvas.height_px, |x, y| {
-            foreground.get(x, y) < 128
-        });
+        materialize_binary_on_canvas(&layers.foreground_mask, placement, canvas);
     if let Some(alpha) = layers.foreground_alpha.as_ref() {
         layers.foreground_alpha = Some(place_on_gray_canvas_with_source_window(
             &resample_gray_if_needed(alpha, placement.content_width, placement.content_height),
