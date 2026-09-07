@@ -4,51 +4,95 @@ Date: 2026-08-23
 
 Source audit: `docs/pdf-annotations-feature-audit-2026-08-22.md`.
 
-## CURRENT checkpoint, refreshed 2026-09-07 05:15 UTC
+## CURRENT checkpoint, refreshed 2026-09-07 07:10 UTC
 
-- Candidate is `9657bebe1ed7b5886406d505d47a82e256b4ce60` on
-  `ticket/196-renderer-interface`; the worktree is clean. `origin/main` is
-  `b4b6b44135dce544489989caebc9250ab8078359` and is an ancestor of the
-  candidate. Coordinator ownership remains shared helpers, launchers,
-  configuration, interop scripts, generated WASM, the pinned PDF.js artifact
-  and verifier, this ledger, integration, publication, and GitHub state.
-  Halley, Pasteur, and Pauli completed read-only reviews with no edits.
-- No gate, Electron session, or writer is active in this worktree. The final
-  canonical validation tested this exact SHA in shell session `51311`, under
-  `.devkit/gates/2026-09-07T050432Z`, and finished at
-  `2026-09-07T05:14:30.636Z` with exit 0. It passed 1,304 test files, 11,050
-  tests, and 8 intentional skipped tests, plus coverage and zero-execution
-  coverage, native/resource checks, strict build, bundle integrity, and
-  blocking Electron smoke. Evidence is
-  `.devkit/analysis/gates/2026-09-07T05-04-32-837Z-2382190-4706b9f1.ndjson`;
-  the gate summary is `.devkit/gates/2026-09-07T050432Z/summary.json`.
-- Current candidate acceptance is green for #350 `4/4`, #167 `2/2`, the
-  annotation lifecycle slice (`7` passed, `9` documented skips), Viewer Smoke
-  `25/25`, save pipeline (`5` exercised, one intentional skip), native
-  save/reopen `4/4`, exact 882 annotation save `8/8`, exact 882 native matrix
-  `2/2`, exact 882 native preview `3/3`, split-pane `1/1`, draw-shapes
-  `17/17`, and exact 2,646-page `2/2`. The exact fixture hashes and evidence
-  paths remain recorded in the dated entries below.
+- The authoritative integration worktree is
+  `/home/ubuntu/.t3/worktrees/evb-viewer/t3code-own-sync`, branch
+  `own-annotations`, clean at `8b8daf216328931576328fd47ed7f8745e27b6ff`.
+  The separate candidate is historical at `bea27ef44334a2207e994876a272c49b06955671`
+  on `ticket/196-renderer-interface`; its evidence is not integrated-main
+  evidence. `origin/main` is `b4b6b44135dce544489989caebc9250ab8078359` and
+  must be rechecked only at the publication boundary. The coordinator owns
+  shared helpers, launchers, configuration, interop scripts, generated WASM,
+  the pinned PDF.js artifact and verifier, this ledger, integration,
+  publication, and GitHub state. Jason completed the bounded read-only closure
+  audit. The delayed-toolbar worktree and unrelated default Electron session
+  remain outside this worktree.
+- No gate, Electron session, or writer is active in this worktree. The latest
+  integrated gates tested SHA `8b8daf216`: canonical validation exited 0 under
+  `.devkit/gates/2026-09-07T060244Z` with summary
+  `.devkit/gates/2026-09-07T060244Z/summary.json`; #350 passed `4/4` in
+  `.devkit/analysis/gates/2026-09-07T06-17-51-869Z-2538315-131f0968.ndjson`;
+  #167 passed `2/2` in
+  `.devkit/analysis/gates/2026-09-07T06-19-57-355Z-2540800-b720c9a6.ndjson`;
+  annotation lifecycle passed `7` with `9` documented skips in
+  `.devkit/analysis/gates/2026-09-07T06-21-23-637Z-2542690-787601a5.ndjson`;
+  save pipeline passed `5` exercised tests with one intentional skip in
+  `.devkit/analysis/gates/2026-09-07T06-23-40-048Z-2548118-8d19a269.ndjson`;
+  native save/reopen passed `4/4` in
+  `.devkit/analysis/gates/2026-09-07T06-27-32-071Z-2554797-c0b3eca8.ndjson`;
+  and integrated Viewer Smoke passed `25/25` in
+  `.devkit/analysis/gates/2026-09-07T06-31-43-696Z-2566963-838c5c8a.ndjson`.
+- Required exact and feature acceptance is green on the same SHA. Exact 882
+  annotation save passed `8/8` at
+  `.devkit/analysis/gates/2026-09-07T06-41-25-713Z-2583413-038c63de.ndjson`;
+  exact 882 native matrix passed `2/2` at
+  `.devkit/analysis/gates/2026-09-07T06-50-14-101Z-2594967-66f64c17.ndjson`;
+  exact 882 native preview passed `3/3` at
+  `.devkit/analysis/gates/2026-09-07T06-54-34-776Z-2600616-950e9192.ndjson`;
+  exact 2,646-page acceptance passed `2/2` at
+  `.devkit/analysis/gates/2026-09-07T06-56-26-033Z-2603529-7eed8c47.ndjson`;
+  split-pane lifecycle passed `1/1` at
+  `.devkit/analysis/gates/2026-09-07T07-00-19-572Z-2608508-4c3a40f7.ndjson`;
+  and draw-shapes passed `16/16` at
+  `.devkit/analysis/gates/2026-09-07T07-01-42-639Z-2611039-93a485fa.ndjson`.
+  The first split-pane attempt at
+  `.devkit/analysis/gates/2026-09-07T06-59-45-326Z-2607361-a82c9029.ndjson`
+  selected `e2e-regression`, which does not include that file. It is a routing
+  failure, superseded by the correctly selected green run, not product evidence.
+- The exact source fixtures remain hash-verified and untouched: the 882-page
+  file is `722178517` bytes with SHA-256
+  `1660bced91f628b9acbb2fc0f9dac29fe783a3f43d26231d8f3b0c73133b21b6`, and the
+  2,646-page file is `2168527413` bytes with SHA-256
+  `5609c151c1cec881da4b97ec7028250574f8f0ee67540dcdc8808cc7b8ab0aea`.
 - The mixed-size broad red at
   `.devkit/analysis/gates/2026-09-06T09-13-35-511Z-3977170-a1fd46a8.ndjson`
   remains historical. It omitted `EVB_PDF_PAGE_OPS_ENABLE=1` and predated the
-  fit-width repair. The correctly configured broad gate passed `24/24`, and
-  post-migration Viewer Smoke passed `25/25`, including mixed-size fitting and
-  crop-overlay coverage. This is a retained historical artifact with an
-  evidence-backed disposition, not a current candidate failure.
-- The pinned #168 PDF.js 6.3.311 artifact, receipt, provenance verifier, app
-  dependency, copied assets, adapter, and version-coupled tests are in this
-  candidate. #168 is still open until the integrated `own-annotations` tree
-  passes its migration and acceptance checks. Candidate-only evidence must not
-  be reported as integrated-main evidence. Earlier pre-migration greens are
-  historical and do not prove this merged behavior.
-- Next queue is the doc-only ledger/checkpoint commit, candidate publication,
-  #196/#206/#349 reconciliation against current main, integrated-tree
-  #350/#167 and exact-fixture verification, then #168 and Project 4 state
-  updates. The delayed-toolbar worktree and unrelated default Electron session
-  remain outside this worktree. The final CodeRabbit attempt reached the
-  service but ended with `WebSocket closed`; the earlier doctor run passed 9/9.
-  That is a provider fail-open result, not review approval.
+  fit-width repair. The configured broad gate passed `24/24`, and the current
+  integrated Viewer Smoke passed `25/25`, including mixed-size fitting,
+  crop-overlay, PNG, DjVu, and split continuity cases. The old red remains in
+  the ledger and is not waived. Earlier candidate and pre-migration greens are
+  invalid for claims about this merged tree.
+- Remaining work is closure and publication, not a new implementation
+  hypothesis: recheck main ancestry, update and publish `own-annotations`
+  through PR #206, obtain current-head hosted checks, reconcile PR #349 as
+  already integrated, run the required final CodeRabbit attempt with its
+  documented fail-open handling, update the #167 reproducible report with the
+  integrated Linux evidence, and then close #196, #168, #167, #350, #166, and
+  Project 4 in dependency order after their actual states are verified. #168's
+  6.3.311 migration is present and locally accepted, but its issue stays open
+  until publication, hosted checks, integrated-main verification, and its fork
+  disposition are recorded. The owner visual check remains outside closure.
+
+### 2026-09-07, integrated acceptance at `8b8daf216`
+
+The integrated branch passed the full required local acceptance queue after
+the single canonical validation run. The native capability admission came from
+the published headless launcher, and all Electron work used the named-session
+lifecycle. The #350 gate used the private 3,153-byte legacy fixture and the
+private reported-notes fixture. The #167 gate used the tracked five-kind
+corpus, qpdf, independent Linux rendering, real EVB Electron import/edit/save/
+reopen coverage, and the supported encrypted-input save flow. Its retained
+render artifacts are under
+`.devkit/artifacts/issue-167-interop-integrated-8b8daf216`.
+
+The first custom #350 command failed before CDP because its direct launcher
+left Electron's `chrome-sandbox` at mode 0755 instead of using the canonical
+wrapper's no-sandbox environment. Its session log is
+`.devkit/sessions/e2e-run-mtqukxys-c324ae-legacy-note-350-1788761804843/session.log`.
+The canonical rerun passed all four cases, so no product or system permission
+change was made. No Acrobat, Preview, macOS, owner-created fixture, or human
+sign-off was used or is required for #167.
 
 ## Historical checkpoint, refreshed 2026-09-07 05:01 UTC
 
