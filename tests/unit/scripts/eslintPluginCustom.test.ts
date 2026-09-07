@@ -82,6 +82,55 @@ describe('commonjs-named-imports rule', () => {
     });
 });
 
+describe('no-internal-test-mocks rule', () => {
+    it('rejects same-layer vi.mock, vi.doMock, and vi.spyOn while allowing boundaries', () => {
+        tester.run('no-internal-test-mocks', rules['no-internal-test-mocks'] as Parameters<typeof tester.run>[1], {
+            valid: [
+                {
+                    code: 'vi.mock(\'fs\', () => ({}));',
+                    filename: 'tests/unit/electron/example.test.ts',
+                },
+                {
+                    code: 'vi.mock(\'@electron/file-access/workingCopyStore\', () => ({}));',
+                    filename: 'tests/unit/electron/example.test.ts',
+                },
+                {
+                    code: 'vi.doMock(\'node:child_process\', () => ({}));',
+                    filename: 'tests/unit/electron/example.test.ts',
+                },
+                {
+                    code: 'import * as fs from \'fs\'; vi.spyOn(fs, \'readFile\');',
+                    filename: 'tests/unit/electron/example.test.ts',
+                },
+            ],
+            invalid: [
+                {
+                    code: 'vi.mock(\'@electron/features/search/searchService\', () => ({}));',
+                    filename: 'tests/unit/electron/example.test.ts',
+                    errors: 1,
+                },
+                {
+                    code: 'vi.doMock(\'@app/services/recentFiles\', () => ({}));',
+                    filename: 'tests/unit/app/example.test.ts',
+                    errors: 1,
+                },
+                {
+                    code: 'import * as service from \'@server/utils/getRuntimeEnv\'; vi.spyOn(service, \'getRuntimeEnv\');',
+                    filename: 'tests/unit/server/example.test.ts',
+                    errors: 1,
+                },
+                {
+                    code: `vi.mock('@app/services/one', () => ({}));
+vi.doMock('@app/services/two', () => ({}));`,
+                    filename: 'tests/unit/app/allowlisted.test.ts',
+                    options: [{allowlist: {'tests/unit/app/allowlisted.test.ts': 1}}],
+                    errors: 1,
+                },
+            ],
+        });
+    });
+});
+
 describe('no-bare-page-number-type rule', () => {
     it('requires branded scalar and collection page addresses', () => {
         tester.run(

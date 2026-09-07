@@ -55,6 +55,154 @@ function toRepoPath(filePath) {
     return path.relative(process.cwd(), filePath).split(path.sep).join('/');
 }
 
+const INTERNAL_MOCK_ALIAS_ROOTS = new Map([
+    [
+        'app',
+        ['@app'],
+    ],
+    [
+        'electron',
+        ['@electron'],
+    ],
+    [
+        'server',
+        ['@server'],
+    ],
+    [
+        'packages',
+        [
+            '@contracts',
+            '@pdf-core',
+            '@electron-worker-bundles',
+            '@scan-cleanup-core',
+            '@scan-cleanup-adapters',
+            '@i18n-core',
+            '@i18n-app',
+            '@releaseSelection',
+            '@evb/contracts',
+            '@evb/pdf-core',
+            '@evb/electron-worker-bundles',
+            '@evb/i18n-core',
+            '@evb/i18n-app',
+            '@evb/releaseSelection',
+        ],
+    ],
+]);
+
+const INTERNAL_MOCK_BOUNDARY_PATTERNS = [
+    /^@electron\/(?:file-access|native|platform-ipc)\//u,
+    /^@electron\/utils\/(?:native|runElectronCommand|processTree)/u,
+    /^@electron\/ocr\/worker\/runOcrCommand$/u,
+    /^@electron\/features\/[^/]+\/(?:native|public)(?:\/|$)/u,
+    /^@app\/platform(?:\/|$)/u,
+];
+
+function getTestLayer(repoPath) {
+    return /^tests\/unit\/([^/]+)\//u.exec(repoPath)?.[1] ?? null;
+}
+
+function getInternalMockTargetLayer(source) {
+    for (const [
+        layer,
+        aliases,
+    ] of INTERNAL_MOCK_ALIAS_ROOTS) {
+        if (aliases.some(alias => source === alias || source.startsWith(`${alias}/`))) {
+            return layer;
+        }
+    }
+    return null;
+}
+
+function isApprovedInternalMockBoundary(source) {
+    return INTERNAL_MOCK_BOUNDARY_PATTERNS.some(pattern => pattern.test(source));
+}
+
+function isInternalMockForTest(source, repoPath) {
+    const layer = getTestLayer(repoPath);
+    return layer !== null
+        && getInternalMockTargetLayer(source) === layer
+        && !isApprovedInternalMockBoundary(source);
+}
+
+const noInternalTestMocksRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Reject same-layer business-module mocks in unit tests',
+            recommended: false,
+        },
+        schema: [{
+            type: 'object',
+            properties: {allowlist: {
+                type: 'object',
+                additionalProperties: {
+                    type: 'integer',
+                    minimum: 0,
+                },
+            }},
+            additionalProperties: false,
+        }],
+    },
+    create(context) {
+        const repoPath = toRepoPath(context.physicalFilename ?? context.filename);
+        if (!repoPath.startsWith('tests/unit/')) {
+            return {};
+        }
+
+        const allowlist = context.options[0]?.allowlist ?? {};
+        const allowedCount = allowlist[repoPath] ?? 0;
+        let violationCount = 0;
+        const importedSources = new Map();
+
+        function report(node) {
+            violationCount += 1;
+            if (repoPath in allowlist && violationCount > allowedCount) {
+                context.report({
+                    node,
+                    message: 'Do not mock same-layer internal business modules. Use a fixture or mock the process/platform boundary instead.',
+                });
+            }
+        }
+
+        return {
+            ImportDeclaration(node) {
+                const source = getLiteralValue(node.source);
+                if (!source || !isInternalMockForTest(source, repoPath)) {
+                    return;
+                }
+                for (const specifier of node.specifiers) importedSources.set(specifier.local.name, source);
+            },
+            CallExpression(node) {
+                const callee = node.callee;
+                if (callee?.type !== 'MemberExpression' || callee.computed
+                    || callee.object?.type !== 'Identifier' || callee.object.name !== 'vi'
+                    || callee.property?.type !== 'Identifier') {
+                    return;
+                }
+                if (callee.property.name === 'mock' || callee.property.name === 'doMock') {
+                    const source = getLiteralValue(node.arguments[0]);
+                    if (source && isInternalMockForTest(source, repoPath)) report(node);
+                } else if (callee.property.name === 'spyOn') {
+                    const source = node.arguments[0]?.type === 'Identifier'
+                        ? importedSources.get(node.arguments[0].name) : null;
+                    if (source && isInternalMockForTest(source, repoPath)) report(node);
+                }
+            },
+            'Program:exit'() {
+                if (violationCount > 0 && !(repoPath in allowlist)) {
+                    context.report({
+                        loc: {
+                            line: 1,
+                            column: 0,
+                        },
+                        message: `Review ${violationCount} same-layer internal mock(s) in ${repoPath} before adding this file to the allowlist.`,
+                    });
+                }
+            },
+        };
+    },
+};
+
 function stripTypeScriptSuffixes(fileName) {
     let stem = fileName.replace(/(?:\.d)?\.[cm]?tsx?$/u, '');
     const parts = stem.split('.');
@@ -962,6 +1110,7 @@ const noBarePageNumberTypeRule = {
 };
 
 export default {rules: {
+    'no-internal-test-mocks': noInternalTestMocksRule,
     'no-raw-red-presentation': noRawRedPresentationRule,
     'no-direct-console-error': noDirectConsoleErrorRule,
     'require-failure-receipt': requireFailureReceiptRule,
